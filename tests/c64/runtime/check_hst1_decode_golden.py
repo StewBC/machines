@@ -4,8 +4,8 @@ test_runtime_history_wire_decode.c (must stay in sync with that fixture)."""
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(ROOT / "tools"))
+ROOT = Path(__file__).resolve().parents[3]
+sys.path.insert(0, str(ROOT / "src" / "machine" / "c64" / "tools"))
 from c64_control_client import Ctl  # noqa: E402
 
 
