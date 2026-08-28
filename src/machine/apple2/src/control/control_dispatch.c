@@ -1410,6 +1410,13 @@ static void handle_request(control_dispatch_t *disp, control_request *req)
         break;
     }
 
+    case CONTROL_COMMAND_ENTER_INSPECTOR: {
+        uint64_t token = runtime_client_alloc_request_token(client);
+        (void)runtime_client_inspector_enter(client, token);
+        post_ok(disp, req->id, "accepted=1");
+        break;
+    }
+
     case CONTROL_COMMAND_GET_CPU: {
         uint64_t token = runtime_client_alloc_request_token(client);
         deferred_control_response *d =

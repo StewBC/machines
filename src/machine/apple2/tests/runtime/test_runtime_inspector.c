@@ -1,4 +1,4 @@
-/* TM0: master enable arms HST1 + frame ring; pin-3 no hidden re-arm; 0 budget. */
+/* Record enable arms film, not HST1; pin-3 no hidden re-arm; 0 budget. */
 #include "runtime.h"
 #include "runtime_client.h"
 #include "runtime_event.h"
@@ -102,7 +102,7 @@ int main(void)
         return 1;
     }
 
-    /* TM on at create arms both recorders. */
+    /* Record on at create arms film; HST1 is independent (default on here). */
     init_config(&config);
     config.inspector = true;
     config.history_memory_mb = 16;
@@ -122,7 +122,7 @@ int main(void)
     expect_true("TM budget stored", runtime_inspector_memory_mb(rt) == 128u);
     history_info(client, &status);
     expect_true("history available", status.available);
-    expect_true("history recording (TM on)", status.recording);
+    expect_true("history recording (independent default)", status.recording);
     runtime_client_get_frame_ring_info(client, &frame_info);
     expect_true("frame ring capacity", frame_info.capacity > 0u);
     expect_true("frame ring recording (TM on)", frame_info.recording);
@@ -153,7 +153,7 @@ int main(void)
     runtime_stop(rt);
     runtime_destroy(rt);
 
-    /* Off→on arms recorders that were explicitly turned off. */
+    /* Off→on arms film only. HST1 stays as explicitly configured. */
     init_config(&config);
     config.inspector = false;
     config.history_memory_mb = 16;
@@ -176,11 +176,33 @@ int main(void)
     expect_true(
         "TM enable",
         runtime_client_inspector_set_enabled(client, true, token));
-    expect_true("TM enable resp", wait_history_status(client, &status, 2.0));
+    {
+        int waited = 0;
+        while (!runtime_inspector_enabled(rt) && waited < 2000) {
+            SDL_Delay(1);
+            waited++;
+        }
+    }
     expect_true("TM enabled after set", runtime_inspector_enabled(rt));
-    expect_true("history armed on TM on", status.recording);
+    history_info(client, &status);
+    expect_true("history still off after Record on", !status.recording);
     runtime_client_get_frame_ring_info(client, &frame_info);
     expect_true("frame armed on TM on", frame_info.recording);
+
+    token = runtime_client_alloc_request_token(client);
+    expect_true(
+        "TM disable",
+        runtime_client_inspector_set_enabled(client, false, token));
+    {
+        int waited = 0;
+        while (runtime_inspector_enabled(rt) && waited < 2000) {
+            SDL_Delay(1);
+            waited++;
+        }
+    }
+    expect_true("TM off after disable", !runtime_inspector_enabled(rt));
+    history_info(client, &status);
+    expect_true("history still off after Record off", !status.recording);
 
     runtime_stop(rt);
     runtime_destroy(rt);

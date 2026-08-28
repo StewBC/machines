@@ -744,7 +744,7 @@ int main(void)
         expect_true("tcp connect", fd >= 0);
         SDL_Delay(50);
         expect_true("hello", tcp_cmd(fd, "1 hello\n", resp, sizeof(resp)));
-        expect_true("hello a2m13", strstr(resp, "A2M/13") != NULL);
+        expect_true("hello a2m14", strstr(resp, "A2M/14") != NULL);
         expect_true(
             "caps", tcp_cmd(fd, "2 capabilities\n", resp, sizeof(resp)));
         expect_true("caps tm", strstr(resp, "inspector") != NULL);
@@ -767,6 +767,23 @@ int main(void)
         expect_true(
             "get-state live", tcp_cmd(fd, "6 get-state\n", resp, sizeof(resp)));
         expect_true("state live", strstr(resp, "mode=live") != NULL);
+        expect_true(
+            "enter wire", tcp_cmd(fd, "7 enter-inspector\n", resp, sizeof(resp)));
+        expect_true("enter accepted", strstr(resp, "ok") != NULL);
+        SDL_Delay(80);
+        expect_true(
+            "get-state inspect2",
+            tcp_cmd(fd, "8 get-state\n", resp, sizeof(resp)));
+        expect_true("state inspect2", strstr(resp, "mode=inspector") != NULL);
+        expect_true(
+            "leave2 wire",
+            tcp_cmd(fd, "9 leave-inspector\n", resp, sizeof(resp)));
+        expect_true("leave2 accepted", strstr(resp, "ok") != NULL);
+        SDL_Delay(80);
+        expect_true(
+            "get-state live2",
+            tcp_cmd(fd, "10 get-state\n", resp, sizeof(resp)));
+        expect_true("state live2", strstr(resp, "mode=live") != NULL);
 
         close(fd);
         SDL_AtomicSet(&pump.alive, 0);

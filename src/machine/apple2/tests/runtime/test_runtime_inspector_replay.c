@@ -4,6 +4,7 @@
 #include "runtime.h"
 #include "runtime_client.h"
 #include "runtime_event.h"
+#include "runtime_frame_ring.h"
 #include "runtime_history.h"
 #include "runtime_internal.h"
 #include "runtime_inspector.h"
@@ -62,6 +63,8 @@ int main(void)
     apple2_t scratch2;
     runtime_history_status st_before;
     runtime_history_status st_after;
+    runtime_frame_ring_info fi_before;
+    runtime_frame_ring_info fi_after;
     runtime_inspector_window window;
     uint64_t mid;
     uint16_t pc1;
@@ -153,8 +156,10 @@ int main(void)
 
     expect_true("init scratch", apple2_init(&scratch));
     runtime_history_get_status(rt->history, &st_before);
+    runtime_client_get_frame_ring_info(client, &fi_before);
     expect_true("materialize", runtime_inspector_materialize(rt, mid, &scratch));
     runtime_history_get_status(rt->history, &st_after);
+    runtime_client_get_frame_ring_info(client, &fi_after);
     if (st_before.record_count != st_after.record_count) {
         fprintf(
             stderr,
@@ -163,6 +168,7 @@ int main(void)
             (unsigned long long)st_after.record_count);
     }
     expect_true("seal HST1", st_before.record_count == st_after.record_count);
+    expect_true("seal film", fi_before.count == fi_after.count);
     expect_true("scratch cycles", apple2_cycles(&scratch) == mid);
 
     pc1 = scratch.cpu.cpu.pc;
@@ -178,6 +184,25 @@ int main(void)
 
     apple2_shutdown(&scratch);
     apple2_shutdown(&scratch2);
+
+    {
+        runtime_breakpoint_definition def;
+        memset(&def, 0, sizeof(def));
+        def.enabled = 1u;
+        def.start_address = 0x0000u;
+        def.end_address = 0x0000u;
+        def.access = RUNTIME_BREAKPOINT_ACCESS_WRITE;
+        def.actions = RUNTIME_BREAKPOINT_ACTION_BREAK;
+        expect_true("create watchpoint", runtime_client_create_breakpoint(client, &def));
+        drain(client);
+        expect_true("init scratch wp", apple2_init(&scratch));
+        rt->breakpoint_hit_pending = false;
+        expect_true("materialize wp", runtime_inspector_materialize(rt, mid, &scratch));
+        expect_true("seal watchpoint", !rt->breakpoint_hit_pending);
+        apple2_shutdown(&scratch);
+        expect_true("clear wp", runtime_client_clear_all_breakpoints(client));
+        drain(client);
+    }
 
     /* Housekeeping flush must not truncate. */
     {

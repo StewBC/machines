@@ -4,7 +4,7 @@
 |-------|-------|
 | **Author** | Grok (Designer) |
 | **Date** | 2026-08-27 |
-| **Status** | Accepted |
+| **Status** | Landed |
 | **Canonical path** | [`design/inspector-unification.md`](inspector-unification.md) |
 | **Stage map** | [`design/merge-stage-map.md`](merge-stage-map.md) Stage 9 (UNIFY product shape + PRESERVE clocks, pictures, max-turbo policy) |
 | **Depends on** | Stage 5 ([`design/control-command-tables.md`](control-command-tables.md)), Stage 7 ([`design/runtime-client-seam.md`](runtime-client-seam.md)), Stage 8 ([`design/debugger-chrome.md`](debugger-chrome.md)). |

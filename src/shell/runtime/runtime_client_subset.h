@@ -134,3 +134,5 @@ bool runtime_client_inspector_land(
     runtime_client *client, uint64_t cycle, uint64_t request_token);
 bool runtime_client_inspector_land_to_cycle(
     runtime_client *client, uint64_t cycle, uint64_t request_token);
+bool runtime_client_inspector_step(
+    runtime_client *client, int direction, uint64_t request_token);

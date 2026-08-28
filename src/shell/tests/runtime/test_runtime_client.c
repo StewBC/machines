@@ -26,6 +26,8 @@ struct runtime_client {
     int run_calls;
     int pause_calls;
     int inspector_enter_calls;
+    int inspector_step_calls;
+    int inspector_step_direction;
 };
 
 void runtime_client_set_command_session(runtime_client *client, uint32_t session_id)
@@ -451,6 +453,18 @@ bool runtime_client_inspector_land_to_cycle(
     return client != NULL;
 }
 
+bool runtime_client_inspector_step(
+    runtime_client *client, int direction, uint64_t request_token)
+{
+    if (client == NULL) {
+        return false;
+    }
+    (void)request_token;
+    client->inspector_step_calls++;
+    client->inspector_step_direction = direction;
+    return true;
+}
+
 int main(void)
 {
     runtime_client client;
@@ -502,8 +516,11 @@ int main(void)
         &client, 0u, &query, RUNTIME_HISTORY_FROM_DEFAULT, 0u, 1u, token));
     CHECK(runtime_client_inspector_enter(&client, token));
     CHECK(runtime_client_inspector_land(&client, 100u, token));
+    CHECK(runtime_client_inspector_step(&client, -1, token));
     CHECK(runtime_client_inspector_leave(&client, token));
     CHECK(client.inspector_enter_calls == 1);
+    CHECK(client.inspector_step_calls == 1);
+    CHECK(client.inspector_step_direction == -1);
 
     if (failures != 0) {
         fprintf(stderr, "%d check(s) failed\n", failures);

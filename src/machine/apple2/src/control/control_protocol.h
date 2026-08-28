@@ -9,7 +9,7 @@
 #include <stdint.h>
 
 /* Product wire identity. Bump when scripts must learn new behaviour. */
-#define CONTROL_PROTOCOL_VERSION "A2M/13"
+#define CONTROL_PROTOCOL_VERSION "A2M/14"
 #define CONTROL_PROTOCOL_APP_NAME "a2m"
 
 typedef enum control_command_type {
@@ -67,7 +67,8 @@ typedef enum control_command_type {
     CONTROL_COMMAND_HISTORY_CLOSE,
     CONTROL_COMMAND_ASSEMBLE,
     CONTROL_COMMAND_FIND_SYMBOL,
-    CONTROL_COMMAND_LEAVE_INSPECTOR
+    CONTROL_COMMAND_LEAVE_INSPECTOR,
+    CONTROL_COMMAND_ENTER_INSPECTOR
 } control_command_type;
 
 /* mount/unmount card selection (0 = infer / resolve uniquely). */

@@ -1058,7 +1058,7 @@ bool runtime_client_inspector_land_to_cycle(
     return runtime_client_push(client, &command);
 }
 
-bool runtime_client_inspector_checkpoint_step(
+bool runtime_client_inspector_step(
     runtime_client *client, int direction, uint64_t request_token)
 {
     runtime_command command = {
@@ -1071,6 +1071,12 @@ bool runtime_client_inspector_checkpoint_step(
     command.data.inspector_checkpoint_step.direction =
         direction > 0 ? 1 : (direction < 0 ? -1 : 0);
     return runtime_client_push(client, &command);
+}
+
+bool runtime_client_inspector_checkpoint_step(
+    runtime_client *client, int direction, uint64_t request_token)
+{
+    return runtime_client_inspector_step(client, direction, request_token);
 }
 
 bool runtime_client_inspector_adjacent_cycle(

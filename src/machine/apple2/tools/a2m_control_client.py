@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""A2M/13 control-port client for a2m.
+"""A2M/14 control-port client for a2m.
 
 Debug/introspection helper for driving headless or windowed a2m over its
 localhost control port. Structure lifted from c64m's c64_control_client.py;
@@ -22,8 +22,8 @@ Then:
     c.mount("disks/hd.hdv", kind="smartport")      # or omit kind for .hdv
     c.unmount(kind="diskii", drive=0)
 
-GOTCHAS (Apple A2M/13):
-  * Identity: hello -> name=a2m protocol=A2M/13
+GOTCHAS (Apple A2M/14):
+  * Identity: hello -> name=a2m protocol=A2M/14
   * Inspector: get-state includes mode=live|inspector focus_cycle= start= start_arg1=.
     leave-inspector restores live NOW (no auto-resume). Mutating verbs fail with
     error read-only-inspector. Tape seek/step are not on the wire.
@@ -929,7 +929,7 @@ def write_argb_png(
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
-    ap = argparse.ArgumentParser(description="a2m control client (A2M/13)")
+    ap = argparse.ArgumentParser(description="a2m control client (A2M/14)")
     ap.add_argument("--host", default="127.0.0.1")
     ap.add_argument("--port", type=int, default=6510)
     ap.add_argument("--timeout", type=float, default=30.0)

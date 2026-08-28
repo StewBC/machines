@@ -1128,7 +1128,8 @@ static const apple_control_verb k_apple_verbs[] = {
     { { "find-symbol", "symbols", NULL, parse_find_symbol }, CONTROL_COMMAND_FIND_SYMBOL },
     { { NULL, "sessions", NULL, NULL }, CONTROL_COMMAND_NONE },
     { { NULL, "state-changed", NULL, NULL }, CONTROL_COMMAND_NONE },
-    { { "leave-inspector", "inspector", NULL, parse_empty }, CONTROL_COMMAND_LEAVE_INSPECTOR }
+    { { "leave-inspector", "inspector", NULL, parse_empty }, CONTROL_COMMAND_LEAVE_INSPECTOR },
+    { { "enter-inspector", "inspector", NULL, parse_empty }, CONTROL_COMMAND_ENTER_INSPECTOR }
 };
 
 static const apple_control_verb *find_apple_verb(const char *name)

@@ -2,7 +2,7 @@
 
 **Audience:** agents and humans scripting the emulator (headless or windowed).
 
-**Protocol today:** **A2M/13** (`CONTROL_PROTOCOL_VERSION` in
+**Protocol today:** **A2M/14** (`CONTROL_PROTOCOL_VERSION` in
 `src/control/control_protocol.h`).
 
 ## Source of truth
@@ -29,7 +29,7 @@ python3 -c "
 import sys; sys.path.insert(0, 'tools')
 from a2m_control_client import Ctl
 c = Ctl(port=6510)
-print(c.cmd('hello'))          # name=a2m protocol=A2M/13
+print(c.cmd('hello'))          # name=a2m protocol=A2M/14
 print(c.cmd('get-cpu'))
 c.cmd('run'); c.wait_frame(2, 5000); c.cmd('pause'); c.wait_paused(2000)
 r = c.history_find(limit=8)
@@ -55,7 +55,7 @@ tools/a2m_coop_watch.py --port 6510
 Snaps: `build/debug/snap-NNN.txt` (+ optional `snap-NNN-frames/`).
 Inbox: append lines to `build/debug/coop_inbox`.
 
-## Wire inventory (A2M/13)
+## Wire inventory (A2M/14)
 
 Framing: `<id> <command> [args]\n` → `ok` / `error` / `data` (+ binary + `\n`).
 Unsolicited: `0 event state-changed reason=… session=… cycles=… frame=… epoch=…\n`
@@ -78,7 +78,7 @@ snapshot history assemble mli-launch symbols sessions state-changed inspector`
 | Frame ring | `frame-ring-info` `frame-ring-record` `frame-ring-clear` `get-frame-at frame=\|cycle=` |
 | Breakpoints | `break-create` / `break-update` / `break-list` / `break-enable` / `break-clear` / `break-clear-all` / `rearm-oneshots` / `break-exec`; `when=`; access exec/read/write |
 | History | `history-info` `history-record` `history-clear` `history-find` `history-next` `history-read` `history-close` → `data history` **HST1**. Marker 13 = `MEDIA_CHANGED`; `arg0` is `0 unknown / 1 guest-write / 2 host-directory`, `arg1` is `(slot<<8)\|device`. Find options: shared `runtime_history_parse_find_options` — keys `pc address access direction limit from epoch timeline cycle value opcodes`; access includes `execute`/`fetch`, fine bus names, and `read`/`write`/`data` aliases. |
-| Inspector | Master switch is INI `[debug] inspector=0\|1` / CLI `--inspector` (default **off**). `get-state` reports `mode=live\|inspector focus_cycle=N`. `leave-inspector` (any session) restores live NOW. Mutating verbs fail with `error read-only-inspector`. **No enter/land/seek on the wire.** FIND stays. |
+| Inspector | Master switch is INI `[debug] inspector=0\|1` / CLI `--inspector` (default **off**). `get-state` reports `mode=live\|inspector focus_cycle=N`. `enter-inspector` / `leave-inspector` (any session). Mutating verbs fail with `error read-only-inspector`. Land/seek stay UI / `runtime_client`. FIND stays. Record does not arm HST1. |
 | Waits | `wait-paused` `wait-running` `wait-frame` `wait-event` (incl. `assemble-complete` / `assemble-error`) |
 | Assembler | `assemble [address=] [run-address=] [auto-run=] [mli-launch=] [reset=] [auto-adjust-segments=] <path>` (deferred) |
 | Symbols | `find-symbol <name>` → `ok address=$XXXX name=…` / `not-ready` / `not-found` |

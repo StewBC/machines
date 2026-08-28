@@ -3,7 +3,8 @@
 /*
  * Inspector: runtime-owned recording + time travel.
  *
- * TM0: master enable + recorder arming (HST1 + frame ring).
+ * TM0: master enable + recorder arming (checkpoint tape + frame ring).
+ * Record does not arm or stop HST1.
  * TM1 tape-nav: removed in TMA2. HST1 FIND stays in runtime_history.
  * TM2: frame-aligned sample ring + sealed materialize to scratch.
  * TM3: Inspect mode (wire name: inspector) materializes into the live

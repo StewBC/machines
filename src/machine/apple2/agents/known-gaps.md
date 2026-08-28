@@ -12,7 +12,7 @@ next work. Do not reopen them as implicit TODOs.
 | Extra slot cards | Disk II, SmartPort, Mockingboard. No SSC, mouse, clock, Videx, Franklin. |
 | NTSC composite artifact | Current paint is a2m-class colour + discrete-bit mono. A later decoder would swap the paint backend, not the shell. |
 | Frame-ring film | Kept as a preview cache (pink CRT where there is no still). Whether that ARGB budget is worth keeping is undecided; the checkpoint is the source of truth. |
-| Control enter/land | Wire has `leave-inspector` only. Enter / land / frame-step are `runtime_client` / UI. |
+| Control land/seek | Wire has `enter-inspector` / `leave-inspector` (A2M/14). Land / frame-step stay `runtime_client` / UI. |
 | BP Swap drive 1 | Swap action targets drive 0. |
 
 Closed debates (do not re-litigate without new measurements) live in

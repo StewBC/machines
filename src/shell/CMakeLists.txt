@@ -30,6 +30,7 @@ add_library(shell STATIC
     frontend/memview_pane.c
     frontend/breakpoint_chrome.c
     frontend/window_title.c
+    frontend/inspector_tab.c
     control/control_framing.c
     control/control_command_table.c
     control/memory_source.c

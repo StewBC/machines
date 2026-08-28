@@ -226,6 +226,14 @@ int main(void)
         (int)request.type);
 
     expect_true(
+        "enter-inspector",
+        control_protocol_parse_request("41 enter-inspector", &request, &error));
+    expect_int(
+        "enter-inspector type",
+        CONTROL_COMMAND_ENTER_INSPECTOR,
+        (int)request.type);
+
+    expect_true(
         "assemble defaults",
         control_protocol_parse_request(
             "80 assemble samples/test.asm", &request, &error));

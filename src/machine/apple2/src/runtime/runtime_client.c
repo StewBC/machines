@@ -1081,7 +1081,7 @@ bool runtime_client_inspector_land_sample(
     return runtime_client_push(client, &command);
 }
 
-bool runtime_client_inspector_step_sample(
+bool runtime_client_inspector_step(
     runtime_client *client, int direction, uint64_t request_token)
 {
     runtime_command command = {
@@ -1094,6 +1094,12 @@ bool runtime_client_inspector_step_sample(
     command.data.inspector_sample_step.direction =
         direction < 0 ? (int8_t)-1 : (int8_t)1;
     return runtime_client_push(client, &command);
+}
+
+bool runtime_client_inspector_step_sample(
+    runtime_client *client, int direction, uint64_t request_token)
+{
+    return runtime_client_inspector_step(client, direction, request_token);
 }
 
 bool runtime_client_inspector_land(

@@ -166,6 +166,14 @@ target_compile_definitions(test_cpu_pane_6502 PRIVATE SDL_MAIN_HANDLED)
 target_link_libraries(test_cpu_pane_6502 PRIVATE shell)
 add_test(NAME cpu_pane_6502 COMMAND test_cpu_pane_6502)
 
+add_executable(test_inspector_tab
+    ${MACHINES_ROOT}/src/shell/tests/frontend/test_inspector_tab.c
+)
+target_compile_features(test_inspector_tab PRIVATE c_std_99)
+target_compile_definitions(test_inspector_tab PRIVATE SDL_MAIN_HANDLED)
+target_link_libraries(test_inspector_tab PRIVATE shell)
+add_test(NAME inspector_tab COMMAND test_inspector_tab)
+
 add_executable(test_help_view
     ${MACHINES_ROOT}/src/shell/tests/frontend/test_help_view.c
 )

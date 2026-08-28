@@ -15,7 +15,7 @@ What the product is **now**. Source of truth is `src/`. User-facing catalog:
 | Display | ARGB **560×192** throughout (`display_frame` / runtime slot / frontend) |
 | Video | Beam-stepped a2m-class: LORES, DLORES, 40/80 text, HGR colour, DHGR; host Colour vs discrete-bit Mono (White/Green/Amber). Max uses full-frame block paint |
 | Memory areas | Map · Main · Aux · LC1 · LC2 · ROM |
-| Control port | **A2M/13** on `--control-port` (windowed or headless). Ops: [`control-tools.md`](control-tools.md) |
+| Control port | **A2M/14** on `--control-port` (windowed or headless). Ops: [`control-tools.md`](control-tools.md) |
 | Snapshots | **`.a2state`** — drop, `--sna`, Opt+Shift+`.`/`,`, control, Machine tab. [`snapshots.md`](snapshots.md) |
 | Time travel | Misc → Inspector: Record / Inspect / Leave. Land on checkpoints; HST1 is FIND only. [`timemachine.md`](timemachine.md) |
 | Assembler | Misc → Assembler + standalone `am65`. Optional MLI launch. `src/shell/tools/am65/` |
@@ -67,7 +67,7 @@ not latch BUTN0.
 | Breakpoints | Exec + R/W, mapping, FAST/SLOW, TYPE, SWAP, TRON/TROFF, INI, control RPC. [`breakpoints.md`](breakpoints.md) |
 | Disk II / SmartPort | Cards in slots 1–7; Configure live-applies model/cards via power-cycle reset; live insert/eject + slot boot; `[SmartPort] boot_slot=N`; Disk II queue/swap with dirty flush; ProDOS `$C0s4/5`; `$C800` host trap; **HostFS** folder volumes |
 | Gameport | Paddles, buttons, kbd stick, SDL pads, motor LEDs |
-| Control | `--control-port` A2M/13; `tools/a2m_control_client.py` (`Ctl`); `tools/a2m_coop_watch.py` |
+| Control | `--control-port` A2M/14; `tools/a2m_control_client.py` (`Ctl`); `tools/a2m_coop_watch.py` |
 
 ## Tree
 
@@ -76,7 +76,7 @@ src/main.c                 host loop
 src/frontend/              product UI
 src/runtime/               Apple-backed runtime
 src/machine/               Apple II
-src/control/               A2M/13 control
+src/control/               A2M/14 control
 src/platform/              SDL / fs / sockets / audio
 src/shell/tools/am65/      assembler library + CLI (shared shell)
 src/util/                  files, queues, config helpers

@@ -20,8 +20,9 @@ Files: `src/runtime/runtime_inspector.*`, `runtime_inspector_recorder.c`,
 **Record is opt-in.** `[debug] inspector=1` / `--inspector` / the Record
 checkbox. Default **off** (play Total Replay with no tape cost). On -> one
 navigable snapshot per finite completed beam frame or max block presentation,
-an ordered input/mode-barrier log, exact pictures in the frame ring, and HST1
-as configured. Snapshot budget: `inspector_memory_mb` (default 128).
+an ordered input/mode-barrier log, and exact pictures in the frame ring.
+Record does **not** arm or stop HST1. Snapshot budget: `inspector_memory_mb`
+(default 128).
 
 Finite samples pair picture cycle `F` with the first instruction-boundary
 snapshot `S >= F`. Max samples pair each approximately 60 Hz block picture
@@ -62,9 +63,9 @@ image: dump RAM.
 
 Window headers are dark cobalt while inspecting. Do not tint the panel fill.
 
-Control wire: `get-state` reports `mode=live|inspector`; **`leave-inspector`**
-exists; there is **no** enter/land/seek verb (UI uses `runtime_client`). FIND
-stays (`history-find` / `history-next` / `history-read`).
+Control wire: `get-state` reports `mode=live|inspector`; **`enter-inspector`**
+and **`leave-inspector`** exist (A2M/14). Land/seek stay UI / `runtime_client`.
+FIND stays (`history-find` / `history-next` / `history-read`).
 
 ## Max turbo
 

@@ -79,10 +79,7 @@ void runtime_inspector_set_enabled(runtime *rt, bool enabled)
         return;
     }
 
-    if (rt->history != NULL) {
-        uint64_t cycle = rt->machine_ready ? apple2_cycles(&rt->machine) : 0u;
-        (void)runtime_history_resume(rt->history, cycle);
-    }
+    /* Record does not arm or stop HST1 (independent toggles). */
     if (rt->frame_ring_memory_mb > 0u) {
         runtime_frame_ring_set_recording(&rt->frame_ring, true);
     }

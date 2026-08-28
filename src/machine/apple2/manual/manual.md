@@ -35,7 +35,7 @@ Common flags (see `--help` for the full list):
 | `--break <addr>` / `-b` | Install an execute breakpoint at a hex address |
 | `--symbols <file>` | Load a simple symbol file (`NAME` hex per line) |
 | `--headless` | No window; short smoke exit unless `--control-port` is set |
-| `--control-port N` | Listen on localhost TCP for A2M/13 remote control (`0`=off) |
+| `--control-port N` | Listen on localhost TCP for A2M/14 remote control (`0`=off) |
 | `--inspector` / `--no-inspector` | Enable Inspector recording (default off) |
 | `--history-off-on-max` / `--no-history-off-on-max` | Pause only the CPU flight recorder at turbo `max` (default on) |
 | `--log-level <level>` | Host log policy: `all`, `warn` (default), `error`, or `none` |
@@ -1481,6 +1481,9 @@ drive the scrubber. A successful land opens the debugger on the Inspector tab. S
 Breakpoints are one list in live and time travel. **Opt+B** toggles execute at the
 Disassembly cursor. Memory and register pokes are rejected while Inspect is on.
 
+**Record** does not arm or stop the CPU flight recorder (HST1 / Forensics). Those
+are independent toggles.
+
 A guest disk write that succeeds drops earlier history: the scrubber's left edge
 becomes that write. Finite and `max` turbo keep one continuous Inspector window;
 `history_off_on_max` affects only the separate CPU flight recorder.
@@ -1714,11 +1717,11 @@ Persists the Assembler tab state. See **Assembler INI persistence**.
 | `history_memory_mb` | CPU flight-recorder budget; `0` or `16..4096` (default `256`) |
 | `frame_ring_memory_mb` | Frame-ring budget; `0` or `8..4096` (default `128`) |
 
-Inspector recording is opt-in. Off is the normal play path. On arms the CPU
-flight recorder, the frame ring, and the checkpoint ring. With the defaults that
-is about 512 MB total (`256 + 128 + 128`). A budget of `0` disables that
-recorder. How to use Inspect and Forensics is under **Inspector** and
-**Forensics**.
+Inspector recording is opt-in. Off is the normal play path. On arms the
+checkpoint ring and the frame ring. It does **not** arm or stop the CPU flight
+recorder. With the defaults that is about 256 MB for Inspector (`128 + 128`)
+plus whatever HST1 is already using. A budget of `0` disables that recorder.
+How to use Inspect and Forensics is under **Inspector** and **Forensics**.
 
 ### [DEBUG]
 
@@ -1882,7 +1885,7 @@ combine headless mode with `--sna`:
 
 The server always binds to `127.0.0.1` and accepts one client at a time. Network I/O
 runs on a socket thread; commands are handled by the main loop, the same path the GUI
-debugger uses. The protocol name is `A2M/13`.
+debugger uses. The protocol name is `A2M/14`.
 
 Python helpers:
 
@@ -2002,8 +2005,8 @@ for low-latency automation; a windowed session is still paced by present/vsync.
 
 | Command | Response |
 |---------|----------|
-| `hello` | `ok name=a2m protocol=A2M/13` |
-| `version` | `ok protocol=A2M/13 app=a2m` |
+| `hello` | `ok name=a2m protocol=A2M/14` |
+| `version` | `ok protocol=A2M/14 app=a2m` |
 | `capabilities` | Space-separated capability names |
 | `ping` | `ok` |
 | `quit-client` | `ok`, then the server closes the client connection |
@@ -2147,6 +2150,7 @@ flight recorder for the same moment.
 | Command | Response |
 |---------|----------|
 | `get-state` | Text state summary: runtime state, CPU availability, frame, cycle, stop reason, turbo, `mode=live\|inspector`, `focus_cycle`, window `start` / `start_arg1` |
+| `enter-inspector` | Enter Inspect at live NOW (requires a Record window). Fire-and-forget; UI also uses `runtime_client`. |
 | `leave-inspector` | Leave Inspect and restore live NOW (does not auto-resume). Any session may call this. |
 | `get-cpu` | Text CPU snapshot |
 | `get-softswitches` | Latched soft-switch flags plus beam (not `$C0xx` memory) |
@@ -2160,8 +2164,8 @@ flight recorder for the same moment.
 `get-state` is answered from the main loop's cached frontend debug state.
 While `mode=inspector` (time travel), `get-cpu` / `get-memory` / `get-frame` show the landed Apple
 (THEN). Mutating verbs (`run`, `set-memory`, `set-reg`, mount, reset, ...) fail
-with `error read-only-inspector`. `leave-inspector` restores live NOW and does not
-resume execution.
+with `error read-only-inspector`. `enter-inspector` / `leave-inspector` enter at live
+NOW and restore live NOW. Leave does not resume execution.
 `get-frame` uses the latest completed frame cached by the main loop, or requests one
 if no cached frame exists yet.
 
