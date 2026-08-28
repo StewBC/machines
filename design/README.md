@@ -40,9 +40,10 @@ Canonical product-as-is notes (leftover trees after Stage 1):
 | Stage 6: Runtime shell twins (history / BP / forensics / help) | **landed** | 2026-08-27 | [`runtime-shell-extract.md`](runtime-shell-extract.md) |
 | Stage 7: Runtime client seam (shared subset) | **landed** | 2026-08-27 | [`runtime-client-seam.md`](runtime-client-seam.md) |
 | Stage 8: Debugger UI chrome (layout / CPU / disasm / memview / BP) | **landed** | 2026-08-27 | [`debugger-chrome.md`](debugger-chrome.md) |
+| Stage 9: Inspector unification (shared tab; leftover clocks) | **active** | 2026-08-27 | [`inspector-unification.md`](inspector-unification.md) |
 
 Follow-on designs named by the stage map (not written yet):
-`inspector-unification.md`, `monorepo-agents.md`.
+`monorepo-agents.md`.
 
 Landed Inspector / Forensics designs live in the leftover product trees
 (`src/machine/apple2/design/`, `src/machine/c64/design/`). Do not copy them here.
