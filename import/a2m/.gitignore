@@ -1,0 +1,22 @@
+/build/
+/build-*/
+/.cache/
+compile_commands.json
+*.o
+*.a
+.DS_Store
+*.user
+CMakeUserPresets.json
+
+# Local editor / user config (example: a2m.ini.example)
+.vscode/
+/*.ini
+TODO.txt
+
+disks/
+symbols/USER.SYM
+samples/penetrator
+# Working HostFS mounts: ignore everything under here so remounts/builds do not
+# pollute status. Already-tracked files stay tracked; to lock in a new file:
+#   git add -f samples/hostfs/...
+samples/hostfs/

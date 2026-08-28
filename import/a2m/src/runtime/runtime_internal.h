@@ -1,0 +1,326 @@
+#pragma once
+
+#include "apple2.h"
+#include "audio_buffer.h"
+#include "display_frame.h"
+#include "keyboard.h"
+#include "memview.h"
+#include "mutex.h"
+#include "runtime.h"
+#include "runtime_client.h"
+#include "runtime_command.h"
+#include "runtime_event.h"
+#include "runtime_frame_ring.h"
+#include "runtime_history.h"
+#include "runtime_inspector.h"
+#include "symbol_table.h"
+#include "apple_type_script.h"
+
+#include <stdatomic.h>
+#include <stdbool.h>
+#include <stdint.h>
+#include <stdio.h>
+
+typedef struct message_queue message_queue;
+typedef struct thread thread;
+
+bool runtime_quit_requested(const runtime *rt);
+
+enum {
+    RUNTIME_COMMAND_QUEUE_CAPACITY = 256,
+    RUNTIME_EVENT_QUEUE_CAPACITY = 256,
+    RUNTIME_BREAKPOINT_CAPACITY = 64,
+    RUNTIME_RUN_BATCH_CYCLES = 1024,
+    RUNTIME_MAX_DISKII_MOUNTS = 16,
+    RUNTIME_MAX_SMARTPORT_MOUNTS = 16
+};
+
+typedef enum runtime_exec_state {
+    RUNTIME_EXEC_STOPPED = 0,
+    RUNTIME_EXEC_PAUSED,
+    RUNTIME_EXEC_RUNNING
+} runtime_exec_state;
+
+typedef enum runtime_frame_publish_kind {
+    RUNTIME_FRAME_PUBLISH_HOST_ONLY = 0,
+    RUNTIME_FRAME_PUBLISH_FINITE_CADENCE_CANONICAL,
+    RUNTIME_FRAME_PUBLISH_MAX_CADENCE_CANONICAL,
+    RUNTIME_FRAME_PUBLISH_TRANSITION_CANONICAL
+} runtime_frame_publish_kind;
+
+typedef struct runtime_frame_slot {
+    mutex *mutex;
+    /* Latest ARGB frame for UI (Apple size). Also mirrored as display_frame meta. */
+    uint32_t *argb;
+    uint32_t width;
+    uint32_t height;
+    uint64_t frame_number;
+    bool has_frame;
+    uint64_t published_frames;
+    uint64_t consumed_frames;
+    uint64_t dropped_frames;
+} runtime_frame_slot;
+
+typedef struct runtime_inspector_picture_slot {
+    mutex *mutex;
+    uint32_t *argb;
+    uint64_t picture_id;
+    uint64_t frame_number;
+    bool valid;
+} runtime_inspector_picture_slot;
+
+typedef struct runtime_debug_memory_slot {
+    mutex *mutex;
+    runtime_debug_memory_snapshot snapshot;
+    bool has_snapshot;
+    uint64_t generation;
+} runtime_debug_memory_slot;
+
+typedef struct runtime_breakpoint_slot {
+    mutex *mutex;
+    runtime_breakpoint_snapshot snapshot;
+    bool has_snapshot;
+} runtime_breakpoint_slot;
+
+typedef struct runtime_symbol_slot {
+    mutex *mutex;
+    runtime_symbol_snapshot snapshot;
+    bool has_symbols;
+} runtime_symbol_slot;
+
+typedef struct runtime_inspector_catalog_slot {
+    mutex *mutex;
+    runtime_inspector_sample_meta *samples;
+    size_t capacity;
+    uint64_t count;
+    uint64_t timeline_generation;
+} runtime_inspector_catalog_slot;
+
+typedef enum runtime_rpc_payload_kind {
+    RUNTIME_RPC_PAYLOAD_NONE = 0,
+    RUNTIME_RPC_PAYLOAD_MEMORY,
+    RUNTIME_RPC_PAYLOAD_HISTORY
+} runtime_rpc_payload_kind;
+
+typedef struct runtime_rpc_payload_slot {
+    uint64_t request_token;
+    uint32_t length;
+    runtime_rpc_payload_kind kind;
+    union {
+        struct {
+            uint16_t address;
+            runtime_memory_mode mode;
+        } memory;
+        runtime_history_rpc_meta history;
+    } meta;
+    uint8_t in_use;
+    uint8_t *bytes;
+} runtime_rpc_payload_slot;
+
+typedef struct runtime_rpc_payload_pool {
+    mutex *mutex;
+    runtime_rpc_payload_slot slots[RUNTIME_RPC_PAYLOAD_POOL_CAPACITY];
+} runtime_rpc_payload_pool;
+
+typedef struct runtime_history_cursor {
+    runtime_history_query query;
+    uint64_t id;
+    uint64_t epoch;
+    uint64_t mutation_generation;
+    uint64_t next_id;
+    uint8_t active;
+    uint8_t stale;
+} runtime_history_cursor;
+
+enum {
+    RUNTIME_SESSION_CAPACITY = 4
+};
+
+/* Per-asker state: history cursor + endpoint binding. No live machine pointers. */
+typedef struct runtime_session {
+    uint32_t id; /* never 0 when active */
+    runtime_session_kind kind;
+    uint8_t active;
+    uint64_t endpoint_epoch; /* control connection_epoch; 0 if unused */
+    runtime_history_cursor history_cursor;
+} runtime_session;
+
+struct runtime_client {
+    message_queue *command_queue;
+    message_queue *event_queue;
+    runtime_frame_slot *frame_slot;
+    runtime_debug_memory_slot *debug_memory_slot;
+    runtime_symbol_slot *symbol_slot;
+    runtime_breakpoint_slot *breakpoint_slot;
+    runtime_rpc_payload_pool *rpc_payload_pool;
+    runtime_frame_ring *frame_ring;
+    runtime_inspector_picture_slot *inspector_picture_slot;
+    runtime_inspector_catalog_slot *inspector_catalog_slot;
+    uint64_t next_request_token;
+    /* Stamped onto outgoing commands as source session (0 = unknown). */
+    uint32_t command_session_id;
+};
+
+typedef struct runtime_breakpoint {
+    uint32_t id;
+    bool enabled;
+    uint16_t start_address;
+    uint16_t end_address;
+    bool has_end_address;
+    uint32_t access_mask;
+    runtime_breakpoint_mapping mapping;
+    uint32_t action_mask;
+    bool use_counter;
+    uint32_t initial_count;
+    uint32_t reset_count;
+    uint32_t counter;
+    uint32_t current_hits;
+    uint8_t swap_slot;
+    int32_t swap_param;
+    uint8_t swap_relative;
+    char tron_path[RUNTIME_BREAKPOINT_TRON_PATH_MAX];
+    char type_text[RUNTIME_BREAKPOINT_TYPE_TEXT_MAX];
+    runtime_bp_condition condition;
+} runtime_breakpoint;
+
+struct runtime {
+    thread *thread;
+    atomic_bool quit_requested;
+    message_queue *command_queue;
+    message_queue *event_queue;
+    runtime_client client;
+    runtime_frame_slot frame_slot;
+    runtime_inspector_picture_slot inspector_picture_slot;
+    /* Worker-owned full-frame destination for debugger/UI-only repaints. */
+    uint32_t *presentation_scratch;
+    bool inspector_has_presentation;
+    runtime_debug_memory_slot debug_memory_slot;
+    runtime_breakpoint_slot breakpoint_slot;
+    runtime_rpc_payload_pool rpc_payload_pool;
+    runtime_symbol_slot symbol_slot;
+    runtime_inspector_catalog_slot inspector_catalog_slot;
+    symbol_table *symbols;
+
+    apple2_t machine;
+    host_keyboard host_keyboard;
+    bool machine_ready;
+
+    runtime_config config;
+    char *diskii_paths[RUNTIME_MAX_DISKII_MOUNTS];
+    int diskii_mount_count;
+    int diskii_slots[RUNTIME_MAX_DISKII_MOUNTS];
+    int diskii_drives[RUNTIME_MAX_DISKII_MOUNTS];
+    char *smartport_paths[RUNTIME_MAX_SMARTPORT_MOUNTS];
+    int smartport_mount_count;
+    int smartport_slots[RUNTIME_MAX_SMARTPORT_MOUNTS];
+    int smartport_units[RUNTIME_MAX_SMARTPORT_MOUNTS];
+
+    runtime_frame_ring frame_ring;
+    uint32_t frame_ring_memory_mb;
+
+    runtime_history *history;
+    uint32_t history_memory_mb;
+    uint64_t history_mutation_generation;
+    uint64_t next_history_cursor_id;
+    runtime_session sessions[RUNTIME_SESSION_CAPACITY];
+    uint32_t next_session_id;
+    uint32_t default_session_id; /* omit session_id=0 resolves here; never 0 after create */
+    /* When true, stop recording while turbo is max; restore on leave max. */
+    bool history_off_on_max;
+    /* True if we stopped history solely for max (so we may resume on leave). */
+    bool history_paused_for_max;
+    /* Record checkbox to restore on leave-max (TMA3). */
+    bool inspector_enabled_saved_for_max;
+
+    /* Inspector master enable. Off→on arms HST1 + frame ring once. */
+    bool inspector_enabled;
+    uint32_t inspector_memory_mb;
+    runtime_inspector_focus inspector_focus;
+    struct runtime_inspector_recorder *inspector_recorder;
+    /* TM3/TMA1: time-travel mode replaces live apple2_t; NOW blob is live. */
+    bool inspecting;
+    bool inspector_now_valid;
+    bool inspector_now_aliases_sample;
+    uint8_t *inspector_now_blob;
+    size_t inspector_now_size;
+    uint64_t inspector_now_cycle;
+    uint32_t *inspector_now_resume_framebuffer;
+    uint64_t inspector_now_endpoint_id;
+    uint64_t inspector_now_aliased_sample_id;
+    uint64_t inspector_now_machine_generation;
+    uint64_t inspector_now_timeline_generation;
+    uint64_t inspector_next_now_endpoint_id;
+    uint64_t apple_state_generation;
+    uint64_t presentation_generation;
+    uint32_t inspector_now_live_turbo_value;
+    uint8_t inspector_now_execution_mode;
+
+    /* TRON/TROFF instruction log (C5b) — file open while trace_enabled. */
+    bool trace_enabled;
+    FILE *trace_file;
+
+    /* Ladder + active: milli-MHz values; 0 = max. See runtime.h. */
+    uint32_t turbo_speeds[16];
+    uint8_t turbo_speed_count;
+    uint32_t active_turbo_multiplier;
+
+    runtime_exec_state exec_state;
+    runtime_stop_reason last_stop_reason;
+    uint64_t runtime_seq;
+
+    runtime_breakpoint breakpoints[RUNTIME_BREAKPOINT_CAPACITY];
+    size_t breakpoint_count;
+    uint32_t next_breakpoint_id;
+    bool suppress_execute_bp;
+    bool temp_bp_active;
+    uint16_t temp_bp_address;
+    bool temp_bp_skip_current;
+    /* R/W match during a cycle; pause after step (c64m hit-pending pattern). */
+    bool breakpoint_hit_pending;
+    /* Cached: any enabled BP has READ or WRITE access (bus callback fast path). */
+    bool has_rw_breakpoints;
+
+    bool pace_initialized;
+    uint64_t frame_counter_step;
+    uint64_t next_frame_counter;
+
+    /* Max turbo: ~60 Hz wall block paint into live frame slot + ring. */
+    bool block_paint_initialized;
+    uint64_t next_block_paint_counter;
+
+    audio_buffer *audio_out;
+    int audio_sample_rate;
+    double audio_cycle_accum;
+    /* Host PCM reconstruction state (stereo). Ring buffer holds interleaved
+       L,R floats. DC block + Mockingboard post LPF live here, not in the chip. */
+    float audio_dc_x_prev[2];
+    float audio_dc_y_prev[2];
+    float audio_mb_lpf1[2];
+    float audio_mb_lpf2[2];
+
+    /* BP TYPE script playback (clipboard paste stays plain text only).
+       Paste / TYPE do not change turbo (zip policy). */
+    bool type_script_active;
+    bool type_script_await_paste;
+    size_t type_script_index;
+    size_t type_script_count;
+    uint16_t type_script_wait_left;
+    uint32_t type_script_wait_cycle_accum;
+    apple_type_event type_script_events[APPLE_TYPE_EVENTS_MAX];
+
+    bool started;
+    bool alive;
+
+    /* Breakpoint INI helpers (c64m). */
+    bool use_ini;
+    bool save_ini;
+    char *ini_path;
+};
+
+int runtime_thread_main(void *userdata);
+void runtime_rpc_pool_release_token(runtime_rpc_payload_pool *pool, uint64_t token);
+void runtime_inspector_reattach_live_hooks(runtime *rt);
+bool runtime_inspector_now_picture_available(runtime *rt, uint64_t picture_id);
+
+/* Map c64m memory mode enum to VIEW_FLAGS for Apple. */
+view_flags_t runtime_mode_to_view_flags(runtime_memory_mode mode);
