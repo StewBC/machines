@@ -60,7 +60,9 @@ typedef uint8_t (*c6510_nmi_pending_fn)(void *user);
 
 /* Semantic role of the access currently being issued through the memory
    callbacks. This is trace metadata only: it does not change CPU execution or
-   bus ownership. */
+   bus ownership. Same enum (and values) as shell runtime_history.h. */
+#ifndef C6510_BUS_ACCESS_KIND_DEFINED
+#define C6510_BUS_ACCESS_KIND_DEFINED
 typedef enum c6510_bus_access_kind {
     C6510_BUS_ACCESS_DATA_READ = 0,
     C6510_BUS_ACCESS_DATA_WRITE,
@@ -72,6 +74,7 @@ typedef enum c6510_bus_access_kind {
     C6510_BUS_ACCESS_STACK_WRITE,
     C6510_BUS_ACCESS_VECTOR_READ
 } c6510_bus_access_kind;
+#endif
 
 typedef enum c6510_interrupt_kind {
     C6510_INTERRUPT_NONE = 0,

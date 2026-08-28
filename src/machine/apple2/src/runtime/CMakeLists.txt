@@ -2,14 +2,10 @@
 
 add_library(runtime STATIC
     runtime_client.c
-    runtime_breakpoint_condition.c
     runtime_breakpoint_ini.c
     runtime_command.c
     runtime_event.c
     runtime_frame_ring.c
-    runtime_history.c
-    runtime_history_query_parse.c
-    runtime_history_wire.c
     runtime_assembler.c
     runtime_slot_resolve.c
     runtime.c

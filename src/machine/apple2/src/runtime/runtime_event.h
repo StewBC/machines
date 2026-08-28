@@ -176,29 +176,6 @@ typedef enum runtime_memory_rpc_status {
     RUNTIME_MEMORY_RPC_ERROR = 3
 } runtime_memory_rpc_status;
 
-typedef enum runtime_history_rpc_status {
-    RUNTIME_HISTORY_RPC_OK = 0,
-    RUNTIME_HISTORY_RPC_UNAVAILABLE,
-    RUNTIME_HISTORY_RPC_MACHINE_RUNNING,
-    RUNTIME_HISTORY_RPC_REQUEST_ACTIVE,
-    RUNTIME_HISTORY_RPC_BAD_ARGS,
-    RUNTIME_HISTORY_RPC_CURSOR_STALE,
-    RUNTIME_HISTORY_RPC_EPOCH_MISMATCH,
-    RUNTIME_HISTORY_RPC_RECORD_NOT_RETAINED,
-    RUNTIME_HISTORY_RPC_ERROR
-} runtime_history_rpc_status;
-
-typedef struct runtime_history_rpc_meta {
-    runtime_history_rpc_status status;
-    uint32_t byte_length;
-    uint64_t epoch;
-    uint32_t count;
-    uint64_t cursor;
-    uint64_t oldest;
-    uint64_t newest;
-    uint8_t more;
-} runtime_history_rpc_meta;
-
 typedef enum runtime_breakpoint_access {
     RUNTIME_BREAKPOINT_ACCESS_EXECUTE = 1u << 0,
     RUNTIME_BREAKPOINT_ACCESS_READ = 1u << 1,

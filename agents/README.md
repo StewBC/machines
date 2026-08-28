@@ -7,12 +7,14 @@ drafts live under [`design/`](../design/); they are not product-as-is.
 
 1. This file (layout, freeze, what is shared).
 2. [`design/merge-stage-map.md`](../design/merge-stage-map.md) — stage map.
-   Stage 4 is done (control framing EXTRACT). Do not start Stage 5
-   (command tables), Stage 6 (forensics/help), or Stage 7 from this note.
+   Stage 6 is done (history / BP conditions / forensics / help EXTRACT).
+   Do not start Stage 5 (command tables), Stage 7 (`runtime_client`),
+   Stage 8, or Stage 9 from this note.
 3. [`design/shell-extract-platform.md`](../design/shell-extract-platform.md) —
    Stage 2 host layer. [`design/assembler-disasm.md`](../design/assembler-disasm.md) —
    Stage 3 tools. [`design/control-framing.md`](../design/control-framing.md) —
-   Stage 4 framing.
+   Stage 4 framing. [`design/runtime-shell-extract.md`](../design/runtime-shell-extract.md) —
+   Stage 6 runtime shell twins.
 4. [`design/import-revisions.md`](../design/import-revisions.md) — imported
    SHAs, freeze tags, ctest baseline.
 5. The product handoff for the leftover tree you are changing:
@@ -21,14 +23,14 @@ drafts live under [`design/`](../design/); they are not product-as-is.
 
 Do not invent a blended `agents/apple2` / `agents/c64` layout yet (Stage 10).
 
-## Canonical sources (Stage 4)
+## Canonical sources (Stage 6)
 
 **Shared host layer is `src/shell/`** (plus repo-root `external/`). Link-into-both
 → shell. Link-into-one → that leftover machine tree.
 
 | Path | What it is |
 |------|------------|
-| `src/shell/` | Shared util / platform / nuklear vendor / `control/` framing / `tools/{am65,disasm_6502,symbols}`. Static `shell` plus named tool targets. |
+| `src/shell/` | Shared util / platform / nuklear vendor / `control/` framing / `runtime/` history+BP conditions / `frontend/` forensics+disk LEDs+help source / `tools/{am65,disasm_6502,symbols,gen_help.py}`. Static `shell` plus named tool targets. `help_view.c` is compiled by leftover frontend (per-binary `help_content.inc`). |
 | `external/` | argparse, inih, logc, stb, tiny-regex-c, whereami (unprefixed targets). |
 | `src/machine/apple2/` | Leftover a2m silicon, `runtime_thread`, leftover util (HostFS), leftover `platform_audio`, leftover frontend chrome. Still `project(a2m)`. |
 | `src/machine/c64/` | Leftover c64m silicon, `runtime_thread`, leftover util (BASIC/paste), leftover `platform_audio`, leftover frontend chrome, TrueType, format parsers. Still `project(c64m)`. |
@@ -43,10 +45,11 @@ There is still no root `project(machines)` with two `add_executable`s.
 ## Do not mix leftover trees
 
 - Do not "fix" a remaining twin in only one machine tree. Remaining twins
-  (history parse, forensics, help, `disk_led_data`, …) still exist in
-  **both** until later EXTRACT deletes a copy.
+  (`runtime_client`, layout/disasm chrome, …) still exist in **both**
+  until later EXTRACT deletes a copy.
 - Do not flatten `src/machine/apple2/src/machine/cpu65.c`.
-- Do not start cleaning leftover C64 aliases in a2m.
+- Do not start cleaning leftover C64 memory-mode aliases in a2m (Stage 5).
+  The `vic_cycle` BP alias is already gone.
 - Do not touch Inspector clocks, leftover control *verbs* / `control_args`,
   or `frontend.c` chrome beyond Stage 3 disasm class and Stage 4 framing
   call sites already landed.
@@ -72,7 +75,12 @@ formatters, I/O helpers). Product verb parsers, `control_args`, deferred
 capacity (a2m 1, c64m 16), and leftover `control_server.c` loops stay in
 the leftover trees. `hello` is still `A2M/13` / `C64M/8`.
 
-## Verification (Stage 4)
+HST1 store / find grammar / wire, breakpoint-condition parse (published
+LHS table: Apple `cycle_in_line`, C64 `vic_cycle` / `raster`), Forensics,
+and disk LED bitmaps are `src/shell`. `runtime_breakpoint_ini.c` stays
+leftover (mapping / swap / save-ini policy). FIND is not Inspector.
+
+## Verification (Stage 6)
 
 ```bash
 make test
@@ -87,7 +95,8 @@ cmake -B build/a2m  -S src/machine/apple2  -DCMAKE_BUILD_TYPE=Debug
 cmake -B build/c64m -S src/machine/c64    -DCMAKE_BUILD_TYPE=Debug
 ```
 
-ctest: a2m 72/72; c64m 69 pass + 10 SKIP + the same
+ctest: a2m 75/75 (gained `runtime_history`, `runtime_history_wire`,
+`runtime_breakpoint_condition`); c64m 69 pass + 10 SKIP + the same
 `history_control_integration` fail. Do not "fix" that fail.
 
 ## Design docs

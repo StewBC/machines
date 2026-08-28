@@ -336,6 +336,37 @@ static bool test_clear_stop_resume_and_markers(void) {
     return true;
 }
 
+static bool test_retain_floor_and_partial_count(void) {
+    runtime_history *history =
+        runtime_history_create_ex(TEST_REQUEST_BYTES, TEST_BLOCK_SIZE, NULL);
+    runtime_history_status status;
+    runtime_history_begin begin = instruction_at(0x9000u, 0u);
+
+    CHECK(history != NULL);
+    CHECK(append_instruction(history, 0x9000u, 0u, 0u));
+    CHECK(append_instruction(history, 0x9001u, 10u, 0u));
+    CHECK(append_instruction(history, 0x9002u, 20u, 0u));
+    CHECK(runtime_history_begin_record(history, &begin));
+    runtime_history_get_status(history, &status);
+    CHECK(status.record_count == 4u);
+    CHECK(status.partial_records == 1u);
+    CHECK(status.oldest_id == 1u);
+    CHECK(runtime_history_retain_from(history, 1u, 2u));
+    runtime_history_get_status(history, &status);
+    CHECK(status.oldest_id == 2u);
+    CHECK(status.newest_id == 4u);
+    CHECK(status.partial_records == 1u);
+    CHECK(runtime_history_complete_record(history));
+    runtime_history_get_status(history, &status);
+    CHECK(status.partial_records == 0u);
+    CHECK(runtime_history_force_new_block(history, 30u));
+    CHECK(append_instruction(history, 0x9003u, 40u, 0u));
+    runtime_history_get_status(history, &status);
+    CHECK(status.newest_id == 5u);
+    runtime_history_destroy(history);
+    return true;
+}
+
 static bool test_seal_partial_and_resume_mid_instruction(void) {
     runtime_history *history =
         runtime_history_create_ex(TEST_REQUEST_BYTES, TEST_BLOCK_SIZE, NULL);
@@ -656,6 +687,7 @@ int main(void) {
         { "block_fit_transition_wrap_and_ids", test_block_fit_transition_wrap_and_ids },
         { "timeline_and_cycle_delta_blocks", test_timeline_and_cycle_delta_blocks },
         { "clear_stop_resume_and_markers", test_clear_stop_resume_and_markers },
+        { "retain_floor_and_partial_count", test_retain_floor_and_partial_count },
         { "seal_partial_and_resume_mid_instruction", test_seal_partial_and_resume_mid_instruction },
         { "iterators_and_corrupt_decode", test_iterators_and_corrupt_decode },
         { "query_empty_paging_and_context", test_query_empty_paging_and_context },

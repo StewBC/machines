@@ -390,7 +390,7 @@ target_link_libraries(test_frontend_input PRIVATE
 add_test(NAME frontend_input COMMAND test_frontend_input)
 
 add_executable(test_help_view
-    tests/frontend/test_help_view.c
+    ${MACHINES_ROOT}/src/shell/tests/frontend/test_help_view.c
 )
 
 target_compile_features(test_help_view PRIVATE c_std_99)
@@ -409,19 +409,15 @@ target_link_libraries(test_help_view PRIVATE
 add_test(NAME help_view COMMAND test_help_view)
 
 add_executable(test_forensics_view
-    tests/frontend/test_forensics_view.c
+    ${MACHINES_ROOT}/src/shell/tests/frontend/test_forensics_view.c
 )
 
 target_compile_features(test_forensics_view PRIVATE c_std_99)
 
 target_compile_definitions(test_forensics_view PRIVATE SDL_MAIN_HANDLED)
 
-target_include_directories(test_forensics_view PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/frontend
-)
-
 target_link_libraries(test_forensics_view PRIVATE
-    frontend
+    shell
 )
 
 add_test(NAME forensics_view COMMAND test_forensics_view)
@@ -455,6 +451,7 @@ target_include_directories(test_window_title PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src/frontend
     ${CMAKE_CURRENT_SOURCE_DIR}/src/runtime
     ${CMAKE_CURRENT_SOURCE_DIR}/src/machine
+    ${MACHINES_ROOT}/src/shell/runtime
 )
 
 add_test(NAME window_title COMMAND test_window_title)
@@ -1047,13 +1044,13 @@ target_link_libraries(test_runtime_flight_recorder PRIVATE
 add_test(NAME runtime_flight_recorder COMMAND test_runtime_flight_recorder)
 
 add_executable(test_runtime_breakpoint_condition
-    tests/runtime/test_runtime_breakpoint_condition.c
+    ${MACHINES_ROOT}/src/shell/tests/runtime/test_runtime_breakpoint_condition.c
 )
 
 target_compile_features(test_runtime_breakpoint_condition PRIVATE c_std_99)
 
 target_link_libraries(test_runtime_breakpoint_condition PRIVATE
-    runtime
+    shell
 )
 
 add_test(NAME runtime_breakpoint_condition COMMAND test_runtime_breakpoint_condition)
@@ -1131,53 +1128,53 @@ target_link_libraries(test_runtime_vic_ring PRIVATE
 add_test(NAME runtime_vic_ring COMMAND test_runtime_vic_ring)
 
 add_executable(test_runtime_history
-    tests/runtime/test_runtime_history.c
+    ${MACHINES_ROOT}/src/shell/tests/runtime/test_runtime_history.c
 )
 
 target_compile_features(test_runtime_history PRIVATE c_std_99)
 
 target_link_libraries(test_runtime_history PRIVATE
-    runtime
+    shell
 )
 
 add_test(NAME runtime_history COMMAND test_runtime_history)
 
 add_executable(test_runtime_history_wire
-    tests/runtime/test_runtime_history_wire.c
+    ${MACHINES_ROOT}/src/shell/tests/runtime/test_runtime_history_wire.c
 )
 
 target_compile_features(test_runtime_history_wire PRIVATE c_std_99)
 
 target_link_libraries(test_runtime_history_wire PRIVATE
-    runtime
+    shell
 )
 
 add_test(NAME runtime_history_wire COMMAND test_runtime_history_wire)
 
 add_executable(test_runtime_history_wire_decode
-    tests/runtime/test_runtime_history_wire_decode.c
+    ${MACHINES_ROOT}/src/shell/tests/runtime/test_runtime_history_wire_decode.c
 )
 
 target_compile_features(test_runtime_history_wire_decode PRIVATE c_std_99)
 
 target_compile_definitions(test_runtime_history_wire_decode PRIVATE
-    C64M_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
+    HISTORY_WIRE_GOLDEN_PY="${CMAKE_CURRENT_SOURCE_DIR}/tests/runtime/check_hst1_decode_golden.py"
 )
 
 target_link_libraries(test_runtime_history_wire_decode PRIVATE
-    runtime
+    shell
 )
 
 add_test(NAME runtime_history_wire_decode COMMAND test_runtime_history_wire_decode)
 
 add_executable(test_runtime_history_query_parse
-    tests/runtime/test_runtime_history_query_parse.c
+    ${MACHINES_ROOT}/src/shell/tests/runtime/test_runtime_history_query_parse.c
 )
 
 target_compile_features(test_runtime_history_query_parse PRIVATE c_std_99)
 
 target_link_libraries(test_runtime_history_query_parse PRIVATE
-    runtime
+    shell
 )
 
 add_test(NAME runtime_history_query_parse COMMAND test_runtime_history_query_parse)

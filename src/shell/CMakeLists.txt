@@ -14,7 +14,13 @@ add_library(shell STATIC
     platform/platform_fs.c
     platform/platform_socket.c
     frontend/nuklear_impl.c
+    frontend/disk_led_data.c
+    frontend/forensics_view.c
     control/control_framing.c
+    runtime/runtime_history.c
+    runtime/runtime_history_query_parse.c
+    runtime/runtime_history_wire.c
+    runtime/runtime_breakpoint_condition.c
 )
 
 set_source_files_properties(util/audio_buffer.c PROPERTIES
@@ -27,6 +33,7 @@ target_include_directories(shell PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/platform
     ${CMAKE_CURRENT_SOURCE_DIR}/frontend
     ${CMAKE_CURRENT_SOURCE_DIR}/control
+    ${CMAKE_CURRENT_SOURCE_DIR}/runtime
     ${SDL2_INCLUDE_DIRS}
 )
 

@@ -5,8 +5,8 @@
 #include <string.h>
 
 enum {
-    /* Immediates cover the widest left-hand side (raster / cycle_in_line) but
-       never exceed 16 bits; anything larger is a typo, not a condition. */
+    /* Immediates cover the widest left-hand side (raster / cycle_in_line /
+       vic_cycle) but never exceed 16 bits; anything larger is a typo. */
     RUNTIME_BP_IMM_MAX = 0xffffu
 };
 
@@ -33,8 +33,7 @@ static const runtime_bp_lhs_name runtime_bp_lhs_names[] = {
     { "value", RUNTIME_BP_LHS_VALUE },
     { "raster", RUNTIME_BP_LHS_RASTER },
     { "cycle_in_line", RUNTIME_BP_LHS_CYCLE_IN_LINE },
-    /* Legacy C64 token; still parsed, always formatted as cycle_in_line. */
-    { "vic_cycle", RUNTIME_BP_LHS_CYCLE_IN_LINE }
+    { "vic_cycle", RUNTIME_BP_LHS_VIC_CYCLE }
 };
 
 typedef struct runtime_bp_op_name {
@@ -308,6 +307,9 @@ static bool runtime_bp_term_lhs_value(
         return true;
     case RUNTIME_BP_LHS_CYCLE_IN_LINE:
         *out_value = context->cycle_in_line;
+        return true;
+    case RUNTIME_BP_LHS_VIC_CYCLE:
+        *out_value = context->vic_cycle;
         return true;
     default:
         return false;

@@ -6,13 +6,13 @@ set(C64M_HELP_SECTION_LEVEL "2" CACHE STRING "Markdown heading level used for he
 add_custom_command(
     OUTPUT "${C64M_HELP_CONTENT}"
     COMMAND Python3::Interpreter
-        "${CMAKE_SOURCE_DIR}/tools/gen_help.py"
+        "${MACHINES_ROOT}/src/shell/tools/gen_help.py"
         --level "${C64M_HELP_SECTION_LEVEL}"
         "${CMAKE_SOURCE_DIR}/manual/manual.md"
         "${C64M_HELP_CONTENT}"
     DEPENDS
         "${CMAKE_SOURCE_DIR}/manual/manual.md"
-        "${CMAKE_SOURCE_DIR}/tools/gen_help.py"
+        "${MACHINES_ROOT}/src/shell/tools/gen_help.py"
     VERBATIM
 )
 
@@ -23,8 +23,6 @@ add_library(frontend STATIC
     c64_layout.h
     crt_renderer.c
     crt_renderer.h
-    disk_led_data.c
-    disk_led_data.h
     disasm_pc_lock.c
     disasm_pc_lock.h
     frontend.c
@@ -33,10 +31,7 @@ add_library(frontend STATIC
     frontend_input.h
     frontend_joystick_input.c
     frontend_joystick_input.h
-    help_view.c
-    help_view.h
-    forensics_view.c
-    forensics_view.h
+    ${MACHINES_ROOT}/src/shell/frontend/help_view.c
     window_title.c
     window_title.h
     "${C64M_HELP_CONTENT}"

@@ -6,13 +6,13 @@ set(A2M_HELP_SECTION_LEVEL "2" CACHE STRING "Markdown heading level used for hel
 add_custom_command(
     OUTPUT "${A2M_HELP_CONTENT}"
     COMMAND Python3::Interpreter
-        "${CMAKE_SOURCE_DIR}/tools/gen_help.py"
+        "${MACHINES_ROOT}/src/shell/tools/gen_help.py"
         --level "${A2M_HELP_SECTION_LEVEL}"
         "${CMAKE_SOURCE_DIR}/manual/manual.md"
         "${A2M_HELP_CONTENT}"
     DEPENDS
         "${CMAKE_SOURCE_DIR}/manual/manual.md"
-        "${CMAKE_SOURCE_DIR}/tools/gen_help.py"
+        "${MACHINES_ROOT}/src/shell/tools/gen_help.py"
     VERBATIM
 )
 
@@ -27,18 +27,13 @@ add_library(frontend STATIC
     disasm_pc_lock.h
     crt_renderer.c
     crt_renderer.h
-    disk_led_data.c
-    disk_led_data.h
     frontend.c
     frontend.h
     frontend_input.c
     frontend_input.h
     frontend_joystick_input.c
     frontend_joystick_input.h
-    help_view.c
-    help_view.h
-    forensics_view.c
-    forensics_view.h
+    ${MACHINES_ROOT}/src/shell/frontend/help_view.c
     memory_search.c
     memory_search.h
     window_title.c

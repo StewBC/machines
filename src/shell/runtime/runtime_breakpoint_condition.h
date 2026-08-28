@@ -45,8 +45,9 @@ typedef enum runtime_bp_term_lhs {
     RUNTIME_BP_LHS_VALUE,
     /* One CPU-map byte read at match time (see term.mem_address). */
     RUNTIME_BP_LHS_MEM,
-    RUNTIME_BP_LHS_RASTER,       /* Apple video beam line */
-    RUNTIME_BP_LHS_CYCLE_IN_LINE /* Apple video cycle_in_line */
+    RUNTIME_BP_LHS_RASTER,        /* published: "raster" */
+    RUNTIME_BP_LHS_CYCLE_IN_LINE, /* Apple; published token "cycle_in_line" */
+    RUNTIME_BP_LHS_VIC_CYCLE      /* C64; published token "vic_cycle" */
 } runtime_bp_term_lhs;
 
 typedef enum runtime_bp_term_op {
@@ -83,7 +84,8 @@ typedef struct runtime_bp_eval_context {
     uint8_t value;    /* valid only when has_value */
     bool has_value;
     uint16_t raster;
-    uint16_t cycle_in_line;
+    uint16_t cycle_in_line; /* Apple leftover thread fills this */
+    uint16_t vic_cycle;     /* C64 leftover thread fills this */
     runtime_bp_mem_read_fn mem_read; /* may be NULL; mem terms then fail */
     void *mem_read_user;
 } runtime_bp_eval_context;

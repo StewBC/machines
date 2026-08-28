@@ -142,7 +142,7 @@ target_link_libraries(test_disasm_pc_lock PRIVATE tools)
 add_test(NAME disasm_pc_lock COMMAND test_disasm_pc_lock)
 
 add_executable(test_help_view
-    tests/frontend/test_help_view.c
+    ${MACHINES_ROOT}/src/shell/tests/frontend/test_help_view.c
 )
 target_include_directories(test_help_view PRIVATE
     ${CMAKE_SOURCE_DIR}/src/frontend
@@ -154,14 +154,11 @@ target_link_libraries(test_help_view PRIVATE frontend)
 add_test(NAME help_view COMMAND test_help_view)
 
 add_executable(test_forensics_view
-    tests/frontend/test_forensics_view.c
-)
-target_include_directories(test_forensics_view PRIVATE
-    ${CMAKE_SOURCE_DIR}/src/frontend
+    ${MACHINES_ROOT}/src/shell/tests/frontend/test_forensics_view.c
 )
 target_compile_features(test_forensics_view PRIVATE c_std_99)
 target_compile_definitions(test_forensics_view PRIVATE SDL_MAIN_HANDLED)
-target_link_libraries(test_forensics_view PRIVATE frontend)
+target_link_libraries(test_forensics_view PRIVATE shell)
 add_test(NAME forensics_view COMMAND test_forensics_view)
 
 add_executable(test_frontend_input
@@ -451,23 +448,44 @@ target_compile_features(test_runtime_history_query PRIVATE c_std_99)
 target_link_libraries(test_runtime_history_query PRIVATE runtime SDL2::SDL2)
 add_test(NAME runtime_history_query COMMAND test_runtime_history_query)
 
+add_executable(test_runtime_history
+    ${MACHINES_ROOT}/src/shell/tests/runtime/test_runtime_history.c
+)
+target_compile_features(test_runtime_history PRIVATE c_std_99)
+target_link_libraries(test_runtime_history PRIVATE shell)
+add_test(NAME runtime_history COMMAND test_runtime_history)
+
+add_executable(test_runtime_history_wire
+    ${MACHINES_ROOT}/src/shell/tests/runtime/test_runtime_history_wire.c
+)
+target_compile_features(test_runtime_history_wire PRIVATE c_std_99)
+target_link_libraries(test_runtime_history_wire PRIVATE shell)
+add_test(NAME runtime_history_wire COMMAND test_runtime_history_wire)
+
+add_executable(test_runtime_breakpoint_condition
+    ${MACHINES_ROOT}/src/shell/tests/runtime/test_runtime_breakpoint_condition.c
+)
+target_compile_features(test_runtime_breakpoint_condition PRIVATE c_std_99)
+target_link_libraries(test_runtime_breakpoint_condition PRIVATE shell)
+add_test(NAME runtime_breakpoint_condition COMMAND test_runtime_breakpoint_condition)
+
 # Shared history-find option grammar (Forensics UI / control wire).
 add_executable(test_runtime_history_query_parse
-    tests/runtime/test_runtime_history_query_parse.c
+    ${MACHINES_ROOT}/src/shell/tests/runtime/test_runtime_history_query_parse.c
 )
 target_compile_features(test_runtime_history_query_parse PRIVATE c_std_99)
-target_link_libraries(test_runtime_history_query_parse PRIVATE runtime)
+target_link_libraries(test_runtime_history_query_parse PRIVATE shell)
 add_test(NAME runtime_history_query_parse COMMAND test_runtime_history_query_parse)
 
 # HST1 decode API (round-trip + Python Ctl.decode_hst1 golden).
 add_executable(test_runtime_history_wire_decode
-    tests/runtime/test_runtime_history_wire_decode.c
+    ${MACHINES_ROOT}/src/shell/tests/runtime/test_runtime_history_wire_decode.c
 )
 target_compile_features(test_runtime_history_wire_decode PRIVATE c_std_99)
 target_compile_definitions(test_runtime_history_wire_decode PRIVATE
-    A2M_SOURCE_DIR="${CMAKE_SOURCE_DIR}"
+    HISTORY_WIRE_GOLDEN_PY="${CMAKE_SOURCE_DIR}/tests/runtime/check_hst1_decode_golden.py"
 )
-target_link_libraries(test_runtime_history_wire_decode PRIVATE runtime)
+target_link_libraries(test_runtime_history_wire_decode PRIVATE shell)
 add_test(NAME runtime_history_wire_decode COMMAND test_runtime_history_wire_decode)
 
 add_executable(test_runtime_history_sessions

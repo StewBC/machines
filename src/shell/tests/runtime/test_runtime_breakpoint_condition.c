@@ -73,6 +73,7 @@ static void test_parse_lhs_tokens(void) {
         { "c==1",     RUNTIME_BP_LHS_FLAG_C },
         { "value==1", RUNTIME_BP_LHS_VALUE },
         { "raster==1", RUNTIME_BP_LHS_RASTER },
+        { "cycle_in_line==1", RUNTIME_BP_LHS_CYCLE_IN_LINE },
         { "vic_cycle==1", RUNTIME_BP_LHS_VIC_CYCLE }
     };
     size_t i;
@@ -358,10 +359,12 @@ static void test_eval_vic_terms(void) {
     runtime_bp_condition condition;
     runtime_bp_eval_context ctx;
     fake_memory mem;
+    char text[64];
 
     context_init(&ctx, &mem);
     ctx.raster = 251u;
     ctx.vic_cycle = 12u;
+    ctx.cycle_in_line = 20u;
 
     CHECK(parse_ok("raster>=250", &condition));
     CHECK(runtime_bp_condition_eval(&condition, &ctx));
@@ -369,6 +372,21 @@ static void test_eval_vic_terms(void) {
     CHECK(!runtime_bp_condition_eval(&condition, &ctx));
     CHECK(parse_ok("vic_cycle==12", &condition));
     CHECK(runtime_bp_condition_eval(&condition, &ctx));
+    CHECK(parse_ok("cycle_in_line==20", &condition));
+    CHECK(runtime_bp_condition_eval(&condition, &ctx));
+    /* Distinct published tokens, not aliases. */
+    CHECK(parse_ok("vic_cycle==20", &condition));
+    CHECK(!runtime_bp_condition_eval(&condition, &ctx));
+    CHECK(parse_ok("cycle_in_line==12", &condition));
+    CHECK(!runtime_bp_condition_eval(&condition, &ctx));
+    CHECK(parse_ok("vic_cycle==12", &condition));
+    CHECK(runtime_bp_condition_format(&condition, text, sizeof(text)));
+    CHECK(strstr(text, "vic_cycle") != NULL);
+    CHECK(strstr(text, "cycle_in_line") == NULL);
+    CHECK(parse_ok("cycle_in_line==20", &condition));
+    CHECK(runtime_bp_condition_format(&condition, text, sizeof(text)));
+    CHECK(strstr(text, "cycle_in_line") != NULL);
+    CHECK(strstr(text, "vic_cycle") == NULL);
 }
 
 static void test_eval_and_semantics(void) {
@@ -413,6 +431,7 @@ static void test_format_round_trip(void) {
         "value!&1,mem($D000)>$F0",
         "a==1,x==2,y==3,i==1",
         "raster>=250",
+        "cycle_in_line==20",
         "vic_cycle==12",
         "sp<=$F9",
         "a&$80"

@@ -226,7 +226,8 @@ static float converged_hit_y(struct nk_context *ctx, const char *needle, nk_uint
 static void test_scroll_lands_on_the_hit(struct nk_context *ctx)
 {
     static const char *const needles[] = {
-        "warp", "joystick", "breakpoint", "auto_adjust_segments", "snapshot",
+        "breakpoint", "joystick", "snapshot", "assembler", "disk",
+        "warp", "auto_adjust_segments",
     };
     float first_y = -1.0f;
     const char *first_needle = NULL;

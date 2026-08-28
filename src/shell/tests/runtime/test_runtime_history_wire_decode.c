@@ -15,8 +15,8 @@
 #include <unistd.h>
 #endif
 
-#ifndef C64M_SOURCE_DIR
-#define C64M_SOURCE_DIR "."
+#ifndef HISTORY_WIRE_GOLDEN_PY
+#define HISTORY_WIRE_GOLDEN_PY ""
 #endif
 
 static void expect_true(const char *name, int v)
@@ -235,7 +235,7 @@ static void test_python_golden(void)
         }
     }
 #else
-    snprintf(path, sizeof(path), "/tmp/c64m_hst1_goldenXXXXXX");
+    snprintf(path, sizeof(path), "/tmp/machines_hst1_goldenXXXXXX");
     fd = mkstemp(path);
 #endif
     expect_true("mkstemp", fd >= 0);
@@ -246,14 +246,15 @@ static void test_python_golden(void)
     free(bytes);
 
     /*
-     * Cross-check against tools/c64_control_client.py Ctl.decode_hst1 —
+     * Cross-check against leftover Ctl.decode_hst1 (product control client) —
      * same validation the Forensics path will rely on.
      */
+    expect_true("golden py", HISTORY_WIRE_GOLDEN_PY[0] != '\0');
     snprintf(
         cmd,
         sizeof(cmd),
-        "python3 \"%s/tests/runtime/check_hst1_decode_golden.py\" \"%s\"",
-        C64M_SOURCE_DIR,
+        "python3 \"%s\" \"%s\"",
+        HISTORY_WIRE_GOLDEN_PY,
         path);
     rc = system(cmd);
     remove(path);

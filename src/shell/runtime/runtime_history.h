@@ -4,7 +4,11 @@
 #include <stddef.h>
 #include <stdint.h>
 
-/* Bus access kinds for history records (masks must stay stable for wire). */
+/* Bus access kinds for history records (masks must stay stable for wire).
+   Same enum lives in leftover c6510.h for the CPU observer; the guard lets a
+   TU include both without a double typedef. */
+#ifndef C6510_BUS_ACCESS_KIND_DEFINED
+#define C6510_BUS_ACCESS_KIND_DEFINED
 typedef enum c6510_bus_access_kind {
     C6510_BUS_ACCESS_DATA_READ = 0,
     C6510_BUS_ACCESS_DATA_WRITE,
@@ -16,6 +20,7 @@ typedef enum c6510_bus_access_kind {
     C6510_BUS_ACCESS_STACK_WRITE,
     C6510_BUS_ACCESS_VECTOR_READ
 } c6510_bus_access_kind;
+#endif
 
 enum {
     RUNTIME_HISTORY_DEFAULT_MEMORY_MB = 256,
@@ -229,6 +234,29 @@ typedef struct runtime_history_page {
     bool more;
 } runtime_history_page;
 
+typedef enum runtime_history_rpc_status {
+    RUNTIME_HISTORY_RPC_OK = 0,
+    RUNTIME_HISTORY_RPC_UNAVAILABLE,
+    RUNTIME_HISTORY_RPC_MACHINE_RUNNING,
+    RUNTIME_HISTORY_RPC_REQUEST_ACTIVE,
+    RUNTIME_HISTORY_RPC_BAD_ARGS,
+    RUNTIME_HISTORY_RPC_CURSOR_STALE,
+    RUNTIME_HISTORY_RPC_EPOCH_MISMATCH,
+    RUNTIME_HISTORY_RPC_RECORD_NOT_RETAINED,
+    RUNTIME_HISTORY_RPC_ERROR
+} runtime_history_rpc_status;
+
+typedef struct runtime_history_rpc_meta {
+    runtime_history_rpc_status status;
+    uint32_t byte_length;
+    uint64_t epoch;
+    uint32_t count;
+    uint64_t cursor;
+    uint64_t oldest;
+    uint64_t newest;
+    uint8_t more;
+} runtime_history_rpc_meta;
+
 typedef void *(*runtime_history_alloc_fn)(size_t size, void *user);
 typedef void (*runtime_history_free_fn)(void *ptr, void *user);
 
@@ -286,6 +314,8 @@ bool runtime_history_clear_for_state_load(
     uint64_t machine_cycle);
 bool runtime_history_transition_timeline(runtime_history *history);
 bool runtime_history_set_timeline(runtime_history *history, uint32_t timeline);
+bool runtime_history_force_new_block(
+    runtime_history *history, uint64_t machine_cycle);
 /* Logical floor: status/first treat `id` as the new oldest retained record. */
 bool runtime_history_retain_from(
     runtime_history *history,
