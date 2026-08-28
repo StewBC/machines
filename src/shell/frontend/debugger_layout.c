@@ -254,3 +254,36 @@ int debugger_layout_handle_drag(debugger_layout *layout, const struct nk_input *
 
     return changed;
 }
+
+void debugger_draw_view_border(
+    struct nk_context *ctx, struct nk_color color, float inset, float thickness)
+{
+    struct nk_command_buffer *canvas;
+    struct nk_rect content;
+
+    if (ctx == NULL) {
+        return;
+    }
+
+    canvas = nk_window_get_canvas(ctx);
+    content = nk_window_get_content_region(ctx);
+    if (content.w <= inset * 2.0f || content.h <= inset * 2.0f) {
+        return;
+    }
+
+    nk_stroke_rect(
+        canvas,
+        nk_rect(
+            content.x + inset,
+            content.y + inset,
+            content.w - inset * 2.0f,
+            content.h - inset * 2.0f),
+        0.0f,
+        thickness,
+        color);
+}
+
+void debugger_draw_active_view_border(struct nk_context *ctx)
+{
+    debugger_draw_view_border(ctx, nk_rgb(188, 198, 190), 1.0f, 2.0f);
+}

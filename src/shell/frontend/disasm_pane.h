@@ -53,7 +53,10 @@ typedef struct disasm_pane_ops {
     void (*open_symbol_lookup)(void *ctx);
     bool (*any_dialog_open)(void *ctx);
     bool (*view_is_active)(void *ctx);
-    void (*draw_context_menu)(void *ctx, struct nk_context *nk);
+    void (*set_active_view)(void *ctx);
+    void (*open_context_menu)(void *ctx);
+    void (*draw_context_menu)(void *ctx, struct nk_context *nk, disasm_pane_state *state);
+    float (*char_width)(void *ctx);
     uint16_t (*focus_pc)(void *ctx);
     bool (*focus_valid)(void *ctx);
     bool (*keys_enabled)(void *ctx);

@@ -33,6 +33,12 @@ Stage 7 client subset and Stage 5 memory-source table, not `apple2.h` /
 ## Product shape
 
 - Layout slot is Display | CPU | disasm | memory | Misc.
+- Active pane outline is a content-region stroke (`debugger_draw_active_view_border`),
+  not window bounds. Display and Misc draw it leftover; Disassembly and Memory
+  draw it in the shared panes. Hide it while a modal dialog is open.
+- Memory/disasm cursor, click-to-place, and right-click open/close live in the
+  shared panes (`debugger_context_menu` popup chrome). Menu *contents* stay
+  leftover (Apple Source+ASCII, C64 Source including 1541 maps).
 - Opt+M cycles the **machine's published sources**, not a shared enum.
   Apple memview Map→Main→Aux→LC1→LC2→ROM; Apple disasm Map→ROM→Main.
   C64 CPU map / ROM / RAM / drive 8 / drive 9. High-bit ASCII is a source

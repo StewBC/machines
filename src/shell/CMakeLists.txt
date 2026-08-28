@@ -22,6 +22,7 @@ add_library(shell STATIC
     frontend/disk_led_data.c
     frontend/forensics_view.c
     frontend/debugger_layout.c
+    frontend/debugger_context_menu.c
     frontend/disasm_pc_lock.c
     frontend/debugger_disasm.c
     frontend/memory_search.c

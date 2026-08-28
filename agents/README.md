@@ -71,6 +71,8 @@ targets so names do not collide).
   invocation (those `project()` calls are gone; leftover CMake is included
   from the root).
 - Do not configure `-S src/machine/apple2` or `-S src/machine/c64` as CI.
+  Those leftover trees at `build/a2m/` / `build/c64m/` collide with the
+  product binaries (`./build/a2m`, `./build/c64m`).
 - Do not leave a second `thread.c`, `nuklear.h`, or `am65/` in a machine tree.
 - Do not merge the two user manuals. Do not put `agents/` links in manuals.
 

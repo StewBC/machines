@@ -11,6 +11,17 @@ set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
 
+# Product binaries are ./build/a2m, ./build/c64m, ./build/am65. A leftover
+# nested cmake tree at those paths makes ld fail with "Is a directory".
+foreach(_exe a2m c64m am65)
+    if(IS_DIRECTORY "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/${_exe}")
+        message(FATAL_ERROR
+            "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/${_exe} is a directory. "
+            "Remove leftover nested build trees (`rm -rf build/a2m build/c64m`); "
+            "do not configure -S src/machine/apple2 or -S src/machine/c64.")
+    endif()
+endforeach()
+
 if(MSVC)
     add_compile_options($<$<COMPILE_LANGUAGE:C>:/experimental:c11atomics>)
     add_compile_definitions(SDL_MAIN_HANDLED)

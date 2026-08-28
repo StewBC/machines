@@ -1,5 +1,7 @@
 #include "memview_pane.h"
 
+#include "debugger_layout.h"
+
 #include <stdio.h>
 #include <string.h>
 
@@ -397,6 +399,86 @@ static void memview_split(memview_pane_state *state, bool aligned)
     nv->request_pending = false;
 }
 
+void memview_pane_split_at(memview_pane_state *state, int view_index, bool aligned)
+{
+    if (state == NULL || view_index < 0 || view_index >= state->view_count) {
+        return;
+    }
+    state->active_index = view_index;
+    memview_split(state, aligned);
+}
+
+void memview_pane_join_at(memview_pane_state *state, int view_index)
+{
+    int i;
+    int give_rows;
+    int rem_count;
+    int best;
+    int total_remain;
+    int given;
+    int ri;
+    int remaining;
+    int shares[MEMVIEW_PANE_VIEW_MAX];
+
+    if (state == NULL || state->view_count <= 1 ||
+        view_index < 0 || view_index >= state->view_count) {
+        return;
+    }
+    give_rows = state->views[view_index].rows;
+    state->color_slot_used[state->views[view_index].color_slot] = false;
+    rem_count = state->view_count - 1;
+    total_remain = 0;
+    for (i = 0; i < state->view_count; i++) {
+        if (i != view_index) {
+            total_remain += state->views[i].rows;
+        }
+    }
+    given = 0;
+    ri = 0;
+    for (i = 0; i < state->view_count; i++) {
+        if (i == view_index) {
+            continue;
+        }
+        shares[ri] = (total_remain > 0) ?
+            (int)((long)state->views[i].rows * give_rows / total_remain) :
+            (give_rows / rem_count);
+        given += shares[ri++];
+    }
+    remaining = give_rows - given;
+    while (remaining > 0) {
+        best = -1;
+        for (i = 0; i < rem_count; i++) {
+            if (best == -1 || shares[i] < shares[best]) {
+                best = i;
+            }
+        }
+        if (best < 0) {
+            break;
+        }
+        shares[best]++;
+        remaining--;
+    }
+    ri = 0;
+    for (i = 0; i < state->view_count; i++) {
+        if (i == view_index) {
+            continue;
+        }
+        {
+            int nr = state->views[i].rows + shares[ri++];
+            state->views[i].rows = (uint8_t)(nr > 255 ? 255 : nr);
+        }
+    }
+    for (i = view_index; i < state->view_count - 1; i++) {
+        state->views[i] = state->views[i + 1];
+    }
+    state->view_count--;
+    if (view_index < state->view_count) {
+        state->active_index = view_index;
+    } else {
+        state->active_index = state->view_count - 1;
+    }
+}
+
 static void memview_dissolve(memview_pane_state *state)
 {
     int i;
@@ -688,6 +770,216 @@ void memview_pane_handle_key(
     }
 }
 
+static int memview_cursor_text_col(const memview_pane_view *view)
+{
+    uint16_t offset;
+    uint8_t col;
+
+    if (view == NULL || view->columns == 0u) {
+        return 0;
+    }
+    if (view->edit_field == MEMVIEW_PANE_EDIT_ADDRESS) {
+        return (int)view->active_address_digit;
+    }
+    offset = (uint16_t)(view->cursor_address - view->view_address);
+    col = (uint8_t)(offset % view->columns);
+    if (view->edit_field == MEMVIEW_PANE_EDIT_ASCII) {
+        return 5 + (int)view->columns * 3 + (int)col;
+    }
+    return 5 + (int)col * 3 + (int)view->active_nibble;
+}
+
+static char memview_line_char_at(const char *line, int index)
+{
+    size_t length;
+
+    if (line == NULL || index < 0) {
+        return ' ';
+    }
+    length = strlen(line);
+    if ((size_t)index >= length) {
+        return ' ';
+    }
+    return line[index];
+}
+
+static void memview_draw_cursor(
+    struct nk_context *ctx,
+    const memview_pane_view *view,
+    struct nk_rect row_bounds,
+    const char *line,
+    uint16_t row_addr,
+    float char_w,
+    bool mem_active,
+    bool paused)
+{
+    struct nk_command_buffer *canvas;
+    uint16_t row_offset;
+    int text_col;
+    struct nk_rect cursor_rect;
+    char text[2];
+
+    if (ctx == NULL || view == NULL || line == NULL || !mem_active || !paused) {
+        return;
+    }
+    row_offset = (uint16_t)(view->cursor_address - row_addr);
+    if (view->edit_field == MEMVIEW_PANE_EDIT_ADDRESS &&
+        (row_offset >= view->columns || view->cursor_address != row_addr)) {
+        return;
+    }
+    if (view->edit_field != MEMVIEW_PANE_EDIT_ADDRESS && row_offset >= view->columns) {
+        return;
+    }
+
+    text_col = memview_cursor_text_col(view);
+    cursor_rect = nk_rect(
+        row_bounds.x + char_w * (float)text_col,
+        row_bounds.y + 1.0f,
+        char_w,
+        row_bounds.h - 2.0f);
+    text[0] = memview_line_char_at(line, text_col);
+    text[1] = '\0';
+
+    canvas = nk_window_get_canvas(ctx);
+    nk_fill_rect(canvas, cursor_rect, 0.0f, nk_rgb(255, 244, 120));
+    nk_draw_text(
+        canvas,
+        cursor_rect,
+        text,
+        1,
+        ctx->style.font,
+        nk_rgb(255, 244, 120),
+        nk_rgb(20, 24, 28));
+}
+
+static bool memview_row_address_at(
+    const memview_pane_view *view,
+    struct nk_rect row_bounds,
+    uint16_t row_addr,
+    float mouse_x,
+    float char_w,
+    uint16_t *out_address,
+    memview_pane_edit_field *out_field,
+    uint8_t *out_nibble,
+    uint8_t *out_address_digit)
+{
+    float rel_x;
+    int text_col;
+    int hex_start = 5;
+    int ascii_start;
+    int hex_end;
+
+    if (view == NULL || out_address == NULL || char_w <= 0.0f) {
+        return false;
+    }
+    ascii_start = hex_start + (int)view->columns * 3;
+    hex_end = ascii_start;
+
+    rel_x = mouse_x - row_bounds.x;
+    if (rel_x < 0.0f) {
+        rel_x = 0.0f;
+    }
+    text_col = (int)(rel_x / char_w);
+
+    if (text_col < 4) {
+        *out_address = row_addr;
+        if (out_field != NULL) {
+            *out_field = MEMVIEW_PANE_EDIT_ADDRESS;
+        }
+        if (out_address_digit != NULL) {
+            *out_address_digit = (uint8_t)text_col;
+        }
+        return true;
+    }
+
+    if (text_col >= hex_start && text_col < hex_end) {
+        int cell = (text_col - hex_start) / 3;
+        int cell_col = (text_col - hex_start) % 3;
+
+        if (cell >= 0 && cell < (int)view->columns) {
+            *out_address = (uint16_t)(row_addr + cell);
+            if (out_field != NULL) {
+                *out_field = MEMVIEW_PANE_EDIT_HEX;
+            }
+            if (out_nibble != NULL) {
+                *out_nibble = (uint8_t)(cell_col == 1 ? 1 : 0);
+            }
+            return true;
+        }
+        return false;
+    }
+
+    if (text_col >= ascii_start && text_col < ascii_start + (int)view->columns) {
+        int cell = text_col - ascii_start;
+
+        *out_address = (uint16_t)(row_addr + cell);
+        if (out_field != NULL) {
+            *out_field = MEMVIEW_PANE_EDIT_ASCII;
+        }
+        return true;
+    }
+
+    return false;
+}
+
+static void memview_handle_mouse_row(
+    struct nk_context *ctx,
+    memview_pane_state *state,
+    int view_index,
+    struct nk_rect row_bounds,
+    uint16_t row_addr,
+    float char_w,
+    const memview_pane_ops *ops)
+{
+    memview_pane_view *view;
+    uint16_t address;
+    memview_pane_edit_field field;
+    uint8_t nibble = 0u;
+    uint8_t address_digit = 0u;
+    bool left_click;
+    bool right_click;
+
+    if (ctx == NULL || state == NULL || view_index < 0 || view_index >= state->view_count) {
+        return;
+    }
+    if (!nk_input_is_mouse_hovering_rect(&ctx->input, row_bounds)) {
+        return;
+    }
+
+    left_click = nk_input_is_mouse_pressed(&ctx->input, NK_BUTTON_LEFT) != 0;
+    right_click = nk_input_is_mouse_pressed(&ctx->input, NK_BUTTON_RIGHT) != 0;
+    if (!left_click && !right_click) {
+        return;
+    }
+
+    view = &state->views[view_index];
+    if (!memview_row_address_at(
+            view,
+            row_bounds,
+            row_addr,
+            left_click ? ctx->input.mouse.pos.x :
+                ctx->input.mouse.buttons[NK_BUTTON_RIGHT].clicked_pos.x,
+            char_w,
+            &address,
+            &field,
+            &nibble,
+            &address_digit)) {
+        return;
+    }
+
+    if (ops != NULL && ops->set_active_view != NULL) {
+        ops->set_active_view(ops->ctx);
+    }
+    state->active_index = view_index;
+    view->edit_field = field;
+    view->cursor_address = address;
+    if (field == MEMVIEW_PANE_EDIT_HEX) {
+        view->active_nibble = nibble;
+    } else if (field == MEMVIEW_PANE_EDIT_ADDRESS) {
+        view->active_address_digit = address_digit;
+    }
+}
+
 static void memview_draw_footer(
     struct nk_context *ctx,
     memview_pane_state *state,
@@ -883,6 +1175,12 @@ void memview_pane_draw(
                         mv->cached_y_bottom = rb.y + rb.h;
                         nk_fill_rect(canvas, rb, 0.0f, bg_c);
                         nk_draw_text(canvas, text_rb, line, (int)(lp - line), font, bg_c, text_c);
+                        memview_handle_mouse_row(
+                            ctx, state, v, text_rb, row_addr, char_w, ops);
+                        if (v == state->active_index) {
+                            memview_draw_cursor(
+                                ctx, mv, text_rb, line, row_addr, char_w, mem_active, paused);
+                        }
                     }
                 }
                 if (!any_dialog && ctx->input.mouse.scroll_delta.y != 0.0f) {
@@ -911,12 +1209,33 @@ void memview_pane_draw(
         memview_draw_footer(
             ctx, state, nk_window_get_content_region(ctx), footer_h, editable, active_src);
 
+        if (nk_input_is_mouse_click_in_rect(&ctx->input, NK_BUTTON_RIGHT, bounds) &&
+            ops != NULL && ops->open_context_menu != NULL) {
+            int view_index = state->active_index;
+            uint16_t address = 0u;
+            float click_y = ctx->input.mouse.buttons[NK_BUTTON_RIGHT].clicked_pos.y;
+
+            if (view_index >= 0 && view_index < state->view_count) {
+                address = state->views[view_index].cursor_address;
+            }
+
+            for (v = 0; v < state->view_count; v++) {
+                if (state->views[v].rows > 0u &&
+                    click_y >= state->views[v].cached_y_top &&
+                    click_y < state->views[v].cached_y_bottom) {
+                    view_index = v;
+                    address = state->views[v].cursor_address;
+                    break;
+                }
+            }
+            ops->open_context_menu(
+                ops->ctx, view_index, address, state->view_count, running);
+        }
         if (ops != NULL && ops->draw_context_menu != NULL) {
-            ops->draw_context_menu(ops->ctx, ctx);
+            ops->draw_context_menu(ops->ctx, ctx, state);
         }
         if (mem_active) {
-            struct nk_rect inner = nk_window_get_bounds(ctx);
-            nk_stroke_rect(nk_window_get_canvas(ctx), inner, 0.0f, 2.0f, nk_rgb(232, 235, 238));
+            debugger_draw_active_view_border(ctx);
         }
         if (have_rows_x) {
             canvas = nk_window_get_canvas(ctx);

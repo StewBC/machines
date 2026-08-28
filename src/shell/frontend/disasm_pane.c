@@ -1,5 +1,7 @@
 #include "disasm_pane.h"
 
+#include "debugger_layout.h"
+
 #include <stdio.h>
 #include <string.h>
 
@@ -319,7 +321,19 @@ void disasm_pane_draw(
     }
 
     if (nk_begin(ctx, title, bounds, k_pane_flags)) {
+        struct nk_style_window saved_window_style = ctx->style.window;
         struct nk_command_buffer *canvas = nk_window_get_canvas(ctx);
+        bool any_dialog = ops != NULL && ops->any_dialog_open != NULL &&
+            ops->any_dialog_open(ops->ctx);
+        bool dasm_active = state->active;
+        if (ops != NULL && ops->view_is_active != NULL) {
+            dasm_active = ops->view_is_active(ops->ctx);
+        }
+
+        ctx->style.window.padding = nk_vec2(0.0f, 0.0f);
+        ctx->style.window.spacing = nk_vec2(0.0f, 0.0f);
+        ctx->style.window.group_padding = nk_vec2(0.0f, 0.0f);
+
         for (row = 0; row < state->rows; row++) {
             char line[128];
             const disasm_6502_line *dec = &state->lines[row].base;
@@ -341,16 +355,74 @@ void disasm_pane_draw(
                 struct nk_color bg = is_focus ? nk_rgb(24, 62, 118) : nk_rgb(17, 22, 28);
                 struct nk_color fg = is_browse && !is_focus ?
                     nk_rgb(255, 210, 80) : nk_rgb(232, 235, 238);
+                float char_w = (ops != NULL && ops->char_width != NULL) ?
+                    ops->char_width(ops->ctx) : 8.0f;
                 nk_fill_rect(canvas, rb, 0.0f, bg);
                 nk_draw_text(
                     canvas, rb, line, (int)strlen(line), font, bg, fg);
+                if (nk_input_is_mouse_pressed(&ctx->input, NK_BUTTON_LEFT) &&
+                    nk_input_is_mouse_hovering_rect(&ctx->input, rb)) {
+                    if (ops != NULL && ops->set_active_view != NULL) {
+                        ops->set_active_view(ops->ctx);
+                    }
+                    if (!running) {
+                        int text_col;
+                        float rel_x = ctx->input.mouse.pos.x - rb.x;
+                        if (rel_x < 0.0f) {
+                            rel_x = 0.0f;
+                        }
+                        text_col = (int)(rel_x / char_w);
+                        state->cursor_address = dec->address;
+                        state->has_user_cursor = true;
+                        state->follow_pc = false;
+                        state->pc_lock_active = false;
+                        if (text_col >= 2 && text_col <= 5) {
+                            state->chrome.address_entry = true;
+                            state->chrome.active_address_digit = (uint8_t)(text_col - 2);
+                        } else {
+                            state->chrome.address_entry = false;
+                        }
+                    }
+                }
+                if (dasm_active && state->chrome.address_entry &&
+                    dec->address == state->cursor_address) {
+                    struct nk_rect cursor_rect;
+                    char text[2];
+                    int text_col = 2 + (int)state->chrome.active_address_digit;
+
+                    cursor_rect = nk_rect(
+                        rb.x + char_w * (float)text_col,
+                        rb.y + 1.0f,
+                        char_w,
+                        rb.h - 2.0f);
+                    text[0] = (text_col >= 0 && text_col < (int)strlen(line)) ?
+                        line[text_col] : ' ';
+                    text[1] = '\0';
+                    nk_fill_rect(canvas, cursor_rect, 0.0f, nk_rgb(255, 244, 120));
+                    nk_draw_text(
+                        canvas,
+                        cursor_rect,
+                        text,
+                        1,
+                        font,
+                        nk_rgb(255, 244, 120),
+                        nk_rgb(20, 24, 28));
+                }
             }
         }
         nk_layout_row_dynamic(ctx, 18.0f, 1);
         nk_label(ctx, debugger_disasm_footer_hint(DEBUGGER_DISASM_MODE_LIVE), NK_TEXT_LEFT);
-        if (ops != NULL && ops->draw_context_menu != NULL) {
-            ops->draw_context_menu(ops->ctx, ctx);
+        if (nk_input_is_mouse_click_in_rect(&ctx->input, NK_BUTTON_RIGHT, bounds) &&
+            ops != NULL && ops->open_context_menu != NULL) {
+            ops->open_context_menu(ops->ctx);
         }
+        if (ops != NULL && ops->draw_context_menu != NULL) {
+            ops->draw_context_menu(ops->ctx, ctx, state);
+        }
+        if (!any_dialog && dasm_active) {
+            debugger_draw_active_view_border(ctx);
+        }
+        ctx->style.window = saved_window_style;
     }
     nk_end(ctx);
 }

@@ -78,7 +78,9 @@ typedef struct memview_pane_ops {
     void (*set_active_view)(void *ctx);
     bool (*any_dialog_open)(void *ctx);
     bool (*view_is_active)(void *ctx);
-    void (*draw_context_menu)(void *ctx, struct nk_context *nk);
+    void (*open_context_menu)(
+        void *ctx, int view_index, uint16_t address, int view_count, bool running);
+    void (*draw_context_menu)(void *ctx, struct nk_context *nk, memview_pane_state *state);
     float (*char_width)(void *ctx);
 } memview_pane_ops;
 
@@ -91,6 +93,8 @@ void memview_pane_apply_source(
     uint32_t source_id);
 
 void memview_pane_init(memview_pane_state *state, uint32_t source_id, bool highbit_ascii);
+void memview_pane_split_at(memview_pane_state *state, int view_index, bool aligned);
+void memview_pane_join_at(memview_pane_state *state, int view_index);
 
 void memview_pane_handle_key(
     memview_pane_state *state,

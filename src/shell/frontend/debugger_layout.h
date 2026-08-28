@@ -50,3 +50,9 @@ typedef struct debugger_layout {
 void debugger_layout_init(debugger_layout *layout);
 void debugger_layout_compute(debugger_layout *layout, struct nk_rect parent, const debugger_layout_limits *limits);
 int debugger_layout_handle_drag(debugger_layout *layout, const struct nk_input *input, struct nk_rect parent, const debugger_layout_limits *limits);
+
+/* Neutral gray outline for the keyboard-focus pane. Stroke the content
+ * region (not window bounds): Nuklear clips drawing to the content clip. */
+void debugger_draw_view_border(
+    struct nk_context *ctx, struct nk_color color, float inset, float thickness);
+void debugger_draw_active_view_border(struct nk_context *ctx);
