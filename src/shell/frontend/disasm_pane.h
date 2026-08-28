@@ -44,6 +44,19 @@ typedef struct disasm_pane_state {
     int cache_count;
 } disasm_pane_state;
 
+enum {
+    DISASM_PANE_BP_NONE = 0,
+    DISASM_PANE_BP_ENABLED = 1,
+    DISASM_PANE_BP_DISABLED = 2
+};
+
+typedef struct disasm_pane_target {
+    bool show;
+    bool has_value;
+    uint16_t address;
+    uint8_t value;
+} disasm_pane_target;
+
 typedef struct disasm_pane_ops {
     void *ctx;
     const symbol_resolver *symbols;
@@ -60,6 +73,9 @@ typedef struct disasm_pane_ops {
     uint16_t (*focus_pc)(void *ctx);
     bool (*focus_valid)(void *ctx);
     bool (*keys_enabled)(void *ctx);
+    int (*execute_bp)(void *ctx, uint16_t address);
+    void (*annotate_target)(
+        void *ctx, const disasm_6502_line *line, disasm_pane_target *out);
 } disasm_pane_ops;
 
 void disasm_pane_init(disasm_pane_state *state, uint32_t source_id, disasm_6502_cpu_class cpu);

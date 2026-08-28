@@ -3964,6 +3964,35 @@ static frontend_disasm_target frontend_disassembly_compute_target(
     return result;
 }
 
+static int frontend_disasm_execute_bp(void *ctx, uint16_t address)
+{
+    frontend *ui = ctx;
+    const runtime_breakpoint_snapshot_entry *entry =
+        frontend_find_execute_breakpoint(ui != NULL ? ui->memview_debug : NULL, address);
+
+    if (entry == NULL) {
+        return DISASM_PANE_BP_NONE;
+    }
+    return entry->enabled != 0 ? DISASM_PANE_BP_ENABLED : DISASM_PANE_BP_DISABLED;
+}
+
+static void frontend_disasm_annotate_target(
+    void *ctx, const disasm_6502_line *line, disasm_pane_target *out)
+{
+    frontend *ui = ctx;
+    frontend_disasm_target tgt;
+
+    if (out == NULL) {
+        return;
+    }
+    tgt = frontend_disassembly_compute_target(
+        ui, ui != NULL ? ui->memview_debug : NULL, line);
+    out->show = tgt.show;
+    out->has_value = tgt.has_value;
+    out->address = tgt.address;
+    out->value = tgt.value;
+}
+
 static bool frontend_disasm_any_dialog(void *ctx)
 {
     return frontend_any_dialog_open((frontend *)ctx);
@@ -3994,6 +4023,10 @@ static void frontend_disasm_open_context(void *ctx)
     }
     frontend_context_popup_open(ui, &ui->disassembly_context_popup, 120.0f, 100.0f);
 }
+
+static int frontend_disasm_execute_bp(void *ctx, uint16_t address);
+static void frontend_disasm_annotate_target(
+    void *ctx, const disasm_6502_line *line, disasm_pane_target *out);
 
 static bool frontend_disasm_source_item(
     frontend *ui, disasm_pane_state *state, uint32_t source_id, const char *label, bool *close_popup)
@@ -4048,6 +4081,7 @@ static void frontend_draw_disassembly_view(
     if (ui == NULL) {
         return;
     }
+    ui->memview_debug = debug_state;
     if (ui->has_pending_disassembly_key) {
         if (ui->disassembly.active) {
             frontend_disassembly_handle_key(ui, debug_state, &ui->pending_disassembly_key);
@@ -4067,6 +4101,14 @@ static void frontend_draw_disassembly_view(
     pane.initialized = ui->disassembly.initialized;
     pane.chrome.address_entry = ui->disassembly.address_entry;
     pane.chrome.active_address_digit = ui->disassembly.active_address_digit;
+    pane.last_pc = ui->disassembly.last_pc;
+    pane.has_last_pc = ui->disassembly.has_last_pc;
+    pane.pc_lock_address = ui->disassembly.pc_lock_address;
+    pane.cursor_row = ui->disassembly.cursor_row;
+    pane.cursor_length = ui->disassembly.cursor_length;
+    pane.scrollbar_dragging = ui->disassembly.scrollbar_dragging;
+    pane.scrollbar_grab_offset = ui->disassembly.scrollbar_grab_offset;
+    memcpy(pane.lines, ui->disassembly.lines, sizeof(pane.lines));
     n = (int)(sizeof(ui->disassembly.mem_cache) / sizeof(ui->disassembly.mem_cache[0]));
     if (n > DISASM_PANE_CACHE_MAX) {
         n = DISASM_PANE_CACHE_MAX;
@@ -4088,6 +4130,8 @@ static void frontend_draw_disassembly_view(
     ops.open_context_menu = frontend_disasm_open_context;
     ops.draw_context_menu = frontend_disasm_draw_context;
     ops.char_width = frontend_disasm_char_width;
+    ops.execute_bp = frontend_disasm_execute_bp;
+    ops.annotate_target = frontend_disasm_annotate_target;
     disasm_pane_draw(
         ui->ctx,
         bounds,
@@ -4109,6 +4153,14 @@ static void frontend_draw_disassembly_view(
     ui->disassembly.address_entry = pane.chrome.address_entry;
     ui->disassembly.active_address_digit = pane.chrome.active_address_digit;
     ui->disassembly.mode = (runtime_memory_mode)pane.source_id;
+    ui->disassembly.last_pc = pane.last_pc;
+    ui->disassembly.has_last_pc = pane.has_last_pc;
+    ui->disassembly.pc_lock_address = pane.pc_lock_address;
+    ui->disassembly.cursor_row = pane.cursor_row;
+    ui->disassembly.cursor_length = pane.cursor_length;
+    ui->disassembly.scrollbar_dragging = pane.scrollbar_dragging;
+    ui->disassembly.scrollbar_grab_offset = pane.scrollbar_grab_offset;
+    memcpy(ui->disassembly.lines, pane.lines, sizeof(ui->disassembly.lines));
 }
 
 static uint16_t frontend_memory_visible_count(const frontend_memory_view_state *memory)
