@@ -36,10 +36,11 @@ Canonical product-as-is notes (leftover trees after Stage 1):
 | Stage 2: Shared platform / util / external / nuklear | **landed** | 2026-08-27 | [`shell-extract-platform.md`](shell-extract-platform.md) |
 | Stage 3: Assembler and disasm CPU class | **landed** | 2026-08-27 | [`assembler-disasm.md`](assembler-disasm.md) |
 | Stage 4: Control framing | **landed** | 2026-08-27 | [`control-framing.md`](control-framing.md) |
+| Stage 6: Runtime shell twins (history / BP / forensics / help) | **active** (doc Status: **Accepted**; extract follows) | 2026-08-27 | [`runtime-shell-extract.md`](runtime-shell-extract.md) |
 
 Follow-on designs named by the stage map (not written yet):
 `control-command-tables.md`,
-`runtime-shell-extract.md`, `runtime-client-seam.md`, `debugger-chrome.md`,
+`runtime-client-seam.md`, `debugger-chrome.md`,
 `inspector-unification.md`, `monorepo-agents.md`.
 
 Landed Inspector / Forensics designs live in the leftover product trees
