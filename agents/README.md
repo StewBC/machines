@@ -88,9 +88,10 @@ Help overlay: one `src/shell/tools/gen_help.py`, two books
 
 ## Freeze
 
-Feature work on `a2m.git` and `c64m.git` has stopped. Those GitHub
-repos are archived. Hotfixes land in `machines` first. Tag names:
-`design/import-revisions.md`. Archive record: `design/retire-remotes.md`.
+Feature work on `a2m.git`, `c64m.git`, and `am65.git` has stopped. Those
+GitHub repos are archived. Hotfixes land in `machines` first. Tag names:
+`design/import-revisions.md` and `design/retire-remotes.md`. Archive
+record: `design/retire-remotes.md`.
 
 Control **framing + verb runner + memory-source type** is `src/shell/control/`.
 Leftover binaries supply verb tables and memory-source tables. `capabilities`

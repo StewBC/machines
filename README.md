@@ -63,11 +63,13 @@ a merge regression. Do not "fix" it here.
 ## Freeze / retired remotes
 
 `machines` is the only home. Feature work on `a2m.git`
-(`https://github.com/StewBC/a2m.git`) and `c64m.git`
-(`https://github.com/StewBC/c64m.git`) **stopped** at the freeze tags in
-[`design/import-revisions.md`](design/import-revisions.md). Those GitHub
-repos are **archived** (read-only) with a freeze README; details:
-[`design/retire-remotes.md`](design/retire-remotes.md).
+(`https://github.com/StewBC/a2m.git`), `c64m.git`
+(`https://github.com/StewBC/c64m.git`), and the assembler hub `am65.git`
+(`https://github.com/StewBC/am65.git`) **stopped** at the freeze tags in
+[`design/import-revisions.md`](design/import-revisions.md) and
+[`design/retire-remotes.md`](design/retire-remotes.md). Those GitHub
+repos are **archived** (read-only) with a freeze README. Assembler source
+is `src/shell/tools/am65/` (one copy; not a hub).
 
 ## License
 

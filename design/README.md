@@ -45,7 +45,7 @@ Canonical product-as-is notes (Stage 10 destination):
 | Stage 9: Inspector unification (shared tab; leftover clocks) | **landed** | 2026-08-27 | [`inspector-unification.md`](inspector-unification.md) |
 | Stage 10: Agent handoff, manuals, tests layout | **landed** | 2026-08-27 | [`monorepo-agents.md`](monorepo-agents.md) |
 | Stage 11: Root two-target CMake (layout, binaries, tests) | **landed** | 2026-08-27 | [`stage11-root-cmake.md`](stage11-root-cmake.md) |
-| Retire a2m.git / c64m.git (README + GitHub archive) | **landed** | 2026-08-27 | [`retire-remotes.md`](retire-remotes.md) |
+| Retire a2m.git / c64m.git / am65.git (README + GitHub archive) | **landed** | 2026-08-28 | [`retire-remotes.md`](retire-remotes.md) |
 
 Follow-on designs named by the stage map (not written yet):
 none (Stage 11 was the last numbered stage).

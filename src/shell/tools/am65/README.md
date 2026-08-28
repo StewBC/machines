@@ -1,9 +1,8 @@
 # am65
 
 `am65` is the assembler used by a2m, c64m, and the standalone `am65`
-command-line program. Apps keep a plain vendored copy under `src/tools/am65`
-so a normal `git clone` of either app is enough to build. Assembler history
-and merges live in this hub repo; see `HUB.md` for the sync/get workflow.
+command-line program. This tree is the only copy (`src/shell/tools/am65/`).
+The old hub remote (`am65.git`) is frozen.
 
 The initial CPU profile is NMOS 6502. It can be selected through the library
 API (`assembler_set_cpu_profile`), with `am65 --cpu`, or changed within source:
