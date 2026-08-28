@@ -17,6 +17,7 @@ target_compile_features(control PUBLIC c_std_99)
 
 target_link_libraries(control
     PUBLIC
+        shell
         util
         platform
         runtime

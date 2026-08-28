@@ -579,19 +579,20 @@ static void test_response_formatting(void)
     char line[128];
 
     control_protocol_format_ok(&response, 9, NULL, false);
-    expect_true("write ok", control_protocol_write_response_line(&response, line, sizeof(line)));
+    expect_true("write ok", control_protocol_write_response_line(line, sizeof(line), &response));
     expect_string("ok line", "9 ok\n", line);
 
     control_protocol_format_ok(&response, 10, "protocol=C64M/1", false);
-    expect_true("write ok text", control_protocol_write_response_line(&response, line, sizeof(line)));
+    expect_true("write ok text", control_protocol_write_response_line(line, sizeof(line), &response));
     expect_string("ok text line", "10 ok protocol=C64M/1\n", line);
 
     control_protocol_format_error(&response, 11, "bad-request", "missing command", false);
-    expect_true("write error", control_protocol_write_response_line(&response, line, sizeof(line)));
+    expect_true("write error", control_protocol_write_response_line(line, sizeof(line), &response));
     expect_string("error line", "11 error bad-request missing command\n", line);
 
-    control_protocol_format_data(&response, 12, "memory", NULL, 4, "addr=0400 length=4 mode=0", false);
-    expect_true("write data", control_protocol_write_response_line(&response, line, sizeof(line)));
+    control_protocol_format_data(
+        &response, 12, "memory", "addr=0400 length=4 mode=0", NULL, 4, false);
+    expect_true("write data", control_protocol_write_response_line(line, sizeof(line), &response));
     expect_string("data line", "12 data memory 4 addr=0400 length=4 mode=0\n", line);
     control_response_release(&response);
 
@@ -601,7 +602,7 @@ static void test_response_formatting(void)
         "state-changed reason=step session=2 cycles=12345 frame=1 epoch=1");
     expect_true(
         "write event",
-        control_protocol_write_response_line(&response, line, sizeof(line)));
+        control_protocol_write_response_line(line, sizeof(line), &response));
     expect_string(
         "event line",
         "0 event state-changed reason=step session=2 cycles=12345 frame=1 epoch=1\n",

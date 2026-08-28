@@ -1607,9 +1607,9 @@ static void control_format_memory_response(
         response,
         request_id,
         "memory",
+        metadata,
         payload,
         memory->length,
-        metadata,
         false);
 }
 
@@ -1638,9 +1638,9 @@ static void control_format_memory_rpc_response(
         response,
         request_id,
         "memory",
+        metadata,
         payload_owned,
         (size_t)length,
-        metadata,
         false);
 }
 
@@ -1724,9 +1724,9 @@ static void control_format_frame_response_ex(
         response,
         request_id,
         "frame",
+        metadata,
         payload,
         payload_size,
-        metadata,
         false);
 }
 
@@ -1864,7 +1864,7 @@ static void control_format_vic_ring_response(
 
     snprintf(metadata, sizeof(metadata), "count=%u", count);
     control_protocol_format_data(
-        response, request_id, "vic-ring", payload, used, metadata, false);
+        response, request_id, "vic-ring", metadata, payload, used, false);
 }
 
 static void control_format_debug_memory_response(
@@ -1913,9 +1913,9 @@ static void control_format_debug_memory_response(
         response,
         request_id,
         "debug-memory",
+        metadata,
         payload,
         payload_size,
-        metadata,
         false);
 }
 
@@ -2157,9 +2157,9 @@ static void control_format_breakpoints_response(
         response,
         request_id,
         "breakpoints",
+        metadata,
         payload,
         used,
-        metadata,
         false);
 }
 
@@ -2845,9 +2845,9 @@ static void complete_deferred_control_response(
                     &response,
                     deferred->request_id,
                     "history",
+                    metadata,
                     payload,
                     length,
-                    metadata,
                     false);
             }
         }
@@ -5326,19 +5326,19 @@ static void dispatch_control_request(
 
     switch (request->type) {
         case CONTROL_COMMAND_HELLO:
-            control_protocol_format_ok(
+            control_protocol_format_hello(
                 &response,
                 request->id,
-                "name=c64m protocol=C64M/8",
-                false);
+                CONTROL_PROTOCOL_APP_NAME,
+                CONTROL_PROTOCOL_VERSION);
             break;
 
         case CONTROL_COMMAND_VERSION:
-            control_protocol_format_ok(
+            control_protocol_format_version(
                 &response,
                 request->id,
-                "protocol=C64M/8 app=0.1.0",
-                false);
+                CONTROL_PROTOCOL_VERSION,
+                CONTROL_PROTOCOL_APP_LABEL);
             break;
 
         case CONTROL_COMMAND_CAPABILITIES:

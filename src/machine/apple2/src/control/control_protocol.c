@@ -19,156 +19,7 @@ void control_request_release(control_request *request)
     if (request == NULL) {
         return;
     }
-    free(request->payload);
-    request->payload = NULL;
-    request->payload_size = 0;
-}
-
-void control_response_release(control_response *response)
-{
-    if (response == NULL) {
-        return;
-    }
-    free(response->payload);
-    response->payload = NULL;
-    response->payload_size = 0;
-}
-
-void control_protocol_format_ok(
-    control_response *response,
-    uint32_t id,
-    const char *text)
-{
-    if (response == NULL) {
-        return;
-    }
-    memset(response, 0, sizeof(*response));
-    response->id = id;
-    response->type = CONTROL_RESPONSE_OK;
-    if (text != NULL) {
-        strncpy(response->text, text, CONTROL_RESPONSE_TEXT_MAX - 1);
-    }
-}
-
-void control_protocol_format_error(
-    control_response *response,
-    uint32_t id,
-    const char *code,
-    const char *message,
-    bool close_client)
-{
-    if (response == NULL) {
-        return;
-    }
-    memset(response, 0, sizeof(*response));
-    response->id = id;
-    response->type = CONTROL_RESPONSE_ERROR;
-    response->close_client = close_client;
-    snprintf(
-        response->text,
-        sizeof(response->text),
-        "%s %s",
-        code != NULL ? code : "error",
-        message != NULL ? message : "");
-}
-
-void control_protocol_format_event(
-    control_response *response,
-    uint32_t id,
-    const char *text)
-{
-    if (response == NULL) {
-        return;
-    }
-    memset(response, 0, sizeof(*response));
-    response->id = id;
-    response->type = CONTROL_RESPONSE_EVENT;
-    if (text != NULL) {
-        strncpy(response->text, text, CONTROL_RESPONSE_TEXT_MAX - 1);
-    }
-}
-
-void control_protocol_format_data(
-    control_response *response,
-    uint32_t id,
-    const char *data_type,
-    const char *metadata,
-    uint8_t *payload,
-    size_t payload_size)
-{
-    if (response == NULL) {
-        return;
-    }
-    memset(response, 0, sizeof(*response));
-    response->id = id;
-    response->type = CONTROL_RESPONSE_DATA;
-    if (data_type != NULL) {
-        strncpy(response->data_type, data_type, sizeof(response->data_type) - 1);
-    }
-    if (metadata != NULL) {
-        strncpy(response->metadata, metadata, sizeof(response->metadata) - 1);
-    }
-    response->payload = payload;
-    response->payload_size = payload_size;
-}
-
-bool control_protocol_write_response_line(
-    char *out,
-    size_t out_size,
-    const control_response *response)
-{
-    int n;
-
-    if (out == NULL || out_size == 0 || response == NULL) {
-        return false;
-    }
-
-    if (response->type == CONTROL_RESPONSE_OK) {
-        if (response->text[0] != '\0') {
-            n = snprintf(out, out_size, "%u ok %s\n", response->id, response->text);
-        } else {
-            n = snprintf(out, out_size, "%u ok\n", response->id);
-        }
-        return n > 0 && (size_t)n < out_size;
-    }
-
-    if (response->type == CONTROL_RESPONSE_ERROR) {
-        n = snprintf(out, out_size, "%u error %s\n", response->id, response->text);
-        return n > 0 && (size_t)n < out_size;
-    }
-
-    if (response->type == CONTROL_RESPONSE_EVENT) {
-        if (response->text[0] != '\0') {
-            n = snprintf(out, out_size, "%u event %s\n", response->id, response->text);
-        } else {
-            n = snprintf(out, out_size, "%u event\n", response->id);
-        }
-        return n > 0 && (size_t)n < out_size;
-    }
-
-    if (response->type == CONTROL_RESPONSE_DATA) {
-        if (response->metadata[0] != '\0') {
-            n = snprintf(
-                out,
-                out_size,
-                "%u data %s %zu %s\n",
-                response->id,
-                response->data_type,
-                response->payload_size,
-                response->metadata);
-        } else {
-            n = snprintf(
-                out,
-                out_size,
-                "%u data %s %zu\n",
-                response->id,
-                response->data_type,
-                response->payload_size);
-        }
-        return n > 0 && (size_t)n < out_size;
-    }
-
-    return false;
+    control_framing_release_payload(&request->payload, &request->payload_size);
 }
 
 static const char *skip_ws(const char *s)
@@ -646,7 +497,8 @@ bool control_protocol_parse_request(
     char *cursor;
     char *end = NULL;
     uint32_t id = 0;
-    char cmd[64];
+    control_framing_line framing;
+    control_framing_split_status split;
     size_t i;
 
     if (line == NULL || out_request == NULL) {
@@ -665,6 +517,7 @@ bool control_protocol_parse_request(
     out_request->args.history_after = 8u;
 
     strncpy(buf, line, sizeof(buf) - 1);
+    buf[sizeof(buf) - 1] = '\0';
     for (i = 0; buf[i] != '\0'; i++) {
         if (buf[i] == '\r' || buf[i] == '\n') {
             buf[i] = '\0';
@@ -672,41 +525,30 @@ bool control_protocol_parse_request(
         }
     }
 
-    cursor = (char *)skip_ws(buf);
-    if (*cursor == '\0') {
+    split = control_framing_split_line(buf, &framing);
+    if (split != CONTROL_FRAMING_SPLIT_OK) {
         if (out_error != NULL) {
-            control_protocol_format_error(out_error, 0, "bad-request", "empty", false);
+            if (split == CONTROL_FRAMING_SPLIT_BAD_ID) {
+                control_protocol_format_error(out_error, 0, "bad-id", "missing id", false);
+            } else if (split == CONTROL_FRAMING_SPLIT_MISSING_VERB) {
+                control_protocol_format_error(
+                    out_error, framing.id, "bad-request", "missing command", false);
+            } else {
+                control_protocol_format_error(out_error, 0, "bad-request", "empty", false);
+            }
         }
         return false;
     }
 
-    if (!parse_u32(cursor, &end, &id) || end == NULL) {
-        if (out_error != NULL) {
-            control_protocol_format_error(out_error, 0, "bad-id", "missing id", false);
-        }
-        return false;
-    }
-    cursor = (char *)skip_ws(end);
-    if (*cursor == '\0') {
-        if (out_error != NULL) {
-            control_protocol_format_error(out_error, id, "bad-request", "missing command", false);
-        }
-        return false;
-    }
-
-    i = 0;
-    while (cursor[i] != '\0' && !isspace((unsigned char)cursor[i]) && i + 1 < sizeof(cmd)) {
-        cmd[i] = cursor[i];
-        i++;
-    }
-    cmd[i] = '\0';
-    cursor = (char *)skip_ws(cursor + i);
+    id = framing.id;
+    cursor = (char *)framing.rest;
 
     out_request->id = id;
-    out_request->type = lookup_command(cmd);
+    out_request->type = lookup_command(framing.verb);
     if (out_request->type == CONTROL_COMMAND_NONE) {
         if (out_error != NULL) {
-            control_protocol_format_error(out_error, id, "unknown-command", cmd, false);
+            control_protocol_format_error(
+                out_error, id, "unknown-command", framing.verb, false);
         }
         return false;
     }

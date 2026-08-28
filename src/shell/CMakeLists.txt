@@ -14,6 +14,7 @@ add_library(shell STATIC
     platform/platform_fs.c
     platform/platform_socket.c
     frontend/nuklear_impl.c
+    control/control_framing.c
 )
 
 set_source_files_properties(util/audio_buffer.c PROPERTIES
@@ -25,6 +26,7 @@ target_include_directories(shell PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/util
     ${CMAKE_CURRENT_SOURCE_DIR}/platform
     ${CMAKE_CURRENT_SOURCE_DIR}/frontend
+    ${CMAKE_CURRENT_SOURCE_DIR}/control
     ${SDL2_INCLUDE_DIRS}
 )
 

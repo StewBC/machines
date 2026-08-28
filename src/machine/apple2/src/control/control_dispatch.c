@@ -115,7 +115,7 @@ static void set_stop_reason(control_dispatch_t *disp, const char *reason)
 static void post_ok(control_dispatch_t *disp, uint32_t id, const char *text)
 {
     control_response response;
-    control_protocol_format_ok(&response, id, text);
+    control_protocol_format_ok(&response, id, text, false);
     (void)control_server_post_response(disp->server, &response);
 }
 
@@ -790,7 +790,8 @@ static bool try_post_frame(control_dispatch_t *disp, uint32_t request_id)
         "frame",
         meta,
         (uint8_t *)pixels,
-        (size_t)width * (size_t)height * 4u);
+        (size_t)width * (size_t)height * 4u,
+        false);
     if (!control_server_post_response(disp->server, &response)) {
         free(pixels);
     }
@@ -1139,7 +1140,7 @@ void control_dispatch_on_runtime_event(
             length,
             control_protocol_memory_mode_name(d->memory_mode));
         control_protocol_format_data(
-            &response, d->request_id, "memory", meta, bytes, length);
+            &response, d->request_id, "memory", meta, bytes, length, false);
         if (!control_server_post_response(disp->server, &response)) {
             free(bytes);
         }
@@ -1166,7 +1167,7 @@ void control_dispatch_on_runtime_event(
             return;
         }
         control_protocol_format_data(
-            &response, d->request_id, "breakpoints", meta, payload, payload_size);
+            &response, d->request_id, "breakpoints", meta, payload, payload_size, false);
         if (!control_server_post_response(disp->server, &response)) {
             free(payload);
         }
@@ -1324,7 +1325,7 @@ void control_dispatch_on_runtime_event(
                 (unsigned long long)claimed.oldest,
                 (unsigned long long)claimed.newest);
             control_protocol_format_data(
-                &response, d->request_id, "history", mtext, bytes, length);
+                &response, d->request_id, "history", mtext, bytes, length, false);
             if (!control_server_post_response(disp->server, &response)) {
                 free(bytes);
             }
@@ -1599,7 +1600,7 @@ static void handle_request(control_dispatch_t *disp, control_request *req)
             (unsigned long long)req->args.frame_ring_target,
             req->args.frame_ring_by_cycle ? "cycle" : "frame");
         control_protocol_format_data(
-            &response, req->id, "frame", meta, payload, nbytes);
+            &response, req->id, "frame", meta, payload, nbytes, false);
         if (!control_server_post_response(disp->server, &response)) {
             free(payload);
         }

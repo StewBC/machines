@@ -7,12 +7,12 @@ drafts live under [`design/`](../design/); they are not product-as-is.
 
 1. This file (layout, freeze, what is shared).
 2. [`design/merge-stage-map.md`](../design/merge-stage-map.md) — stage map.
-   Stage 3 is done (am65 / disasm_6502 / symbols EXTRACT + disasm CPU class).
-   Do not start Stage 4 (control framing), Stage 5 (command tables), or
-   Stage 6 (forensics/help) from this note.
+   Stage 4 is done (control framing EXTRACT). Do not start Stage 5
+   (command tables), Stage 6 (forensics/help), or Stage 7 from this note.
 3. [`design/shell-extract-platform.md`](../design/shell-extract-platform.md) —
    Stage 2 host layer. [`design/assembler-disasm.md`](../design/assembler-disasm.md) —
-   Stage 3 tools.
+   Stage 3 tools. [`design/control-framing.md`](../design/control-framing.md) —
+   Stage 4 framing.
 4. [`design/import-revisions.md`](../design/import-revisions.md) — imported
    SHAs, freeze tags, ctest baseline.
 5. The product handoff for the leftover tree you are changing:
@@ -21,14 +21,14 @@ drafts live under [`design/`](../design/); they are not product-as-is.
 
 Do not invent a blended `agents/apple2` / `agents/c64` layout yet (Stage 10).
 
-## Canonical sources (Stage 3)
+## Canonical sources (Stage 4)
 
 **Shared host layer is `src/shell/`** (plus repo-root `external/`). Link-into-both
 → shell. Link-into-one → that leftover machine tree.
 
 | Path | What it is |
 |------|------------|
-| `src/shell/` | Shared util / platform / nuklear vendor / `tools/{am65,disasm_6502,symbols}`. Static `shell` plus named tool targets. |
+| `src/shell/` | Shared util / platform / nuklear vendor / `control/` framing / `tools/{am65,disasm_6502,symbols}`. Static `shell` plus named tool targets. |
 | `external/` | argparse, inih, logc, stb, tiny-regex-c, whereami (unprefixed targets). |
 | `src/machine/apple2/` | Leftover a2m silicon, `runtime_thread`, leftover util (HostFS), leftover `platform_audio`, leftover frontend chrome. Still `project(a2m)`. |
 | `src/machine/c64/` | Leftover c64m silicon, `runtime_thread`, leftover util (BASIC/paste), leftover `platform_audio`, leftover frontend chrome, TrueType, format parsers. Still `project(c64m)`. |
@@ -47,8 +47,9 @@ There is still no root `project(machines)` with two `add_executable`s.
   **both** until later EXTRACT deletes a copy.
 - Do not flatten `src/machine/apple2/src/machine/cpu65.c`.
 - Do not start cleaning leftover C64 aliases in a2m.
-- Do not touch Inspector clocks, control protocol, or `frontend.c` chrome
-  beyond Stage 3 disasm class call sites already landed.
+- Do not touch Inspector clocks, leftover control *verbs* / `control_args`,
+  or `frontend.c` chrome beyond Stage 3 disasm class and Stage 4 framing
+  call sites already landed.
 - Do not unify `cpu65` with `c6510` or turn on `CPU_65c02` in C64 execution.
 - Do not invent a root `project(machines)` (Stage 11).
 - Do not leave a second `thread.c`, `nuklear.h`, or `am65/` in a machine tree.
@@ -66,7 +67,12 @@ NMOS vs 65C02 on `disasm_6502_decode_line`; C64 call sites always pass NMOS.
 Feature work on `a2m.git` and `c64m.git` has stopped. Hotfixes land in
 `machines` first. Tag names are in `design/import-revisions.md`.
 
-## Verification (Stage 3)
+Control **framing** is `src/shell/control/` (`control_framing_split_line`,
+formatters, I/O helpers). Product verb parsers, `control_args`, deferred
+capacity (a2m 1, c64m 16), and leftover `control_server.c` loops stay in
+the leftover trees. `hello` is still `A2M/13` / `C64M/8`.
+
+## Verification (Stage 4)
 
 ```bash
 make test
@@ -81,8 +87,8 @@ cmake -B build/a2m  -S src/machine/apple2  -DCMAKE_BUILD_TYPE=Debug
 cmake -B build/c64m -S src/machine/c64    -DCMAKE_BUILD_TYPE=Debug
 ```
 
-ctest: a2m 72/72 (was 71; new `disasm_6502_65c02`); c64m 69 pass + 10 SKIP +
-the same `history_control_integration` fail. Do not "fix" that fail.
+ctest: a2m 72/72; c64m 69 pass + 10 SKIP + the same
+`history_control_integration` fail. Do not "fix" that fail.
 
 ## Design docs
 

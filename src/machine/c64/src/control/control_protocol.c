@@ -741,52 +741,37 @@ bool control_protocol_parse_request(
     control_response *out_error)
 {
     const char *cursor;
-    const char *command_start;
-    const char *command_end;
     uint32_t id = 0;
     control_command_type type;
     control_args args;
+    control_framing_line framing;
+    control_framing_split_status split;
 
     if (line == NULL || out_request == NULL) {
         set_parse_error(out_error, 0, "bad-request", "missing request");
         return false;
     }
 
-    cursor = line;
-    while (*cursor == ' ' || *cursor == '\t') {
-        cursor++;
-    }
-    if (!parse_u32(cursor, &cursor, &id)) {
-        set_parse_error(out_error, 0, "bad-id", "request id must be a decimal integer");
+    split = control_framing_split_line(line, &framing);
+    if (split != CONTROL_FRAMING_SPLIT_OK) {
+        if (split == CONTROL_FRAMING_SPLIT_BAD_ID) {
+            set_parse_error(out_error, 0, "bad-id", "request id must be a decimal integer");
+        } else if (split == CONTROL_FRAMING_SPLIT_MISSING_VERB) {
+            set_parse_error(out_error, framing.id, "bad-request", "missing command");
+        } else {
+            set_parse_error(out_error, 0, "bad-request", "missing request");
+        }
         return false;
     }
-    if (*cursor != ' ' && *cursor != '\t') {
-        set_parse_error(out_error, id, "bad-request", "missing command");
-        return false;
-    }
-    while (*cursor == ' ' || *cursor == '\t') {
-        cursor++;
-    }
-    command_start = cursor;
-    while (*cursor != '\0' && *cursor != '\r' && *cursor != '\n' &&
-           *cursor != ' ' && *cursor != '\t') {
-        cursor++;
-    }
-    command_end = cursor;
-    if (command_end == command_start) {
-        set_parse_error(out_error, id, "bad-request", "missing command");
-        return false;
-    }
-    type = command_from_name(command_start, (size_t)(command_end - command_start));
+    id = framing.id;
+    type = command_from_name(framing.verb, strlen(framing.verb));
     if (type == CONTROL_COMMAND_NONE) {
         set_parse_error(out_error, id, "unknown-command", "unknown command");
         return false;
     }
 
     memset(&args, 0, sizeof(args));
-    while (*cursor == ' ' || *cursor == '\t') {
-        cursor++;
-    }
+    cursor = framing.rest;
     if (command_requires_count(type)) {
         if (!parse_u64_token(cursor, &cursor, &args.count) || args.count == 0) {
             set_parse_error(out_error, id, "bad-args", "expected positive count");
@@ -1502,164 +1487,10 @@ bool control_protocol_parse_request(
     return true;
 }
 
-void control_protocol_format_ok(
-    control_response *response,
-    uint32_t id,
-    const char *text,
-    bool close_client)
-{
-    if (response == NULL) {
-        return;
-    }
-    memset(response, 0, sizeof(*response));
-    response->id = id;
-    response->type = CONTROL_RESPONSE_OK;
-    response->close_client = close_client;
-    if (text != NULL && text[0] != '\0') {
-        snprintf(response->text, sizeof(response->text), "%s", text);
-    }
-}
-
-void control_protocol_format_event(
-    control_response *response,
-    uint32_t id,
-    const char *text)
-{
-    if (response == NULL) {
-        return;
-    }
-    memset(response, 0, sizeof(*response));
-    response->id = id;
-    response->type = CONTROL_RESPONSE_EVENT;
-    if (text != NULL) {
-        strncpy(response->text, text, CONTROL_RESPONSE_TEXT_MAX - 1);
-    }
-}
-
-void control_protocol_format_error(
-    control_response *response,
-    uint32_t id,
-    const char *code,
-    const char *message,
-    bool close_client)
-{
-    if (response == NULL) {
-        return;
-    }
-    memset(response, 0, sizeof(*response));
-    response->id = id;
-    response->type = CONTROL_RESPONSE_ERROR;
-    response->close_client = close_client;
-    snprintf(
-        response->text,
-        sizeof(response->text),
-        "%s %s",
-        code != NULL ? code : "error",
-        message != NULL ? message : "");
-}
-
-void control_protocol_format_data(
-    control_response *response,
-    uint32_t id,
-    const char *data_type,
-    uint8_t *payload,
-    size_t payload_size,
-    const char *metadata,
-    bool close_client)
-{
-    if (response == NULL) {
-        return;
-    }
-    memset(response, 0, sizeof(*response));
-    response->id = id;
-    response->type = CONTROL_RESPONSE_DATA;
-    response->payload = payload;
-    response->payload_size = payload_size;
-    response->close_client = close_client;
-    if (data_type != NULL) {
-        snprintf(response->data_type, sizeof(response->data_type), "%s", data_type);
-    }
-    if (metadata != NULL) {
-        snprintf(response->metadata, sizeof(response->metadata), "%s", metadata);
-    }
-}
-
-bool control_protocol_write_response_line(
-    const control_response *response,
-    char *out,
-    size_t out_size)
-{
-    int written;
-
-    if (response == NULL || out == NULL || out_size == 0) {
-        return false;
-    }
-
-    if (response->type == CONTROL_RESPONSE_OK) {
-        if (response->text[0] != '\0') {
-            written = snprintf(
-                out,
-                out_size,
-                "%u ok %s\n",
-                response->id,
-                response->text);
-        } else {
-            written = snprintf(out, out_size, "%u ok\n", response->id);
-        }
-    } else if (response->type == CONTROL_RESPONSE_ERROR) {
-        written = snprintf(
-            out,
-            out_size,
-            "%u error %s\n",
-            response->id,
-            response->text);
-    } else if (response->type == CONTROL_RESPONSE_EVENT) {
-        if (response->text[0] != '\0') {
-            written = snprintf(
-                out, out_size, "%u event %s\n", response->id, response->text);
-        } else {
-            written = snprintf(out, out_size, "%u event\n", response->id);
-        }
-    } else {
-        if (response->metadata[0] != '\0') {
-            written = snprintf(
-                out,
-                out_size,
-                "%u data %s %zu %s\n",
-                response->id,
-                response->data_type,
-                response->payload_size,
-                response->metadata);
-        } else {
-            written = snprintf(
-                out,
-                out_size,
-                "%u data %s %zu\n",
-                response->id,
-                response->data_type,
-                response->payload_size);
-        }
-    }
-
-    return written >= 0 && (size_t)written < out_size;
-}
-
-void control_response_release(control_response *response)
-{
-    if (response == NULL) {
-        return;
-    }
-    free(response->payload);
-    response->payload = NULL;
-    response->payload_size = 0;
-}
-
 void control_request_release(control_request *request)
 {
     if (request == NULL) {
         return;
     }
-    free(request->payload);
-    request->payload = NULL;
-    request->payload_size = 0;
+    control_framing_release_payload(&request->payload, &request->payload_size);
 }

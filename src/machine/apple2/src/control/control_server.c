@@ -12,7 +12,6 @@
 
 enum {
     CONTROL_QUEUE_CAPACITY = 32,
-    CONTROL_RESPONSE_LINE_MAX = 512,
     /* Poll cadence while waiting for a deferred reply: short enough to notice
        peer close quickly, long enough to avoid a hot spin. */
     CONTROL_RESPONSE_WAIT_SLICE_MS = 50u,
@@ -123,10 +122,6 @@ static bool control_server_peer_gone(platform_socket_connection *connection)
     return true;
 }
 
-static bool control_server_send_response(
-    platform_socket_connection *connection,
-    const control_response *response);
-
 static bool control_server_flush_unsolicited(
     control_server_t *server,
     platform_socket_connection *connection)
@@ -137,7 +132,7 @@ static bool control_server_flush_unsolicited(
         return true;
     }
     while (message_queue_try_pop(server->responses, &response)) {
-        if (!control_server_send_response(connection, &response)) {
+        if (!control_framing_write_response(connection, &response)) {
             if (response.payload != NULL) {
                 free(response.payload);
             }
@@ -158,87 +153,28 @@ static bool control_server_read_line(
     size_t out_size)
 {
     size_t used = 0;
+    int rc;
 
     if (connection == NULL || out == NULL || out_size == 0) {
         return false;
     }
 
-    while (used + 1 < out_size) {
-        char ch;
-        int n = platform_socket_read(connection, &ch, 1);
-        if (n == -2) {
-            /* Would block: flush events, then wait for peer data or close. */
-            if (!control_server_flush_unsolicited(server, connection)) {
-                return false;
-            }
-            if (platform_socket_wait_readable(connection, 50u) < 0) {
-                return false;
-            }
-            continue;
-        }
-        if (n <= 0) {
-            return false; /* EOF or error */
-        }
-        out[used++] = ch;
-        if (ch == '\n') {
-            out[used] = '\0';
+    for (;;) {
+        rc = control_framing_read_line_nb(connection, out, out_size, &used);
+        if (rc == 1) {
             return true;
         }
-    }
-    return false;
-}
-
-static bool control_server_read_exact(
-    platform_socket_connection *connection,
-    uint8_t *out,
-    size_t size)
-{
-    size_t used = 0;
-    while (used < size) {
-        int n = platform_socket_read(connection, out + used, size - used);
-        if (n == -2) {
-            if (platform_socket_wait_readable(connection, 2000u) <= 0) {
-                return false;
-            }
-            continue;
-        }
-        if (n <= 0) {
+        if (rc < 0) {
             return false;
         }
-        used += (size_t)n;
-    }
-    return true;
-}
-
-static bool control_server_send_response(
-    platform_socket_connection *connection,
-    const control_response *response)
-{
-    char line[CONTROL_RESPONSE_LINE_MAX];
-
-    if (!control_protocol_write_response_line(line, sizeof(line), response)) {
-        return false;
-    }
-    if (!platform_socket_write_all(connection, line, strlen(line))) {
-        return false;
-    }
-    if (response->type == CONTROL_RESPONSE_DATA) {
-        /* Counted payload may be empty (e.g. break-list count=0); still send
-           the trailing newline so clients stay in sync. */
-        if (response->payload_size > 0) {
-            if (response->payload == NULL) {
-                return false;
-            }
-            if (!platform_socket_write_all(
-                    connection, response->payload, response->payload_size)) {
-                return false;
-            }
+        /* Would block: flush events, then wait for peer data or close. */
+        if (!control_server_flush_unsolicited(server, connection)) {
+            return false;
         }
-        if (!platform_socket_write_all(connection, "\n", 1)) {
+        if (platform_socket_wait_readable(connection, 50u) < 0) {
             return false;
         }
     }
-    return true;
 }
 
 static void control_server_handle_connection(
@@ -271,53 +207,51 @@ static void control_server_handle_connection(
         }
 
         if (!control_protocol_parse_request(line, &request, &error)) {
-            (void)control_server_send_response(connection, &error);
+            (void)control_framing_write_response(connection, &error);
             if (error.close_client) {
                 break;
             }
             continue;
         }
 
-        if (request.payload_size > 0) {
-            char newline;
-            request.payload = (uint8_t *)malloc(request.payload_size);
-            if (request.payload == NULL ||
-                !control_server_read_exact(
-                    connection, request.payload, request.payload_size) ||
-                !control_server_read_exact(connection, (uint8_t *)&newline, 1) ||
-                newline != '\n') {
-                control_request_release(&request);
-                control_protocol_format_error(
-                    &error, request.id, "bad-payload", "framing", true);
-                (void)control_server_send_response(connection, &error);
+        if (!control_framing_read_payload(
+                connection,
+                &request.payload,
+                request.payload_size,
+                request.id,
+                &error)) {
+            (void)control_framing_write_response(connection, &error);
+            if (error.close_client) {
                 break;
             }
+            continue;
         }
 
         if (request.type == CONTROL_COMMAND_QUIT_CLIENT) {
-            control_protocol_format_ok(&response, request.id, "bye");
-            response.close_client = true;
-            (void)control_server_send_response(connection, &response);
+            control_protocol_format_ok(&response, request.id, "bye", true);
+            (void)control_framing_write_response(connection, &response);
             control_request_release(&request);
             break;
         }
 
         /* Immediate identity commands handled on socket thread. */
         if (request.type == CONTROL_COMMAND_HELLO) {
-            control_protocol_format_ok(
+            control_protocol_format_hello(
                 &response,
                 request.id,
-                "name=" CONTROL_PROTOCOL_APP_NAME " protocol=" CONTROL_PROTOCOL_VERSION);
-            (void)control_server_send_response(connection, &response);
+                CONTROL_PROTOCOL_APP_NAME,
+                CONTROL_PROTOCOL_VERSION);
+            (void)control_framing_write_response(connection, &response);
             control_request_release(&request);
             continue;
         }
         if (request.type == CONTROL_COMMAND_VERSION) {
-            control_protocol_format_ok(
+            control_protocol_format_version(
                 &response,
                 request.id,
-                "protocol=" CONTROL_PROTOCOL_VERSION " app=" CONTROL_PROTOCOL_APP_NAME);
-            (void)control_server_send_response(connection, &response);
+                CONTROL_PROTOCOL_VERSION,
+                CONTROL_PROTOCOL_APP_NAME);
+            (void)control_framing_write_response(connection, &response);
             control_request_release(&request);
             continue;
         }
@@ -328,14 +262,15 @@ static void control_server_handle_connection(
                 "connection introspection execution state softswitches step "
                 "turbo frame frame-ring memory breakpoints wait key disk "
                 "snapshot history assemble symbols sessions state-changed "
-                "inspector");
-            (void)control_server_send_response(connection, &response);
+                "inspector",
+                false);
+            (void)control_framing_write_response(connection, &response);
             control_request_release(&request);
             continue;
         }
         if (request.type == CONTROL_COMMAND_PING) {
-            control_protocol_format_ok(&response, request.id, "");
-            (void)control_server_send_response(connection, &response);
+            control_protocol_format_ok(&response, request.id, "", false);
+            (void)control_framing_write_response(connection, &response);
             control_request_release(&request);
             continue;
         }
@@ -344,7 +279,7 @@ static void control_server_handle_connection(
             control_request_release(&request);
             control_protocol_format_error(
                 &error, request.id, "busy", "request-queue-full", false);
-            (void)control_server_send_response(connection, &error);
+            (void)control_framing_write_response(connection, &error);
             continue;
         }
         if (server->wake_hook != NULL) {
@@ -361,7 +296,7 @@ static void control_server_handle_connection(
                     &response,
                     CONTROL_RESPONSE_WAIT_SLICE_MS)) {
                 if (response.type == CONTROL_RESPONSE_EVENT || response.id == 0u) {
-                    if (!control_server_send_response(connection, &response)) {
+                    if (!control_framing_write_response(connection, &response)) {
                         if (response.payload != NULL) {
                             free(response.payload);
                             response.payload = NULL;
@@ -391,7 +326,7 @@ static void control_server_handle_connection(
             break; /* stopping */
         }
 
-        if (!control_server_send_response(connection, &response)) {
+        if (!control_framing_write_response(connection, &response)) {
             if (response.payload != NULL) {
                 free(response.payload);
                 response.payload = NULL;
@@ -442,7 +377,7 @@ static int control_server_worker(void *userdata)
     }
 
     while (!control_server_is_stopping(server)) {
-        platform_socket_connection *conn = platform_socket_accept(server->listener);
+        platform_socket_connection *conn = control_framing_accept(server->listener);
         if (conn == NULL) {
             /* Listener closed by stop(), or accept error — exit the loop. */
             break;
@@ -545,7 +480,7 @@ bool control_server_start(control_server_t *server)
     server->connection = NULL;
     /* Listener is created on the starter thread and destroyed only in stop()
        after join — never by the worker (avoids UAF with concurrent close). */
-    server->listener = platform_socket_listen_localhost(server->port);
+    server->listener = control_framing_listen(server->port);
     if (server->listener == NULL) {
         control_server_stop(server);
         platform_socket_shutdown();

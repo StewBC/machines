@@ -145,7 +145,7 @@ int main(void)
         "bad unknown",
         !control_protocol_parse_request("10 foobar", &request, &error));
 
-    control_protocol_format_ok(&response, 1, "protocol=" CONTROL_PROTOCOL_VERSION);
+    control_protocol_format_ok(&response, 1, "protocol=" CONTROL_PROTOCOL_VERSION, false);
     expect_true(
         "fmt ok",
         control_protocol_write_response_line(line, sizeof(line), &response));

@@ -1,14 +1,19 @@
 #pragma once
 
+#include "control_framing.h"
+
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 
 enum {
-    CONTROL_LINE_MAX = 512,
-    CONTROL_RESPONSE_TEXT_MAX = 512,
     CONTROL_HISTORY_MAX_OPCODE_PATTERN = 32
 };
+
+/* Product wire identity. Bump when scripts must learn new behaviour. */
+#define CONTROL_PROTOCOL_VERSION "C64M/8"
+#define CONTROL_PROTOCOL_APP_NAME "c64m"
+#define CONTROL_PROTOCOL_APP_LABEL "0.1.0"
 
 typedef enum control_command_type {
     CONTROL_COMMAND_NONE = 0,
@@ -167,15 +172,6 @@ typedef struct control_args {
     char text[1024];
 } control_args;
 
-typedef enum control_response_type {
-    CONTROL_RESPONSE_OK = 0,
-    CONTROL_RESPONSE_ERROR,
-    CONTROL_RESPONSE_DATA,
-    /* Unsolicited out-of-band line: "<id> event <name> [fields...]".
-       Request id 0 is the reserved event channel. */
-    CONTROL_RESPONSE_EVENT
-} control_response_type;
-
 typedef struct control_request {
     uint32_t id;
     control_command_type type;
@@ -184,48 +180,12 @@ typedef struct control_request {
     size_t payload_size;
 } control_request;
 
-typedef struct control_response {
-    uint32_t id;
-    control_response_type type;
-    char text[CONTROL_RESPONSE_TEXT_MAX];
-    char data_type[32];
-    char metadata[CONTROL_RESPONSE_TEXT_MAX];
-    uint8_t *payload;
-    size_t payload_size;
-    bool close_client;
-} control_response;
-
 bool control_protocol_parse_request(
     const char *line,
     control_request *out_request,
     control_response *out_error);
 
-void control_protocol_format_ok(
-    control_response *response,
-    uint32_t id,
-    const char *text,
-    bool close_client);
-
-void control_protocol_format_error(
-    control_response *response,
-    uint32_t id,
-    const char *code,
-    const char *message,
-    bool close_client);
-
-void control_protocol_format_event(
-    control_response *response,
-    uint32_t id,
-    const char *text);
-
-void control_protocol_format_data(
-    control_response *response,
-    uint32_t id,
-    const char *data_type,
-    uint8_t *payload,
-    size_t payload_size,
-    const char *metadata,
-    bool close_client);
+void control_request_release(control_request *request);
 
 /* Deferred completion gate (Phase 0.5): non-zero deferred tokens only accept
    events that echo the same token. Token 0 deferred keeps legacy type-only
@@ -239,11 +199,3 @@ static inline bool control_deferred_token_matches(
     }
     return event_request_token == deferred_request_token;
 }
-
-bool control_protocol_write_response_line(
-    const control_response *response,
-    char *out,
-    size_t out_size);
-
-void control_response_release(control_response *response);
-void control_request_release(control_request *request);
