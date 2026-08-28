@@ -1,10 +1,6 @@
-# src/tools/CMakeLists.txt
+# Leftover tools INTERFACE. am65 / disasm_6502 / symbols live under src/shell/tools/.
 
 add_library(tools INTERFACE)
-
-add_subdirectory(am65)
-add_subdirectory(disasm_6502)
-add_subdirectory(symbols)
 
 target_link_libraries(tools INTERFACE
     assembler

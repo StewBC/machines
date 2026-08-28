@@ -638,7 +638,7 @@ target_link_libraries(test_disasm_pc_lock PRIVATE
 add_test(NAME disasm_pc_lock COMMAND test_disasm_pc_lock)
 
 add_executable(test_disasm_6502
-    tests/tools/test_disasm_6502.c
+    ${MACHINES_ROOT}/src/shell/tests/tools/test_disasm_6502.c
 )
 
 target_compile_features(test_disasm_6502 PRIVATE c_std_99)

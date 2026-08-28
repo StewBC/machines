@@ -2,7 +2,7 @@
 
 ## Tools
 
-- `src/tools/am65`: two-pass assembler library used by the frontend, runtime,
+- `src/shell/tools/am65`: two-pass assembler library used by the frontend, runtime,
   and standalone `am65`. The C64 in-emulator host advertises only `map`,
   ignores `file=`, and writes named targets to live RAM; any other `dest=`
   name is an assembly error. Opt-in segment auto-adjust retries pass-1 layout
@@ -11,9 +11,9 @@
   auto-adjust never moves. A plain `noemit` segment may not overlap any
   segment. The sanctioned overlay is `.segdef "n", reclaim="host"`: implicit
   noemit, inherits the host start, and must not be larger than the host.
-- `src/tools/disasm_6502`: 6502 disassembly and addressing-mode metadata.
+- `src/shell/tools/disasm_6502`: 6502 disassembly and addressing-mode metadata.
   The frontend adds effective-address annotations from copied snapshots.
-- `src/tools/symbols`: symbol-file parsing for debugger and control port.
+- `src/shell/tools/symbols`: symbol-file parsing for debugger and control port.
 - `src/tools/d64`, `t64`, `crt`, `g64`: format parse/decode only. Runtime
   decides inject, mount, attach, or persist.
 
@@ -23,7 +23,7 @@ the 6502 profile, and predefines `AM65=0` plus `C64=1`. The CLI supplies
 file-output targets, predefines `AM65=1`, and does not define a machine.
 The assembler also supports opt-in `.65c02`, `.rockwell`, and `.wdc` without
 changing the C64 default. Canonical history lives in the am65 hub repo;
-this tree is a vendored copy under `src/tools/am65`.
+this tree links the one vendored copy under `src/shell/tools/am65`.
 
 `src/tools/assembler/` is an empty leftover; the real tree is `am65/`.
 

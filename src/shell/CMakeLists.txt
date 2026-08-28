@@ -46,3 +46,7 @@ endif()
 if(MSVC)
     target_compile_options(shell PRIVATE /wd4116 /wd5287)
 endif()
+
+add_subdirectory(tools/am65)
+add_subdirectory(tools/disasm_6502)
+add_subdirectory(tools/symbols)

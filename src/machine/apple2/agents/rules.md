@@ -39,7 +39,7 @@ control   →  runtime_client + platform sockets
 | `src/app_options.*` | CLI / INI |
 | `src/platform/` | SDL window / input / audio / fs / sockets |
 | `src/control/` | A2M control wire + dispatch |
-| `src/tools/am65/` | Shared assembler library + `am65` CLI |
+| `src/shell/tools/am65/` | Shared assembler library + `am65` CLI (monorepo shell) |
 
 ## Product
 

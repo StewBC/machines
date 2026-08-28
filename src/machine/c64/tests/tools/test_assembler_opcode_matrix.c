@@ -9,7 +9,7 @@
  * caught it. This test needs an INDEPENDENT oracle.
  *
  * The oracle is the disassembler's hand-authored 256-entry table
- * (src/tools/disasm_6502), written separately and carrying a `length` field.
+ * (src/shell/tools/disasm_6502), written separately and carrying a `length` field.
  * For every valid opcode byte we:
  *   1. render canonical operand bytes through the disassembler to a source line
  *      (e.g. $46,$03 -> "LSR $03"), and

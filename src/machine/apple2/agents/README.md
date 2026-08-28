@@ -21,10 +21,10 @@ UI, remote control port, and Inspector / time-travel shape are intentionally
 similar, so muscle memory transfers. Treat that as ancestry, not a second
 source of truth — do not open c64m to decide how a2m should work.
 
-**am65** (`src/tools/am65/`) is the shared 6502 / 65C02 assembler (in-emulator
-Assembler tab and standalone `am65` CLI). This tree is a plain vendored copy;
+**am65** (`src/shell/tools/am65/`) is the shared 6502 / 65C02 assembler (in-emulator
+Assembler tab and standalone `am65` CLI). One copy for both binaries;
 assembler history and merges live in the am65 hub repo
-(https://github.com/StewBC/am65). See `src/tools/am65/README.md`.
+(https://github.com/StewBC/am65). See `src/shell/tools/am65/README.md`.
 
 ## Read order
 

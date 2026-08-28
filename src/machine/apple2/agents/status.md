@@ -18,7 +18,7 @@ What the product is **now**. Source of truth is `src/`. User-facing catalog:
 | Control port | **A2M/13** on `--control-port` (windowed or headless). Ops: [`control-tools.md`](control-tools.md) |
 | Snapshots | **`.a2state`** — drop, `--sna`, Opt+Shift+`.`/`,`, control, Machine tab. [`snapshots.md`](snapshots.md) |
 | Time travel | Misc → Inspector: Record / Inspect / Leave. Land on checkpoints; HST1 is FIND only. [`timemachine.md`](timemachine.md) |
-| Assembler | Misc → Assembler + standalone `am65`. Optional MLI launch. `src/tools/am65/` |
+| Assembler | Misc → Assembler + standalone `am65`. Optional MLI launch. `src/shell/tools/am65/` |
 
 ## Host keys (agent-relevant)
 
@@ -78,7 +78,7 @@ src/runtime/               Apple-backed runtime
 src/machine/               Apple II
 src/control/               A2M/13 control
 src/platform/              SDL / fs / sockets / audio
-src/tools/am65/            assembler library + CLI
+src/shell/tools/am65/      assembler library + CLI (shared shell)
 src/util/                  files, queues, config helpers
 manual/manual.md           user manual (compiled into help)
 ```
