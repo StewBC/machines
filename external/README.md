@@ -1,11 +1,14 @@
 # Vendored third-party code
 
 These libraries are kept small and are intended to be wrapped by project-facing
-APIs under `src/util/` before broad use.
+APIs under `src/shell/util/` (and leftover machine util) before broad use.
+
+C64 TrueType fonts are **not** here; they stay at
+`src/machine/c64/external/C64_TrueType_v1.2.1-STYLE/`.
 
 ## Contents (vendored in git)
 
-- `stb/stb_ds.h`
+- `stb/stb_ds.h`, `stb/stb_image.h`
   - Upstream: <https://github.com/nothings/stb>
   - License: public domain or MIT
 - `inih/ini.c`, `inih/ini.h`
@@ -20,3 +23,6 @@ APIs under `src/util/` before broad use.
 - `whereami/whereami.c`, `whereami/whereami.h`
   - Upstream: <https://github.com/gpakosz/whereami>
   - License: MIT or WTFPL v2
+- `tiny-regex-c/re.c`, `tiny-regex-c/re.h`
+  - Upstream: <https://github.com/kokke/tiny-regex-c>
+  - License: The Unlicense (public domain)

@@ -69,8 +69,8 @@ target_link_libraries(frontend
     PUBLIC
         runtime
     PRIVATE
-        c64m_tiny_regex
-        c64m_stb_image
+        tiny_regex
+        stb_image
         platform
         SDL2::SDL2
         tools

@@ -78,8 +78,8 @@ target_link_libraries(frontend
         platform
         SDL2::SDL2
     PRIVATE
-        a2m_tiny_regex
-        a2m_stb_image
+        tiny_regex
+        stb_image
         tools
 )
 

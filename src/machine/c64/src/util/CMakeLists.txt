@@ -27,9 +27,9 @@ target_compile_features(util PUBLIC c_std_99)
 
 target_link_libraries(util
     PUBLIC
-        c64m_logc
+        logc
     PRIVATE
         SDL2::SDL2
-        c64m_inih
-        c64m_stb_ds
+        inih
+        stb_ds
 )

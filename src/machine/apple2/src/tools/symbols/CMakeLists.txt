@@ -15,5 +15,5 @@ target_link_libraries(symbols
     PUBLIC
         disasm_6502
     PRIVATE
-        a2m_stb_ds
+        stb_ds
 )

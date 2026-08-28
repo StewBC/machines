@@ -41,11 +41,11 @@ target_compile_features(util PUBLIC c_std_99)
 
 target_link_libraries(util
     PUBLIC
-        a2m_logc
+        logc
     PRIVATE
         SDL2::SDL2
-        a2m_inih
-        a2m_stb_ds
+        inih
+        stb_ds
 )
 
 if(APPLE)

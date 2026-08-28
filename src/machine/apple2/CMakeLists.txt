@@ -39,7 +39,16 @@ enable_testing()
 find_package(SDL2 CONFIG REQUIRED)
 find_package(Python3 COMPONENTS Interpreter REQUIRED)
 
-add_subdirectory(external)
+get_filename_component(MACHINES_ROOT
+    "${CMAKE_CURRENT_SOURCE_DIR}/../../.."
+    ABSOLUTE)
+
+# Vendors live at repo-root external/ (outside CMAKE_SOURCE_DIR).
+if(NOT TARGET argparse)
+    add_subdirectory(
+        "${MACHINES_ROOT}/external"
+        "${CMAKE_BINARY_DIR}/_external")
+endif()
 
 add_subdirectory(src/util)
 add_subdirectory(src/machine)
@@ -70,7 +79,7 @@ target_include_directories(a2m PRIVATE
 # Direct deps only: frontend PUBLIC-links runtime→machine→util and PRIVATE-links
 # platform/tools/SDL. Re-listing those here duplicates on Apple ld.
 target_link_libraries(a2m PRIVATE
-    a2m_argparse
+    argparse
     frontend
     control
 )
@@ -319,7 +328,7 @@ target_compile_features(test_app_options_mounts PRIVATE c_std_99)
 target_compile_definitions(test_app_options_mounts PRIVATE
     A2M_FIXTURE_DIR="${CMAKE_SOURCE_DIR}/tests/fixtures"
 )
-target_link_libraries(test_app_options_mounts PRIVATE util a2m_argparse)
+target_link_libraries(test_app_options_mounts PRIVATE util argparse)
 add_test(NAME app_options_mounts COMMAND test_app_options_mounts)
 
 # --- runtime ---------------------------------------------------------------
