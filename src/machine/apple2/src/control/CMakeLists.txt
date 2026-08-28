@@ -4,6 +4,7 @@
 add_library(control STATIC
     control_server.c
     control_protocol.c
+    control_verbs.c
     control_deferred.c
     control_dispatch.c
     control_breakpoint.c

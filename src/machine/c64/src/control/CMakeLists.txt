@@ -5,6 +5,8 @@ add_library(control STATIC
     control_deferred.h
     control_protocol.c
     control_protocol.h
+    control_verbs.c
+    control_verbs.h
     control_server.c
     control_server.h
 )

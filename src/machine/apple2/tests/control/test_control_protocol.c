@@ -54,53 +54,53 @@ int main(void)
     expect_true(
         "get-memory",
         control_protocol_parse_request("3 get-memory $300 16 map", &request, &error));
-    expect_u32("addr", 0x300, request.args.address);
-    expect_u32("len", 16, request.args.length);
-    expect_u32("mode", CONTROL_MEMORY_MODE_MAP, request.args.memory_mode);
+    expect_u32("addr", 0x300, request.args.memory.address);
+    expect_u32("len", 16, request.args.memory.length);
+    expect_u32("mode", 0u, request.args.memory.source_id);
 
     expect_true(
         "get-memory aux",
         control_protocol_parse_request("4 get-memory 0x400 256 aux", &request, &error));
-    expect_u32("mode aux", CONTROL_MEMORY_MODE_AUX, request.args.memory_mode);
+    expect_u32("mode aux", 3u, request.args.memory.source_id);
 
     expect_true(
         "get-memory lc1",
         control_protocol_parse_request("14 get-memory $D000 16 lc1", &request, &error));
-    expect_u32("mode lc1", CONTROL_MEMORY_MODE_LC1, request.args.memory_mode);
+    expect_u32("mode lc1", 4u, request.args.memory.source_id);
 
     expect_true(
         "break-exec",
         control_protocol_parse_request("5 break-exec $C000", &request, &error));
-    expect_u32("bp", 0xC000, request.args.address);
+    expect_u32("bp", 0xC000, request.args.brk.address);
 
     expect_true(
         "wait-paused",
         control_protocol_parse_request("6 wait-paused 5000", &request, &error));
-    expect_u32("timeout", 5000, request.args.timeout_ms);
+    expect_u32("timeout", 5000, request.args.wait.timeout_ms);
 
     expect_true(
         "wait-frame",
         control_protocol_parse_request("15 wait-frame 3 10000", &request, &error));
-    expect_u32("frame delta", 3, request.args.wait_frame_delta);
-    expect_u32("frame timeout", 10000, request.args.timeout_ms);
+    expect_u32("frame delta", 3, request.args.wait.frame_delta);
+    expect_u32("frame timeout", 10000, request.args.wait.timeout_ms);
 
     expect_true(
         "wait-event",
         control_protocol_parse_request("16 wait-event step-complete 2000", &request, &error));
-    expect_string("event name", "step-complete", request.args.event_name);
+    expect_string("event name", "step-complete", request.args.wait.event_name);
 
     expect_true(
         "set-turbo max",
         control_protocol_parse_request("17 set-turbo max", &request, &error));
-    expect_u32("turbo max", 0, request.args.turbo_mode);
+    expect_u32("turbo max", 0, request.args.turbo.milli_mhz);
     expect_true(
         "set-turbo 4",
         control_protocol_parse_request("18 set-turbo 4", &request, &error));
-    expect_u32("turbo 4MHz", 4000, request.args.turbo_mode);
+    expect_u32("turbo 4MHz", 4000, request.args.turbo.milli_mhz);
     expect_true(
         "set-turbo -1",
         control_protocol_parse_request("19 set-turbo -1", &request, &error));
-    expect_u32("turbo -1", 0, request.args.turbo_mode);
+    expect_u32("turbo -1", 0, request.args.turbo.milli_mhz);
 
     expect_true(
         "get-state",
@@ -128,22 +128,24 @@ int main(void)
     expect_true(
         "save-state",
         control_protocol_parse_request("7 save-state /tmp/x.a2s", &request, &error));
-    expect_string("path", "/tmp/x.a2s", request.args.path);
+    expect_string("path", "/tmp/x.a2s", request.args.path.path);
 
     expect_true(
         "set-reg",
         control_protocol_parse_request("8 set-reg pc $1234", &request, &error));
-    expect_string("reg", "pc", request.args.reg_name);
-    expect_u32("reg val", 0x1234, request.args.reg_value);
+    expect_string("reg", "pc", request.args.set_reg.name);
+    expect_u32("reg val", 0x1234, request.args.set_reg.value);
 
     expect_true(
         "key",
         control_protocol_parse_request("9 key 0x8D", &request, &error));
-    expect_u32("key", 0x8D, request.args.key);
+    expect_u32("key", 0x8D, request.args.key.value);
 
     expect_true(
         "bad unknown",
         !control_protocol_parse_request("10 foobar", &request, &error));
+    expect_int("unknown type", CONTROL_RESPONSE_ERROR, (int)error.type);
+    expect_true("unknown-command", strstr(error.text, "unknown-command") != NULL);
 
     control_protocol_format_ok(&response, 1, "protocol=" CONTROL_PROTOCOL_VERSION, false);
     expect_true(
@@ -172,25 +174,25 @@ int main(void)
             &request,
             &error));
     expect_int("break-create type", CONTROL_COMMAND_BREAK_CREATE, (int)request.type);
-    expect_true("break-create text", strstr(request.args.text, "exec") != NULL);
+    expect_true("break-create text", strstr(request.args.brk.text, "exec") != NULL);
 
     expect_true(
         "break-enable",
         control_protocol_parse_request("22 break-enable 3 0", &request, &error));
-    expect_u32("enable id", 3, request.args.break_id);
-    expect_u32("enable flag", 0, request.args.break_enable);
+    expect_u32("enable id", 3, request.args.brk.id);
+    expect_u32("enable flag", 0, request.args.brk.enable);
 
     expect_true(
         "get-frame-at",
         control_protocol_parse_request("23 get-frame-at frame=42", &request, &error));
     expect_int("get-frame-at type", CONTROL_COMMAND_GET_FRAME_AT, (int)request.type);
-    expect_true("target frame", request.args.frame_ring_target == 42ull);
-    expect_true("by frame", !request.args.frame_ring_by_cycle);
+    expect_true("target frame", request.args.frame_ring.target == 42ull);
+    expect_true("by frame", !request.args.frame_ring.by_cycle);
 
     expect_true(
         "frame-ring-record",
         control_protocol_parse_request("24 frame-ring-record off", &request, &error));
-    expect_true("record off", !request.args.frame_ring_record_enabled);
+    expect_true("record off", !request.args.frame_ring.record_enabled);
 
     expect_true(
         "history-info",
@@ -206,14 +208,14 @@ int main(void)
     expect_int("history-find type", CONTROL_COMMAND_HISTORY_FIND, (int)request.type);
     expect_true(
         "history-find text",
-        strstr(request.args.history_find_text, "address=$C000") != NULL);
+        strstr(request.args.history.find_text, "address=$C000") != NULL);
 
     expect_true(
         "history-read",
         control_protocol_parse_request(
             "27 history-read 42 epoch=1 before=8 after=4", &request, &error));
-    expect_true("history-read id", request.args.history_id == 42ull);
-    expect_u32("before", 8, request.args.history_before);
+    expect_true("history-read id", request.args.history.id == 42ull);
+    expect_u32("before", 8, request.args.history.before);
 
     expect_true(
         "leave-inspector",
@@ -228,12 +230,12 @@ int main(void)
         control_protocol_parse_request(
             "80 assemble samples/test.asm", &request, &error));
     expect_int("assemble type", CONTROL_COMMAND_ASSEMBLE, (int)request.type);
-    expect_u32("assemble default addr", 0x8000, request.args.address);
-    expect_u32("assemble default run", 0x8000, request.args.run_address);
-    expect_true("assemble default auto-run off", !request.args.auto_run);
-    expect_true("assemble default reset on", request.args.reset_first);
-    expect_true("assemble default mli off", !request.args.mli_launch);
-    expect_string("assemble path", "samples/test.asm", request.args.path);
+    expect_u32("assemble default addr", 0x8000, request.args.assemble.address);
+    expect_u32("assemble default run", 0x8000, request.args.assemble.run_address);
+    expect_true("assemble default auto-run off", !request.args.assemble.auto_run);
+    expect_true("assemble default reset on", request.args.assemble.reset_first);
+    expect_true("assemble default mli off", !request.args.assemble.mli_launch);
+    expect_string("assemble path", "samples/test.asm", request.args.assemble.path);
 
     expect_true(
         "assemble options",
@@ -242,11 +244,11 @@ int main(void)
             "samples/demo.asm",
             &request,
             &error));
-    expect_u32("assemble addr", 0xC000, request.args.address);
-    expect_u32("assemble run", 0xC010, request.args.run_address);
-    expect_true("assemble auto-run", request.args.auto_run);
-    expect_true("assemble reset off", !request.args.reset_first);
-    expect_string("assemble path opts", "samples/demo.asm", request.args.path);
+    expect_u32("assemble addr", 0xC000, request.args.assemble.address);
+    expect_u32("assemble run", 0xC010, request.args.assemble.run_address);
+    expect_true("assemble auto-run", request.args.assemble.auto_run);
+    expect_true("assemble reset off", !request.args.assemble.reset_first);
+    expect_string("assemble path opts", "samples/demo.asm", request.args.assemble.path);
 
     expect_true(
         "assemble mli-launch",
@@ -254,9 +256,9 @@ int main(void)
             "82 assemble mli-launch=1 reset=0 samples/shim.asm",
             &request,
             &error));
-    expect_true("mli on", request.args.mli_launch);
-    expect_true("mli implies auto-run", request.args.auto_run);
-    expect_true("mli forces reset off", !request.args.reset_first);
+    expect_true("mli on", request.args.assemble.mli_launch);
+    expect_true("mli implies auto-run", request.args.assemble.auto_run);
+    expect_true("mli forces reset off", !request.args.assemble.reset_first);
 
     expect_true(
         "assemble mli+reset rejected",
@@ -269,7 +271,7 @@ int main(void)
         "find-symbol",
         control_protocol_parse_request("84 find-symbol loop", &request, &error));
     expect_int("find-symbol type", CONTROL_COMMAND_FIND_SYMBOL, (int)request.type);
-    expect_string("find-symbol name", "loop", request.args.text);
+    expect_string("find-symbol name", "loop", request.args.find_symbol.name);
 
     expect_true(
         "find-symbol missing name rejected",
@@ -279,54 +281,54 @@ int main(void)
         "select-disk index",
         control_protocol_parse_request("40 select-disk 3", &request, &error));
     expect_int("select type", CONTROL_COMMAND_SELECT_DISK, (int)request.type);
-    expect_u32("select slot resolve", 0, request.args.slot);
-    expect_u32("select drive default", 0, request.args.drive);
-    expect_u32("select index", 3, request.args.disk_index);
+    expect_u32("select slot resolve", 0, request.args.media.slot);
+    expect_u32("select drive default", 0, request.args.media.drive);
+    expect_u32("select index", 3, request.args.media.disk_index);
 
     expect_true(
         "select-disk slot drive index",
         control_protocol_parse_request("41 select-disk 5 1 2", &request, &error));
-    expect_u32("select slot", 5, request.args.slot);
-    expect_u32("select drive", 1, request.args.drive);
-    expect_u32("select index 2", 2, request.args.disk_index);
+    expect_u32("select slot", 5, request.args.media.slot);
+    expect_u32("select drive", 1, request.args.media.drive);
+    expect_u32("select index 2", 2, request.args.media.disk_index);
 
     expect_true(
         "set-disk-writable",
         control_protocol_parse_request("42 set-disk-writable 0", &request, &error));
     expect_int(
         "writable type", CONTROL_COMMAND_SET_DISK_WRITABLE, (int)request.type);
-    expect_u32("writable slot resolve", 0, request.args.slot);
-    expect_u32("writable flag", 0, request.args.disk_writable);
+    expect_u32("writable slot resolve", 0, request.args.media.slot);
+    expect_u32("writable flag", 0, request.args.media.writable);
 
     expect_true(
         "set-disk-writable slot drive",
         control_protocol_parse_request("43 set-disk-writable 6 1 1", &request, &error));
-    expect_u32("writable slot", 6, request.args.slot);
-    expect_u32("writable drive", 1, request.args.drive);
-    expect_u32("writable on", 1, request.args.disk_writable);
+    expect_u32("writable slot", 6, request.args.media.slot);
+    expect_u32("writable drive", 1, request.args.media.drive);
+    expect_u32("writable on", 1, request.args.media.writable);
 
     expect_true(
         "mount-disk path",
         control_protocol_parse_request("50 mount-disk /tmp/a.nib", &request, &error));
     expect_int("mount type", CONTROL_COMMAND_MOUNT_DISK, (int)request.type);
-    expect_u32("mount slot resolve", 0, request.args.slot);
-    expect_u32("mount drive 0", 0, request.args.drive);
-    expect_true("mount path", strcmp(request.args.path, "/tmp/a.nib") == 0);
+    expect_u32("mount slot resolve", 0, request.args.media.slot);
+    expect_u32("mount drive 0", 0, request.args.media.drive);
+    expect_true("mount path", strcmp(request.args.media.path, "/tmp/a.nib") == 0);
 
     expect_true(
         "mount-disk drive path",
         control_protocol_parse_request("51 mount-disk 1 /tmp/b.nib", &request, &error));
-    expect_u32("mount drive 1", 1, request.args.drive);
-    expect_u32("mount slot still resolve", 0, request.args.slot);
-    expect_true("mount path b", strcmp(request.args.path, "/tmp/b.nib") == 0);
+    expect_u32("mount drive 1", 1, request.args.media.drive);
+    expect_u32("mount slot still resolve", 0, request.args.media.slot);
+    expect_true("mount path b", strcmp(request.args.media.path, "/tmp/b.nib") == 0);
 
     expect_true(
         "mount-disk slot drive path",
         control_protocol_parse_request(
             "52 mount-disk 5 0 /tmp/c.nib", &request, &error));
-    expect_u32("mount explicit slot", 5, request.args.slot);
-    expect_u32("mount explicit drive", 0, request.args.drive);
-    expect_true("mount path c", strcmp(request.args.path, "/tmp/c.nib") == 0);
+    expect_u32("mount explicit slot", 5, request.args.media.slot);
+    expect_u32("mount explicit drive", 0, request.args.media.drive);
+    expect_true("mount path c", strcmp(request.args.media.path, "/tmp/c.nib") == 0);
 
     expect_true(
         "mount-disk bad drive rejected",
@@ -336,24 +338,24 @@ int main(void)
         "mount floppy infer",
         control_protocol_parse_request("60 mount /tmp/a.nib", &request, &error));
     expect_int("mount cmd", CONTROL_COMMAND_MOUNT, (int)request.type);
-    expect_u32("mount kind diskii", CONTROL_MEDIA_KIND_DISKII, request.args.media_kind);
-    expect_u32("mount resolve slot", 0, request.args.slot);
-    expect_true("mount nib path", strcmp(request.args.path, "/tmp/a.nib") == 0);
+    expect_u32("mount kind diskii", CONTROL_MEDIA_KIND_DISKII, request.args.media.kind);
+    expect_u32("mount resolve slot", 0, request.args.media.slot);
+    expect_true("mount nib path", strcmp(request.args.media.path, "/tmp/a.nib") == 0);
 
     expect_true(
         "mount smartport kind",
         control_protocol_parse_request(
             "61 mount kind=smartport /tmp/hd.hdv", &request, &error));
     expect_u32(
-        "mount kind sp", CONTROL_MEDIA_KIND_SMARTPORT, request.args.media_kind);
-    expect_true("mount hdv path", strcmp(request.args.path, "/tmp/hd.hdv") == 0);
+        "mount kind sp", CONTROL_MEDIA_KIND_SMARTPORT, request.args.media.kind);
+    expect_true("mount hdv path", strcmp(request.args.media.path, "/tmp/hd.hdv") == 0);
 
     expect_true(
         "mount smartport slot unit",
         control_protocol_parse_request(
             "62 mount kind=sp 7 1 /tmp/vol.2mg", &request, &error));
-    expect_u32("mount sp slot", 7, request.args.slot);
-    expect_u32("mount sp unit", 1, request.args.drive);
+    expect_u32("mount sp slot", 7, request.args.media.slot);
+    expect_u32("mount sp unit", 1, request.args.media.drive);
 
     expect_true(
         "mount .po without kind rejected",
@@ -363,22 +365,22 @@ int main(void)
         "unmount bare",
         control_protocol_parse_request("70 unmount", &request, &error));
     expect_int("unmount cmd", CONTROL_COMMAND_UNMOUNT, (int)request.type);
-    expect_u32("unmount kind unset", CONTROL_MEDIA_KIND_UNSPECIFIED, request.args.media_kind);
-    expect_u32("unmount slot resolve", 0, request.args.slot);
-    expect_u32("unmount drive 0", 0, request.args.drive);
+    expect_u32("unmount kind unset", CONTROL_MEDIA_KIND_UNSPECIFIED, request.args.media.kind);
+    expect_u32("unmount slot resolve", 0, request.args.media.slot);
+    expect_u32("unmount drive 0", 0, request.args.media.drive);
 
     expect_true(
         "unmount kind device",
         control_protocol_parse_request("71 unmount kind=diskii 1", &request, &error));
-    expect_u32("unmount diskii", CONTROL_MEDIA_KIND_DISKII, request.args.media_kind);
-    expect_u32("unmount drive 1", 1, request.args.drive);
+    expect_u32("unmount diskii", CONTROL_MEDIA_KIND_DISKII, request.args.media.kind);
+    expect_u32("unmount drive 1", 1, request.args.media.drive);
 
     expect_true(
         "unmount slot drive",
         control_protocol_parse_request(
             "72 unmount kind=smartport 7 0", &request, &error));
-    expect_u32("unmount sp slot", 7, request.args.slot);
-    expect_u32("unmount sp drive", 0, request.args.drive);
+    expect_u32("unmount sp slot", 7, request.args.media.slot);
+    expect_u32("unmount sp drive", 0, request.args.media.drive);
 
     {
         runtime_breakpoint_definition definition;
@@ -400,6 +402,17 @@ int main(void)
         "fmt err",
         control_protocol_write_response_line(line, sizeof(line), &response));
     expect_true("err busy", strstr(line, "error busy") != NULL);
+
+    {
+        char caps[CONTROL_RESPONSE_TEXT_MAX];
+        apple2_control_format_capabilities(caps, sizeof(caps));
+        expect_string(
+            "capabilities-from-table",
+            "connection introspection execution state softswitches step turbo "
+            "frame frame-ring memory breakpoints wait key disk snapshot "
+            "history assemble mli-launch symbols sessions state-changed inspector",
+            caps);
+    }
 
     printf("ok\n");
     return 0;

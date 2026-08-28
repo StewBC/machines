@@ -1,6 +1,8 @@
 #pragma once
 
+#include "control_command_table.h"
 #include "control_framing.h"
+#include "memory_source.h"
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -68,15 +70,6 @@ typedef enum control_command_type {
     CONTROL_COMMAND_LEAVE_INSPECTOR
 } control_command_type;
 
-typedef enum control_memory_mode {
-    CONTROL_MEMORY_MODE_MAP = 0,
-    CONTROL_MEMORY_MODE_MAIN = 1,
-    CONTROL_MEMORY_MODE_AUX = 2,
-    CONTROL_MEMORY_MODE_LC1 = 3,
-    CONTROL_MEMORY_MODE_LC2 = 4,
-    CONTROL_MEMORY_MODE_ROM = 5
-} control_memory_mode;
-
 /* mount/unmount card selection (0 = infer / resolve uniquely). */
 typedef enum control_media_kind {
     CONTROL_MEDIA_KIND_UNSPECIFIED = 0,
@@ -84,55 +77,103 @@ typedef enum control_media_kind {
     CONTROL_MEDIA_KIND_SMARTPORT = 2
 } control_media_kind;
 
-typedef struct control_args {
-    uint32_t timeout_ms;
+typedef struct control_args_memory {
     uint16_t address;
     uint32_t length;
-    uint8_t memory_mode;
-    uint8_t key;
+    uint32_t source_id;
+} control_args_memory;
+
+typedef struct control_args_set_reg {
+    char name[8];
+    uint16_t value;
+} control_args_set_reg;
+
+typedef struct control_args_turbo {
+    uint32_t milli_mhz;
+} control_args_turbo;
+
+typedef struct control_args_break {
+    uint16_t address;
+    uint32_t id;
+    uint8_t enable;
+    char text[CONTROL_LINE_MAX];
+} control_args_break;
+
+typedef struct control_args_wait {
+    uint32_t timeout_ms;
+    uint32_t frame_delta;
+    char event_name[48];
+} control_args_wait;
+
+typedef struct control_args_path {
+    char path[CONTROL_LINE_MAX];
+} control_args_path;
+
+typedef struct control_args_key {
+    uint8_t value;
+} control_args_key;
+
+typedef struct control_args_media {
     uint8_t slot;
     uint8_t drive;
-    uint8_t media_kind; /* control_media_kind */
-    uint32_t disk_index; /* select-disk: 1-based queue index */
-    uint8_t disk_writable; /* set-disk-writable: 0=RO 1=RW */
-    uint32_t break_id; /* 0 = all for break-clear */
-    uint8_t break_enable; /* break-enable 0|1 */
-    /* set-turbo: milli-MHz (1000 = 1 MHz) or 0 = max. */
-    uint32_t turbo_mode;
-    uint32_t wait_frame_delta; /* wait-frame positive delta */
-    char reg_name[8];
-    uint16_t reg_value;
-    char event_name[48];
+    uint8_t kind;
+    uint32_t disk_index;
+    uint8_t writable;
     char path[CONTROL_LINE_MAX];
-    /* Remainder of line for break-create / break-update definitions. */
-    char text[CONTROL_LINE_MAX];
-    /* Frame ring: get-frame-at frame=<n>|cycle=<n>; record on|off. */
-    uint64_t frame_ring_target;
-    bool frame_ring_by_cycle;
-    bool frame_ring_record_enabled;
-    /* History control (A2M/5). */
-    bool history_record_enabled;
-    uint64_t history_cursor;
-    uint64_t history_id;
-    uint64_t history_epoch;
-    uint16_t history_limit;
-    uint16_t history_before;
-    uint16_t history_after;
-    /* Remainder of line for history-find key=value options. */
-    char history_find_text[CONTROL_LINE_MAX];
-    /* assemble: optional key=value before source path (defaults match Assembler tab). */
+} control_args_media;
+
+typedef struct control_args_frame_ring {
+    uint64_t target;
+    bool by_cycle;
+    bool record_enabled;
+} control_args_frame_ring;
+
+typedef struct control_args_history {
+    bool record_enabled;
+    uint64_t cursor;
+    uint64_t id;
+    uint64_t epoch;
+    uint16_t limit;
+    uint16_t before;
+    uint16_t after;
+    char find_text[CONTROL_LINE_MAX];
+} control_args_history;
+
+typedef struct control_args_assemble {
+    uint16_t address;
     uint16_t run_address;
     bool has_run_address;
     bool auto_run;
     bool mli_launch;
     bool reset_first;
     bool auto_adjust_segments;
-} control_args;
+    char path[CONTROL_LINE_MAX];
+} control_args_assemble;
+
+typedef struct control_args_find_symbol {
+    char name[CONTROL_LINE_MAX];
+} control_args_find_symbol;
+
+typedef union control_verb_args {
+    control_args_memory memory;
+    control_args_set_reg set_reg;
+    control_args_turbo turbo;
+    control_args_break brk;
+    control_args_wait wait;
+    control_args_path path;
+    control_args_key key;
+    control_args_media media;
+    control_args_frame_ring frame_ring;
+    control_args_history history;
+    control_args_assemble assemble;
+    control_args_find_symbol find_symbol;
+} control_verb_args;
 
 typedef struct control_request {
     uint32_t id;
     control_command_type type;
-    control_args args;
+    const control_verb *verb;
+    control_verb_args args;
     uint8_t *payload;
     size_t payload_size;
 } control_request;
@@ -142,6 +183,13 @@ bool control_protocol_parse_request(
     control_request *out_request,
     control_response *out_error);
 
+bool apple2_control_parse_line(
+    const char *line,
+    control_request *out_request,
+    control_response *out_error);
+
 void control_request_release(control_request *request);
 
-const char *control_protocol_memory_mode_name(uint8_t mode);
+const char *control_protocol_memory_mode_name(uint32_t source_id);
+void apple2_control_format_capabilities(char *out, size_t out_size);
+const memory_source *apple2_memory_sources(size_t *count);

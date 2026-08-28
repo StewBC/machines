@@ -322,5 +322,4 @@ void runtime_rpc_pool_release_token(runtime_rpc_payload_pool *pool, uint64_t tok
 void runtime_inspector_reattach_live_hooks(runtime *rt);
 bool runtime_inspector_now_picture_available(runtime *rt, uint64_t picture_id);
 
-/* Map c64m memory mode enum to VIEW_FLAGS for Apple. */
 view_flags_t runtime_mode_to_view_flags(runtime_memory_mode mode);

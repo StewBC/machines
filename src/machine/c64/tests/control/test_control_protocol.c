@@ -447,6 +447,7 @@ static void test_parse_rejects_invalid_input(void)
     expect_false("reject unknown", control_protocol_parse_request("7 frob\n", &request, &error));
     expect_u32("unknown response id", 7, error.id);
     expect_int("unknown response type", CONTROL_RESPONSE_ERROR, error.type);
+    expect_true("unknown-command", strstr(error.text, "unknown-command") != NULL);
 
     expect_false("reject args", control_protocol_parse_request("8 ping extra\n", &request, &error));
     expect_u32("args response id", 8, error.id);
@@ -882,6 +883,19 @@ static void test_parse_history_commands(void)
             long_pattern, &request, &error));
 }
 
+static void test_capabilities_from_table(void)
+{
+    char caps[CONTROL_RESPONSE_TEXT_MAX];
+    c64_control_format_capabilities(caps, sizeof(caps));
+    expect_string(
+        "capabilities-from-table",
+        "connection introspection execution state step turbo frame memory "
+        "debug-memory call-stack input disk file snapshot breakpoints wait "
+        "assemble symbols drive-cpu vic cia run-to-raster history power-drive "
+        "frame-ring vic-ring sessions state-changed inspector",
+        caps);
+}
+
 int main(void)
 {
     test_parse_known_commands();
@@ -892,5 +906,6 @@ int main(void)
     test_deferred_token_matches();
     test_parse_run_to_raster();
     test_parse_history_commands();
+    test_capabilities_from_table();
     return 0;
 }

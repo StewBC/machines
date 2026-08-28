@@ -1,6 +1,8 @@
 #pragma once
 
+#include "control_command_table.h"
 #include "control_framing.h"
+#include "memory_source.h"
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -186,6 +188,10 @@ bool control_protocol_parse_request(
     control_response *out_error);
 
 void control_request_release(control_request *request);
+
+void c64_control_format_capabilities(char *out, size_t out_size);
+const memory_source *c64_memory_sources(size_t *count);
+control_command_type c64_control_command_from_name(const char *name, size_t length);
 
 /* Deferred completion gate (Phase 0.5): non-zero deferred tokens only accept
    events that echo the same token. Token 0 deferred keeps legacy type-only

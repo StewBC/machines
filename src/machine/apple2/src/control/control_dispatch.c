@@ -664,25 +664,6 @@ static void handle_media_command(
         writable);
 }
 
-static runtime_memory_mode to_runtime_memory_mode(uint8_t mode)
-{
-    switch (mode) {
-    case CONTROL_MEMORY_MODE_MAIN:
-        return RUNTIME_MEMORY_MODE_MAIN;
-    case CONTROL_MEMORY_MODE_AUX:
-        return RUNTIME_MEMORY_MODE_AUX;
-    case CONTROL_MEMORY_MODE_LC1:
-        return RUNTIME_MEMORY_MODE_LC1;
-    case CONTROL_MEMORY_MODE_LC2:
-        return RUNTIME_MEMORY_MODE_LC2;
-    case CONTROL_MEMORY_MODE_ROM:
-        return RUNTIME_MEMORY_MODE_ROM;
-    case CONTROL_MEMORY_MODE_MAP:
-    default:
-        return RUNTIME_MEMORY_MODE_MAP;
-    }
-}
-
 static void clear_execution_latches(control_dispatch_t *disp)
 {
     disp->latch_paused = false;
@@ -1391,9 +1372,9 @@ static void handle_request(control_dispatch_t *disp, control_request *req)
     case CONTROL_COMMAND_SET_TURBO: {
         char text[CONTROL_RESPONSE_TEXT_MAX];
         char turbo_label[32];
-        disp->turbo_mode = req->args.turbo_mode;
-        (void)runtime_client_set_turbo_multiplier(client, req->args.turbo_mode);
-        runtime_turbo_format_token(req->args.turbo_mode, turbo_label, sizeof(turbo_label));
+        disp->turbo_mode = req->args.turbo.milli_mhz;
+        (void)runtime_client_set_turbo_multiplier(client, req->args.turbo.milli_mhz);
+        runtime_turbo_format_token(req->args.turbo.milli_mhz, turbo_label, sizeof(turbo_label));
         snprintf(text, sizeof(text), "accepted=1 turbo=%s", turbo_label);
         post_ok(disp, req->id, text);
         break;
@@ -1460,17 +1441,17 @@ static void handle_request(control_dispatch_t *disp, control_request *req)
 
     case CONTROL_COMMAND_GET_MEMORY: {
         uint64_t token = runtime_client_alloc_request_token(client);
-        runtime_memory_mode mode = to_runtime_memory_mode(req->args.memory_mode);
+        runtime_memory_mode mode = (runtime_memory_mode)req->args.memory.source_id;
         deferred_control_response *d =
             begin_deferred(disp, req->id, CONTROL_DEFERRED_GET_MEMORY, 2000u, token);
         if (d == NULL) {
             break;
         }
-        d->memory_address = req->args.address;
-        d->memory_length = req->args.length;
-        d->memory_mode = req->args.memory_mode;
+        d->memory_address = req->args.memory.address;
+        d->memory_length = req->args.memory.length;
+        d->memory_mode = (uint8_t)req->args.memory.source_id;
         if (!runtime_client_request_memory_token(
-                client, req->args.address, req->args.length, mode, token)) {
+                client, req->args.memory.address, req->args.memory.length, mode, token)) {
             post_error(disp, req->id, "busy", "queue");
             control_deferred_clear(d);
         }
@@ -1478,24 +1459,24 @@ static void handle_request(control_dispatch_t *disp, control_request *req)
     }
 
     case CONTROL_COMMAND_SET_MEMORY: {
-        runtime_memory_mode mode = to_runtime_memory_mode(req->args.memory_mode);
-        if (req->payload == NULL || req->payload_size != req->args.length) {
+        runtime_memory_mode mode = (runtime_memory_mode)req->args.memory.source_id;
+        if (req->payload == NULL || req->payload_size != req->args.memory.length) {
             post_error(disp, req->id, "bad-payload", "length");
             break;
         }
-        if (req->args.length <= RUNTIME_MEMORY_SNAPSHOT_MAX) {
+        if (req->args.memory.length <= RUNTIME_MEMORY_SNAPSHOT_MAX) {
             (void)runtime_client_write_memory(
                 client,
-                req->args.address,
-                (uint16_t)req->args.length,
+                req->args.memory.address,
+                (uint16_t)req->args.memory.length,
                 mode,
                 req->payload);
         } else {
             uint32_t i;
-            for (i = 0; i < req->args.length; i++) {
+            for (i = 0; i < req->args.memory.length; i++) {
                 (void)runtime_client_write_memory_byte(
                     client,
-                    (uint16_t)(req->args.address + i),
+                    (uint16_t)(req->args.memory.address + i),
                     req->payload[i],
                     mode);
             }
@@ -1506,9 +1487,9 @@ static void handle_request(control_dispatch_t *disp, control_request *req)
                 text,
                 sizeof(text),
                 "addr=%04X length=%u mode=%s",
-                req->args.address,
-                req->args.length,
-                control_protocol_memory_mode_name(req->args.memory_mode));
+                req->args.memory.address,
+                req->args.memory.length,
+                control_protocol_memory_mode_name(req->args.memory.source_id));
             post_ok(disp, req->id, text);
         }
         break;
@@ -1553,11 +1534,11 @@ static void handle_request(control_dispatch_t *disp, control_request *req)
 
     case CONTROL_COMMAND_FRAME_RING_RECORD:
         runtime_client_set_frame_ring_recording(
-            client, req->args.frame_ring_record_enabled);
+            client, req->args.frame_ring.record_enabled);
         post_ok(
             disp,
             req->id,
-            req->args.frame_ring_record_enabled ? "recording=1" : "recording=0");
+            req->args.frame_ring.record_enabled ? "recording=1" : "recording=0");
         break;
 
     case CONTROL_COMMAND_FRAME_RING_CLEAR:
@@ -1574,8 +1555,8 @@ static void handle_request(control_dispatch_t *disp, control_request *req)
 
         if (!runtime_client_copy_frame_at(
                 client,
-                req->args.frame_ring_target,
-                req->args.frame_ring_by_cycle,
+                req->args.frame_ring.target,
+                req->args.frame_ring.by_cycle,
                 &frame)) {
             post_error(disp, req->id, "not-found", "frame-not-retained");
             break;
@@ -1597,8 +1578,8 @@ static void handle_request(control_dispatch_t *disp, control_request *req)
             frame.stride_bytes,
             (unsigned long long)frame.frame_number,
             (unsigned long long)frame.machine_cycle,
-            (unsigned long long)req->args.frame_ring_target,
-            req->args.frame_ring_by_cycle ? "cycle" : "frame");
+            (unsigned long long)req->args.frame_ring.target,
+            req->args.frame_ring.by_cycle ? "cycle" : "frame");
         control_protocol_format_data(
             &response, req->id, "frame", meta, payload, nbytes, false);
         if (!control_server_post_response(disp->server, &response)) {
@@ -1608,8 +1589,8 @@ static void handle_request(control_dispatch_t *disp, control_request *req)
     }
 
     case CONTROL_COMMAND_SET_REG: {
-        const char *n = req->args.reg_name;
-        uint16_t v = req->args.reg_value;
+        const char *n = req->args.set_reg.name;
+        uint16_t v = req->args.set_reg.value;
         if (strcmp(n, "pc") == 0) {
             (void)runtime_client_set_pc(client, v);
         } else if (strcmp(n, "sp") == 0) {
@@ -1634,8 +1615,8 @@ static void handle_request(control_dispatch_t *disp, control_request *req)
         runtime_breakpoint_definition def;
         memset(&def, 0, sizeof(def));
         def.enabled = 1u;
-        def.start_address = req->args.address;
-        def.end_address = req->args.address;
+        def.start_address = req->args.brk.address;
+        def.end_address = req->args.brk.address;
         def.access = RUNTIME_BREAKPOINT_ACCESS_EXECUTE;
         def.mapping = 0u;
         def.actions = RUNTIME_BREAKPOINT_ACTION_BREAK;
@@ -1662,10 +1643,10 @@ static void handle_request(control_dispatch_t *disp, control_request *req)
         if (d == NULL) {
             break;
         }
-        if (req->type == CONTROL_COMMAND_BREAK_CLEAR_ALL || req->args.break_id == 0u) {
+        if (req->type == CONTROL_COMMAND_BREAK_CLEAR_ALL || req->args.brk.id == 0u) {
             ok = runtime_client_clear_all_breakpoints(client);
         } else {
-            ok = runtime_client_clear_breakpoint(client, req->args.break_id);
+            ok = runtime_client_clear_breakpoint(client, req->args.brk.id);
         }
         if (!ok || !runtime_client_request_breakpoints(client)) {
             post_error(disp, req->id, "runtime", "command rejected");
@@ -1680,7 +1661,7 @@ static void handle_request(control_dispatch_t *disp, control_request *req)
             break;
         }
         if (!runtime_client_set_breakpoint_enabled(
-                client, req->args.break_id, req->args.break_enable != 0u) ||
+                client, req->args.brk.id, req->args.brk.enable != 0u) ||
             !runtime_client_request_breakpoints(client)) {
             post_error(disp, req->id, "runtime", "command rejected");
             control_deferred_clear(d);
@@ -1692,7 +1673,7 @@ static void handle_request(control_dispatch_t *disp, control_request *req)
         char definition_error[192];
         deferred_control_response *d;
         if (!control_parse_breakpoint_definition(
-                req->args.text, &def, definition_error, sizeof(definition_error))) {
+                req->args.brk.text, &def, definition_error, sizeof(definition_error))) {
             char message[CONTROL_RESPONSE_TEXT_MAX];
             snprintf(
                 message,
@@ -1719,7 +1700,7 @@ static void handle_request(control_dispatch_t *disp, control_request *req)
         char definition_error[192];
         deferred_control_response *d;
         if (!control_parse_breakpoint_definition(
-                req->args.text, &def, definition_error, sizeof(definition_error))) {
+                req->args.brk.text, &def, definition_error, sizeof(definition_error))) {
             char message[CONTROL_RESPONSE_TEXT_MAX];
             snprintf(
                 message,
@@ -1734,7 +1715,7 @@ static void handle_request(control_dispatch_t *disp, control_request *req)
         if (d == NULL) {
             break;
         }
-        if (!runtime_client_update_breakpoint(client, req->args.break_id, &def) ||
+        if (!runtime_client_update_breakpoint(client, req->args.brk.id, &def) ||
             !runtime_client_request_breakpoints(client)) {
             post_error(disp, req->id, "runtime", "command rejected");
             control_deferred_clear(d);
@@ -1784,7 +1765,7 @@ static void handle_request(control_dispatch_t *disp, control_request *req)
             break;
         }
         (void)begin_deferred(
-            disp, req->id, CONTROL_DEFERRED_WAIT_PAUSED, req->args.timeout_ms, 0u);
+            disp, req->id, CONTROL_DEFERRED_WAIT_PAUSED, req->args.wait.timeout_ms, 0u);
         break;
     }
 
@@ -1794,36 +1775,36 @@ static void handle_request(control_dispatch_t *disp, control_request *req)
             break;
         }
         (void)begin_deferred(
-            disp, req->id, CONTROL_DEFERRED_WAIT_RUNNING, req->args.timeout_ms, 0u);
+            disp, req->id, CONTROL_DEFERRED_WAIT_RUNNING, req->args.wait.timeout_ms, 0u);
         break;
     }
 
     case CONTROL_COMMAND_WAIT_FRAME: {
         deferred_control_response *d = begin_deferred(
-            disp, req->id, CONTROL_DEFERRED_WAIT_FRAME, req->args.timeout_ms, 0u);
+            disp, req->id, CONTROL_DEFERRED_WAIT_FRAME, req->args.wait.timeout_ms, 0u);
         if (d == NULL) {
             break;
         }
-        d->wait_frame_delta = req->args.wait_frame_delta;
+        d->wait_frame_delta = req->args.wait.frame_delta;
         d->wait_frame_start = disp->frame_number;
         break;
     }
 
     case CONTROL_COMMAND_WAIT_EVENT: {
-        if (latch_matches_event(disp, req->args.event_name)) {
+        if (latch_matches_event(disp, req->args.wait.event_name)) {
             char text[CONTROL_RESPONSE_TEXT_MAX];
-            snprintf(text, sizeof(text), "event=%s", req->args.event_name);
+            snprintf(text, sizeof(text), "event=%s", req->args.wait.event_name);
             post_ok(disp, req->id, text);
-            consume_latch(disp, req->args.event_name);
+            consume_latch(disp, req->args.wait.event_name);
             break;
         }
         {
             deferred_control_response *d = begin_deferred(
-                disp, req->id, CONTROL_DEFERRED_WAIT_EVENT, req->args.timeout_ms, 0u);
+                disp, req->id, CONTROL_DEFERRED_WAIT_EVENT, req->args.wait.timeout_ms, 0u);
             if (d == NULL) {
                 break;
             }
-            strncpy(d->event_name, req->args.event_name, sizeof(d->event_name) - 1);
+            strncpy(d->event_name, req->args.wait.event_name, sizeof(d->event_name) - 1);
         }
         break;
     }
@@ -1834,7 +1815,7 @@ static void handle_request(control_dispatch_t *disp, control_request *req)
         if (d == NULL) {
             break;
         }
-        if (!runtime_client_save_state(client, req->args.path)) {
+        if (!runtime_client_save_state(client, req->args.path.path)) {
             post_error(disp, req->id, "bad-args", "path");
             control_deferred_clear(d);
         }
@@ -1847,7 +1828,7 @@ static void handle_request(control_dispatch_t *disp, control_request *req)
         if (d == NULL) {
             break;
         }
-        if (!runtime_client_load_state(client, req->args.path)) {
+        if (!runtime_client_load_state(client, req->args.path.path)) {
             post_error(disp, req->id, "bad-args", "path");
             control_deferred_clear(d);
         }
@@ -1856,7 +1837,7 @@ static void handle_request(control_dispatch_t *disp, control_request *req)
 
     case CONTROL_COMMAND_ASSEMBLE: {
         deferred_control_response *d;
-        if (req->args.path[0] == '\0') {
+        if (req->args.assemble.path[0] == '\0') {
             post_error(disp, req->id, "bad-args", "expected source path");
             break;
         }
@@ -1869,13 +1850,13 @@ static void handle_request(control_dispatch_t *disp, control_request *req)
         }
         if (!runtime_client_assemble_file_full(
                 client,
-                req->args.path,
-                req->args.address,
-                req->args.run_address,
-                req->args.auto_run,
-                req->args.mli_launch,
-                req->args.reset_first,
-                req->args.auto_adjust_segments)) {
+                req->args.assemble.path,
+                req->args.assemble.address,
+                req->args.assemble.run_address,
+                req->args.assemble.auto_run,
+                req->args.assemble.mli_launch,
+                req->args.assemble.reset_first,
+                req->args.assemble.auto_adjust_segments)) {
             post_error(disp, req->id, "runtime", "command rejected");
             control_deferred_clear(d);
         }
@@ -1886,7 +1867,7 @@ static void handle_request(control_dispatch_t *disp, control_request *req)
         size_t i;
         bool found = false;
 
-        if (req->args.text[0] == '\0') {
+        if (req->args.find_symbol.name[0] == '\0') {
             post_error(disp, req->id, "bad-args", "expected symbol name");
             break;
         }
@@ -1901,7 +1882,7 @@ static void handle_request(control_dispatch_t *disp, control_request *req)
         for (i = 0; i < disp->symbols.count; i++) {
             if (strncmp(
                     disp->symbols.entries[i].name,
-                    req->args.text,
+                    req->args.find_symbol.name,
                     RUNTIME_SYMBOL_NAME_MAX) == 0) {
                 char text[CONTROL_RESPONSE_TEXT_MAX];
                 snprintf(
@@ -1923,8 +1904,8 @@ static void handle_request(control_dispatch_t *disp, control_request *req)
 
     case CONTROL_COMMAND_KEY: {
         /* Apple: inject one keystroke via paste (ASCII / $C000 path). */
-        char ch = (char)req->args.key;
-        if (req->args.key == 0x8Du || req->args.key == '\r') {
+        char ch = (char)req->args.key.value;
+        if (req->args.key.value == 0x8Du || req->args.key.value == '\r') {
             ch = '\n';
         }
         if (!runtime_client_paste_text(client, &ch, 1u)) {
@@ -1941,9 +1922,9 @@ static void handle_request(control_dispatch_t *disp, control_request *req)
             req->id,
             CONTROL_COMMAND_MOUNT_DISK,
             (uint8_t)CONTROL_MEDIA_KIND_DISKII,
-            req->args.slot,
-            req->args.drive,
-            req->args.path,
+            req->args.media.slot,
+            req->args.media.drive,
+            req->args.media.path,
             0u,
             0u);
         break;
@@ -1953,10 +1934,10 @@ static void handle_request(control_dispatch_t *disp, control_request *req)
             disp,
             req->id,
             CONTROL_COMMAND_MOUNT,
-            req->args.media_kind,
-            req->args.slot,
-            req->args.drive,
-            req->args.path,
+            req->args.media.kind,
+            req->args.media.slot,
+            req->args.media.drive,
+            req->args.media.path,
             0u,
             0u);
         break;
@@ -1966,9 +1947,9 @@ static void handle_request(control_dispatch_t *disp, control_request *req)
             disp,
             req->id,
             CONTROL_COMMAND_UNMOUNT,
-            req->args.media_kind,
-            req->args.slot,
-            req->args.drive,
+            req->args.media.kind,
+            req->args.media.slot,
+            req->args.media.drive,
             NULL,
             0u,
             0u);
@@ -1980,10 +1961,10 @@ static void handle_request(control_dispatch_t *disp, control_request *req)
             req->id,
             CONTROL_COMMAND_SELECT_DISK,
             (uint8_t)CONTROL_MEDIA_KIND_DISKII,
-            req->args.slot,
-            req->args.drive,
+            req->args.media.slot,
+            req->args.media.drive,
             NULL,
-            req->args.disk_index,
+            req->args.media.disk_index,
             0u);
         break;
 
@@ -1993,11 +1974,11 @@ static void handle_request(control_dispatch_t *disp, control_request *req)
             req->id,
             CONTROL_COMMAND_SET_DISK_WRITABLE,
             (uint8_t)CONTROL_MEDIA_KIND_DISKII,
-            req->args.slot,
-            req->args.drive,
+            req->args.media.slot,
+            req->args.media.drive,
             NULL,
             0u,
-            req->args.disk_writable);
+            req->args.media.writable);
         break;
 
     case CONTROL_COMMAND_HISTORY_INFO: {
@@ -2022,7 +2003,7 @@ static void handle_request(control_dispatch_t *disp, control_request *req)
             break;
         }
         if (!runtime_client_history_record(
-                client, req->args.history_record_enabled, token)) {
+                client, req->args.history.record_enabled, token)) {
             post_error(disp, req->id, "runtime", "command rejected");
             control_deferred_clear(d);
         }
@@ -2052,7 +2033,7 @@ static void handle_request(control_dispatch_t *disp, control_request *req)
         deferred_control_response *d;
 
         if (!runtime_history_parse_find_options(
-                req->args.history_find_text,
+                req->args.history.find_text,
                 &query,
                 &from_kind,
                 &from_id,
@@ -2090,8 +2071,8 @@ static void handle_request(control_dispatch_t *disp, control_request *req)
         if (!runtime_client_history_next(
                 client,
                 control_dispatch_history_session_id(disp),
-                req->args.history_cursor,
-                req->args.history_limit,
+                req->args.history.cursor,
+                req->args.history.limit,
                 token)) {
             post_error(disp, req->id, "runtime", "command rejected");
             control_deferred_clear(d);
@@ -2109,10 +2090,10 @@ static void handle_request(control_dispatch_t *disp, control_request *req)
         if (!runtime_client_history_read(
                 client,
                 control_dispatch_history_session_id(disp),
-                req->args.history_epoch,
-                req->args.history_id,
-                req->args.history_before,
-                req->args.history_after,
+                req->args.history.epoch,
+                req->args.history.id,
+                req->args.history.before,
+                req->args.history.after,
                 token)) {
             post_error(disp, req->id, "runtime", "command rejected");
             control_deferred_clear(d);
@@ -2130,7 +2111,7 @@ static void handle_request(control_dispatch_t *disp, control_request *req)
         if (!runtime_client_history_close(
                 client,
                 control_dispatch_history_session_id(disp),
-                req->args.history_cursor,
+                req->args.history.cursor,
                 token)) {
             post_error(disp, req->id, "runtime", "command rejected");
             control_deferred_clear(d);

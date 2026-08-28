@@ -1,5 +1,6 @@
 #include "control_protocol.h"
 
+#include "control_verbs.h"
 #include "runtime_history_query_parse.h"
 
 #include <ctype.h>
@@ -91,18 +92,20 @@ static bool parse_memory_mode_token(const char *text, const char **out_end, uint
         end++;
     }
     length = (size_t)(end - text);
-    if (length == 3 && strncmp(text, "map", length) == 0) {
-        *out_mode = 0; /* RUNTIME_MEMORY_MODE_CPU_MAP */
-    } else if (length == 3 && strncmp(text, "ram", length) == 0) {
-        *out_mode = 1; /* RUNTIME_MEMORY_MODE_RAM */
-    } else if (length == 3 && strncmp(text, "rom", length) == 0) {
-        *out_mode = 2; /* RUNTIME_MEMORY_MODE_ROM */
-    } else if (length == 6 && strncmp(text, "drive8", length) == 0) {
-        *out_mode = 3; /* RUNTIME_MEMORY_MODE_DRIVE8_MAP */
-    } else if (length == 6 && strncmp(text, "drive9", length) == 0) {
-        *out_mode = 4; /* RUNTIME_MEMORY_MODE_DRIVE9_MAP */
-    } else {
-        return false;
+    {
+        char token[16];
+        size_t n = 0;
+        const memory_source *src;
+        if (length == 0u || length >= sizeof(token)) {
+            return false;
+        }
+        memcpy(token, text, length);
+        token[length] = '\0';
+        src = memory_source_find_by_token(c64_memory_sources(&n), n, token);
+        if (src == NULL) {
+            return false;
+        }
+        *out_mode = (uint8_t)src->id;
     }
     if (out_end != NULL) {
         *out_end = end;
@@ -315,237 +318,9 @@ static bool parse_key_token(const char *cursor, const char **out_end, uint8_t *o
 
 static control_command_type command_from_name(const char *name, size_t length)
 {
-    if (length == 5 && strncmp(name, "hello", length) == 0) {
-        return CONTROL_COMMAND_HELLO;
-    }
-    if (length == 7 && strncmp(name, "version", length) == 0) {
-        return CONTROL_COMMAND_VERSION;
-    }
-    if (length == 12 && strncmp(name, "capabilities", length) == 0) {
-        return CONTROL_COMMAND_CAPABILITIES;
-    }
-    if (length == 4 && strncmp(name, "ping", length) == 0) {
-        return CONTROL_COMMAND_PING;
-    }
-    if (length == 11 && strncmp(name, "quit-client", length) == 0) {
-        return CONTROL_COMMAND_QUIT_CLIENT;
-    }
-    if (length == 5 && strncmp(name, "reset", length) == 0) {
-        return CONTROL_COMMAND_RESET;
-    }
-    if (length == 3 && strncmp(name, "run", length) == 0) {
-        return CONTROL_COMMAND_RUN;
-    }
-    if (length == 5 && strncmp(name, "pause", length) == 0) {
-        return CONTROL_COMMAND_PAUSE;
-    }
-    if (length == 10 && strncmp(name, "step-cycle", length) == 0) {
-        return CONTROL_COMMAND_STEP_CYCLE;
-    }
-    if (length == 16 && strncmp(name, "step-instruction", length) == 0) {
-        return CONTROL_COMMAND_STEP_INSTRUCTION;
-    }
-    if (length == 9 && strncmp(name, "step-over", length) == 0) {
-        return CONTROL_COMMAND_STEP_OVER;
-    }
-    if (length == 8 && strncmp(name, "step-out", length) == 0) {
-        return CONTROL_COMMAND_STEP_OUT;
-    }
-    if (length == 10 && strncmp(name, "run-cycles", length) == 0) {
-        return CONTROL_COMMAND_RUN_CYCLES;
-    }
-    if (length == 16 && strncmp(name, "run-instructions", length) == 0) {
-        return CONTROL_COMMAND_RUN_INSTRUCTIONS;
-    }
-    if (length == 6 && strncmp(name, "run-to", length) == 0) {
-        return CONTROL_COMMAND_RUN_TO;
-    }
-    if (length == 10 && strncmp(name, "step-frame", length) == 0) {
-        return CONTROL_COMMAND_STEP_FRAME;
-    }
-    if (length == 13 && strncmp(name, "run-to-raster", length) == 0) {
-        return CONTROL_COMMAND_RUN_TO_RASTER;
-    }
-    if (length == 12 && strncmp(name, "history-info", length) == 0) {
-        return CONTROL_COMMAND_HISTORY_INFO;
-    }
-    if (length == 14 && strncmp(name, "history-record", length) == 0) {
-        return CONTROL_COMMAND_HISTORY_RECORD;
-    }
-    if (length == 13 && strncmp(name, "history-clear", length) == 0) {
-        return CONTROL_COMMAND_HISTORY_CLEAR;
-    }
-    if (length == 12 && strncmp(name, "history-find", length) == 0) {
-        return CONTROL_COMMAND_HISTORY_FIND;
-    }
-    if (length == 12 && strncmp(name, "history-next", length) == 0) {
-        return CONTROL_COMMAND_HISTORY_NEXT;
-    }
-    if (length == 12 && strncmp(name, "history-read", length) == 0) {
-        return CONTROL_COMMAND_HISTORY_READ;
-    }
-    if (length == 13 && strncmp(name, "history-close", length) == 0) {
-        return CONTROL_COMMAND_HISTORY_CLOSE;
-    }
-    if (length == 9 && strncmp(name, "set-turbo", length) == 0) {
-        return CONTROL_COMMAND_SET_TURBO;
-    }
-    if (length == 15 && strncmp(name, "leave-inspector", length) == 0) {
-        return CONTROL_COMMAND_LEAVE_INSPECTOR;
-    }
-    if (length == 15 && strncmp(name, "enter-inspector", length) == 0) {
-        return CONTROL_COMMAND_ENTER_INSPECTOR;
-    }
-    if (length == 9 && strncmp(name, "get-state", length) == 0) {
-        return CONTROL_COMMAND_GET_STATE;
-    }
-    if (length == 7 && strncmp(name, "get-cpu", length) == 0) {
-        return CONTROL_COMMAND_GET_CPU;
-    }
-    if (length == 9 && strncmp(name, "get-frame", length) == 0) {
-        return CONTROL_COMMAND_GET_FRAME;
-    }
-    if (length == 12 && strncmp(name, "get-frame-at", length) == 0) {
-        return CONTROL_COMMAND_GET_FRAME_AT;
-    }
-    if (length == 15 && strncmp(name, "frame-ring-info", length) == 0) {
-        return CONTROL_COMMAND_FRAME_RING_INFO;
-    }
-    if (length == 17 && strncmp(name, "frame-ring-record", length) == 0) {
-        return CONTROL_COMMAND_FRAME_RING_RECORD;
-    }
-    if (length == 16 && strncmp(name, "frame-ring-clear", length) == 0) {
-        return CONTROL_COMMAND_FRAME_RING_CLEAR;
-    }
-    if (length == 13 && strncmp(name, "vic-ring-info", length) == 0) {
-        return CONTROL_COMMAND_VIC_RING_INFO;
-    }
-    if (length == 15 && strncmp(name, "vic-ring-record", length) == 0) {
-        return CONTROL_COMMAND_VIC_RING_RECORD;
-    }
-    if (length == 14 && strncmp(name, "vic-ring-clear", length) == 0) {
-        return CONTROL_COMMAND_VIC_RING_CLEAR;
-    }
-    if (length == 13 && strncmp(name, "vic-ring-find", length) == 0) {
-        return CONTROL_COMMAND_VIC_RING_FIND;
-    }
-    if (length == 7 && strncmp(name, "get-vic", length) == 0) {
-        return CONTROL_COMMAND_GET_VIC;
-    }
-    if (length == 7 && strncmp(name, "get-cia", length) == 0) {
-        return CONTROL_COMMAND_GET_CIA;
-    }
-    if (length == 10 && strncmp(name, "get-memory", length) == 0) {
-        return CONTROL_COMMAND_GET_MEMORY;
-    }
-    if (length == 10 && strncmp(name, "set-memory", length) == 0) {
-        return CONTROL_COMMAND_SET_MEMORY;
-    }
-    if (length == 16 && strncmp(name, "get-debug-memory", length) == 0) {
-        return CONTROL_COMMAND_GET_DEBUG_MEMORY;
-    }
-    if (length == 14 && strncmp(name, "get-call-stack", length) == 0) {
-        return CONTROL_COMMAND_GET_CALL_STACK;
-    }
-    if (length == 8 && strncmp(name, "key-down", length) == 0) {
-        return CONTROL_COMMAND_KEY_DOWN;
-    }
-    if (length == 6 && strncmp(name, "key-up", length) == 0) {
-        return CONTROL_COMMAND_KEY_UP;
-    }
-    if (length == 7 && strncmp(name, "restore", length) == 0) {
-        return CONTROL_COMMAND_RESTORE;
-    }
-    if (length == 8 && strncmp(name, "joystick", length) == 0) {
-        return CONTROL_COMMAND_JOYSTICK;
-    }
-    if (length == 10 && strncmp(name, "paste-text", length) == 0) {
-        return CONTROL_COMMAND_PASTE_TEXT;
-    }
-    if (length == 12 && strncmp(name, "paste-events", length) == 0) {
-        return CONTROL_COMMAND_PASTE_EVENTS;
-    }
-    if (length == 15 && strncmp(name, "paste-text-data", length) == 0) {
-        return CONTROL_COMMAND_PASTE_TEXT_DATA;
-    }
-    if (length == 17 && strncmp(name, "paste-events-data", length) == 0) {
-        return CONTROL_COMMAND_PASTE_EVENTS_DATA;
-    }
-    if (length == 8 && strncmp(name, "load-prg", length) == 0) {
-        return CONTROL_COMMAND_LOAD_PRG;
-    }
-    if (length == 8 && strncmp(name, "load-bin", length) == 0) {
-        return CONTROL_COMMAND_LOAD_BIN;
-    }
-    if (length == 8 && strncmp(name, "save-bin", length) == 0) {
-        return CONTROL_COMMAND_SAVE_BIN;
-    }
-    if (length == 10 && strncmp(name, "load-state", length) == 0) {
-        return CONTROL_COMMAND_LOAD_STATE;
-    }
-    if (length == 10 && strncmp(name, "save-state", length) == 0) {
-        return CONTROL_COMMAND_SAVE_STATE;
-    }
-    if (length == 9 && strncmp(name, "mount-d64", length) == 0) {
-        return CONTROL_COMMAND_MOUNT_D64;
-    }
-    if (length == 12 && strncmp(name, "unmount-disk", length) == 0) {
-        return CONTROL_COMMAND_UNMOUNT_DISK;
-    }
-    if (length == 11 && strncmp(name, "power-drive", length) == 0) {
-        return CONTROL_COMMAND_POWER_DRIVE;
-    }
-    if (length == 15 && strncmp(name, "get-disk-status", length) == 0) {
-        return CONTROL_COMMAND_GET_DISK_STATUS;
-    }
-    if (length == 13 && strncmp(name, "get-drive-cpu", length) == 0) {
-        return CONTROL_COMMAND_GET_DRIVE_CPU;
-    }
-    if (length == 10 && strncmp(name, "break-exec", length) == 0) {
-        return CONTROL_COMMAND_BREAK_EXEC;
-    }
-    if (length == 11 && strncmp(name, "break-clear", length) == 0) {
-        return CONTROL_COMMAND_BREAK_CLEAR;
-    }
-    if (length == 12 && strncmp(name, "break-enable", length) == 0) {
-        return CONTROL_COMMAND_BREAK_ENABLE;
-    }
-    if ((length == 10 && strncmp(name, "break-list", length) == 0) ||
-        (length == 15 && strncmp(name, "get-breakpoints", length) == 0)) {
-        return CONTROL_COMMAND_BREAK_LIST;
-    }
-    if (length == 15 && strncmp(name, "break-clear-all", length) == 0) {
-        return CONTROL_COMMAND_BREAK_CLEAR_ALL;
-    }
-    if (length == 12 && strncmp(name, "break-create", length) == 0) {
-        return CONTROL_COMMAND_BREAK_CREATE;
-    }
-    if (length == 12 && strncmp(name, "break-update", length) == 0) {
-        return CONTROL_COMMAND_BREAK_UPDATE;
-    }
-    if (length == 14 && strncmp(name, "rearm-oneshots", length) == 0) {
-        return CONTROL_COMMAND_REARM_ONESHOTS;
-    }
-    if (length == 11 && strncmp(name, "wait-paused", length) == 0) {
-        return CONTROL_COMMAND_WAIT_PAUSED;
-    }
-    if (length == 12 && strncmp(name, "wait-running", length) == 0) {
-        return CONTROL_COMMAND_WAIT_RUNNING;
-    }
-    if (length == 10 && strncmp(name, "wait-frame", length) == 0) {
-        return CONTROL_COMMAND_WAIT_FRAME;
-    }
-    if (length == 10 && strncmp(name, "wait-event", length) == 0) {
-        return CONTROL_COMMAND_WAIT_EVENT;
-    }
-    if (length == 8 && strncmp(name, "assemble", length) == 0) {
-        return CONTROL_COMMAND_ASSEMBLE;
-    }
-    if (length == 11 && strncmp(name, "find-symbol", length) == 0) {
-        return CONTROL_COMMAND_FIND_SYMBOL;
-    }
-    return CONTROL_COMMAND_NONE;
+    return c64_control_command_from_name(name, length);
 }
+
 
 static bool command_requires_count(control_command_type type)
 {
@@ -980,14 +755,27 @@ bool control_protocol_parse_request(
         }
         if (type == CONTROL_COMMAND_SET_MEMORY) {
             /* Writable modes only; rom/drive maps are rejected at parse time. */
-            if (!parse_memory_mode_token(cursor, &cursor, &args.memory_mode) ||
-                (args.memory_mode != 0u && args.memory_mode != 1u)) {
-                set_parse_error(
-                    out_error,
-                    id,
-                    "bad-args",
-                    "expected writable memory mode map or ram");
-                return false;
+            {
+                size_t n = 0;
+                const memory_source *src;
+                if (!parse_memory_mode_token(cursor, &cursor, &args.memory_mode)) {
+                    set_parse_error(
+                        out_error,
+                        id,
+                        "bad-args",
+                        "expected writable memory mode map or ram");
+                    return false;
+                }
+                src = memory_source_find_by_id(
+                    c64_memory_sources(&n), n, args.memory_mode);
+                if (src == NULL || (src->flags & MEMSRC_WRITABLE) == 0u) {
+                    set_parse_error(
+                        out_error,
+                        id,
+                        "bad-args",
+                        "expected writable memory mode map or ram");
+                    return false;
+                }
             }
         } else if (!parse_memory_mode_token(cursor, &cursor, &args.memory_mode)) {
             set_parse_error(

@@ -5341,13 +5341,16 @@ static void dispatch_control_request(
                 CONTROL_PROTOCOL_APP_LABEL);
             break;
 
-        case CONTROL_COMMAND_CAPABILITIES:
+        case CONTROL_COMMAND_CAPABILITIES: {
+            char caps[CONTROL_RESPONSE_TEXT_MAX];
+            c64_control_format_capabilities(caps, sizeof(caps));
             control_protocol_format_ok(
                 &response,
                 request->id,
-                "connection introspection execution state step turbo frame memory debug-memory call-stack input disk file snapshot breakpoints wait assemble symbols drive-cpu vic cia run-to-raster history power-drive frame-ring vic-ring sessions state-changed inspector",
+                caps,
                 false);
             break;
+        }
 
         case CONTROL_COMMAND_PING:
             control_protocol_format_ok(&response, request->id, NULL, false);

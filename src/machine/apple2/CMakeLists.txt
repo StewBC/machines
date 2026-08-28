@@ -538,6 +538,20 @@ target_compile_features(test_control_protocol PRIVATE c_std_99)
 target_link_libraries(test_control_protocol PRIVATE control)
 add_test(NAME control_protocol COMMAND test_control_protocol)
 
+add_executable(test_control_command_table
+    ${MACHINES_ROOT}/src/shell/tests/control/test_control_command_table.c
+)
+target_compile_features(test_control_command_table PRIVATE c_std_99)
+target_link_libraries(test_control_command_table PRIVATE shell)
+add_test(NAME control_command_table COMMAND test_control_command_table)
+
+add_executable(test_memory_source
+    ${MACHINES_ROOT}/src/shell/tests/control/test_memory_source.c
+)
+target_compile_features(test_memory_source PRIVATE c_std_99)
+target_link_libraries(test_memory_source PRIVATE shell)
+add_test(NAME memory_source COMMAND test_memory_source)
+
 # --- tools / assembler -----------------------------------------------------
 
 add_executable(test_assembler_expressions

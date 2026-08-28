@@ -36,7 +36,7 @@ Canonical product-as-is notes (leftover trees after Stage 1):
 | Stage 2: Shared platform / util / external / nuklear | **landed** | 2026-08-27 | [`shell-extract-platform.md`](shell-extract-platform.md) |
 | Stage 3: Assembler and disasm CPU class | **landed** | 2026-08-27 | [`assembler-disasm.md`](assembler-disasm.md) |
 | Stage 4: Control framing | **landed** | 2026-08-27 | [`control-framing.md`](control-framing.md) |
-| Stage 5: Command tables + memory sources | **active** (doc Status: **Accepted**) | 2026-08-27 | [`control-command-tables.md`](control-command-tables.md) |
+| Stage 5: Command tables + memory sources | **landed** | 2026-08-27 | [`control-command-tables.md`](control-command-tables.md) |
 | Stage 6: Runtime shell twins (history / BP / forensics / help) | **landed** | 2026-08-27 | [`runtime-shell-extract.md`](runtime-shell-extract.md) |
 
 Follow-on designs named by the stage map (not written yet):

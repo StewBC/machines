@@ -4206,12 +4206,12 @@ static void frontend_disassembly_handle_key(
     }
 
     if (alt && !shift && sym == SDLK_m) {
-        if (view->mode == RUNTIME_MEMORY_MODE_CPU_MAP) {
+        if (view->mode == RUNTIME_MEMORY_MODE_MAP) {
             view->mode = RUNTIME_MEMORY_MODE_ROM;
         } else if (view->mode == RUNTIME_MEMORY_MODE_ROM) {
-            view->mode = RUNTIME_MEMORY_MODE_RAM;
+            view->mode = RUNTIME_MEMORY_MODE_MAIN;
         } else {
-            view->mode = RUNTIME_MEMORY_MODE_CPU_MAP;
+            view->mode = RUNTIME_MEMORY_MODE_MAP;
         }
         view->request_pending = false;
         return;
@@ -4588,7 +4588,7 @@ typedef struct frontend_disasm_target {
 static bool frontend_disasm_map_get(const frontend *ui, uint16_t addr, uint8_t *out)
 {
     const frontend_disasm_cache *cache =
-        &ui->disassembly.mem_cache[RUNTIME_MEMORY_MODE_CPU_MAP];
+        &ui->disassembly.mem_cache[RUNTIME_MEMORY_MODE_MAP];
     if (!cache->valid[addr]) {
         return false;
     }
@@ -4757,7 +4757,7 @@ static void frontend_draw_disassembly_view(
     view->cpu_class = frontend_disasm_cpu_class(debug_state);
 
     if (!view->initialized) {
-        view->mode = RUNTIME_MEMORY_MODE_CPU_MAP;
+        view->mode = RUNTIME_MEMORY_MODE_MAP;
         view->follow_pc = true;
         view->initialized = true;
         if (debug_state != NULL && debug_state->has_cpu) {
@@ -6377,7 +6377,7 @@ static void frontend_draw_memory(frontend *ui, struct nk_rect bounds, const fron
     if (ui->memory_view_count == 0) {
         ui->memory_views[0].view_address = 0x0000;
         ui->memory_views[0].cursor_address = 0x0000;
-        ui->memory_views[0].mode = RUNTIME_MEMORY_MODE_CPU_MAP;
+        ui->memory_views[0].mode = RUNTIME_MEMORY_MODE_MAP;
         ui->memory_views[0].edit_field = FRONTEND_MEMORY_EDIT_HEX;
         ui->memory_views[0].columns = 16;
         ui->memory_views[0].color_slot = 0;
@@ -6668,7 +6668,7 @@ static void frontend_draw_memory(frontend *ui, struct nk_rect bounds, const fron
                 struct nk_rect br;
                 float inset_top, inset_bot;
 
-                if (mv->rows == 0 || mv->mode == RUNTIME_MEMORY_MODE_CPU_MAP) {
+                if (mv->rows == 0 || mv->mode == RUNTIME_MEMORY_MODE_MAP) {
                     continue;
                 }
 

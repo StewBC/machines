@@ -66,7 +66,8 @@ TCP client auto-binds one runtime session. Mutations publish `state-changed`
 
 `hello` capabilities include: `connection introspection execution state
 softswitches step turbo frame frame-ring memory breakpoints wait key disk
-snapshot history assemble symbols sessions state-changed inspector`.
+snapshot history assemble mli-launch symbols sessions state-changed inspector`
+(generated from the leftover verb table).
 
 | Surface | Commands |
 |---------|----------|

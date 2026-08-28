@@ -137,14 +137,6 @@ typedef enum runtime_memory_mode {
     RUNTIME_MEMORY_MODE_LC2 = 5   /* Language card bank 2 */
 } runtime_memory_mode;
 
-/* Legacy aliases (control wire / older names). */
-enum {
-    RUNTIME_MEMORY_MODE_CPU_MAP = RUNTIME_MEMORY_MODE_MAP,
-    RUNTIME_MEMORY_MODE_RAM = RUNTIME_MEMORY_MODE_MAIN,
-    RUNTIME_MEMORY_MODE_DRIVE8_MAP = RUNTIME_MEMORY_MODE_AUX,
-    RUNTIME_MEMORY_MODE_DRIVE9_MAP = RUNTIME_MEMORY_MODE_LC1
-};
-
 typedef enum runtime_stop_reason {
     RUNTIME_STOP_REASON_NONE = 0,
     RUNTIME_STOP_REASON_RESET,

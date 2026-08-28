@@ -17,6 +17,8 @@ add_library(shell STATIC
     frontend/disk_led_data.c
     frontend/forensics_view.c
     control/control_framing.c
+    control/control_command_table.c
+    control/memory_source.c
     runtime/runtime_history.c
     runtime/runtime_history_query_parse.c
     runtime/runtime_history_wire.c

@@ -256,13 +256,12 @@ static void control_server_handle_connection(
             continue;
         }
         if (request.type == CONTROL_COMMAND_CAPABILITIES) {
+            char caps[CONTROL_RESPONSE_TEXT_MAX];
+            apple2_control_format_capabilities(caps, sizeof(caps));
             control_protocol_format_ok(
                 &response,
                 request.id,
-                "connection introspection execution state softswitches step "
-                "turbo frame frame-ring memory breakpoints wait key disk "
-                "snapshot history assemble symbols sessions state-changed "
-                "inspector",
+                caps,
                 false);
             (void)control_framing_write_response(connection, &response);
             control_request_release(&request);
