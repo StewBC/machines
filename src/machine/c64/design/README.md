@@ -5,13 +5,13 @@ writeups that are not yet (or no longer) part of the agent handoff surface.
 
 ## Why not `agents/`?
 
-[`agents/`](../agents/) is the implementation brief for the product **as it is**.
-Design drafts, alternatives, and abandoned plans clutter that handoff and go
-stale relative to source. Keep speculative and program-of-work docs here;
-promote lasting invariants into `agents/*.md` and `manual/manual.md` when the
-work lands.
+[`agents/c64/`](../../../../agents/c64/) is the implementation brief for the
+product **as it is**. Design drafts, alternatives, and abandoned plans clutter
+that handoff and go stale relative to source. Keep speculative and
+program-of-work docs here; promote lasting invariants into `agents/c64/*.md`
+and `manual/c64m/manual.md` when the work lands.
 
-The agents index points here: [`agents/README.md`](../agents/README.md) → Design docs.
+The agents index: [`agents/README.md`](../../../../agents/README.md) → Design docs.
 
 ## Status legend
 

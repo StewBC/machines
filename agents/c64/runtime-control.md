@@ -1,5 +1,10 @@
 # Runtime, Inspector, recorder, and rings
 
+Shared Inspector *shape*: [`../shell/inspector-shape.md`](../shell/inspector-shape.md).
+Shared HST1 FIND: [`../shell/history.md`](../shell/history.md). This note is
+leftover C64 clocks (`film_cycle`, pink, vic-ring, `--inspector-off-on-max`)
+and leftover `runtime_thread`. Do not copy Apple F/S pairing into this file.
+
 ## Ownership
 
 `src/runtime/runtime_thread.c` owns the runtime worker and the live `c64_t`.

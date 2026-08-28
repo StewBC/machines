@@ -1,12 +1,17 @@
 # TimeMachine / Inspector
 
+Shared Inspector *shape* (Record / Inspect / Land / Leave / NOW / tab chrome):
+[`../shell/inspector-shape.md`](../shell/inspector-shape.md). This note is
+Apple F/S pairing, sample/picture IDs, and max continuity. Do not copy C64
+`film_cycle` / pink / vic-ring into this file.
+
 Runtime-owned time travel: checkpoints + input log + sealed re-execute.
 The UI is Misc → **Inspector**. HST1 is a **separate** flight recorder (FIND),
 not the Inspector slider.
 
-Files: `src/runtime/runtime_inspector.*`, `runtime_inspector_recorder.c`,
-`runtime_history.*`, `runtime_frame_ring.*`. UI: `frontend.c`
-(`frontend_draw_misc_inspector`).
+Files: leftover `src/runtime/runtime_inspector.*`,
+`runtime_inspector_recorder.c`, `runtime_frame_ring.*`. HST1 types:
+`src/shell/runtime/runtime_history.*`. UI tab: `src/shell/frontend/inspector_tab.*`.
 
 ## Two streams (do not conflate)
 

@@ -340,7 +340,7 @@ assemble address=$C000 auto-run=1 run-address=$C000 path/to/file.asm
 
 ## 5. Command map (by job)
 
-Not exhaustive — full syntax in `control-port.md` / `manual/manual.md`.
+Not exhaustive — full syntax in `control-port.md` / `manual/c64m/manual.md`.
 
 | Job | Commands |
 |-----|----------|

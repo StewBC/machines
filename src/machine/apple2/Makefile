@@ -1,6 +1,6 @@
 # Lightweight developer recipes (build remains CMake-driven).
 # Control-port coop workflow — documentation + watcher launch only.
-# See agents/control-tools.md.
+# See agents/apple2/control-tools.md (repo root).
 
 PORT ?= 6510
 OUT_DIR ?= build/debug
@@ -28,7 +28,7 @@ coop:
 	@echo "Play; hit F10 to pause. Snaps: $(OUT_DIR)/snap-NNN.txt"
 	@echo "Inbox (while frozen): append lines to $(OUT_DIR)/coop_inbox"
 	@echo "  resume | arm write \$$C000 | hist \$$C000 | scrub 60 | note … | quit"
-	@echo "Full notes: agents/control-tools.md"
+	@echo "Full notes: agents/apple2/control-tools.md"
 
 coop-watch:
 	@mkdir -p $(OUT_DIR)

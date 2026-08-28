@@ -54,14 +54,18 @@ from the frontend.
 
 ## Where to change code
 
-- `src/machine/`: emulated hardware and machine-visible state
-- `src/runtime/`: execution, sessions, Inspector, recorder, rings, commands
-- `src/control/`: wire parse/format and the localhost TCP server
-- `src/frontend/`: presentation, dialogs, debugger views, host input mapping
-- `src/platform/`: SDL window/input/audio/filesystem/socket
-- `src/tools/`: assembler, disassembler, symbols, D64/T64/CRT/G64 parsers
-- `src/util/`: queues, config, audio buffer, BASIC V2, paste data
-- `src/main.c`: SDL loop, control bind/dispatch, CLI wiring
+- leftover `src/machine/`: emulated hardware and machine-visible state
+- leftover `src/runtime/`: execution, sessions, Inspector clocks, recorder, rings
+- leftover `src/control/`: leftover verbs, leftover TCP server loop
+- `src/shell/control/`: framing + verb-table runner
+- leftover `src/frontend/`: exclusive Misc tabs, leftover input, leftover CRT
+- `src/shell/frontend/`: shared chrome
+- leftover `src/platform/`: leftover audio
+- `src/shell/platform/`: SDL window/input/filesystem/socket
+- leftover `src/tools/`: D64/T64/CRT/G64 parsers
+- `src/shell/tools/am65/`: assembler
+- leftover `src/util/`: BASIC V2, paste data
+- leftover `src/main.c`: SDL loop, control bind/dispatch, CLI wiring
 
 ## Operational rules
 

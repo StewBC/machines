@@ -1,5 +1,8 @@
 # Control tools: drive a2m over the control port
 
+Shared framing + verb runner: [`../shell/control.md`](../shell/control.md).
+This note is A2M verbs, the Python client, and coop.
+
 **Audience:** agents and humans scripting the emulator (headless or windowed).
 
 **Protocol today:** **A2M/14** (`CONTROL_PROTOCOL_VERSION` in
@@ -11,7 +14,7 @@
 |----------|--------|
 | 1 | **Wire source** — `src/control/control_protocol.*`, `control_dispatch.*` |
 | 2 | **Python client** — `tools/a2m_control_client.py` (`Ctl` + module docstring) |
-| 3 | **User command catalog** — `manual/manual.md` (remote control section) |
+| 3 | **User command catalog** — `manual/a2m/manual.md` (remote control section) |
 | 4 | **This file** — ops brief / gotchas / workflow |
 
 If this note disagrees with source, **fix the source** and update this file in
@@ -124,7 +127,7 @@ Aliases for `kind=`: `disk` → diskii; `sp` / `hd` → smartport.
 - Control memory-mode enum order is remapped in dispatch; do not assume it matches `runtime_memory_mode`.
 
 Bump `A2M/N` when scripts must learn new behaviour. Keep this file, the client
-docstring, and `manual/manual.md` in the same change when media or wait
+docstring, and `manual/a2m/manual.md` in the same change when media or wait
 semantics change.
 
 ## Coop loop

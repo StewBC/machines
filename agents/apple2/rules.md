@@ -33,13 +33,16 @@ control   →  runtime_client + platform sockets
 | Path | Owns |
 |------|------|
 | `src/machine/` | CPU, soft switches, video beam/paint, Disk II, SmartPort, HostFS, MB, ROMs |
-| `src/runtime/` | Worker, client, commands/events, breakpoints, history, TimeMachine |
-| `src/frontend/` | Debugger UI, layout, CRT, disk LEDs, host stick tables, help overlay |
-| `src/main.c` | Host loop, key chords, intent dispatch, gameport host |
-| `src/app_options.*` | CLI / INI |
-| `src/platform/` | SDL window / input / audio / fs / sockets |
-| `src/control/` | A2M control wire + dispatch |
-| `src/shell/tools/am65/` | Shared assembler library + `am65` CLI (monorepo shell) |
+| leftover `src/runtime/` | Worker, leftover client extras, commands/events, TimeMachine clocks |
+| leftover `src/frontend/` | Exclusive Misc tabs, leftover input, leftover CRT |
+| `src/shell/frontend/` | Shared chrome (layout, CPU, disasm, memview, BP list, help, Forensics, Inspector tab) |
+| leftover `src/main.c` | Host loop, key chords, intent dispatch, gameport host |
+| leftover `src/app_options.*` | CLI / INI |
+| leftover `src/platform/` | Leftover audio |
+| `src/shell/platform/` | SDL window / input / fs / sockets |
+| leftover `src/control/` | A2M leftover verbs + dispatch |
+| `src/shell/control/` | Framing + verb-table runner |
+| `src/shell/tools/am65/` | Shared assembler library + `am65` CLI |
 
 ## Product
 
@@ -80,9 +83,9 @@ UI are non-goals.
 
 ## User-facing docs
 
-If a user-visible feature is added or changed, update `manual/manual.md` in
-the same change. Read `manual/HELP_MARKDOWN.md` first. Do not link the manual
-at `agents/`.
+If a user-visible feature is added or changed, update `manual/a2m/manual.md` in
+the same change. Read `manual/a2m/HELP_MARKDOWN.md` first. Do not link the
+manual at `agents/`.
 
 **ASCII-only on screen:** UI labels/status/dialogs and the manual must not use
 Unicode punctuation (`...` not `…`, `-`/`--` not `—`, `->` not `→`, `<=` not

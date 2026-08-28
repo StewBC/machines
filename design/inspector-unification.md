@@ -49,8 +49,8 @@ There is still no root `project(machines)`, no flattening of leftover `src/`, no
 
 Landed clocks (do not re-litigate):
 
-- Apple: [`src/machine/apple2/design/frame-aligned-inspector.md`](../src/machine/apple2/design/frame-aligned-inspector.md), [`src/machine/apple2/agents/timemachine.md`](../src/machine/apple2/agents/timemachine.md)
-- C64: [`src/machine/c64/design/inspector-frame-synced-record.md`](../src/machine/c64/design/inspector-frame-synced-record.md), [`src/machine/c64/agents/runtime-control.md`](../src/machine/c64/agents/runtime-control.md)
+- Apple: [`src/machine/apple2/design/frame-aligned-inspector.md`](../src/machine/apple2/design/frame-aligned-inspector.md), [`agents/apple2/timemachine.md`](../agents/apple2/timemachine.md)
+- C64: [`src/machine/c64/design/inspector-frame-synced-record.md`](../src/machine/c64/design/inspector-frame-synced-record.md), [`agents/c64/runtime-control.md`](../agents/c64/runtime-control.md)
 
 ### Pain points
 

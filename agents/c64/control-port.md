@@ -1,5 +1,8 @@
 # Control port: operational handoff
 
+Shared framing + verb runner: [`../shell/control.md`](../shell/control.md).
+This note is C64M verbs, leftover dispatch, and the Python client.
+
 **Using c64m from outside this tree?** Start with **`using-c64m.md`** (recipes,
 gotchas, co-op). This file is the implementer / full wire contract.
 
@@ -10,7 +13,7 @@ implementation is split between:
 - `src/control/control_server.c` - localhost TCP server and framing.
 - `src/main.c` - main-loop dispatch, cached state, deferred responses.
 - `src/runtime/runtime_client.{c,h}` - runtime command API.
-- `tests/control/test_control_protocol.c` - parser and response examples.
+- `tests/c64/control/test_control_protocol.c` - parser and response examples.
 
 ## Start the server
 

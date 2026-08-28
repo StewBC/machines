@@ -43,7 +43,7 @@ Canonical product-as-is notes (Stage 10 destination):
 | Stage 7: Runtime client seam (shared subset) | **landed** | 2026-08-27 | [`runtime-client-seam.md`](runtime-client-seam.md) |
 | Stage 8: Debugger UI chrome (layout / CPU / disasm / memview / BP) | **landed** | 2026-08-27 | [`debugger-chrome.md`](debugger-chrome.md) |
 | Stage 9: Inspector unification (shared tab; leftover clocks) | **landed** | 2026-08-27 | [`inspector-unification.md`](inspector-unification.md) |
-| Stage 10: Agent handoff, manuals, tests layout | **active** | 2026-08-27 | [`monorepo-agents.md`](monorepo-agents.md) |
+| Stage 10: Agent handoff, manuals, tests layout | **landed** | 2026-08-27 | [`monorepo-agents.md`](monorepo-agents.md) |
 
 Follow-on designs named by the stage map (not written yet):
 none (Stage 11 has no follow-on design).

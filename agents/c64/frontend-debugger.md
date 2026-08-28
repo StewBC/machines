@@ -1,9 +1,14 @@
 # Frontend, debugger, input, and help
 
+Shared chrome (layout, CPU pane, disasm, memview, BP list, help, Forensics,
+Inspector *tab*): [`../shell/frontend.md`](../shell/frontend.md). This note is
+leftover C64 Misc tabs, input, CRT, and memory-source cycles.
+
 ## Source of truth
 
-`src/frontend/`, integration in `src/main.c`, runtime-facing APIs in
-`src/runtime/runtime_client.h`, platform in `src/platform/`. Automated
+Leftover `src/frontend/`, integration in leftover `src/main.c`, leftover
+`src/runtime/runtime_client.h` extras, leftover `src/platform/platform_audio.*`.
+Shared panes live in `src/shell/frontend/`. Automated
 coverage: `frontend_input`, `frontend_joystick`, `help_view`, `forensics_view`,
 `window_title`, `crt_renderer`, `disasm_pc_lock`. Most Nuklear UI is manual smoke.
 
@@ -75,7 +80,7 @@ Forensics like F9 (debugger paused; abandon CRT resume latch) and selects
 Misc → Inspector. Cancel / soft-fail / incomplete land stay in Forensics.
 Click selects a logical entry/block; **Copy** uses the full unwrapped text.
 Double-click `id=` / `cyc=` / `pc=$...` copies that token. UI strings are
-ASCII-only. User docs: `manual/manual.md` (**Forensics**).
+ASCII-only. User docs: `manual/c64m/manual.md` (**Forensics**).
 
 ## Input
 
@@ -102,8 +107,9 @@ Basic Text is stock BASIC V2 only (`util/basic_v2`).
 
 ## Help
 
-`manual/manual.md` is compiled by `tools/gen_help.py`. Before editing it,
-read `manual/HELP_MARKDOWN.md` (ASCII, no links, help-renderer subset).
+`manual/c64m/manual.md` is compiled by `src/shell/tools/gen_help.py`. Before
+editing it, read `manual/c64m/HELP_MARKDOWN.md` (ASCII, no links, help-renderer
+subset).
 
 Help search highlights hits: inverse band on the jumped-to span, underline
 on other visible occurrences. Matching is per drawn line inside

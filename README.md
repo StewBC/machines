@@ -9,24 +9,29 @@ They remain **two binaries**. There is no dual-machine executable, no plugin
 loader, and no shared `runtime_thread`.
 
 Host primitives that link into both binaries live under `src/shell/` and
-repo-root `external/` (Stage 2). Leftover silicon lives under
+repo-root `external/`. Leftover silicon lives under
 `src/machine/{apple2,c64}`. Each leftover tree is still its own CMake root.
 Internal leftover `src/` / `main.c` layout is not flattened.
 
 | Path | Product | Build as |
 |------|---------|----------|
-| `src/shell/` | shared util / platform / nuklear | `libshell.a` |
-| `src/machine/apple2/` | a2m | its own `project(a2m)` |
-| `src/machine/c64/` | c64m | its own `project(c64m)` |
+| `src/shell/` | shared debugger shell | `libshell.a` |
+| `src/machine/apple2/` | a2m leftover silicon | its own `project(a2m)` |
+| `src/machine/c64/` | c64m leftover silicon | its own `project(c64m)` |
+| `manual/a2m/` | a2m user book | help overlay |
+| `manual/c64m/` | c64m user book | help overlay |
+| `tests/shell/` | shared tests | both nested ctest gates |
+| `tests/apple2/` | a2m leftover tests | a2m ctest |
+| `tests/c64/` | c64m leftover tests | c64m ctest |
+| `agents/` | handoff: `shell/` vs `apple2/` vs `c64/` | — |
 
 Do not `add_subdirectory` both nested `project()` files into one CMake
-invocation. Remaining twins (am65, forensics, help, …) still exist in both
-leftover trees until later EXTRACT.
+invocation. Agent notes: [`agents/README.md`](agents/README.md).
 
 The program of work is [`design/merge-stage-map.md`](design/merge-stage-map.md).
 Imported SHAs and Stage 0 commands: [`design/import-revisions.md`](design/import-revisions.md).
 
-## Build (Stage 2)
+## Build
 
 Requires CMake, SDL2, and Python 3 (help generation). On macOS: `brew install cmake sdl2`.
 
@@ -75,4 +80,5 @@ Public domain (Unlicense), except vendored files under `external/` — see
 
 ## Agents
 
-Read [`agents/README.md`](agents/README.md) before editing either leftover tree.
+Read [`agents/README.md`](agents/README.md) before editing. Shared shell vs
+leftover Apple vs leftover C64 is named there.

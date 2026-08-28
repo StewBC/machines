@@ -56,8 +56,8 @@ DOS), optionally with a reset before load and optional run at the load
 address; Applesoft listings as ASCII (tokenized by the emulator on load,
 detokenized on save); and `.a2state` snapshots.
 
-The manual is here: [a2m Manual](./manual/manual.md).  
-There is a details section with more [technical details](./manual/manual.md#Details).
+The manual is here: [a2m Manual](../../../manual/a2m/manual.md).  
+There is a details section with more [technical details](../../../manual/a2m/manual.md#Details).
 
 ## Quick Start
 

@@ -3,12 +3,13 @@
 ## Gate
 
 ```bash
-cmake -B build -DCMAKE_BUILD_TYPE=Debug
-cmake --build build -j
-ctest --test-dir build --output-on-failure
+# machines repo root
+cmake -B build/a2m -S src/machine/apple2 -DCMAKE_BUILD_TYPE=Debug
+cmake --build build/a2m -j
+ctest --test-dir build/a2m --output-on-failure
 ```
 
-Expect **68** green. Run from repo root.
+Expect **82** green. Nested leftover `project(a2m)` is still the gate.
 
 ## Registered tests
 

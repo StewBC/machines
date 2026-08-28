@@ -2,21 +2,25 @@
 
 ## Baseline
 
-From the repository root:
+From the machines repo root:
 
 ```sh
-ctest --test-dir build --output-on-failure
+cmake -B build/c64m -S src/machine/c64 -DCMAKE_BUILD_TYPE=Debug
+cmake --build build/c64m -j
+ctest --test-dir build/c64m --output-on-failure
 ```
 
-About 80 tests are registered in the root `CMakeLists.txt` (count drifts as
-targets land). Do not treat an older count in a comment or changelog as
-current.
+Leftover nested `CMakeLists.txt` currently registers 89 tests: **78 pass +
+10 SKIP** (CTest 77 without leftover gitignored `assets/`) **+
+`history_control_integration` fails**. Do not "fix" that fail. Count drifts
+as targets land.
 
 ### Asset SKIP, not fail
 
 Copyrighted media under `assets/` is gitignored. Tests that need a fixture
 return `C64M_TEST_SKIP` (77) when it is missing; CMake marks those tests
-`SKIP_RETURN_CODE 77`. Helper: `tests/test_asset.h`.
+`SKIP_RETURN_CODE 77`. Helper: `tests/c64/test_asset.h`. Leftover gitignored `assets/` still lives
+under `src/machine/c64/assets/`.
 
 The ten asset-gated tests:
 

@@ -14,10 +14,8 @@ Solicited RPC uses a non-zero `request_token` (echoed on completions). Token
 `0` is unsolicited / UI telemetry and must not complete control deferred work.
 See `src/runtime/runtime_command.h`.
 
-Some identifiers still have leftover C64-shaped names
-(`RUNTIME_MEMORY_MODE_CPU_MAP` / `RAM` / `DRIVE8_MAP`, history KERNAL marker
-enums). They alias Apple meanings. Do not restore 1541/KERNAL product
-behavior.
+Leftover C64 memory-mode aliases (`DRIVE8_MAP` and friends) are gone. Do not
+restore 1541/KERNAL product behavior.
 
 Sessions: **`RUNTIME_SESSION_CAPACITY = 4`**. Default UI session id 1. Control
 TCP binds one `RUNTIME_SESSION_KIND_CONTROL` session. Mutations publish
@@ -83,7 +81,8 @@ Time travel engine is runtime-owned (`runtime_inspector.*`,
 
 Budgets (defaults): history 256 MiB, frame ring 128 MiB, inspector checkpoints
 128 MiB. Master switch `[debug] inspector` / `--inspector` defaults **off**.
-Off → on arms HST1 + frame ring + checkpoint recorder.
+Off → on arms the checkpoint recorder + frame ring. Record does **not** arm
+or stop HST1.
 
 ## Tests
 

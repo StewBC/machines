@@ -1,14 +1,18 @@
 # Frontend / host
 
+Shared chrome (layout, CPU pane, disasm, memview, BP list, help, Forensics,
+Inspector *tab*): [`../shell/frontend.md`](../shell/frontend.md). This note is
+leftover Apple Misc tabs, input, CRT, and memory-source cycles.
+
 UI never holds a live `apple2_t *`. Keys: [`status.md`](status.md). User
-catalog: `manual/manual.md`.
+catalog: `manual/a2m/manual.md`.
 
 **UI strings are ASCII-only.** Labels, status strip, soft errors, button text,
 dialogs, and other on-screen copy must stay in the ASCII subset the UI fonts
 actually bake (ProggyClean / C64 Pro Mono atlas range). Do not use Unicode
 punctuation: no `…` (use `...`), no `—`/`–` (use `-` or `--`), no `→` (use
 `->`), no `≤`/`≥` (use `<=` / `>=`). Missing glyphs render blank or as `?`.
-Same rule for `manual/manual.md` — see `manual/HELP_MARKDOWN.md`.
+Same rule for `manual/a2m/manual.md` — see `manual/a2m/HELP_MARKDOWN.md`.
 
 ## Important files
 
@@ -16,14 +20,14 @@ Same rule for `manual/manual.md` — see `manual/HELP_MARKDOWN.md`.
 |------|------|
 | `src/main.c` | SDL loop, chords, gameport host, intent dispatch |
 | `src/frontend/frontend.c` | Debugger UI, BP dialog/list, Configure, CRT, Misc tabs |
-| `src/frontend/debugger_layout.*` | Splitters |
-| `src/frontend/debugger_disasm.*` | Disassembly pane, PC-lock |
-| `src/frontend/help_view.*` | Help overlay: sections, search, hit highlighting |
-| `src/frontend/forensics_view.*` | Forensics full-window mode (HST1 FIND/NEXT/READ transcript) |
+| `src/shell/frontend/debugger_layout.*` | Splitters |
+| `src/shell/frontend/debugger_disasm.*` | Disassembly pane, PC-lock |
+| `src/shell/frontend/help_view.*` | Help overlay: sections, search, hit highlighting |
+| `src/shell/frontend/forensics_view.*` | Forensics full-window mode (HST1 FIND/NEXT/READ transcript) |
 | `src/frontend/frontend_input.*` | Guest keyboard map |
 | `src/frontend/frontend_joystick_input.*` | Kbd stick → Apple axes/buttons |
 | `src/frontend/crt_renderer.*` | CRT presentation |
-| `src/frontend/memory_search.*` | Find in the active Memory view |
+| `src/shell/frontend/memory_search.*` | Find in the active Memory view |
 | `src/app_options.*` | CLI / INI |
 
 Intents (`FRONTEND_DEBUGGER_INTENT_*`) are dispatched in `main.c` onto
@@ -123,7 +127,7 @@ soft-fail without checkpoints. On successful land (any Inspect focus update used
 for the land status strip), leave Forensics like F9 (debugger paused; abandon CRT
 resume latch) and select Misc → Inspector. Cancel / soft-fail / incomplete land
 stay in Forensics; Opt+R/Close entry-surface rules unchanged. Double-click `id=` /
-`cyc=` / `pc=$...` copies that token. User docs: `manual/manual.md` (**Forensics**).
+`cyc=` / `pc=$...` copies that token. User docs: `manual/a2m/manual.md` (**Forensics**).
 Design (landed): [`design/forensics-ui.md`](../design/forensics-ui.md),
 [`design/forensics-query-guide.md`](../design/forensics-query-guide.md).
 
@@ -152,8 +156,8 @@ honors invalid bytes in partial planes, wraps 64K.
 
 ## Help overlay
 
-`manual/manual.md` is compiled by `tools/gen_help.py`. Keep that file
-ASCII-safe (`manual/HELP_MARKDOWN.md`).
+`manual/a2m/manual.md` is compiled by `src/shell/tools/gen_help.py`. Keep that
+file ASCII-safe (`manual/a2m/HELP_MARKDOWN.md`).
 
 Search highlights: the jumped-to span is inverse (black on yellow); other
 hits in the visible section get a yellow underline. Matching is per *drawn

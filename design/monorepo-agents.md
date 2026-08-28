@@ -4,7 +4,7 @@
 |-------|-------|
 | **Author** | Grok (Designer) |
 | **Date** | 2026-08-27 |
-| **Status** | Accepted |
+| **Status** | Landed |
 | **Canonical path** | [`design/monorepo-agents.md`](monorepo-agents.md) |
 | **Stage map** | [`design/merge-stage-map.md`](merge-stage-map.md) Stage 10 (EXTRACT docs/tests layout + PRESERVE two manuals, two product stories) |
 | **Depends on** | Stage 9 ([`design/inspector-unification.md`](inspector-unification.md)). |

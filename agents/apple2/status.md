@@ -3,7 +3,7 @@
 **Version:** 3.0.0
 
 What the product is **now**. Source of truth is `src/`. User-facing catalog:
-[`manual/manual.md`](../manual/manual.md). Rules: [`rules.md`](rules.md).
+[`manual/a2m/manual.md`](../../manual/a2m/manual.md). Rules: [`rules.md`](rules.md).
 
 ## Product line
 
@@ -59,7 +59,7 @@ not latch BUTN0.
 
 | Area | Evidence |
 |------|----------|
-| Build / ctest | **68 green** - [`testing.md`](testing.md) |
+| Build / ctest | **82 green** - [`testing.md`](testing.md) |
 | Assembler | Misc → Assembler; `file=` HostFS; optional Auto-run; **MLI launch** gates auto-run on CPU-visible `$BF00 == $4C` (mutually exclusive with Reset). Sample: `samples/asm_mli_launch/` |
 | CLI / INI | model, mounts `sNdN` (multi-image queue), turbo MHz/`max`, `--video-display`, lifecycle, headless, `[DEBUG] break.*`, `--inspector` |
 | Turbo / step / reset | Opt+T (default ladder `1,max`); F10–F12 family; F8 / Opt+F8 |
@@ -72,13 +72,17 @@ not latch BUTN0.
 ## Tree
 
 ```text
-src/main.c                 host loop
-src/frontend/              product UI
-src/runtime/               Apple-backed runtime
-src/machine/               Apple II
-src/control/               A2M/14 control
-src/platform/              SDL / fs / sockets / audio
-src/shell/tools/am65/      assembler library + CLI (shared shell)
-src/util/                  files, queues, config helpers
-manual/manual.md           user manual (compiled into help)
+src/machine/apple2/src/main.c     host loop
+src/machine/apple2/src/frontend/  leftover UI (exclusive tabs, input, CRT)
+src/shell/frontend/               shared chrome
+src/machine/apple2/src/runtime/   Apple-backed runtime
+src/machine/apple2/src/machine/   Apple II silicon
+src/machine/apple2/src/control/   A2M/14 leftover verbs
+src/shell/control/                framing + verb runner
+src/machine/apple2/src/platform/  leftover audio
+src/shell/tools/am65/             assembler library + CLI
+src/machine/apple2/src/util/      leftover files / HostFS helpers
+manual/a2m/manual.md              user manual (compiled into help)
+tests/apple2/                     leftover tests
+tests/shell/                      shared tests
 ```

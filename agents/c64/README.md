@@ -1,20 +1,18 @@
 # c64m agent handoff
 
-This directory is the current-state briefing for an agent working in this tree.
-It is not a history of how the emulator was built, and it is not a design-plan
-folder. Source and tests under `src/` and `tests/` are authoritative. If a
-handoff and the code disagree, trust the code and fix the handoff in the same
-change.
+Current-state briefing for leftover C64 silicon and leftover c64m chrome.
+Source and tests are authoritative. If a handoff and the code disagree,
+trust the code and fix the handoff in the same change.
 
-**Freeze (machines Stage 1):** this tree now lives at `src/machine/c64/`
-in the `machines` monorepo. Feature work on `c64m.git` has stopped. Hotfixes
-land in `machines` first. See the monorepo `agents/README.md` and
-`design/import-revisions.md`. Do not edit am65 here; the copy is radioactive
-until Stage 3. Twins still exist in both leftover trees — do not "fix" a
-twin only here.
+Monorepo index: [`../README.md`](../README.md). Shared debugger shape:
+[`../shell/`](../shell/). Do not open `src/machine/apple2` to decide C64 silicon.
 
-Do not read files under `md-files/`. They are historical working notes and are
-not guaranteed to be accurate.
+**Paths in this folder:** bare `src/...` means leftover
+`src/machine/c64/src/...` unless the path already starts with `src/shell/`,
+`manual/`, or `tests/`.
+
+Do not read files under leftover `md-files/` if they reappear. They are
+historical working notes and are not guaranteed to be accurate.
 
 ## Read in this order
 
@@ -25,8 +23,15 @@ not guaranteed to be accurate.
 5. The source and tests named by that handoff
 
 If the task is driving c64m over the control port, start with `using-c64m.md`.
-If the task compares c64m to VICE on titles under `assets/prg/`, read
-`vice-oracle.md` before launching VICE.
+If the task compares c64m to VICE on titles under leftover `assets/prg/`,
+read `vice-oracle.md` before launching VICE.
+
+Shared chrome / control framing / HST1 / Inspector *tab*:
+[`../shell/frontend.md`](../shell/frontend.md) ·
+[`../shell/control.md`](../shell/control.md) ·
+[`../shell/history.md`](../shell/history.md) ·
+[`../shell/inspector-shape.md`](../shell/inspector-shape.md).
+C64 `film_cycle` / pink / vic-ring stay in `runtime-control.md`.
 
 ## Product
 
@@ -43,21 +48,20 @@ VICE) also works here.
 
 ## Design docs (proposals, not product-as-is)
 
-In-flight and historical design writeups live under [`design/`](../design/).
-Start at [`design/README.md`](../design/README.md) for the index (active /
-landed / abandoned). Do not treat design drafts as agent handoff truth —
-source and `agents/*.md` win when they disagree.
+Leftover c64m designs: [`src/machine/c64/design/`](../../src/machine/c64/design/).
+Monorepo designs: [`design/`](../../design/). Do not treat design drafts as
+handoff truth — source and `agents/*.md` win when they disagree.
 
 ## User manual
 
-`manual/manual.md` is the user-facing manual. `tools/gen_help.py` compiles it
-into the in-emulator help view. It is not an agent handoff.
+[`manual/c64m/manual.md`](../../manual/c64m/manual.md) is the user-facing
+manual. `src/shell/tools/gen_help.py` compiles it into the in-emulator help
+view. It is not an agent handoff.
 
-If you add or change a user-facing feature (CLI flag, key, dialog, INI key,
-control-port command a human would use, debugger behavior), update
-`manual/manual.md` in the same change. Read `manual/HELP_MARKDOWN.md` first:
-ASCII only, no Markdown links or autolinks, and only the Markdown subset the
-help renderer understands.
+If you add or change a user-facing feature, update that book in the same
+change. Read [`manual/c64m/HELP_MARKDOWN.md`](../../manual/c64m/HELP_MARKDOWN.md)
+first: ASCII only, no Markdown links or autolinks, and only the Markdown
+subset the help renderer understands. Do not put `agents/` links in the manual.
 
 ## Diagnosis: locate, kill, then model
 
@@ -95,28 +99,33 @@ measured. The examples are VIC-II, but the method is not.
 
 | Task | Handoff | Source |
 |------|---------|--------|
-| Layers, threads, ownership | `architecture.md` | `src/main.c`, `src/*/CMakeLists.txt` |
+| Layers, threads, ownership | `architecture.md` | leftover `src/main.c`, `src/*/CMakeLists.txt` |
 | What is not done | `known-gaps.md` | comments / `TODO.txt` |
-| CPU, bus, carts, snapshots | `machine.md` | `src/machine/c64*.c`, `c6510*`, `c64_bus`, `c64_snapshot` |
-| VIC-II | `vicii.md` | `src/machine/vicii.*`, `c64_frame.*` |
-| CIA, keyboard, IEC pins | `cia.md` | `src/machine/cia.*`, `keyboard.*` |
-| SID and host audio | `sid-audio.md` | `src/machine/sid.*`, `src/util/audio_buffer.*`, `src/platform/platform_audio.*` |
-| Disk, 1541, IEC | `disk-iec1541.md` | `src/machine/c1541*`, `via6522.*` |
-| Runtime, Inspector, recorder, rings | `runtime-control.md` | `src/runtime/` |
-| Control-port wire | `control-port.md` | `src/control/`, `src/main.c` dispatch |
-| Driving c64m from a script | `using-c64m.md` | `tools/c64_control_client.py` |
-| Debugger UI, input, help | `frontend-debugger.md` | `src/frontend/`, `src/main.c` |
-| Assembler, parsers, util | `tools.md` | `src/tools/`, `src/util/` |
-| Tests and measure recipes | `testing.md` | `CMakeLists.txt`, `tests/` |
+| CPU, bus, carts, snapshots | `machine.md` | leftover `src/machine/c64*.c`, `c6510*`, `c64_bus`, `c64_snapshot` |
+| VIC-II | `vicii.md` | leftover `src/machine/vicii.*`, `c64_frame.*` |
+| CIA, keyboard, IEC pins | `cia.md` | leftover `src/machine/cia.*`, `keyboard.*` |
+| SID and host audio | `sid-audio.md` | leftover `src/machine/sid.*`; shell `src/shell/util/audio_buffer.*`; leftover `src/platform/platform_audio.*` |
+| Disk, 1541, IEC | `disk-iec1541.md` | leftover `src/machine/c1541*`, `via6522.*` |
+| Runtime, Inspector clocks, recorder, rings | `runtime-control.md` | leftover `src/runtime/` |
+| Control-port wire | `control-port.md` | leftover `src/control/`, `src/main.c` dispatch; shell framing in `src/shell/control/` |
+| Driving c64m from a script | `using-c64m.md` | leftover `tools/c64_control_client.py` |
+| Debugger UI, input, leftover tabs | `frontend-debugger.md` | leftover `src/frontend/`, `src/main.c`; shared chrome in `src/shell/frontend/` |
+| Assembler, parsers, util | `tools.md` | leftover `src/tools/` parsers; `src/shell/tools/am65/`; leftover `src/util/` |
+| Tests and measure recipes | `testing.md` | leftover `CMakeLists.txt`; `tests/c64/`; `tests/shell/` |
 | VICE as oracle | `vice-oracle.md` | local `x64sc` |
 
 Keep docs current. Stale handoffs are worse than none.
 
 ## Verification
 
+From the **machines repo root**:
+
 ```text
-ctest --test-dir build --output-on-failure
+cmake -B build/c64m -S src/machine/c64 -DCMAKE_BUILD_TYPE=Debug
+cmake --build build/c64m -j
+ctest --test-dir build/c64m --output-on-failure
 ```
 
-There are 77 registered tests. Ten of them SKIP (CTest code 77) when gitignored
-`assets/` media is missing; that is not a regression. Details in `testing.md`.
+Expect **78 pass + 10 SKIP** (CTest 77 without leftover gitignored `assets/`)
+**+ `history_control_integration` fails**. Do not "fix" that fail. Details in
+`testing.md`.

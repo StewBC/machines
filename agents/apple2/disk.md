@@ -99,7 +99,7 @@ kind selects HostFS vs image.
 ./build/a2m --noini --smart s7d0=./tests/fixtures/hostfs
 ```
 
-Operator details: `manual/manual.md` HostFS section.
+Operator details: `manual/a2m/manual.md` HostFS section.
 
 ## Tests
 
