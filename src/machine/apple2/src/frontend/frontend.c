@@ -4318,6 +4318,7 @@ static void frontend_disassembly_draw_scrollbar(
 typedef struct frontend_disasm_target {
     bool show;
     bool has_value;
+    bool zero_page;
     uint16_t address;
     uint8_t value;
 } frontend_disasm_target;
@@ -4348,7 +4349,7 @@ static frontend_disasm_target frontend_disassembly_compute_target(
     const frontend_debug_state *debug_state,
     const disasm_6502_line *line)
 {
-    frontend_disasm_target result = {false, false, 0, 0};
+    frontend_disasm_target result = {false, false, false, 0, 0};
     disasm_6502_mode mode;
     uint8_t opcode;
     uint8_t x;
@@ -4385,17 +4386,23 @@ static frontend_disasm_target frontend_disassembly_compute_target(
         case DISASM_MODE_IMP:
         case DISASM_MODE_ACC:
         case DISASM_MODE_IMM:
-        case DISASM_MODE_ZP:
-            /* No memory target, or a plain literal address that is already visible. */
             return result;
+        case DISASM_MODE_ZP:
+            result.address = b1;
+            result.has_value = true;
+            result.zero_page = true;
+            result.show = true;
+            break;
         case DISASM_MODE_ZPX:
             result.address = (uint8_t)(b1 + x); /* zero-page wrap */
             result.has_value = true;
+            result.zero_page = true;
             result.show = true;
             break;
         case DISASM_MODE_ZPY:
             result.address = (uint8_t)(b1 + y); /* zero-page wrap */
             result.has_value = true;
+            result.zero_page = true;
             result.show = true;
             break;
         case DISASM_MODE_ABSX:
@@ -4458,10 +4465,14 @@ static frontend_disasm_target frontend_disassembly_compute_target(
             break;
         }
         case DISASM_MODE_ABS:
-            /* Direct address: only annotate when the operand was rendered as a label. */
             result.address = op16;
-            result.has_value = (opcode != 0x4Cu && opcode != 0x20u); /* not JMP/JSR */
-            result.show = frontend_disasm_has_label(ui, op16);
+            if (opcode == 0x4Cu || opcode == 0x20u) {
+                /* JMP/JSR: address-only, and only when operand rendered as a label. */
+                result.show = frontend_disasm_has_label(ui, op16);
+            } else {
+                result.has_value = true;
+                result.show = true;
+            }
             break;
         case DISASM_MODE_REL:
             result.address = (uint16_t)(line->address + 2u + (int8_t)b1);
@@ -4533,6 +4544,7 @@ static void frontend_disasm_annotate_target(
         ui, ui != NULL ? ui->memview_debug : NULL, line);
     out->show = tgt.show;
     out->has_value = tgt.has_value;
+    out->zero_page = tgt.zero_page;
     out->address = tgt.address;
     out->value = tgt.value;
 }

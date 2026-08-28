@@ -53,6 +53,7 @@ enum {
 typedef struct disasm_pane_target {
     bool show;
     bool has_value;
+    bool zero_page; /* format address as $%02X (ZP/ZPX/ZPY EA) */
     uint16_t address;
     uint8_t value;
 } disasm_pane_target;

@@ -509,7 +509,7 @@ void disasm_pane_draw(
                 bool is_enabled_breakpoint = bp == DISASM_PANE_BP_ENABLED;
                 struct nk_style_selectable saved_selectable = ctx->style.selectable;
                 nk_bool selected = is_cursor ? nk_true : nk_false;
-                disasm_pane_target tgt = {false, false, 0, 0};
+                disasm_pane_target tgt = {false, false, false, 0, 0};
                 char target[24] = "";
 
                 if (line->is_provisional) {
@@ -540,7 +540,17 @@ void disasm_pane_draw(
                     ops->annotate_target(ops->ctx, &line->base, &tgt);
                 }
                 if (tgt.show) {
-                    if (tgt.has_value) {
+                    if (tgt.zero_page) {
+                        if (tgt.has_value) {
+                            snprintf(
+                                target, sizeof(target), " [$%02X:%02X]",
+                                (unsigned)(tgt.address & 0xFFu), tgt.value);
+                        } else {
+                            snprintf(
+                                target, sizeof(target), " [$%02X]",
+                                (unsigned)(tgt.address & 0xFFu));
+                        }
+                    } else if (tgt.has_value) {
                         snprintf(
                             target, sizeof(target), " [$%04X:%02X]",
                             tgt.address, tgt.value);
