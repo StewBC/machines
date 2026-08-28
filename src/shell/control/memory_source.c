@@ -37,3 +37,21 @@ const memory_source *memory_source_find_by_token(
     }
     return NULL;
 }
+
+uint32_t memory_source_cycle_next(
+    const memory_source *table,
+    size_t count,
+    uint32_t current_id)
+{
+    size_t i;
+
+    if (table == NULL || count == 0u) {
+        return 0u;
+    }
+    for (i = 0; i < count; i++) {
+        if (table[i].id == current_id) {
+            return table[(i + 1u) % count].id;
+        }
+    }
+    return table[0].id;
+}

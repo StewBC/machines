@@ -5,6 +5,14 @@
 #include <stdio.h>
 #include <string.h>
 
+void debugger_format_window_title(
+    char *out,
+    size_t out_size,
+    const char *product,
+    const char *label,
+    const char *turbo,
+    const char *state);
+
 static const char *window_title_stop_reason_name(runtime_stop_reason reason)
 {
     switch (reason) {
@@ -42,7 +50,6 @@ void frontend_format_window_title_ex(
     if (product_label != NULL && product_label[0] != '\0') {
         label = product_label;
     }
-    /* turbo_multiplier is milli-MHz (0 = max). See runtime.h turbo encoding. */
     runtime_turbo_format_label(turbo_multiplier, turbo, sizeof(turbo));
 
     if (inspecting) {
@@ -53,7 +60,7 @@ void frontend_format_window_title_ex(
             (unsigned long long)inspector_oldest_cycle,
             (unsigned long long)inspector_newest_cycle,
             (unsigned long long)inspector_focus_cycle);
-        snprintf(out, out_size, "a2m - %s - %s - %s", label, turbo, state_text);
+        debugger_format_window_title(out, out_size, "a2m", label, turbo, state_text);
         return;
     }
 
@@ -73,7 +80,7 @@ void frontend_format_window_title_ex(
             snprintf(state_text, sizeof(state_text), "Unknown");
             break;
     }
-    snprintf(out, out_size, "a2m - %s - %s - %s", label, turbo, state_text);
+    debugger_format_window_title(out, out_size, "a2m", label, turbo, state_text);
 }
 
 void frontend_format_window_title(

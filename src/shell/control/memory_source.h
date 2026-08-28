@@ -27,3 +27,9 @@ const memory_source *memory_source_find_by_token(
     const memory_source *table,
     size_t count,
     const char *token);
+
+/* Next id in table order, wrapping. Unknown current_id → table[0].id (0 if empty). */
+uint32_t memory_source_cycle_next(
+    const memory_source *table,
+    size_t count,
+    uint32_t current_id);

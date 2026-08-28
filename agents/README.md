@@ -9,8 +9,9 @@ drafts live under [`design/`](../design/); they are not product-as-is.
 2. [`design/merge-stage-map.md`](../design/merge-stage-map.md) — stage map.
    Stage 5 is done (command tables + memory sources). Stage 6 is done
    (history / BP conditions / forensics / help EXTRACT). Stage 7 is done
-   (`runtime_client` shared subset header). Do not start Stage 8 or
-   Stage 9 from this note.
+   (`runtime_client` shared subset header). Stage 8 is done (debugger
+   chrome: layout / CPU / disasm / memview / BP list / window title).
+   Do not start Stage 9 from this note.
 3. [`design/shell-extract-platform.md`](../design/shell-extract-platform.md) —
    Stage 2 host layer. [`design/assembler-disasm.md`](../design/assembler-disasm.md) —
    Stage 3 tools. [`design/control-framing.md`](../design/control-framing.md) —
@@ -33,7 +34,7 @@ Do not invent a blended `agents/apple2` / `agents/c64` layout yet (Stage 10).
 
 | Path | What it is |
 |------|------------|
-| `src/shell/` | Shared util / platform / nuklear vendor / `control/` framing + verb runner + memory-source type / `runtime/` history+BP conditions + `runtime_client_subset.h` / `frontend/` forensics+disk LEDs+help source / `tools/{am65,disasm_6502,symbols,gen_help.py}`. Static `shell` plus named tool targets. `help_view.c` is compiled by leftover frontend (per-binary `help_content.inc`). Leftover picture/key/media/Inspector-film client APIs stay leftover. |
+| `src/shell/` | Shared util / platform / nuklear vendor / `control/` framing + verb runner + memory-source type / `runtime/` history+BP conditions + `runtime_client_subset.h` / `frontend/` forensics+disk LEDs+help source + debugger chrome (layout, 6502 CPU pane, disasm pane, memview pane, BP list, window title) / `tools/{am65,disasm_6502,symbols,gen_help.py}`. Static `shell` plus named tool targets. `help_view.c` is compiled by leftover frontend (per-binary `help_content.inc`). Leftover picture/key/media/Inspector-film client APIs stay leftover. Exclusive Misc tabs (Machine/Debugger/Hardware/Assembler/Config) stay leftover. |
 | `external/` | argparse, inih, logc, stb, tiny-regex-c, whereami (unprefixed targets). |
 | `src/machine/apple2/` | Leftover a2m silicon, `runtime_thread`, leftover util (HostFS), leftover `platform_audio`, leftover frontend chrome. Still `project(a2m)`. |
 | `src/machine/c64/` | Leftover c64m silicon, `runtime_thread`, leftover util (BASIC/paste), leftover `platform_audio`, leftover frontend chrome, TrueType, format parsers. Still `project(c64m)`. |
@@ -48,14 +49,14 @@ There is still no root `project(machines)` with two `add_executable`s.
 ## Do not mix leftover trees
 
 - Do not "fix" a remaining twin in only one machine tree. Remaining twins
-  (layout/disasm chrome, leftover `runtime_client` extras, …) still exist
+  (leftover `runtime_client` extras, CRT, exclusive tabs) still exist
   in **both** until later EXTRACT deletes a copy. The shared client
   *subset* is `src/shell/runtime/runtime_client_subset.h`; do not re-fork it.
+  Debugger chrome lives in `src/shell/frontend/`; do not re-copy layout/disasm/memview.
 - Do not flatten `src/machine/apple2/src/machine/cpu65.c`.
 - Leftover C64 memory-mode aliases in a2m are gone (`DRIVE8_MAP` et al.).
   The `vic_cycle` BP alias is already gone.
-- Do not touch Inspector clocks, leftover `runtime_thread` command handling,
-  or `frontend.c` chrome beyond Stage 5 memory-source ids.
+- Do not touch Inspector clocks or leftover `runtime_thread` command handling.
 - Do not unify `cpu65` with `c6510` or turn on `CPU_65c02` in C64 execution.
 - Do not invent a root `project(machines)` (Stage 11).
 - Do not leave a second `thread.c`, `nuklear.h`, or `am65/` in a machine tree.
@@ -90,7 +91,7 @@ Shared `runtime_client` subset (run/pause/step, get-cpu, get-memory
 stay leftover. Do not include `apple2.h` / `c64.h` from that header. Do
 not add `enter-inspector` on the A2M wire this stage.
 
-## Verification (Stage 5+6+7)
+## Verification (Stage 5+6+7+8)
 
 ```bash
 make test
@@ -105,9 +106,9 @@ cmake -B build/a2m  -S src/machine/apple2  -DCMAKE_BUILD_TYPE=Debug
 cmake -B build/c64m -S src/machine/c64    -DCMAKE_BUILD_TYPE=Debug
 ```
 
-ctest: a2m 78/78 (includes `runtime_client` subset);
+ctest: a2m 78/78 plus Stage 8 shell tests (must not regress);
 c64m 72 pass + 10 SKIP + the same `history_control_integration` fail
-(includes the same new shell test). Do not "fix" that fail.
+plus Stage 8 tests. Do not "fix" that fail.
 
 ## Design docs
 

@@ -442,6 +442,7 @@ add_test(NAME frontend_joystick COMMAND test_frontend_joystick)
 
 add_executable(test_window_title
     src/frontend/window_title.c
+    ${MACHINES_ROOT}/src/shell/frontend/window_title.c
     tests/frontend/test_window_title.c
 )
 
@@ -452,9 +453,52 @@ target_include_directories(test_window_title PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src/runtime
     ${CMAKE_CURRENT_SOURCE_DIR}/src/machine
     ${MACHINES_ROOT}/src/shell/runtime
+    ${MACHINES_ROOT}/src/shell/frontend
 )
 
 add_test(NAME window_title COMMAND test_window_title)
+
+add_executable(test_window_title_shell
+    ${MACHINES_ROOT}/src/shell/tests/frontend/test_window_title.c
+    ${MACHINES_ROOT}/src/shell/frontend/window_title.c
+)
+target_include_directories(test_window_title_shell PRIVATE
+    ${MACHINES_ROOT}/src/shell/frontend
+)
+target_compile_features(test_window_title_shell PRIVATE c_std_99)
+add_test(NAME window_title_shell COMMAND test_window_title_shell)
+
+add_executable(test_memory_search
+    ${MACHINES_ROOT}/src/shell/tests/frontend/test_memory_search.c
+    ${MACHINES_ROOT}/src/shell/frontend/memory_search.c
+)
+target_include_directories(test_memory_search PRIVATE
+    ${MACHINES_ROOT}/src/shell/frontend
+)
+target_compile_features(test_memory_search PRIVATE c_std_99)
+add_test(NAME memory_search COMMAND test_memory_search)
+
+add_executable(test_memory_source_cycle
+    ${MACHINES_ROOT}/src/shell/tests/frontend/test_memory_source_cycle.c
+)
+target_compile_features(test_memory_source_cycle PRIVATE c_std_99)
+target_link_libraries(test_memory_source_cycle PRIVATE shell)
+add_test(NAME memory_source_cycle COMMAND test_memory_source_cycle)
+
+add_executable(test_cpu_pane_6502
+    ${MACHINES_ROOT}/src/shell/tests/frontend/test_cpu_pane_6502.c
+)
+target_compile_features(test_cpu_pane_6502 PRIVATE c_std_99)
+target_compile_definitions(test_cpu_pane_6502 PRIVATE SDL_MAIN_HANDLED)
+target_link_libraries(test_cpu_pane_6502 PRIVATE shell)
+add_test(NAME cpu_pane_6502 COMMAND test_cpu_pane_6502)
+
+add_executable(test_c64_memview_sources
+    tests/frontend/test_c64_memview_sources.c
+)
+target_compile_features(test_c64_memview_sources PRIVATE c_std_99)
+target_link_libraries(test_c64_memview_sources PRIVATE control shell)
+add_test(NAME c64_memview_sources COMMAND test_c64_memview_sources)
 
 add_executable(test_crt_renderer
     src/frontend/crt_renderer.c
@@ -639,14 +683,14 @@ set_tests_properties(inspector_control_integration PROPERTIES
 )
 
 add_executable(test_disasm_pc_lock
-    tests/frontend/test_disasm_pc_lock.c
-    src/frontend/disasm_pc_lock.c
+    ${MACHINES_ROOT}/src/shell/tests/frontend/test_disasm_pc_lock.c
+    ${MACHINES_ROOT}/src/shell/frontend/disasm_pc_lock.c
 )
 
 target_compile_features(test_disasm_pc_lock PRIVATE c_std_99)
 
 target_include_directories(test_disasm_pc_lock PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/frontend
+    ${MACHINES_ROOT}/src/shell/frontend
 )
 
 target_link_libraries(test_disasm_pc_lock PRIVATE

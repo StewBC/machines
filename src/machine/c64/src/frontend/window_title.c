@@ -3,6 +3,14 @@
 #include <stdio.h>
 #include <string.h>
 
+void debugger_format_window_title(
+    char *out,
+    size_t out_size,
+    const char *product,
+    const char *label,
+    const char *turbo,
+    const char *state);
+
 static const char *window_title_stop_reason_name(runtime_stop_reason reason)
 {
     switch (reason) {
@@ -42,7 +50,6 @@ void frontend_format_window_title_ex(
     if (turbo_multiplier == 0u) {
         turbo_multiplier = 1u;
     }
-    /* Turbo modes: 1=normal, 2=max free-run full paint, 3=warp free-run. */
     if (turbo_multiplier == 1u) {
         snprintf(turbo, sizeof(turbo), "Normal");
     } else if (turbo_multiplier == 2u) {
@@ -54,7 +61,7 @@ void frontend_format_window_title_ex(
     }
 
     if (inspecting) {
-        snprintf(out, out_size, "c64m - %s - %s - Inspect", video, turbo);
+        debugger_format_window_title(out, out_size, "c64m", video, turbo, "Inspect");
         return;
     }
 
@@ -74,7 +81,7 @@ void frontend_format_window_title_ex(
             snprintf(state_text, sizeof(state_text), "Unknown");
             break;
     }
-    snprintf(out, out_size, "c64m - %s - %s - %s", video, turbo, state_text);
+    debugger_format_window_title(out, out_size, "c64m", video, turbo, state_text);
 }
 
 void frontend_format_window_title(

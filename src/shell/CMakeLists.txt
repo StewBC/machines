@@ -1,6 +1,11 @@
 # Library only. No project(). No cmake_minimum_required().
 # Inherits 3.16 policies from a2m or 3.28 from c64m.
 
+# Tool targets before libshell so panes can PUBLIC-link disasm_6502.
+add_subdirectory(tools/am65)
+add_subdirectory(tools/disasm_6502)
+add_subdirectory(tools/symbols)
+
 add_library(shell STATIC
     util/mutex.c
     util/thread.c
@@ -16,6 +21,15 @@ add_library(shell STATIC
     frontend/nuklear_impl.c
     frontend/disk_led_data.c
     frontend/forensics_view.c
+    frontend/debugger_layout.c
+    frontend/disasm_pc_lock.c
+    frontend/debugger_disasm.c
+    frontend/memory_search.c
+    frontend/cpu_pane_6502.c
+    frontend/disasm_pane.c
+    frontend/memview_pane.c
+    frontend/breakpoint_chrome.c
+    frontend/window_title.c
     control/control_framing.c
     control/control_command_table.c
     control/memory_source.c
@@ -45,6 +59,7 @@ target_link_libraries(shell
     PUBLIC
         SDL2::SDL2
         logc
+        disasm_6502
     PRIVATE
         inih
         stb_ds
@@ -57,7 +72,3 @@ endif()
 if(MSVC)
     target_compile_options(shell PRIVATE /wd4116 /wd5287)
 endif()
-
-add_subdirectory(tools/am65)
-add_subdirectory(tools/disasm_6502)
-add_subdirectory(tools/symbols)

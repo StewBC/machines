@@ -1,5 +1,5 @@
-#ifndef A2M_DEBUGGER_DISASM_H
-#define A2M_DEBUGGER_DISASM_H
+#ifndef DEBUGGER_DISASM_H
+#define DEBUGGER_DISASM_H
 
 /*
  * Shared disasm chrome for live (F9) and Inspect debugger modes.
@@ -98,4 +98,4 @@ int debugger_disasm_hex_digit(SDL_Keycode sym);
 }
 #endif
 
-#endif /* A2M_DEBUGGER_DISASM_H */
+#endif /* DEBUGGER_DISASM_H */

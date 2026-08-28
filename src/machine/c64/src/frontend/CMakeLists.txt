@@ -19,12 +19,8 @@ add_custom_command(
 add_custom_target(frontend_help_content DEPENDS "${C64M_HELP_CONTENT}")
 
 add_library(frontend STATIC
-    c64_layout.c
-    c64_layout.h
     crt_renderer.c
     crt_renderer.h
-    disasm_pc_lock.c
-    disasm_pc_lock.h
     frontend.c
     frontend.h
     frontend_input.c

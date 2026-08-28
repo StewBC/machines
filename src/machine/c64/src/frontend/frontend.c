@@ -3,11 +3,17 @@
 #include "frontend_input.h"
 #include "forensics_view.h"
 #include "help_view.h"
+#include "memory_search.h"
+#include "cpu_pane_6502.h"
+#include "disasm_pane.h"
+#include "memview_pane.h"
+#include "breakpoint_chrome.h"
+#include "memory_source.h"
 #include "nuklear_config.h"
 #include "nuklear_sdl.h"
 #include "runtime_inspector.h"
 
-#include "c64_layout.h"
+#include "debugger_layout.h"
 #include "c64_pro_mono_font_data.h"
 #include "crt_renderer.h"
 #include "disk_led_data.h"
@@ -430,13 +436,14 @@ struct frontend {
     uint64_t disk_led_write_until_ms;
     c64_frame current_frame;
     bool has_frame;
-    c64_layout layout;
-    c64_layout_limits limits;
+    debugger_layout layout;
+    debugger_layout_limits limits;
     frontend_active_view active_view;
     bool c64_input_active;
     bool input_focus_initialized;
     frontend_register_view_state registers;
     frontend_memory_view_state memory_views[MEMORY_VIEW_MAX];
+    memview_pane_search memory_search;
     int memory_view_count;
     int memory_active_view_index;
     int memory_context_menu_view_index;
@@ -477,6 +484,7 @@ struct frontend {
     bool debug_memory_request_pending;
     uint64_t debug_memory_seen_generation;
     bool debug_memory_request_write_history;
+    const frontend_debug_state *memview_debug;
     struct nk_rect memory_scrollbar_bounds;
     bool has_memory_scrollbar_bounds;
     struct nk_rect disassembly_scrollbar_bounds;
@@ -484,6 +492,51 @@ struct frontend {
 };
 
 static const nk_flags pane_flags = NK_WINDOW_BORDER | NK_WINDOW_TITLE | NK_WINDOW_NO_SCROLLBAR;
+
+static void frontend_push_debugger_intent(
+    frontend *ui,
+    frontend_debugger_intent_type type,
+    uint16_t value);
+
+static const memory_source k_memview_cycle[] = {
+    { 0u, "CPU map", "map", 0u, 0x10000u, MEMSRC_WRITABLE },
+    { 2u, "ROM", "rom", 0u, 0x10000u, 0u },
+    { 1u, "RAM", "ram", 0u, 0x10000u, MEMSRC_WRITABLE },
+    { 3u, "Drive 8", "drive8", 0u, 0x10000u, MEMSRC_FOREIGN_BUS },
+    { 4u, "Drive 9", "drive9", 0u, 0x10000u, MEMSRC_FOREIGN_BUS }
+};
+
+static const memory_source k_disasm_cycle[] = {
+    { 0u, "CPU map", "map", 0u, 0x10000u, MEMSRC_WRITABLE },
+    { 2u, "ROM", "rom", 0u, 0x10000u, 0u },
+    { 1u, "RAM", "ram", 0u, 0x10000u, MEMSRC_WRITABLE }
+};
+
+static void frontend_cpu_set_pc(void *ctx, uint16_t value)
+{
+    frontend_push_debugger_intent((frontend *)ctx, FRONTEND_DEBUGGER_INTENT_REGISTER_SET_PC, value);
+}
+static void frontend_cpu_set_sp(void *ctx, uint8_t value)
+{
+    frontend_push_debugger_intent((frontend *)ctx, FRONTEND_DEBUGGER_INTENT_REGISTER_SET_SP, value);
+}
+static void frontend_cpu_set_a(void *ctx, uint8_t value)
+{
+    frontend_push_debugger_intent((frontend *)ctx, FRONTEND_DEBUGGER_INTENT_REGISTER_SET_A, value);
+}
+static void frontend_cpu_set_x(void *ctx, uint8_t value)
+{
+    frontend_push_debugger_intent((frontend *)ctx, FRONTEND_DEBUGGER_INTENT_REGISTER_SET_X, value);
+}
+static void frontend_cpu_set_y(void *ctx, uint8_t value)
+{
+    frontend_push_debugger_intent((frontend *)ctx, FRONTEND_DEBUGGER_INTENT_REGISTER_SET_Y, value);
+}
+static void frontend_cpu_set_status(void *ctx, uint8_t value)
+{
+    frontend_push_debugger_intent((frontend *)ctx, FRONTEND_DEBUGGER_INTENT_REGISTER_SET_STATUS, value);
+}
+
 
 static SDL_Texture *frontend_load_png_texture(
     SDL_Renderer *renderer,
@@ -770,19 +823,10 @@ static bool frontend_memory_mode_is_editable(runtime_memory_mode mode)
 
 static runtime_memory_mode frontend_memory_next_mode(runtime_memory_mode mode)
 {
-    if (mode == RUNTIME_MEMORY_MODE_CPU_MAP) {
-        return RUNTIME_MEMORY_MODE_ROM;
-    }
-    if (mode == RUNTIME_MEMORY_MODE_ROM) {
-        return RUNTIME_MEMORY_MODE_RAM;
-    }
-    if (mode == RUNTIME_MEMORY_MODE_RAM) {
-        return RUNTIME_MEMORY_MODE_DRIVE8_MAP;
-    }
-    if (mode == RUNTIME_MEMORY_MODE_DRIVE8_MAP) {
-        return RUNTIME_MEMORY_MODE_DRIVE9_MAP;
-    }
-    return RUNTIME_MEMORY_MODE_CPU_MAP;
+    return (runtime_memory_mode)memory_source_cycle_next(
+        k_memview_cycle,
+        sizeof(k_memview_cycle) / sizeof(k_memview_cycle[0]),
+        (uint32_t)mode);
 }
 
 static struct nk_color frontend_memory_mode_border_color(runtime_memory_mode mode)
@@ -1258,6 +1302,20 @@ static void frontend_toggle_execute_breakpoint_at_cursor(
     }
 
     frontend_push_debugger_intent(ui, FRONTEND_DEBUGGER_INTENT_BREAKPOINT_SET_EXECUTE, address);
+}
+
+static int frontend_hex_digit_value(char ch)
+{
+    if (ch >= '0' && ch <= '9') {
+        return ch - '0';
+    }
+    if (ch >= 'a' && ch <= 'f') {
+        return ch - 'a' + 10;
+    }
+    if (ch >= 'A' && ch <= 'F') {
+        return ch - 'A' + 10;
+    }
+    return -1;
 }
 
 static bool frontend_parse_hex16_text(const char *text, uint16_t *out)
@@ -2676,6 +2734,8 @@ static void frontend_push_debug_memory_request(frontend *ui, bool include_write_
     ui->debug_memory_request_write_history = include_write_history;
 }
 
+static float frontend_memory_char_width(frontend *ui);
+
 static void frontend_push_memory_write_byte(
     frontend *ui,
     uint16_t address,
@@ -2699,193 +2759,6 @@ static void frontend_push_memory_write_byte(
     ui->intents[ui->intent_write].value = value;
     ui->intents[ui->intent_write].memory_mode = mode;
     ui->intent_write = next;
-}
-
-static void frontend_format_register_buffers(
-    frontend_register_view_state *state,
-    const runtime_cpu_snapshot *cpu,
-    frontend_register_field except)
-{
-    static const uint8_t flag_bits[8] = {7, 6, 5, 4, 3, 2, 1, 0};
-    size_t i;
-
-    if (state == NULL || cpu == NULL) {
-        return;
-    }
-
-    if (except != FRONTEND_REGISTER_FIELD_PC) {
-        snprintf(state->pc, sizeof(state->pc), "%04X", cpu->pc);
-    }
-    if (except != FRONTEND_REGISTER_FIELD_SP) {
-        snprintf(state->sp, sizeof(state->sp), "%02X", cpu->sp);
-    }
-    if (except != FRONTEND_REGISTER_FIELD_A) {
-        snprintf(state->a, sizeof(state->a), "%02X", cpu->a);
-    }
-    if (except != FRONTEND_REGISTER_FIELD_X) {
-        snprintf(state->x, sizeof(state->x), "%02X", cpu->x);
-    }
-    if (except != FRONTEND_REGISTER_FIELD_Y) {
-        snprintf(state->y, sizeof(state->y), "%02X", cpu->y);
-    }
-
-    for (i = 0; i < 8; ++i) {
-        frontend_register_field field = (frontend_register_field)(
-            FRONTEND_REGISTER_FIELD_STATUS_N + (int)i);
-
-        if (except == field) {
-            continue;
-        }
-
-        state->flags[i][0] = (cpu->p & (uint8_t)(1u << flag_bits[i])) ? '1' : '0';
-        state->flags[i][1] = '\0';
-    }
-}
-
-static int frontend_hex_digit_value(char ch)
-{
-    if (ch >= '0' && ch <= '9') {
-        return ch - '0';
-    }
-    if (ch >= 'a' && ch <= 'f') {
-        return ch - 'a' + 10;
-    }
-    if (ch >= 'A' && ch <= 'F') {
-        return ch - 'A' + 10;
-    }
-    return -1;
-}
-
-static float frontend_memory_char_width(frontend *ui);
-
-static bool frontend_parse_hex(const char *text, size_t max_digits, uint16_t *out)
-{
-    uint16_t value = 0;
-    size_t i;
-    size_t length;
-
-    if (text == NULL || out == NULL) {
-        return false;
-    }
-
-    length = strlen(text);
-    if (length == 0 || length > max_digits) {
-        return false;
-    }
-
-    for (i = 0; i < length; ++i) {
-        int digit = frontend_hex_digit_value(text[i]);
-
-        if (digit < 0) {
-            return false;
-        }
-
-        value = (uint16_t)((value << 4) | (uint16_t)digit);
-    }
-
-    *out = value;
-    return true;
-}
-
-static bool frontend_parse_flag(const char *text, uint8_t *out)
-{
-    if (text == NULL || out == NULL || text[0] == '\0' || text[1] != '\0') {
-        return false;
-    }
-    if (text[0] != '0' && text[0] != '1') {
-        return false;
-    }
-
-    *out = (uint8_t)(text[0] - '0');
-    return true;
-}
-
-static void frontend_commit_register_edit(
-    frontend *ui,
-    frontend_register_field field,
-    const frontend_debug_state *debug_state)
-{
-    static const uint8_t flag_bits[8] = {7, 6, 5, 4, 3, 2, 1, 0};
-    frontend_register_view_state *state;
-    uint16_t value;
-    uint8_t flag_value;
-
-    if (ui == NULL || debug_state == NULL || !debug_state->has_cpu) {
-        return;
-    }
-
-    state = &ui->registers;
-    if (debug_state->runtime_state != FRONTEND_RUNTIME_STATE_PAUSED ||
-        debug_state->inspecting) {
-        frontend_format_register_buffers(state, &debug_state->cpu, FRONTEND_REGISTER_FIELD_NONE);
-        return;
-    }
-
-    switch (field) {
-        case FRONTEND_REGISTER_FIELD_PC:
-            if (frontend_parse_hex(state->pc, 4, &value)) {
-                frontend_push_debugger_intent(ui, FRONTEND_DEBUGGER_INTENT_REGISTER_SET_PC, value);
-                return;
-            }
-            break;
-
-        case FRONTEND_REGISTER_FIELD_SP:
-            if (frontend_parse_hex(state->sp, 2, &value)) {
-                frontend_push_debugger_intent(ui, FRONTEND_DEBUGGER_INTENT_REGISTER_SET_SP, value);
-                return;
-            }
-            break;
-
-        case FRONTEND_REGISTER_FIELD_A:
-            if (frontend_parse_hex(state->a, 2, &value)) {
-                frontend_push_debugger_intent(ui, FRONTEND_DEBUGGER_INTENT_REGISTER_SET_A, value);
-                return;
-            }
-            break;
-
-        case FRONTEND_REGISTER_FIELD_X:
-            if (frontend_parse_hex(state->x, 2, &value)) {
-                frontend_push_debugger_intent(ui, FRONTEND_DEBUGGER_INTENT_REGISTER_SET_X, value);
-                return;
-            }
-            break;
-
-        case FRONTEND_REGISTER_FIELD_Y:
-            if (frontend_parse_hex(state->y, 2, &value)) {
-                frontend_push_debugger_intent(ui, FRONTEND_DEBUGGER_INTENT_REGISTER_SET_Y, value);
-                return;
-            }
-            break;
-
-        case FRONTEND_REGISTER_FIELD_STATUS_N:
-        case FRONTEND_REGISTER_FIELD_STATUS_V:
-        case FRONTEND_REGISTER_FIELD_STATUS_UNUSED:
-        case FRONTEND_REGISTER_FIELD_STATUS_B:
-        case FRONTEND_REGISTER_FIELD_STATUS_D:
-        case FRONTEND_REGISTER_FIELD_STATUS_I:
-        case FRONTEND_REGISTER_FIELD_STATUS_Z:
-        case FRONTEND_REGISTER_FIELD_STATUS_C: {
-            size_t flag_index = (size_t)(field - FRONTEND_REGISTER_FIELD_STATUS_N);
-
-            if (frontend_parse_flag(state->flags[flag_index], &flag_value)) {
-                uint8_t mask = (uint8_t)(1u << flag_bits[flag_index]);
-                uint8_t status = (uint8_t)(debug_state->cpu.p & (uint8_t)~mask);
-
-                if (flag_value != 0) {
-                    status = (uint8_t)(status | mask);
-                }
-                frontend_push_debugger_intent(ui, FRONTEND_DEBUGGER_INTENT_REGISTER_SET_STATUS, status);
-                return;
-            }
-            break;
-        }
-
-        case FRONTEND_REGISTER_FIELD_NONE:
-        default:
-            break;
-    }
-
-    frontend_format_register_buffers(state, &debug_state->cpu, FRONTEND_REGISTER_FIELD_NONE);
 }
 
 static void frontend_draw_display_placeholder(frontend *ui, struct nk_rect bounds)
@@ -2950,190 +2823,66 @@ static void frontend_draw_display_placeholder(frontend *ui, struct nk_rect bound
     nk_end(ui->ctx);
 }
 
-static void frontend_draw_register_edit(
-    frontend *ui,
-    frontend_register_field field,
-    char *buffer,
-    int max,
-    nk_plugin_filter filter,
-    const frontend_debug_state *debug_state,
-    bool editable)
-{
-    /* NK_EDIT_FIELD includes NK_EDIT_ALWAYS_INSERT_MODE which forces insert
-       mode every frame. Use the component flags directly so we can stay in
-       replace (overwrite) mode. */
-    nk_flags edit_flags = NK_EDIT_SELECTABLE | NK_EDIT_CLIPBOARD | NK_EDIT_SIG_ENTER;
-    nk_flags result;
-
-    if (!editable) {
-        edit_flags |= NK_EDIT_READ_ONLY;
-    }
-
-    result = nk_edit_string_zero_terminated(ui->ctx, edit_flags, buffer, max, filter);
-    if ((result & NK_EDIT_ACTIVE) != 0 && editable) {
-        /* Keep the widget in replace (overwrite) mode so the user can type a
-           new value directly without deleting the old one first. */
-        ui->ctx->current->edit.mode = NK_TEXT_EDIT_MODE_REPLACE;
-    }
-    if ((result & NK_EDIT_ACTIVATED) != 0 && editable) {
-        ui->registers.active_field = field;
-    }
-    if ((result & NK_EDIT_COMMITED) != 0) {
-        frontend_commit_register_edit(ui, field, debug_state);
-        ui->registers.active_field = FRONTEND_REGISTER_FIELD_NONE;
-        /* NK_EDIT_SIG_ENTER signals the commit but does not deactivate the
-           widget; call unfocus so the field loses the cursor immediately. */
-        nk_edit_unfocus(ui->ctx);
-    }
-}
-
-static void frontend_draw_register_pair(
-    frontend *ui,
-    const char *label,
-    frontend_register_field field,
-    char *buffer,
-    int max,
-    float label_w,
-    float edit_w,
-    const frontend_debug_state *debug_state,
-    bool editable)
-{
-    nk_layout_row_push(ui->ctx, label_w);
-    nk_label(ui->ctx, label, NK_TEXT_LEFT);
-    nk_layout_row_push(ui->ctx, edit_w);
-    frontend_draw_register_edit(ui, field, buffer, max, nk_filter_hex, debug_state, editable);
-}
-
-static void frontend_draw_flag_pair(
-    frontend *ui,
-    const char *label,
-    size_t index,
-    const frontend_debug_state *debug_state,
-    bool editable)
-{
-    nk_layout_row_push(ui->ctx, 0.055f);
-    nk_label(ui->ctx, label, NK_TEXT_LEFT);
-    nk_layout_row_push(ui->ctx, 0.070f);
-    frontend_draw_register_edit(
-        ui,
-        (frontend_register_field)(FRONTEND_REGISTER_FIELD_STATUS_N + (int)index),
-        ui->registers.flags[index],
-        (int)sizeof(ui->registers.flags[index]),
-        nk_filter_binary,
-        debug_state,
-        editable);
-}
 
 static void frontend_draw_registers(
     frontend *ui,
     struct nk_rect bounds,
     const frontend_debug_state *debug_state)
 {
+    cpu_pane_6502_state pane;
+    cpu_pane_6502_regs regs;
+    cpu_pane_6502_ops ops;
     bool editable;
 
     if (debug_state == NULL) {
         return;
     }
+    memset(&pane, 0, sizeof(pane));
+    pane.active_field = (cpu_pane_6502_field)ui->registers.active_field;
+    memcpy(pane.pc, ui->registers.pc, sizeof(pane.pc));
+    memcpy(pane.sp, ui->registers.sp, sizeof(pane.sp));
+    memcpy(pane.a, ui->registers.a, sizeof(pane.a));
+    memcpy(pane.x, ui->registers.x, sizeof(pane.x));
+    memcpy(pane.y, ui->registers.y, sizeof(pane.y));
+    memcpy(pane.flags, ui->registers.flags, sizeof(pane.flags));
+    pane.cancel_edit = ui->cancel_register_edit_requested;
+
+    regs.pc = debug_state->cpu.pc;
+    regs.a = debug_state->cpu.a;
+    regs.x = debug_state->cpu.x;
+    regs.y = debug_state->cpu.y;
+    regs.sp = debug_state->cpu.sp;
+    regs.p = debug_state->cpu.p;
+
+    memset(&ops, 0, sizeof(ops));
+    ops.ctx = ui;
+    ops.set_pc = frontend_cpu_set_pc;
+    ops.set_sp = frontend_cpu_set_sp;
+    ops.set_a = frontend_cpu_set_a;
+    ops.set_x = frontend_cpu_set_x;
+    ops.set_y = frontend_cpu_set_y;
+    ops.set_status = frontend_cpu_set_status;
 
     editable = debug_state->has_cpu &&
         debug_state->runtime_state == FRONTEND_RUNTIME_STATE_PAUSED &&
         !debug_state->inspecting;
-
-    if (!editable) {
-        ui->registers.active_field = FRONTEND_REGISTER_FIELD_NONE;
-    }
-
-    if (debug_state->has_cpu) {
-        frontend_format_register_buffers(
-            &ui->registers,
-            &debug_state->cpu,
-            ui->registers.active_field);
-    }
-
-    if (ui->cancel_register_edit_requested) {
-        if (debug_state->has_cpu) {
-            frontend_format_register_buffers(
-                &ui->registers,
-                &debug_state->cpu,
-                FRONTEND_REGISTER_FIELD_NONE);
-        }
-        ui->registers.active_field = FRONTEND_REGISTER_FIELD_NONE;
-        ui->cancel_register_edit_requested = false;
-    }
-
-    if (nk_begin(ui->ctx, "CPU", bounds, pane_flags)) {
-        if (!debug_state->has_cpu) {
-            nk_layout_row_dynamic(ui->ctx, 20.0f, 1);
-            nk_label(ui->ctx, frontend_runtime_state_name(debug_state->runtime_state), NK_TEXT_LEFT);
-            nk_label(ui->ctx, "PC ----  SP --  A --  X --  Y --", NK_TEXT_LEFT);
-            nk_label(ui->ctx, "N -  V -  - -  B -  D -  I -  Z -  C -", NK_TEXT_LEFT);
-        } else {
-            nk_layout_row_begin(ui->ctx, NK_DYNAMIC, 22.0f, 10);
-            frontend_draw_register_pair(
-                ui,
-                "PC",
-                FRONTEND_REGISTER_FIELD_PC,
-                ui->registers.pc,
-                (int)sizeof(ui->registers.pc),
-                0.07f,
-                0.19f,
-                debug_state,
-                editable);
-            frontend_draw_register_pair(
-                ui,
-                "SP",
-                FRONTEND_REGISTER_FIELD_SP,
-                ui->registers.sp,
-                (int)sizeof(ui->registers.sp),
-                0.07f,
-                0.13f,
-                debug_state,
-                editable);
-            frontend_draw_register_pair(
-                ui,
-                "A",
-                FRONTEND_REGISTER_FIELD_A,
-                ui->registers.a,
-                (int)sizeof(ui->registers.a),
-                0.05f,
-                0.12f,
-                debug_state,
-                editable);
-            frontend_draw_register_pair(
-                ui,
-                "X",
-                FRONTEND_REGISTER_FIELD_X,
-                ui->registers.x,
-                (int)sizeof(ui->registers.x),
-                0.05f,
-                0.12f,
-                debug_state,
-                editable);
-            frontend_draw_register_pair(
-                ui,
-                "Y",
-                FRONTEND_REGISTER_FIELD_Y,
-                ui->registers.y,
-                (int)sizeof(ui->registers.y),
-                0.05f,
-                0.12f,
-                debug_state,
-                editable);
-            nk_layout_row_end(ui->ctx);
-
-            nk_layout_row_begin(ui->ctx, NK_DYNAMIC, 22.0f, 16);
-            frontend_draw_flag_pair(ui, "N", 0, debug_state, editable);
-            frontend_draw_flag_pair(ui, "V", 1, debug_state, editable);
-            frontend_draw_flag_pair(ui, "-", 2, debug_state, editable);
-            frontend_draw_flag_pair(ui, "B", 3, debug_state, editable);
-            frontend_draw_flag_pair(ui, "D", 4, debug_state, editable);
-            frontend_draw_flag_pair(ui, "I", 5, debug_state, editable);
-            frontend_draw_flag_pair(ui, "Z", 6, debug_state, editable);
-            frontend_draw_flag_pair(ui, "C", 7, debug_state, editable);
-            nk_layout_row_end(ui->ctx);
-        }
-    }
-    nk_end(ui->ctx);
+    cpu_pane_6502_draw(
+        ui->ctx,
+        bounds,
+        &pane,
+        &regs,
+        debug_state->has_cpu,
+        editable,
+        frontend_runtime_state_name(debug_state->runtime_state),
+        &ops);
+    ui->registers.active_field = (frontend_register_field)pane.active_field;
+    memcpy(ui->registers.pc, pane.pc, sizeof(ui->registers.pc));
+    memcpy(ui->registers.sp, pane.sp, sizeof(ui->registers.sp));
+    memcpy(ui->registers.a, pane.a, sizeof(ui->registers.a));
+    memcpy(ui->registers.x, pane.x, sizeof(ui->registers.x));
+    memcpy(ui->registers.y, pane.y, sizeof(ui->registers.y));
+    memcpy(ui->registers.flags, pane.flags, sizeof(ui->registers.flags));
+    ui->cancel_register_edit_requested = pane.cancel_edit;
 }
 
 static frontend_disasm_cache *frontend_disassembly_active_cache(
@@ -3692,13 +3441,10 @@ static void frontend_disassembly_handle_key(
     }
 
     if (alt && !shift && sym == SDLK_m) {
-        if (view->mode == RUNTIME_MEMORY_MODE_CPU_MAP) {
-            view->mode = RUNTIME_MEMORY_MODE_ROM;
-        } else if (view->mode == RUNTIME_MEMORY_MODE_ROM) {
-            view->mode = RUNTIME_MEMORY_MODE_RAM;
-        } else {
-            view->mode = RUNTIME_MEMORY_MODE_CPU_MAP;
-        }
+        view->mode = (runtime_memory_mode)memory_source_cycle_next(
+            k_disasm_cycle,
+            sizeof(k_disasm_cycle) / sizeof(k_disasm_cycle[0]),
+            (uint32_t)view->mode);
         view->request_pending = false;
         return;
     }
@@ -4227,280 +3973,76 @@ static void frontend_draw_disassembly_view(
     struct nk_rect bounds,
     const frontend_debug_state *debug_state)
 {
-    frontend_disassembly_view_state *view = &ui->disassembly;
-    struct nk_style_window saved_window_style;
-    uint8_t row;
-    uint8_t rows;
-    float row_h;
-    float scrollbar_w = 24.0f;
-    float scrollbar_margin = 8.0f;
-    float content_h;
+    disasm_pane_state pane;
+    disasm_pane_ops ops;
+    uint16_t pc = 0;
+    bool has_cpu = debug_state != NULL && debug_state->has_cpu;
+    bool running = debug_state != NULL &&
+        debug_state->runtime_state == FRONTEND_RUNTIME_STATE_RUNNING;
+    int n;
+    int i;
 
-    view->cpu_class = DISASM_6502_NMOS;
-
-    if (!view->initialized) {
-        view->mode = RUNTIME_MEMORY_MODE_CPU_MAP;
-        view->follow_pc = true;
-        view->initialized = true;
-        if (debug_state != NULL && debug_state->has_cpu) {
-            view->top_address = debug_state->cpu.pc;
-        }
+    if (ui == NULL) {
+        return;
     }
-
-    row_h = ui->ctx->style.font != NULL ? ui->ctx->style.font->height : 13.0f;
-    content_h = bounds.h - 28.0f;
-    rows = (uint8_t)((content_h > row_h) ? (content_h / row_h) : 1);
-    if (rows > 1) {
-        rows--;
-    }
-    if (rows == 0) {
-        rows = 1;
-    }
-    if (rows > FRONTEND_DISASM_MAX_ROWS) {
-        rows = FRONTEND_DISASM_MAX_ROWS;
-    }
-    view->rows = rows;
-
-    if (debug_state != NULL && debug_state->has_cpu) {
-        bool pc_changed = !view->has_last_pc || view->last_pc != debug_state->cpu.pc;
-
-        if (debug_state->runtime_state == FRONTEND_RUNTIME_STATE_RUNNING) {
-            frontend_disassembly_follow_pc(ui, debug_state);
-        } else if (pc_changed) {
-            frontend_disassembly_center_pc(ui, debug_state);
-        } else if (view->follow_pc) {
-            int pc_row = frontend_disassembly_find_row(view, debug_state->cpu.pc);
-            if (pc_row < 0 || pc_row != rows / 2) {
-                frontend_disassembly_center_pc(ui, debug_state);
-            }
-        }
-
-        view->last_pc = debug_state->cpu.pc;
-        view->has_last_pc = true;
-    }
-    if (debug_state != NULL) {
-        view->last_runtime_state = debug_state->runtime_state;
-    }
-
-    if (!frontend_any_dialog_open(ui) &&
-        nk_input_is_mouse_hovering_rect(&ui->ctx->input, bounds) &&
-        ui->ctx->input.mouse.scroll_delta.y != 0.0f) {
-        if (debug_state == NULL || debug_state->runtime_state != FRONTEND_RUNTIME_STATE_RUNNING) {
-            int32_t lines = ui->ctx->input.mouse.scroll_delta.y > 0.0f ? -3 : 3;
-            view->top_address = (uint16_t)(view->top_address + lines);
-            view->request_pending = false;
-            view->follow_pc = false;
-            view->pc_lock_active = false;
-            frontend_disassembly_set_user_cursor(view, view->top_address, 0, 1);
-        }
-    }
-
     if (ui->has_pending_disassembly_key) {
-        if (view->active) {
+        if (ui->disassembly.active) {
             frontend_disassembly_handle_key(ui, debug_state, &ui->pending_disassembly_key);
         }
         ui->has_pending_disassembly_key = false;
     }
-
-    /* Force cache refresh on RUNNING→PAUSED transition or CPU PC change while paused */
-    if (debug_state != NULL && debug_state->has_cpu && view->pc_lock_active && view->follow_pc) {
-        bool was_running = view->last_runtime_state == FRONTEND_RUNTIME_STATE_RUNNING;
-        bool now_paused = debug_state->runtime_state != FRONTEND_RUNTIME_STATE_RUNNING;
-        bool cpu_pc_changed = !view->has_last_pc || view->last_pc != debug_state->cpu.pc;
-        if ((was_running && now_paused) || (now_paused && cpu_pc_changed)) {
-            frontend_disassembly_force_refresh_pc(view);
-        }
-    }
-
     frontend_disassembly_request_if_needed(ui, debug_state);
-    if (frontend_disassembly_is_pc_locked(view)) {
-        frontend_disassembly_build_pc_locked_lines(ui, view->pc_lock_address, view->rows);
-    } else {
-        frontend_disassembly_decode(ui);
+    memset(&pane, 0, sizeof(pane));
+    disasm_pane_init(&pane, (uint32_t)ui->disassembly.mode, DISASM_6502_NMOS);
+    pane.top_address = ui->disassembly.top_address;
+    pane.cursor_address = ui->disassembly.cursor_address;
+    pane.rows = ui->disassembly.rows;
+    pane.follow_pc = ui->disassembly.follow_pc;
+    pane.pc_lock_active = ui->disassembly.pc_lock_active;
+    pane.has_user_cursor = ui->disassembly.has_user_cursor;
+    pane.active = ui->disassembly.active;
+    pane.initialized = ui->disassembly.initialized;
+    n = (int)(sizeof(ui->disassembly.mem_cache) / sizeof(ui->disassembly.mem_cache[0]));
+    if (n > DISASM_PANE_CACHE_MAX) {
+        n = DISASM_PANE_CACHE_MAX;
     }
-
-    if (nk_begin(ui->ctx, "Disassembly", bounds, pane_flags)) {
-        saved_window_style = ui->ctx->style.window;
-        ui->ctx->style.window.padding = nk_vec2(0.0f, 0.0f);
-        ui->ctx->style.window.spacing = nk_vec2(0.0f, 0.0f);
-        ui->ctx->style.window.group_padding = nk_vec2(0.0f, 0.0f);
-
-        nk_layout_row_begin(ui->ctx, NK_STATIC, row_h * (float)rows, 3);
-        nk_layout_row_push(ui->ctx, bounds.w - scrollbar_w - scrollbar_margin);
-        if (nk_group_begin(ui->ctx, "disassembly-rows", NK_WINDOW_NO_SCROLLBAR)) {
-            for (row = 0; row < rows; ++row) {
-                frontend_disassembly_line *line = &view->lines[row];
-                char bytes[16];
-                char address_label[32] = "";
-                char rendered[128];
-                struct nk_rect row_bounds;
-                const runtime_breakpoint_snapshot_entry *breakpoint =
-                    frontend_find_execute_breakpoint(debug_state, line->base.address);
-                bool is_pc = debug_state != NULL && debug_state->has_cpu &&
-                    line->base.address == debug_state->cpu.pc;
-                bool is_cursor = view->has_user_cursor &&
-                    line->base.address == view->cursor_address && !is_pc;
-                bool is_breakpoint = breakpoint != NULL;
-                bool is_enabled_breakpoint = is_breakpoint && breakpoint->enabled != 0;
-                struct nk_style_selectable saved_selectable = ui->ctx->style.selectable;
-                nk_bool selected = is_cursor ? nk_true : nk_false;
-
-                if (line->is_provisional) {
-                    snprintf(bytes, sizeof(bytes), "??      ");
-                } else if (line->base.length == 2) {
-                    snprintf(bytes, sizeof(bytes), "%02X %02X   ",
-                        line->base.bytes[0], line->base.bytes[1]);
-                } else if (line->base.length >= 3) {
-                    snprintf(bytes, sizeof(bytes), "%02X %02X %02X",
-                        line->base.bytes[0], line->base.bytes[1], line->base.bytes[2]);
-                } else {
-                    snprintf(bytes, sizeof(bytes), "%02X      ", line->base.bytes[0]);
-                }
-
-                if (ui->symbols.address_to_label != NULL) {
-                    (void)ui->symbols.address_to_label(
-                        ui->symbols.userdata,
-                        line->base.address,
-                        address_label,
-                        sizeof(address_label));
-                }
-                address_label[15] = '\0';
-
-                {
-                    char target[24] = "";
-                    frontend_disasm_target tgt =
-                        frontend_disassembly_compute_target(ui, debug_state, &line->base);
-                    if (tgt.show) {
-                        if (tgt.has_value) {
-                            snprintf(target, sizeof(target), " [$%04X:%02X]",
-                                tgt.address, tgt.value);
-                        } else {
-                            snprintf(target, sizeof(target), " [$%04X]", tgt.address);
-                        }
-                    }
-                    snprintf(rendered, sizeof(rendered), "%c%c %04X %-15s %-8s %-20s%s",
-                        is_pc ? '>' : ' ',
-                        is_breakpoint ? (is_enabled_breakpoint ? 'X' : 'x') : ' ',
-                        line->base.address,
-                        address_label,
-                        bytes,
-                        line->base.text,
-                        target);
-                }
-
-                if (line->is_provisional) {
-                    ui->ctx->style.selectable.normal = nk_style_item_color(nk_rgb(20, 24, 28));
-                    ui->ctx->style.selectable.hover = nk_style_item_color(nk_rgb(25, 29, 33));
-                    ui->ctx->style.selectable.normal_active = nk_style_item_color(nk_rgb(30, 60, 74));
-                    ui->ctx->style.selectable.text_normal = nk_rgb(72, 80, 88);
-                } else if (line->base.forced_byte) {
-                    ui->ctx->style.selectable.normal = nk_style_item_color(nk_rgb(30, 34, 38));
-                    ui->ctx->style.selectable.hover = nk_style_item_color(nk_rgb(39, 45, 51));
-                    ui->ctx->style.selectable.normal_active = nk_style_item_color(nk_rgb(49, 78, 94));
-                    ui->ctx->style.selectable.text_normal = nk_rgb(125, 136, 145);
-                }
-                if (is_pc) {
-                    ui->ctx->style.selectable.normal = nk_style_item_color(nk_rgb(83, 73, 24));
-                    ui->ctx->style.selectable.text_normal = nk_rgb(255, 244, 120);
-                }
-                if (is_breakpoint && !is_pc) {
-                    ui->ctx->style.selectable.text_normal = is_enabled_breakpoint ?
-                        nk_rgb(255, 151, 122) :
-                        nk_rgb(169, 126, 202);
-                }
-                if (is_cursor) {
-                    ui->ctx->style.selectable.normal_active = nk_style_item_color(nk_rgb(21, 91, 116));
-                    ui->ctx->style.selectable.text_normal_active = nk_rgb(226, 246, 255);
-                    ui->ctx->style.selectable.text_hover_active = nk_rgb(226, 246, 255);
-                    ui->ctx->style.selectable.text_pressed_active = nk_rgb(226, 246, 255);
-                }
-
-                nk_layout_row_dynamic(ui->ctx, row_h, 1);
-                row_bounds = nk_widget_bounds(ui->ctx);
-                frontend_disassembly_handle_mouse_row(ui, debug_state, row_bounds, row);
-                if (nk_selectable_label(ui->ctx, rendered, NK_TEXT_LEFT, &selected)) {
-                    if (debug_state == NULL || debug_state->runtime_state != FRONTEND_RUNTIME_STATE_RUNNING) {
-                        frontend_set_active_view(ui, FRONTEND_ACTIVE_VIEW_DISASSEMBLY);
-                        frontend_disassembly_set_user_cursor(
-                            view, line->base.address, row, line->base.length);
-                        view->address_entry = false;
-                        view->follow_pc = false;
-                        view->pc_lock_active = false;
-                    }
-                }
-                frontend_disassembly_draw_address_cursor(ui, row_bounds, rendered);
-                ui->ctx->style.selectable = saved_selectable;
-            }
-            nk_group_end(ui->ctx);
-        }
-        nk_layout_row_push(ui->ctx, scrollbar_w);
-        if (nk_group_begin(ui->ctx, "disassembly-scrollbar", NK_WINDOW_NO_SCROLLBAR)) {
-            struct nk_rect scrollbar_bounds = nk_window_get_content_region(ui->ctx);
-            frontend_disassembly_draw_scrollbar(ui, debug_state, scrollbar_bounds);
-            nk_group_end(ui->ctx);
-        }
-        nk_layout_row_push(ui->ctx, scrollbar_margin);
-        nk_spacing(ui->ctx, 1);
-        nk_layout_row_end(ui->ctx);
-
-        if (nk_input_is_mouse_click_in_rect(&ui->ctx->input, NK_BUTTON_RIGHT, bounds)) {
-            frontend_context_popup_open(
-                ui,
-                &ui->disassembly_context_popup,
-                120.0f,
-                100.0f);
-        }
-
-        if (frontend_context_popup_begin(
-                ui,
-                &ui->disassembly_context_popup,
-                "dasm-context-menu")) {
-            bool close_popup = false;
-
-            frontend_context_menu_heading(ui->ctx, "Source");
-            if (frontend_context_menu_mode_item(
-                    ui->ctx,
-                    view->mode == RUNTIME_MEMORY_MODE_CPU_MAP,
-                    "Map")) {
-                view->mode = RUNTIME_MEMORY_MODE_CPU_MAP;
-                view->request_pending = false;
-                close_popup = true;
-            }
-            if (frontend_context_menu_mode_item(
-                    ui->ctx,
-                    view->mode == RUNTIME_MEMORY_MODE_ROM,
-                    "ROM")) {
-                view->mode = RUNTIME_MEMORY_MODE_ROM;
-                view->request_pending = false;
-                close_popup = true;
-            }
-            if (frontend_context_menu_mode_item(
-                    ui->ctx,
-                    view->mode == RUNTIME_MEMORY_MODE_RAM,
-                    "RAM")) {
-                view->mode = RUNTIME_MEMORY_MODE_RAM;
-                view->request_pending = false;
-                close_popup = true;
-            }
-            frontend_context_popup_end(ui, &ui->disassembly_context_popup, close_popup);
-        }
-
-        if (!frontend_any_dialog_open(ui) && ui->active_view == FRONTEND_ACTIVE_VIEW_DISASSEMBLY) {
-            frontend_draw_active_view_border(ui->ctx);
-        }
-        frontend_draw_memory_mode_border(
-            ui->ctx,
-            view->mode,
-            !frontend_any_dialog_open(ui) && ui->active_view == FRONTEND_ACTIVE_VIEW_DISASSEMBLY);
-
-        ui->ctx->style.window = saved_window_style;
+    pane.cache_count = n;
+    for (i = 0; i < n; i++) {
+        pane.cache_ids[i] = (uint32_t)i;
+        pane.mem_cache[i] = ui->disassembly.mem_cache[i];
     }
-    nk_end(ui->ctx);
+    if (has_cpu) {
+        pc = debug_state->cpu.pc;
+    }
+    memset(&ops, 0, sizeof(ops));
+    ops.ctx = ui;
+    ops.symbols = &ui->symbols;
+    disasm_pane_draw(
+        ui->ctx,
+        bounds,
+        &pane,
+        k_disasm_cycle,
+        sizeof(k_disasm_cycle) / sizeof(k_disasm_cycle[0]),
+        running,
+        pc,
+        has_cpu,
+        &ops);
+    ui->disassembly.top_address = pane.top_address;
+    ui->disassembly.cursor_address = pane.cursor_address;
+    ui->disassembly.rows = pane.rows;
+    ui->disassembly.follow_pc = pane.follow_pc;
+    ui->disassembly.pc_lock_active = pane.pc_lock_active;
+    ui->disassembly.has_user_cursor = pane.has_user_cursor;
+    ui->disassembly.initialized = pane.initialized;
+    ui->disassembly.cpu_class = pane.cpu_class;
 }
 
 static uint16_t frontend_memory_visible_count(const frontend_memory_view_state *memory)
 {
-    return (uint16_t)((uint16_t)memory->columns * (uint16_t)memory->rows);
+    if (memory == NULL || memory->columns == 0u) {
+        return 0u;
+    }
+    return (uint16_t)(memory->rows * memory->columns);
 }
 
 static bool frontend_memory_cursor_visible(const frontend_memory_view_state *memory)
@@ -5624,6 +5166,21 @@ static void frontend_memory_handle_key(
         return;
     }
 
+    if (alt && !shift && sym == SDLK_f) {
+        if (debug_state == NULL ||
+            debug_state->runtime_state != FRONTEND_RUNTIME_STATE_RUNNING) {
+            ui->memory_search.open = true;
+            ui->memory_search.just_opened = true;
+            ui->memory_search.last_found_address = memory->cursor_address;
+            ui->memory_search.status[0] = '\0';
+        }
+        return;
+    }
+
+    if (alt && sym == SDLK_g) {
+        return;
+    }
+
     /* Virtual view navigation */
     if (alt && sym == SDLK_UP && memory->edit_field != FRONTEND_MEMORY_EDIT_ADDRESS) {
         if (ui->memory_active_view_index > 0) {
@@ -5814,19 +5371,85 @@ static void frontend_memory_handle_key(
     }
 }
 
+static bool frontend_memview_byte_available(void *ctx, uint32_t source_id, uint16_t address)
+{
+    frontend *ui = ctx;
+    const frontend_debug_state *debug = ui != NULL ? ui->memview_debug : NULL;
+    frontend_memory_view_state view;
+    memset(&view, 0, sizeof(view));
+    view.mode = (runtime_memory_mode)source_id;
+    return frontend_memory_view_byte_available(debug, &view, address);
+}
+
+static bool frontend_memview_read_byte(void *ctx, uint32_t source_id, uint16_t address, uint8_t *out)
+{
+    frontend *ui = ctx;
+    const frontend_debug_state *debug = ui != NULL ? ui->memview_debug : NULL;
+    frontend_memory_view_state view;
+    memset(&view, 0, sizeof(view));
+    view.mode = (runtime_memory_mode)source_id;
+    if (out == NULL || !frontend_memory_view_byte_available(debug, &view, address)) {
+        return false;
+    }
+    *out = frontend_memory_view_byte_at(debug, &view, address);
+    return true;
+}
+
+static void frontend_memview_write_byte(void *ctx, uint32_t source_id, uint16_t address, uint8_t value)
+{
+    frontend *ui = ctx;
+    frontend_push_memory_write_byte(ui, address, value, (runtime_memory_mode)source_id);
+}
+
+static void frontend_memview_request(void *ctx)
+{
+    frontend *ui = ctx;
+    frontend_memory_request_if_needed(ui, ui != NULL ? ui->memview_debug : NULL);
+}
+
+static const uint8_t *frontend_memview_search_plane(
+    void *ctx, uint32_t source_id, const uint8_t **out_valid)
+{
+    frontend *ui = ctx;
+    const frontend_debug_state *debug = ui != NULL ? ui->memview_debug : NULL;
+    if (out_valid != NULL) {
+        *out_valid = NULL;
+    }
+    if (debug == NULL || !debug->has_debug_memory) {
+        return NULL;
+    }
+    if (out_valid != NULL) {
+        *out_valid = frontend_debug_memory_valid_source(&debug->debug_memory, (runtime_memory_mode)source_id);
+    }
+    return frontend_debug_memory_source(&debug->debug_memory, (runtime_memory_mode)source_id);
+}
+
+static float frontend_memview_char_width_ops(void *ctx)
+{
+    return frontend_memory_char_width((frontend *)ctx);
+}
+
+static bool frontend_memview_any_dialog(void *ctx)
+{
+    return frontend_any_dialog_open((frontend *)ctx);
+}
+
+static bool frontend_memview_is_active(void *ctx)
+{
+    frontend *ui = ctx;
+    return ui != NULL && ui->active_view == FRONTEND_ACTIVE_VIEW_MEMORY;
+}
+
 static void frontend_draw_memory(frontend *ui, struct nk_rect bounds, const frontend_debug_state *debug_state)
 {
-    float row_h;
-    float footer_h;
-    float scrollbar_w = 24.0f;
-    float scrollbar_margin = 8.0f;
-    int total_rows, max_rows_per_view;
-    struct nk_style_window saved_window_style;
-    frontend_memory_view_state *active_mem;
-    const struct nk_user_font *font;
+    memview_pane_state pane;
+    memview_pane_ops ops;
     int v;
 
-    /* One-time initialization of the first virtual view */
+    if (ui == NULL) {
+        return;
+    }
+    ui->memview_debug = debug_state;
     if (ui->memory_view_count == 0) {
         ui->memory_views[0].view_address = 0x0000;
         ui->memory_views[0].cursor_address = 0x0000;
@@ -5839,335 +5462,72 @@ static void frontend_draw_memory(frontend *ui, struct nk_rect bounds, const fron
         ui->memory_active_view_index = 0;
         ui->memory_color_slot_used[0] = true;
     }
-
-    active_mem = &ui->memory_views[ui->memory_active_view_index];
-    font = ui->ctx->style.font;
-    row_h = (font != NULL) ? font->height : 13.0f;
-    footer_h = 22.0f;
-
-    /* Compute total available rows */
-    max_rows_per_view = RUNTIME_MEMORY_SNAPSHOT_MAX / 16;
-    total_rows = (bounds.h > footer_h + 28.0f)
-        ? (int)((bounds.h - footer_h - 28.0f) / row_h)
-        : 1;
-    if (total_rows > 1) {
-        total_rows--;
-    }
-    if (total_rows < 1) {
-        total_rows = 1;
-    }
-
-    /* Cap per-view rows and detect resize */
-    {
-        int current_sum = frontend_memory_total_rows(ui);
-        /* Cap each view's rows to the per-view maximum */
-        for (v = 0; v < ui->memory_view_count; v++) {
-            if (ui->memory_views[v].rows > (uint8_t)max_rows_per_view) {
-                ui->memory_views[v].rows = (uint8_t)max_rows_per_view;
-            }
-            if (ui->memory_views[v].rows < 1) {
-                ui->memory_views[v].rows = 1;
-            }
-        }
-        current_sum = frontend_memory_total_rows(ui);
-        if (current_sum != total_rows) {
-            frontend_memory_redistribute_rows(ui, total_rows);
-        }
-    }
-
     if (ui->has_pending_memory_key) {
         if (ui->active_view == FRONTEND_ACTIVE_VIEW_MEMORY) {
             frontend_memory_handle_key(ui, debug_state, &ui->pending_memory_key);
         }
         ui->has_pending_memory_key = false;
     }
-
-    frontend_memory_request_if_needed(ui, debug_state);
-
-    if (nk_begin(ui->ctx, "Memory", bounds, pane_flags)) {
-        struct nk_command_buffer *canvas;
-        bool any_dialog = frontend_any_dialog_open(ui);
-        bool mem_active = !any_dialog && ui->active_view == FRONTEND_ACTIVE_VIEW_MEMORY;
-        float rows_x = 0.0f, rows_w = 0.0f;
-        bool have_rows_x = false;
-        struct nk_color sep_color = nk_rgb(80, 92, 104);
-
-        saved_window_style = ui->ctx->style.window;
-        ui->ctx->style.window.padding = nk_vec2(0.0f, 0.0f);
-        ui->ctx->style.window.spacing = nk_vec2(0.0f, 0.0f);
-        ui->ctx->style.window.group_padding = nk_vec2(0.0f, 0.0f);
-
-        nk_layout_row_begin(ui->ctx, NK_STATIC, row_h * (float)total_rows, 3);
-        nk_layout_row_push(ui->ctx, bounds.w - scrollbar_w - scrollbar_margin);
-
-        if (nk_group_begin(ui->ctx, "memory-rows", NK_WINDOW_NO_SCROLLBAR)) {
-            float text_x_offset = frontend_memory_char_width(ui) * 0.5f;
-            canvas = nk_window_get_canvas(ui->ctx);
-
-            for (v = 0; v < ui->memory_view_count; v++) {
-                frontend_memory_view_state *mv = &ui->memory_views[v];
-                struct nk_color text_c = memory_view_colors[mv->color_slot].text;
-                struct nk_color bg_c = memory_view_colors[mv->color_slot].bg;
-                bool is_active_v = (v == ui->memory_active_view_index);
-                uint8_t row;
-                int next_vis;
-
-                if (mv->rows == 0) {
-                    mv->cached_y_top = 0.0f;
-                    mv->cached_y_bottom = 0.0f;
-                    continue;
-                }
-
-                for (row = 0; row < mv->rows; row++) {
-                    char line[96];
-                    char *lp = line;
-                    size_t remaining = sizeof(line);
-                    uint8_t col;
-                    uint16_t row_addr = (uint16_t)(mv->view_address + (uint16_t)row * mv->columns);
-                    int written = snprintf(lp, remaining, "%04X:", row_addr);
-                    struct nk_rect rb;
-
-                    lp += written; remaining -= (size_t)written;
-                    for (col = 0; col < mv->columns; col++) {
-                        uint16_t addr = (uint16_t)(row_addr + col);
-                        if (frontend_memory_view_byte_available(debug_state, mv, addr)) {
-                            uint8_t val = frontend_memory_view_byte_at(debug_state, mv, addr);
-                            written = snprintf(lp, remaining, "%02X ", val);
-                        } else {
-                            written = snprintf(lp, remaining, "-- ");
-                        }
-                        lp += written; remaining -= (size_t)written;
-                    }
-                    for (col = 0; col < mv->columns; col++) {
-                        uint16_t addr = (uint16_t)(row_addr + col);
-                        if (frontend_memory_view_byte_available(debug_state, mv, addr)) {
-                            uint8_t val = frontend_memory_view_byte_at(debug_state, mv, addr);
-                            written = snprintf(lp, remaining, "%c", frontend_memory_ascii(val));
-                        } else {
-                            written = snprintf(lp, remaining, " ");
-                        }
-                        lp += written; remaining -= (size_t)written;
-                    }
-
-                    nk_layout_row_dynamic(ui->ctx, row_h, 1);
-                    /* nk_widget advances the layout cursor AND returns bounds */
-                    if (nk_widget(&rb, ui->ctx) != NK_WIDGET_INVALID) {
-                        struct nk_rect text_rb = nk_rect(rb.x + text_x_offset, rb.y, rb.w - text_x_offset, rb.h);
-                        if (!have_rows_x) {
-                            rows_x = rb.x;
-                            rows_w = rb.w;
-                            have_rows_x = true;
-                        }
-                        if (row == 0) {
-                            mv->cached_y_top = rb.y;
-                        }
-                        mv->cached_y_bottom = rb.y + rb.h;
-
-                        /* Draw colored background then text via canvas */
-                        nk_fill_rect(canvas, rb, 0.0f, bg_c);
-                        nk_draw_text(canvas, text_rb, line, (int)(lp - line), font, bg_c, text_c);
-
-                        frontend_memory_handle_mouse_row(ui, v, text_rb, row_addr);
-
-                        if (is_active_v) {
-                            frontend_memory_draw_cursor(ui, debug_state, mv, text_rb, line, row_addr);
-                        }
-                    }
-                }
-
-                /* Scroll wheel: route to hovered view after rows are known */
-                if (!any_dialog && ui->ctx->input.mouse.scroll_delta.y != 0.0f) {
-                    float mx = ui->ctx->input.mouse.pos.x;
-                    float my = ui->ctx->input.mouse.pos.y;
-                    if (mx >= rows_x && mx < rows_x + rows_w &&
-                        my >= mv->cached_y_top && my < mv->cached_y_bottom) {
-                        int32_t lines = ui->ctx->input.mouse.scroll_delta.y > 0.0f ? -3 : 3;
-                        mv->view_address = (uint16_t)(mv->view_address + lines * mv->columns);
-                        mv->request_pending = false;
-                    }
-                }
-
-                /* Draw separator after this view if a next visible view exists */
-                next_vis = -1;
-                {
-                    int nv2;
-                    for (nv2 = v + 1; nv2 < ui->memory_view_count; nv2++) {
-                        if (ui->memory_views[nv2].rows > 0) {
-                            next_vis = nv2;
-                            break;
-                        }
-                    }
-                }
-                if (next_vis >= 0) {
-                    struct nk_rect sep = nk_rect(rows_x, mv->cached_y_bottom - 1.0f, rows_w, 1.0f);
-                    nk_fill_rect(canvas, sep, 0.0f, sep_color);
-                }
-            }
-
-            nk_group_end(ui->ctx);
-        }
-
-        nk_layout_row_push(ui->ctx, scrollbar_w);
-        if (nk_group_begin(ui->ctx, "memory-scrollbar", NK_WINDOW_NO_SCROLLBAR)) {
-            struct nk_rect scrollbar_bounds = nk_window_get_content_region(ui->ctx);
-            frontend_memory_draw_scrollbar(ui, scrollbar_bounds, frontend_memory_visible_count(active_mem));
-            nk_group_end(ui->ctx);
-        }
-        nk_layout_row_push(ui->ctx, scrollbar_margin);
-        nk_spacing(ui->ctx, 1);
-        nk_layout_row_end(ui->ctx);
-
-        frontend_memory_draw_status_footer(
-            ui,
-            debug_state,
-            nk_window_get_content_region(ui->ctx),
-            footer_h);
-
-        /* On right-click, record which virtual view was under the cursor */
-        if (nk_input_is_mouse_click_in_rect(&ui->ctx->input, NK_BUTTON_RIGHT, bounds)) {
-            float click_y = ui->ctx->input.mouse.buttons[NK_BUTTON_RIGHT].clicked_pos.y;
-            bool stopped = debug_state == NULL ||
-                debug_state->runtime_state != FRONTEND_RUNTIME_STATE_RUNNING;
-            bool can_join = ui->memory_view_count > 1;
-            ui->memory_context_menu_view_index = ui->memory_active_view_index;
-            ui->memory_context_menu_address =
-                ui->memory_views[ui->memory_active_view_index].cursor_address;
-            for (v = 0; v < ui->memory_view_count; v++) {
-                if (ui->memory_views[v].rows > 0 &&
-                    click_y >= ui->memory_views[v].cached_y_top &&
-                    click_y < ui->memory_views[v].cached_y_bottom) {
-                    ui->memory_context_menu_view_index = v;
-                    ui->memory_context_menu_address = ui->memory_views[v].cursor_address;
-                    break;
-                }
-            }
-            frontend_context_popup_open(
-                ui,
-                &ui->memory_context_popup,
-                120.0f,
-                stopped ?
-                    (can_join ? 341.0f : 319.0f) :
-                    (can_join ? 221.0f : 199.0f));
-        }
-
-        /* Context menu applies to the virtual view that was right-clicked */
-        if (frontend_context_popup_begin(
-                ui,
-                &ui->memory_context_popup,
-                "memory-context-menu")) {
-            bool close_popup = false;
-            bool stopped = debug_state == NULL ||
-                debug_state->runtime_state != FRONTEND_RUNTIME_STATE_RUNNING;
-            int ctx_idx = (ui->memory_context_menu_view_index >= 0 &&
-                           ui->memory_context_menu_view_index < ui->memory_view_count)
-                          ? ui->memory_context_menu_view_index : ui->memory_active_view_index;
-            frontend_memory_view_state *ctx_view = &ui->memory_views[ctx_idx];
-            uint64_t write_history =
-                frontend_memory_write_history_at(debug_state, ctx_view, ui->memory_context_menu_address);
-
-            frontend_context_menu_heading(ui->ctx, "Source");
-            if (frontend_context_menu_mode_item(
-                    ui->ctx,
-                    ctx_view->mode == RUNTIME_MEMORY_MODE_CPU_MAP,
-                    "Map")) {
-                ctx_view->mode = RUNTIME_MEMORY_MODE_CPU_MAP;
-                ctx_view->request_pending = false;
-                close_popup = true;
-            }
-            if (frontend_context_menu_mode_item(
-                    ui->ctx,
-                    ctx_view->mode == RUNTIME_MEMORY_MODE_ROM,
-                    "ROM")) {
-                ctx_view->mode = RUNTIME_MEMORY_MODE_ROM;
-                ctx_view->request_pending = false;
-                close_popup = true;
-            }
-            if (frontend_context_menu_mode_item(
-                    ui->ctx,
-                    ctx_view->mode == RUNTIME_MEMORY_MODE_RAM,
-                    "RAM")) {
-                ctx_view->mode = RUNTIME_MEMORY_MODE_RAM;
-                ctx_view->request_pending = false;
-                close_popup = true;
-            }
-            if (frontend_context_menu_mode_item(
-                    ui->ctx,
-                    ctx_view->mode == RUNTIME_MEMORY_MODE_DRIVE8_MAP,
-                    "1541 Map 8")) {
-                ctx_view->mode = RUNTIME_MEMORY_MODE_DRIVE8_MAP;
-                ctx_view->request_pending = false;
-                close_popup = true;
-            }
-            if (frontend_context_menu_mode_item(
-                    ui->ctx,
-                    ctx_view->mode == RUNTIME_MEMORY_MODE_DRIVE9_MAP,
-                    "1541 Map 9")) {
-                ctx_view->mode = RUNTIME_MEMORY_MODE_DRIVE9_MAP;
-                ctx_view->request_pending = false;
-                close_popup = true;
-            }
-            frontend_context_menu_separator(ui->ctx);
-            frontend_context_menu_heading(ui->ctx, "View");
-            if (frontend_context_menu_item(ui->ctx, "Split")) {
-                frontend_memory_split_view(ui, ctx_idx, false);
-                close_popup = true;
-            }
-            if (ui->memory_view_count > 1 &&
-                frontend_context_menu_item(ui->ctx, "Join")) {
-                frontend_memory_join_view(ui, ctx_idx);
-                close_popup = true;
-            }
-            if (stopped) {
-                uint16_t selected_address;
-
-                frontend_context_menu_separator(ui->ctx);
-                if (frontend_context_menu_access(ui->ctx, write_history, &selected_address)) {
-                    frontend_disassembly_navigate_to_address(ui, selected_address);
-                    close_popup = true;
-                }
-            }
-            frontend_context_popup_end(ui, &ui->memory_context_popup, close_popup);
-        }
-
-        /* Active-panel selection border wraps the whole memory panel */
-        if (mem_active) {
-            frontend_draw_active_view_border(ui->ctx);
-        }
-
-        /* Per-virtual-view RAM/ROM borders, inset to avoid overlap at shared edges */
-        if (have_rows_x) {
-            canvas = nk_window_get_canvas(ui->ctx);
-            for (v = 0; v < ui->memory_view_count; v++) {
-                frontend_memory_view_state *mv = &ui->memory_views[v];
-                struct nk_color border_color;
-                float thickness;
-                struct nk_rect br;
-                float inset_top, inset_bot;
-
-                if (mv->rows == 0 || mv->mode == RUNTIME_MEMORY_MODE_CPU_MAP) {
-                    continue;
-                }
-
-                border_color = frontend_memory_mode_border_color(mv->mode);
-                thickness = (mem_active && v == ui->memory_active_view_index) ? 4.0f : 1.0f;
-                inset_top = (v > 0) ? 1.0f : 2.0f;
-                inset_bot = (v < ui->memory_view_count - 1) ? 1.0f : 2.0f;
-
-                br = nk_rect(
-                    rows_x + thickness * 0.5f,
-                    mv->cached_y_top + inset_top,
-                    rows_w - thickness,
-                    (mv->cached_y_bottom - inset_bot) - (mv->cached_y_top + inset_top));
-
-                if (br.h > 0.0f) {
-                    nk_stroke_rect(canvas, br, 0.0f, thickness, border_color);
-                }
-            }
-        }
-
-        ui->ctx->style.window = saved_window_style;
+    memset(&pane, 0, sizeof(pane));
+    pane.view_count = ui->memory_view_count;
+    pane.active_index = ui->memory_active_view_index;
+    memcpy(pane.color_slot_used, ui->memory_color_slot_used, sizeof(pane.color_slot_used));
+    pane.search = ui->memory_search;
+    for (v = 0; v < ui->memory_view_count && v < MEMVIEW_PANE_VIEW_MAX; v++) {
+        const frontend_memory_view_state *src = &ui->memory_views[v];
+        memview_pane_view *dst = &pane.views[v];
+        dst->view_address = src->view_address;
+        dst->cursor_address = src->cursor_address;
+        dst->source_id = (uint32_t)src->mode;
+        dst->edit_field = (memview_pane_edit_field)src->edit_field;
+        dst->active_nibble = src->active_nibble;
+        dst->active_address_digit = src->active_address_digit;
+        dst->columns = src->columns;
+        dst->rows = src->rows;
+        dst->color_slot = src->color_slot;
+        dst->initialized = src->initialized;
+        dst->request_pending = src->request_pending;
+        dst->highbit_ascii = false;
     }
-    nk_end(ui->ctx);
+    memset(&ops, 0, sizeof(ops));
+    ops.ctx = ui;
+    ops.byte_available = frontend_memview_byte_available;
+    ops.read_byte = frontend_memview_read_byte;
+    ops.write_byte = frontend_memview_write_byte;
+    ops.request = frontend_memview_request;
+    ops.search_plane = frontend_memview_search_plane;
+    ops.char_width = frontend_memview_char_width_ops;
+    ops.any_dialog_open = frontend_memview_any_dialog;
+    ops.view_is_active = frontend_memview_is_active;
+    memview_pane_draw(
+        ui->ctx,
+        bounds,
+        &pane,
+        k_memview_cycle,
+        sizeof(k_memview_cycle) / sizeof(k_memview_cycle[0]),
+        debug_state != NULL && debug_state->runtime_state == FRONTEND_RUNTIME_STATE_RUNNING,
+        debug_state != NULL && debug_state->runtime_state == FRONTEND_RUNTIME_STATE_PAUSED,
+        debug_state != NULL && debug_state->inspecting,
+        &ops);
+    ui->memory_view_count = pane.view_count;
+    ui->memory_active_view_index = pane.active_index;
+    memcpy(ui->memory_color_slot_used, pane.color_slot_used, sizeof(ui->memory_color_slot_used));
+    ui->memory_search = pane.search;
+    for (v = 0; v < pane.view_count && v < MEMORY_VIEW_MAX; v++) {
+        frontend_memory_view_state *dst = &ui->memory_views[v];
+        const memview_pane_view *src = &pane.views[v];
+        dst->view_address = src->view_address;
+        dst->cursor_address = src->cursor_address;
+        dst->mode = (runtime_memory_mode)src->source_id;
+        dst->edit_field = (frontend_memory_edit_field)src->edit_field;
+        dst->active_nibble = src->active_nibble;
+        dst->active_address_digit = src->active_address_digit;
+        dst->columns = src->columns;
+        dst->rows = src->rows;
+        dst->color_slot = src->color_slot;
+        dst->initialized = src->initialized;
+        dst->request_pending = src->request_pending;
+    }
 }
 
 static const char *frontend_disk_label(const frontend_debug_state *debug_state, uint8_t device)
@@ -6567,131 +5927,128 @@ static void frontend_draw_misc_debugger(frontend *ui, const frontend_debug_state
     }
 }
 
+typedef struct frontend_bp_chrome_ctx {
+    frontend *ui;
+    const frontend_debug_state *debug_state;
+} frontend_bp_chrome_ctx;
+
+static const runtime_breakpoint_snapshot_entry *frontend_bp_find(
+    const frontend_debug_state *debug_state, uint32_t id)
+{
+    uint16_t i;
+    uint16_t count;
+
+    if (debug_state == NULL || !debug_state->has_breakpoints) {
+        return NULL;
+    }
+    count = debug_state->breakpoints.count;
+    for (i = 0; i < count; i++) {
+        if (debug_state->breakpoints.entries[i].id == id) {
+            return &debug_state->breakpoints.entries[i];
+        }
+    }
+    return NULL;
+}
+
+static void frontend_bp_on_new(void *ctx)
+{
+    frontend_open_breakpoint_dialog_default(((frontend_bp_chrome_ctx *)ctx)->ui);
+}
+
+static void frontend_bp_on_edit(void *ctx, uint32_t id)
+{
+    frontend_bp_chrome_ctx *bp = ctx;
+    const runtime_breakpoint_snapshot_entry *entry = frontend_bp_find(bp->debug_state, id);
+    if (entry != NULL) {
+        frontend_open_breakpoint_dialog_from_entry(bp->ui, entry, false);
+    }
+}
+
+static void frontend_bp_on_duplicate(void *ctx, uint32_t id)
+{
+    frontend_bp_chrome_ctx *bp = ctx;
+    const runtime_breakpoint_snapshot_entry *entry = frontend_bp_find(bp->debug_state, id);
+    if (entry != NULL) {
+        frontend_open_breakpoint_dialog_from_entry(bp->ui, entry, true);
+    }
+}
+
+static void frontend_bp_on_set_enabled(void *ctx, uint32_t id, bool enabled)
+{
+    frontend_push_breakpoint_id_intent(
+        ((frontend_bp_chrome_ctx *)ctx)->ui,
+        FRONTEND_DEBUGGER_INTENT_BREAKPOINT_SET_ENABLED,
+        id,
+        enabled);
+}
+
+static void frontend_bp_on_clear(void *ctx, uint32_t id)
+{
+    frontend_push_breakpoint_id_intent(
+        ((frontend_bp_chrome_ctx *)ctx)->ui,
+        FRONTEND_DEBUGGER_INTENT_BREAKPOINT_CLEAR,
+        id,
+        false);
+}
+
+static void frontend_bp_on_clear_all(void *ctx)
+{
+    frontend_push_debugger_intent(
+        ((frontend_bp_chrome_ctx *)ctx)->ui,
+        FRONTEND_DEBUGGER_INTENT_BREAKPOINT_CLEAR_ALL,
+        0);
+}
+
+static void frontend_bp_on_view_pc(void *ctx, uint16_t address)
+{
+    frontend *ui = ((frontend_bp_chrome_ctx *)ctx)->ui;
+    frontend_disassembly_scroll_to_top(
+        ui, frontend_disassembly_center_top(address, ui->disassembly.rows));
+    frontend_disassembly_set_user_cursor(
+        &ui->disassembly, address, ui->disassembly.rows / 2, 1);
+}
+
 static void frontend_draw_misc_breakpoints(frontend *ui, const frontend_debug_state *debug_state)
 {
-    struct nk_context *ctx;
+    breakpoint_chrome_row rows[RUNTIME_BREAKPOINT_SNAPSHOT_MAX];
+    breakpoint_chrome_ops ops;
+    frontend_bp_chrome_ctx bp_ctx;
     uint16_t i;
     uint16_t count;
 
     if (ui == NULL || ui->ctx == NULL) {
         return;
     }
-
-    ctx = ui->ctx;
     count = debug_state != NULL && debug_state->has_breakpoints ?
-        debug_state->breakpoints.count :
-        0;
-
-    nk_layout_row_dynamic(ctx, 18.0f, 1);
-    nk_label(ctx, "Breakpoints", NK_TEXT_LEFT);
-    nk_layout_row_dynamic(ctx, 24.0f, 1);
-    if (nk_button_label(ctx, "New")) {
-        frontend_open_breakpoint_dialog_default(ui);
+        debug_state->breakpoints.count : 0;
+    if (count > RUNTIME_BREAKPOINT_SNAPSHOT_MAX) {
+        count = RUNTIME_BREAKPOINT_SNAPSHOT_MAX;
     }
-
-    if (count == 0) {
-        nk_layout_row_dynamic(ctx, 18.0f, 1);
-        nk_label(ctx, "No breakpoints set", NK_TEXT_LEFT);
-    }
-
-    for (i = 0; i < count; ++i) {
+    memset(rows, 0, sizeof(rows));
+    for (i = 0; i < count; i++) {
         const runtime_breakpoint_snapshot_entry *entry = &debug_state->breakpoints.entries[i];
-        struct nk_style_button saved_button = ctx->style.button;
-        char label[96];
-        char access[4];
-        size_t access_len = 0;
-
-        if (entry->enabled == 0) {
-            ctx->style.button.text_normal = nk_rgb(180, 142, 210);
-            ctx->style.button.normal = nk_style_item_color(nk_rgb(40, 34, 48));
-        }
-
-        if ((entry->access & RUNTIME_BREAKPOINT_ACCESS_EXECUTE) != 0) {
-            access[access_len++] = 'X';
-        }
-        if ((entry->access & RUNTIME_BREAKPOINT_ACCESS_READ) != 0) {
-            access[access_len++] = 'R';
-        }
-        if ((entry->access & RUNTIME_BREAKPOINT_ACCESS_WRITE) != 0) {
-            access[access_len++] = 'W';
-        }
-        access[access_len] = '\0';
-
-        if (entry->use_counter != 0) {
-            if (entry->has_end_address) {
-                snprintf(
-                    label,
-                    sizeof(label),
-                    "%s [%04X-%04X] (%u:%u)",
-                    access,
-                    entry->start_address,
-                    entry->end_address,
-                    entry->current_hits,
-                    entry->counter);
-            } else {
-                snprintf(
-                    label,
-                    sizeof(label),
-                    "%s [%04X] (%u:%u)",
-                    access,
-                    entry->start_address,
-                    entry->current_hits,
-                    entry->counter);
-            }
-        } else if (entry->has_end_address) {
-            snprintf(label, sizeof(label), "%s [%04X-%04X] (%u)", access, entry->start_address, entry->end_address, entry->current_hits);
-        } else {
-            snprintf(label, sizeof(label), "%s [%04X] (%u)", access, entry->start_address, entry->current_hits);
-        }
-        nk_layout_row_begin(ctx, NK_DYNAMIC, 24.0f, 6);
-        nk_layout_row_push(ctx, 0.28f);
-        nk_label_colored(
-            ctx,
-            label,
-            NK_TEXT_LEFT,
-            entry->enabled != 0 ? nk_rgb(232, 235, 238) : nk_rgb(180, 142, 210));
-        nk_layout_row_push(ctx, 0.13f);
-        if (nk_button_label(ctx, "Edit")) {
-            frontend_open_breakpoint_dialog_from_entry(ui, entry, false);
-        }
-        nk_layout_row_push(ctx, 0.16f);
-        if (nk_button_label(ctx, "Duplicate")) {
-            frontend_open_breakpoint_dialog_from_entry(ui, entry, true);
-        }
-        nk_layout_row_push(ctx, 0.14f);
-        if (nk_button_label(ctx, entry->enabled != 0 ? "Disable" : "Enable")) {
-            frontend_push_breakpoint_id_intent(
-                ui,
-                FRONTEND_DEBUGGER_INTENT_BREAKPOINT_SET_ENABLED,
-                entry->id,
-                entry->enabled == 0);
-        }
-        nk_layout_row_push(ctx, 0.15f);
-        if (nk_button_label(ctx, "View PC")) {
-            frontend_disassembly_scroll_to_top(ui, frontend_disassembly_center_top(entry->start_address, ui->disassembly.rows));
-            frontend_disassembly_set_user_cursor(&ui->disassembly, entry->start_address, ui->disassembly.rows / 2, 1);
-        }
-        nk_layout_row_push(ctx, 0.14f);
-        if (nk_button_label(ctx, "Clear")) {
-            frontend_push_breakpoint_id_intent(
-                ui,
-                FRONTEND_DEBUGGER_INTENT_BREAKPOINT_CLEAR,
-                entry->id,
-                false);
-        }
-        nk_layout_row_end(ctx);
-        ctx->style.button = saved_button;
+        rows[i].id = entry->id;
+        rows[i].start_address = entry->start_address;
+        rows[i].end_address = entry->end_address;
+        rows[i].has_end_address = entry->has_end_address;
+        rows[i].enabled = entry->enabled;
+        rows[i].use_counter = entry->use_counter;
+        rows[i].access = (uint32_t)entry->access;
+        rows[i].current_hits = entry->current_hits;
+        rows[i].counter = entry->counter;
     }
-
-    if (count >= 2) {
-        nk_layout_row_dynamic(ctx, 24.0f, 1);
-        if (nk_button_label(ctx, "Clear All")) {
-            frontend_push_debugger_intent(
-                ui,
-                FRONTEND_DEBUGGER_INTENT_BREAKPOINT_CLEAR_ALL,
-                0);
-        }
-    }
+    bp_ctx.ui = ui;
+    bp_ctx.debug_state = debug_state;
+    memset(&ops, 0, sizeof(ops));
+    ops.ctx = &bp_ctx;
+    ops.on_new = frontend_bp_on_new;
+    ops.on_edit = frontend_bp_on_edit;
+    ops.on_duplicate = frontend_bp_on_duplicate;
+    ops.on_set_enabled = frontend_bp_on_set_enabled;
+    ops.on_clear = frontend_bp_on_clear;
+    ops.on_clear_all = frontend_bp_on_clear_all;
+    ops.on_view_pc = frontend_bp_on_view_pc;
+    breakpoint_chrome_draw_list(ui->ctx, rows, count, &ops);
 }
 
 static const char *frontend_memory_visibility_name(
@@ -8221,7 +7578,7 @@ frontend *frontend_create(platform_window *window)
     ui->limits.min_misc_w_px = 180;
     ui->limits.gutter_px = 5;
     ui->limits.corner_px = 22;
-    c64_layout_init(&ui->layout);
+    debugger_layout_init(&ui->layout);
     help_view_init(&ui->help);
     forensics_view_init(&ui->forensics);
     ui->show_disk_leds = true; /* matches app_options default until set_config_state */
@@ -10552,7 +9909,7 @@ void frontend_render(frontend *ui, bool ui_visible, const frontend_debug_state *
                 ui->ctx->style.window.header.active =
                     nk_style_item_color(nk_rgb(40, 88, 152));
             }
-            c64_layout_compute(&ui->layout, parent, &ui->limits);
+            debugger_layout_compute(&ui->layout, parent, &ui->limits);
             if (!frontend_any_dialog_open(ui)) {
                 debugger_scrollbar_active = ui->memory_views[ui->memory_active_view_index].scrollbar_dragging ||
                     ui->disassembly.scrollbar_dragging ||
@@ -10563,12 +9920,12 @@ void frontend_render(frontend *ui, bool ui_visible, const frontend_debug_state *
                      nk_input_is_mouse_down(&ui->ctx->input, NK_BUTTON_LEFT) &&
                      nk_input_is_mouse_hovering_rect(&ui->ctx->input, ui->disassembly_scrollbar_bounds));
                 if (!debugger_scrollbar_active) {
-                    c64_layout_handle_drag(&ui->layout, &ui->ctx->input, parent, &ui->limits);
+                    debugger_layout_handle_drag(&ui->layout, &ui->ctx->input, parent, &ui->limits);
                 } else {
-                    ui->layout.drag_active = C64_LAYOUT_DRAG_NONE;
+                    ui->layout.drag_active = DEBUGGER_LAYOUT_DRAG_NONE;
                 }
             } else {
-                ui->layout.drag_active = C64_LAYOUT_DRAG_NONE;
+                ui->layout.drag_active = DEBUGGER_LAYOUT_DRAG_NONE;
             }
 
             frontend_draw_display_placeholder(ui, ui->layout.display);
@@ -10578,13 +9935,13 @@ void frontend_render(frontend *ui, bool ui_visible, const frontend_debug_state *
             frontend_draw_misc(ui, ui->layout.misc, debug_state);
 
             if (!frontend_any_dialog_open(ui)) {
-                split_display_active = ui->layout.drag_active == C64_LAYOUT_DRAG_SPLIT_DISPLAY ||
+                split_display_active = ui->layout.drag_active == DEBUGGER_LAYOUT_DRAG_SPLIT_DISPLAY ||
                     nk_input_is_mouse_hovering_rect(&ui->ctx->input, ui->layout.hit_split_display);
-                split_top_bottom_active = ui->layout.drag_active == C64_LAYOUT_DRAG_SPLIT_TOP_BOTTOM ||
+                split_top_bottom_active = ui->layout.drag_active == DEBUGGER_LAYOUT_DRAG_SPLIT_TOP_BOTTOM ||
                     nk_input_is_mouse_hovering_rect(&ui->ctx->input, ui->layout.hit_split_top_bottom);
-                split_memory_misc_active = ui->layout.drag_active == C64_LAYOUT_DRAG_SPLIT_BOTTOM ||
+                split_memory_misc_active = ui->layout.drag_active == DEBUGGER_LAYOUT_DRAG_SPLIT_BOTTOM ||
                     nk_input_is_mouse_hovering_rect(&ui->ctx->input, ui->layout.hit_split_memory_misc);
-                display_corner_active = ui->layout.drag_active == C64_LAYOUT_DRAG_DISPLAY_CORNER ||
+                display_corner_active = ui->layout.drag_active == DEBUGGER_LAYOUT_DRAG_DISPLAY_CORNER ||
                     nk_input_is_mouse_hovering_rect(&ui->ctx->input, ui->layout.hit_display_corner);
             }
 
@@ -10598,6 +9955,20 @@ void frontend_render(frontend *ui, bool ui_visible, const frontend_debug_state *
             frontend_draw_save_bin_dialog(ui, width, height);
             frontend_draw_assembler_error_dialog(ui, width, height);
             frontend_draw_symbol_lookup(ui, width, height);
+            {
+                memview_pane_state search_pane;
+                memview_pane_ops search_ops;
+                memset(&search_pane, 0, sizeof(search_pane));
+                search_pane.search = ui->memory_search;
+                memset(&search_ops, 0, sizeof(search_ops));
+                search_ops.ctx = ui;
+                search_ops.search_plane = frontend_memview_search_plane;
+                ui->memview_debug = debug_state;
+                memview_pane_draw_search(ui->ctx, width, height, &search_pane,
+                    debug_state != NULL && debug_state->runtime_state == FRONTEND_RUNTIME_STATE_RUNNING,
+                    &search_ops);
+                ui->memory_search = search_pane.search;
+            }
             frontend_draw_file_browser(ui, width, height);
             if (inspect_style) {
                 ui->ctx->style.window = saved_window_style;

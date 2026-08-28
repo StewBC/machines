@@ -28,7 +28,7 @@ bool memory_search_parse(
     char *error,
     size_t error_size);
 
-/* Search the circular 64K Apple address space, beginning one byte beyond
+/* Search the circular 64K address space, beginning one byte beyond
  * start_address in the requested direction. valid may be NULL for a fully
  * populated view. */
 bool memory_search_find(

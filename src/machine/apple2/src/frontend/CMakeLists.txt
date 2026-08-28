@@ -19,12 +19,6 @@ add_custom_command(
 add_custom_target(frontend_help_content DEPENDS "${A2M_HELP_CONTENT}")
 
 add_library(frontend STATIC
-    debugger_layout.c
-    debugger_layout.h
-    debugger_disasm.c
-    debugger_disasm.h
-    disasm_pc_lock.c
-    disasm_pc_lock.h
     crt_renderer.c
     crt_renderer.h
     frontend.c
@@ -34,8 +28,6 @@ add_library(frontend STATIC
     frontend_joystick_input.c
     frontend_joystick_input.h
     ${MACHINES_ROOT}/src/shell/frontend/help_view.c
-    memory_search.c
-    memory_search.h
     window_title.c
     window_title.h
     "${A2M_HELP_CONTENT}"

@@ -1,5 +1,5 @@
-#ifndef A2M_DISASM_PC_LOCK_H
-#define A2M_DISASM_PC_LOCK_H
+#ifndef DISASM_PC_LOCK_H
+#define DISASM_PC_LOCK_H
 
 /*
  * PC-centered disassembly: DP walk backward from PC so the PC row stays
@@ -59,4 +59,4 @@ void disasm_pc_lock_build(
 }
 #endif
 
-#endif /* A2M_DISASM_PC_LOCK_H */
+#endif /* DISASM_PC_LOCK_H */

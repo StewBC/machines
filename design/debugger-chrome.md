@@ -4,7 +4,7 @@
 |-------|-------|
 | **Author** | Grok (Designer) |
 | **Date** | 2026-08-27 |
-| **Status** | Accepted |
+| **Status** | Landed |
 | **Canonical path** | [`design/debugger-chrome.md`](debugger-chrome.md) |
 | **Stage map** | [`design/merge-stage-map.md`](merge-stage-map.md) Stage 8 (UNIFY chrome + PRESERVE machine tables, exclusive tabs) |
 | **Depends on** | Stage 3 ([`design/assembler-disasm.md`](assembler-disasm.md)), Stage 5 ([`design/control-command-tables.md`](control-command-tables.md)), Stage 6 ([`design/runtime-shell-extract.md`](runtime-shell-extract.md)), Stage 7 ([`design/runtime-client-seam.md`](runtime-client-seam.md)). |
