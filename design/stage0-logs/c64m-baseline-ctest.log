@@ -1,0 +1,178 @@
+Test project /Users/swessels/Develop/github/personal/c64m/build-stage0-baseline
+      Start  1: audio_buffer
+ 1/80 Test  #1: audio_buffer .............................   Passed    0.02 sec
+      Start  2: paste_parser
+ 2/80 Test  #2: paste_parser .............................   Passed    0.01 sec
+      Start  3: basic_v2
+ 3/80 Test  #3: basic_v2 .................................   Passed    0.01 sec
+      Start  4: c64_bus
+ 4/80 Test  #4: c64_bus ..................................   Passed    0.01 sec
+      Start  5: c64_snapshot
+ 5/80 Test  #5: c64_snapshot .............................   Passed    0.02 sec
+      Start  6: c64_snapshot_1541_midload
+ 6/80 Test  #6: c64_snapshot_1541_midload ................   Passed  105.19 sec
+      Start  7: sid
+ 7/80 Test  #7: sid ......................................   Passed    0.20 sec
+      Start  8: via6522
+ 8/80 Test  #8: via6522 ..................................   Passed    0.01 sec
+      Start  9: c1541
+ 9/80 Test  #9: c1541 ....................................   Passed    0.01 sec
+      Start 10: c1541_gcr
+10/80 Test #10: c1541_gcr ................................   Passed    0.01 sec
+      Start 11: g64
+11/80 Test #11: g64 ......................................   Passed    0.00 sec
+      Start 12: c1541_media
+12/80 Test #12: c1541_media ..............................   Passed    0.05 sec
+      Start 13: c64_rom
+13/80 Test #13: c64_rom ..................................   Passed    0.01 sec
+      Start 14: c64_frame
+14/80 Test #14: c64_frame ................................   Passed    0.04 sec
+      Start 15: c64_vicii
+15/80 Test #15: c64_vicii ................................   Passed    0.54 sec
+      Start 16: c64_cia
+16/80 Test #16: c64_cia ..................................   Passed    0.01 sec
+      Start 17: c64_boot_progression
+17/80 Test #17: c64_boot_progression .....................   Passed    0.05 sec
+      Start 18: c64_keyboard
+18/80 Test #18: c64_keyboard .............................   Passed    0.01 sec
+      Start 19: c64_disk_load
+19/80 Test #19: c64_disk_load ............................   Passed    0.01 sec
+      Start 20: c64_real_1541_load
+20/80 Test #20: c64_real_1541_load .......................   Passed   68.06 sec
+      Start 21: c64_robocop_g64
+21/80 Test #21: c64_robocop_g64 ..........................   Passed   14.42 sec
+      Start 22: c64_arkanoid_g64
+22/80 Test #22: c64_arkanoid_g64 .........................   Passed   49.76 sec
+      Start 23: c64_arkanoid_alt_g64
+23/80 Test #23: c64_arkanoid_alt_g64 .....................   Passed   50.20 sec
+      Start 24: frontend_input
+24/80 Test #24: frontend_input ...........................   Passed    0.01 sec
+      Start 25: help_view
+25/80 Test #25: help_view ................................   Passed    0.01 sec
+      Start 26: forensics_view
+26/80 Test #26: forensics_view ...........................   Passed    0.01 sec
+      Start 27: frontend_joystick
+27/80 Test #27: frontend_joystick ........................   Passed    0.01 sec
+      Start 28: window_title
+28/80 Test #28: window_title .............................   Passed    0.00 sec
+      Start 29: crt_renderer
+29/80 Test #29: crt_renderer .............................   Passed    0.00 sec
+      Start 30: platform_fs
+30/80 Test #30: platform_fs ..............................   Passed    0.01 sec
+      Start 31: c64_cpu_validation
+31/80 Test #31: c64_cpu_validation .......................   Passed    0.01 sec
+      Start 32: c64_cpu_observer
+32/80 Test #32: c64_cpu_observer .........................   Passed    0.01 sec
+      Start 33: app_options
+33/80 Test #33: app_options ..............................   Passed    0.05 sec
+      Start 34: control_protocol
+34/80 Test #34: control_protocol .........................   Passed    0.01 sec
+      Start 35: history_control_integration
+35/80 Test #35: history_control_integration ..............***Failed    0.14 sec
+Traceback (most recent call last):
+  File "/Users/swessels/Develop/github/personal/c64m/tests/control/test_history_control.py", line 255, in <module>
+    main()
+  File "/Users/swessels/Develop/github/personal/c64m/tests/control/test_history_control.py", line 249, in main
+    run_available(executable, directory, Ctl)
+  File "/Users/swessels/Develop/github/personal/c64m/tests/control/test_history_control.py", line 143, in run_available
+    assert writes["records"]
+AssertionError
+
+      Start 36: run_to_raster_control_integration
+36/80 Test #36: run_to_raster_control_integration ........   Passed    0.10 sec
+      Start 37: guarded_breakpoint_control_integration
+37/80 Test #37: guarded_breakpoint_control_integration ...   Passed    1.76 sec
+      Start 38: frame_ring_control_integration
+38/80 Test #38: frame_ring_control_integration ...........   Passed    2.17 sec
+      Start 39: vic_ring_control_integration
+39/80 Test #39: vic_ring_control_integration .............   Passed    1.27 sec
+      Start 40: inspector_control_integration
+40/80 Test #40: inspector_control_integration ............   Passed    0.22 sec
+      Start 41: disasm_pc_lock
+41/80 Test #41: disasm_pc_lock ...........................   Passed    0.00 sec
+      Start 42: disasm_6502
+42/80 Test #42: disasm_6502 ..............................   Passed    0.00 sec
+      Start 43: symbol_table
+43/80 Test #43: symbol_table .............................   Passed    0.00 sec
+      Start 44: d64
+44/80 Test #44: d64 ......................................   Passed    0.00 sec
+      Start 45: t64
+45/80 Test #45: t64 ......................................   Passed    0.00 sec
+      Start 46: crt
+46/80 Test #46: crt ......................................   Passed    0.00 sec
+      Start 47: assembler_conditionals
+47/80 Test #47: assembler_conditionals ...................   Passed    0.00 sec
+      Start 48: assembler_expressions
+48/80 Test #48: assembler_expressions ....................   Passed    0.00 sec
+      Start 49: assembler_targets
+49/80 Test #49: assembler_targets ........................   Passed    0.00 sec
+      Start 50: assembler_loops
+50/80 Test #50: assembler_loops ..........................   Passed    0.00 sec
+      Start 51: assembler_macros
+51/80 Test #51: assembler_macros .........................   Passed    0.00 sec
+      Start 52: assembler_scopes_segments
+52/80 Test #52: assembler_scopes_segments ................   Passed    0.01 sec
+      Start 53: runtime_romboot
+53/80 Test #53: runtime_romboot ..........................   Passed    0.01 sec
+      Start 54: runtime_scheduler
+54/80 Test #54: runtime_scheduler ........................   Passed    0.11 sec
+      Start 55: runtime_frame
+55/80 Test #55: runtime_frame ............................   Passed    0.15 sec
+      Start 56: runtime_disk
+56/80 Test #56: runtime_disk .............................   Passed    0.02 sec
+      Start 57: runtime_crt
+57/80 Test #57: runtime_crt ..............................   Passed    0.12 sec
+      Start 58: runtime_real_1541_autorun
+58/80 Test #58: runtime_real_1541_autorun ................   Passed    0.98 sec
+      Start 59: runtime_basic_run
+59/80 Test #59: runtime_basic_run ........................   Passed    1.15 sec
+      Start 60: runtime_assembler
+60/80 Test #60: runtime_assembler ........................   Passed    0.01 sec
+      Start 61: runtime_fileio
+61/80 Test #61: runtime_fileio ...........................   Passed    3.57 sec
+      Start 62: runtime_savestate
+62/80 Test #62: runtime_savestate ........................   Passed    0.55 sec
+      Start 63: runtime_stepping
+63/80 Test #63: runtime_stepping .........................   Passed    0.06 sec
+      Start 64: runtime_request_token
+64/80 Test #64: runtime_request_token ....................   Passed    0.01 sec
+      Start 65: runtime_memory_rpc
+65/80 Test #65: runtime_memory_rpc .......................   Passed    0.01 sec
+      Start 66: runtime_run_to_raster
+66/80 Test #66: runtime_run_to_raster ....................   Passed    0.01 sec
+      Start 67: runtime_flight_recorder
+67/80 Test #67: runtime_flight_recorder ..................   Passed    0.02 sec
+      Start 68: runtime_breakpoint_condition
+68/80 Test #68: runtime_breakpoint_condition .............   Passed    0.01 sec
+      Start 69: runtime_breakpoint_ini
+69/80 Test #69: runtime_breakpoint_ini ...................   Passed    0.01 sec
+      Start 70: runtime_frame_ring
+70/80 Test #70: runtime_frame_ring .......................   Passed    0.01 sec
+      Start 71: runtime_inspector
+71/80 Test #71: runtime_inspector ........................   Passed    0.01 sec
+      Start 72: runtime_inspector_replay
+72/80 Test #72: runtime_inspector_replay .................   Passed    0.06 sec
+      Start 73: runtime_inspector_mode
+73/80 Test #73: runtime_inspector_mode ...................   Passed    0.43 sec
+      Start 74: runtime_vic_ring
+74/80 Test #74: runtime_vic_ring .........................   Passed    0.01 sec
+      Start 75: runtime_history
+75/80 Test #75: runtime_history ..........................   Passed    0.01 sec
+      Start 76: runtime_history_wire
+76/80 Test #76: runtime_history_wire .....................   Passed    0.01 sec
+      Start 77: runtime_history_wire_decode
+77/80 Test #77: runtime_history_wire_decode ..............   Passed    0.05 sec
+      Start 78: runtime_history_query_parse
+78/80 Test #78: runtime_history_query_parse ..............   Passed    0.01 sec
+      Start 79: runtime_history_sessions
+79/80 Test #79: runtime_history_sessions .................   Passed    0.01 sec
+      Start 80: runtime_state_changed
+80/80 Test #80: runtime_state_changed ....................   Passed    0.01 sec
+
+99% tests passed, 1 tests failed out of 80
+
+Total Test time (real) = 301.93 sec
+
+The following tests FAILED:
+	 35 - history_control_integration (Failed)
+Errors while running CTest

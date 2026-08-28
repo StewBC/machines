@@ -45,10 +45,14 @@ ctest --test-dir build/c64m --output-on-failure
 Then `./build/a2m/a2m --help` and `./build/c64m/c64m --help`.
 
 c64m may SKIP about ten tests (CTest code 77) when gitignored `assets/` is
-missing. That is the baseline, not a failure.
+missing. That is the baseline, not a failure. On the imported SHA, c64m
+`history_control_integration` also fails in the original source tree; that is
+pre-existing, not an import regression.
 
 Root CMake minimum for the later two-target build is **3.24**. Each imported
-tree still uses its own `cmake_minimum_required` until Stage 11.
+tree still uses its own `cmake_minimum_required` until Stage 11. Stage 0
+confirmed c64m's 3.28 gate is a version line only (`REORDER_FREELY` is 3.24);
+do not raise the root to 3.28.
 
 ## Freeze policy
 

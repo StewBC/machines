@@ -12,13 +12,12 @@ and go stale relative to source. Keep speculative and program-of-work docs
 here; promote lasting invariants into `agents/*.md` and the per-binary
 `manual/` books when the work lands.
 
-The agents index points here once it exists: `agents/README.md` → Design docs.
+The agents index points here: [`agents/README.md`](../agents/README.md) → Design docs.
 
-Until Stage 0 import completes, the product-as-is notes still live in the
-sibling trees:
+Canonical product-as-is notes (until Stage 1 relocates the trees):
 
-- a2m: `/Users/swessels/Develop/github/personal/a2m/agents/`
-- c64m: `/Users/swessels/Develop/github/personal/c64m/agents/`
+- a2m: [`import/a2m/agents/`](../import/a2m/agents/)
+- c64m: [`import/c64m/agents/`](../import/c64m/agents/)
 
 ## Status legend
 
@@ -33,15 +32,16 @@ sibling trees:
 | Design | Status | Last worked on | Path |
 |--------|--------|----------------|------|
 | Merge stage map (a2m + c64m → machines) | **active** (doc Status: **Accepted**; open questions resolved 2026-08-27) | 2026-08-27 | [`merge-stage-map.md`](merge-stage-map.md) |
+| Import revisions (Stage 0 SHAs, ctest, freeze) | **landed** | 2026-08-27 | [`import-revisions.md`](import-revisions.md) |
 
 Follow-on designs named by the stage map (not written yet):
-`import-revisions.md`, `shell-extract-platform.md`, `assembler-disasm.md`,
+`shell-extract-platform.md`, `assembler-disasm.md`,
 `control-framing.md`, `control-command-tables.md`,
 `runtime-shell-extract.md`, `runtime-client-seam.md`, `debugger-chrome.md`,
 `inspector-unification.md`, `monorepo-agents.md`.
 
-Landed Inspector / Forensics designs remain in the product trees until those
-trees are imported; do not copy them here until Stage 0.
+Landed Inspector / Forensics designs live in the imported product trees
+(`import/a2m/design/`, `import/c64m/design/`). Do not copy them here.
 
 ## Conventions
 

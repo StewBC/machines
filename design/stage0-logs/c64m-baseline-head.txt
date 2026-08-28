@@ -1,0 +1,4 @@
+c64m HEAD=7f3c1abeb1abc6a5121020cb0650db10ba8e2a0a
+c64m assets dir: PRESENT
+c64m configure exit=0
+c64m build exit=0

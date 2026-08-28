@@ -1,0 +1,327 @@
+[  0%] Generating generated/help_content.inc
+[  1%] Building C object external/CMakeFiles/a2m_stb_ds.dir/stb/stb_ds_impl.c.o
+[  2%] Building C object external/CMakeFiles/a2m_logc.dir/logc/log.c.o
+[  2%] Building C object external/CMakeFiles/a2m_stb_image.dir/stb/stb_image_impl.c.o
+[  2%] Building C object external/CMakeFiles/a2m_tiny_regex.dir/tiny-regex-c/re.c.o
+[  2%] Building C object external/CMakeFiles/a2m_inih.dir/inih/ini.c.o
+[  3%] Building C object src/tools/am65/CMakeFiles/am65lib.dir/asm.c.o
+[  3%] Building C object src/tools/disasm_6502/CMakeFiles/disasm_6502.dir/disasm_6502.c.o
+[  3%] Linking C static library liba2m_logc.a
+[  3%] Linking C static library liba2m_stb_ds.a
+[  4%] Linking C static library liba2m_tiny_regex.a
+[  5%] Linking C static library libdisasm_6502.a
+[  5%] Linking C static library liba2m_inih.a
+[  5%] Building C object src/tools/am65/CMakeFiles/am65lib.dir/define.c.o
+[  5%] Built target a2m_logc
+[  5%] Built target a2m_tiny_regex
+[  5%] Built target a2m_stb_ds
+[  5%] Built target a2m_inih
+[  5%] Built target disasm_6502
+[  5%] Building C object src/tools/am65/CMakeFiles/am65lib.dir/dynarray.c.o
+[  6%] Building C object CMakeFiles/test_memory_search.dir/tests/frontend/test_memory_search.c.o
+[  6%] Building C object external/CMakeFiles/a2m_argparse.dir/argparse/argparse.c.o
+[  7%] Linking C static library liba2m_stb_image.a
+[  7%] Building C object CMakeFiles/test_crt_pixel_map.dir/tests/frontend/test_crt_pixel_map.c.o
+[  7%] Building C object external/CMakeFiles/a2m_whereami.dir/whereami/whereami.c.o
+[  8%] Building C object src/tools/am65/CMakeFiles/am65lib.dir/emit.c.o
+[  8%] Building C object CMakeFiles/test_memory_search.dir/src/frontend/memory_search.c.o
+[  8%] Building C object src/tools/am65/CMakeFiles/am65lib.dir/errorlog.c.o
+[  8%] Built target frontend_help_content
+[  9%] Building C object CMakeFiles/test_crt_pixel_map.dir/src/frontend/crt_renderer.c.o
+[  9%] Linking C static library liba2m_whereami.a
+[ 10%] Linking C executable test_memory_search
+[ 11%] Linking C static library liba2m_argparse.a
+[ 12%] Building C object src/util/CMakeFiles/util.dir/a2m_log.c.o
+[ 12%] Built target a2m_stb_image
+[ 12%] Linking C executable test_crt_pixel_map
+[ 13%] Building C object src/tools/am65/CMakeFiles/am65lib.dir/err.c.o
+[ 13%] Building C object src/tools/am65/CMakeFiles/am65lib.dir/expr.c.o
+[ 13%] Building C object src/tools/am65/CMakeFiles/am65lib.dir/file.c.o
+[ 13%] Built target test_memory_search
+[ 13%] Building C object src/util/CMakeFiles/util.dir/apple2_file.c.o
+[ 13%] Built target a2m_argparse
+[ 13%] Built target a2m_whereami
+[ 13%] Built target test_crt_pixel_map
+[ 14%] Building C object src/tools/am65/CMakeFiles/am65lib.dir/gperf.c.o
+[ 14%] Building C object src/tools/am65/CMakeFiles/am65lib.dir/opcode.c.o
+[ 14%] Building C object src/tools/symbols/CMakeFiles/symbols.dir/symbol_file.c.o
+[ 15%] Building C object src/tools/am65/CMakeFiles/am65lib.dir/parse.c.o
+[ 16%] Building C object src/tools/symbols/CMakeFiles/symbols.dir/symbol_table.c.o
+[ 16%] Building C object CMakeFiles/test_disasm_6502.dir/tests/tools/test_disasm_6502.c.o
+[ 16%] Building C object src/tools/am65/CMakeFiles/am65lib.dir/scope.c.o
+[ 17%] Building C object src/util/CMakeFiles/util.dir/apple_type_script.c.o
+[ 18%] Building C object src/tools/am65/CMakeFiles/am65lib.dir/segment.c.o
+[ 18%] Building C object src/util/CMakeFiles/util.dir/audio_buffer.c.o
+[ 19%] Linking C executable test_disasm_6502
+[ 19%] Building C object src/tools/am65/CMakeFiles/am65lib.dir/symbol.c.o
+[ 19%] Building C object src/tools/am65/CMakeFiles/am65lib.dir/token.c.o
+[ 19%] Building C object src/util/CMakeFiles/util.dir/config.c.o
+[ 20%] Building C object src/util/CMakeFiles/util.dir/cond.c.o
+[ 21%] Building C object src/util/CMakeFiles/util.dir/fs_watch.c.o
+[ 21%] Building C object src/util/CMakeFiles/util.dir/dynarray.c.o
+[ 21%] Linking C static library libsymbols.a
+[ 21%] Built target test_disasm_6502
+[ 21%] Building C object src/util/CMakeFiles/util.dir/fs_watch_macos.c.o
+[ 21%] Building C object src/util/CMakeFiles/util.dir/message_queue.c.o
+[ 22%] Building C object src/util/CMakeFiles/util.dir/mutex.c.o
+[ 22%] Building C object src/util/CMakeFiles/util.dir/thread.c.o
+[ 23%] Building C object src/util/CMakeFiles/util.dir/util.c.o
+[ 23%] Built target symbols
+[ 23%] Building C object src/util/CMakeFiles/util.dir/util_file.c.o
+[ 24%] Linking C static library libam65lib.a
+[ 24%] Built target am65lib
+[ 25%] Building C object CMakeFiles/test_assembler_conditionals.dir/tests/tools/test_assembler_conditionals.c.o
+[ 25%] Building C object CMakeFiles/test_assembler_expressions.dir/tests/tools/test_assembler_expressions.c.o
+[ 25%] Building C object CMakeFiles/test_disasm_pc_lock.dir/tests/frontend/test_disasm_pc_lock.c.o
+[ 25%] Building C object CMakeFiles/test_assembler_loops.dir/tests/tools/test_assembler_loops.c.o
+[ 25%] Building C object CMakeFiles/test_assembler_macros.dir/tests/tools/test_assembler_macros.c.o
+[ 26%] Building C object CMakeFiles/test_disasm_pc_lock.dir/src/frontend/disasm_pc_lock.c.o
+[ 27%] Linking C executable test_assembler_expressions
+[ 27%] Linking C executable test_assembler_conditionals
+[ 28%] Linking C executable test_assembler_loops
+[ 29%] Linking C executable test_assembler_macros
+[ 29%] Linking C executable test_disasm_pc_lock
+[ 29%] Built target test_assembler_expressions
+[ 29%] Built target test_assembler_conditionals
+[ 29%] Built target test_assembler_loops
+[ 30%] Building C object CMakeFiles/test_assembler_scopes_segments.dir/tests/tools/test_assembler_scopes_segments.c.o
+[ 30%] Built target test_assembler_macros
+[ 30%] Building C object CMakeFiles/test_assembler_targets.dir/tests/tools/test_assembler_targets.c.o
+[ 30%] Built target test_disasm_pc_lock
+[ 31%] Building C object CMakeFiles/test_assembler_65c02.dir/tests/tools/test_assembler_65c02.c.o
+[ 32%] Building C object CMakeFiles/test_assembler_search.dir/tests/tools/test_assembler_search.c.o
+[ 32%] Building C object CMakeFiles/test_assembler_multifile.dir/tests/tools/test_assembler_multifile.c.o
+[ 33%] Building C object src/tools/am65/CMakeFiles/am65.dir/main.c.o
+[ 33%] Linking C executable test_assembler_scopes_segments
+[ 33%] Linking C executable test_assembler_65c02
+[ 34%] Linking C executable test_assembler_targets
+[ 34%] Linking C executable test_assembler_multifile
+[ 34%] Linking C executable test_assembler_search
+[ 34%] Built target test_assembler_scopes_segments
+[ 34%] Built target test_assembler_65c02
+[ 34%] Linking C executable ../../../am65
+[ 34%] Built target test_assembler_targets
+[ 35%] Linking C static library libutil.a
+[ 35%] Built target test_assembler_search
+[ 35%] Built target test_assembler_multifile
+[ 35%] Built target am65
+[ 35%] Built target util
+[ 36%] Building C object CMakeFiles/test_fs_watch.dir/tests/util/test_fs_watch.c.o
+[ 36%] Building C object src/platform/CMakeFiles/platform.dir/platform.c.o
+[ 37%] Building C object CMakeFiles/test_message_queue.dir/tests/util/test_message_queue.c.o
+[ 37%] Building C object CMakeFiles/test_apple_type_script.dir/tests/util/test_apple_type_script.c.o
+[ 37%] Building C object CMakeFiles/test_config.dir/tests/util/test_config.c.o
+[ 38%] Building C object CMakeFiles/test_apple2_file.dir/tests/util/test_apple2_file.c.o
+[ 39%] Building C object src/machine/CMakeFiles/machine.dir/apple2.c.o
+[ 39%] Building C object CMakeFiles/test_audio_buffer.dir/tests/util/test_audio_buffer.c.o
+[ 39%] Linking C executable test_apple_type_script
+[ 39%] Linking C executable test_config
+[ 39%] Linking C executable test_message_queue
+[ 40%] Linking C executable test_audio_buffer
+[ 40%] Linking C executable test_apple2_file
+[ 40%] Built target test_config
+[ 40%] Built target test_apple_type_script
+[ 40%] Built target test_audio_buffer
+[ 40%] Building C object src/platform/CMakeFiles/platform.dir/platform_audio.c.o
+[ 40%] Building C object src/platform/CMakeFiles/platform.dir/platform_fs.c.o
+[ 40%] Building C object CMakeFiles/test_app_options_mounts.dir/tests/test_app_options_mounts.c.o
+[ 40%] Built target test_apple2_file
+[ 40%] Built target test_message_queue
+[ 41%] Building C object CMakeFiles/test_app_options_mounts.dir/src/app_options.c.o
+[ 42%] Building C object src/platform/CMakeFiles/platform.dir/platform_socket.c.o
+[ 42%] Building C object src/machine/CMakeFiles/machine.dir/apple2_snapshot.c.o
+[ 43%] Building C object src/machine/CMakeFiles/machine.dir/ay38910.c.o
+[ 43%] Building C object src/machine/CMakeFiles/machine.dir/cpu65.c.o
+[ 43%] Building C object src/machine/CMakeFiles/machine.dir/diskii.c.o
+[ 44%] Building C object src/machine/CMakeFiles/machine.dir/diskii_rom.c.o
+[ 45%] Building C object src/machine/CMakeFiles/machine.dir/image.c.o
+[ 45%] Building C object src/machine/CMakeFiles/machine.dir/hostfs.c.o
+[ 45%] Building C object src/machine/CMakeFiles/machine.dir/mboard.c.o
+[ 45%] Building C object src/machine/CMakeFiles/machine.dir/rom_data.c.o
+[ 46%] Building C object src/machine/CMakeFiles/machine.dir/smartport_rom.c.o
+[ 46%] Building C object src/machine/CMakeFiles/machine.dir/smrtprt.c.o
+[ 47%] Building C object src/machine/CMakeFiles/machine.dir/softswitch.c.o
+[ 47%] Building C object src/machine/CMakeFiles/machine.dir/via6522.c.o
+[ 48%] Linking C executable test_fs_watch
+[ 48%] Linking C executable test_app_options_mounts
+[ 48%] Building C object src/machine/CMakeFiles/machine.dir/video.c.o
+[ 49%] Building C object src/machine/CMakeFiles/machine.dir/keyboard.c.o
+[ 49%] Linking C static library libplatform.a
+[ 49%] Built target test_fs_watch
+[ 49%] Built target test_app_options_mounts
+[ 49%] Linking C static library libmachine.a
+[ 49%] Built target platform
+[ 49%] Built target machine
+[ 49%] Building C object CMakeFiles/test_video_beam.dir/tests/machine/test_video_beam.c.o
+[ 50%] Building C object CMakeFiles/test_cpu65_basic.dir/tests/machine/test_cpu65_basic.c.o
+[ 50%] Building C object CMakeFiles/test_video_block_paint.dir/tests/machine/test_video_block_paint.c.o
+[ 50%] Building C object CMakeFiles/test_rom_boot.dir/tests/machine/test_rom_boot.c.o
+[ 51%] Building C object CMakeFiles/test_softswitch.dir/tests/machine/test_softswitch.c.o
+[ 51%] Building C object CMakeFiles/test_apple2_stub.dir/tests/machine/test_apple2_stub.c.o
+[ 51%] Building C object CMakeFiles/test_frontend_input.dir/tests/frontend/test_frontend_input.c.o
+[ 52%] Building C object src/runtime/CMakeFiles/runtime.dir/runtime_client.c.o
+[ 53%] Linking C executable test_apple2_stub
+[ 54%] Linking C executable test_rom_boot
+[ 54%] Linking C executable test_cpu65_basic
+[ 55%] Linking C executable test_video_block_paint
+[ 55%] Linking C executable test_softswitch
+[ 56%] Linking C executable test_video_beam
+[ 56%] Built target test_cpu65_basic
+[ 56%] Built target test_rom_boot
+[ 56%] Built target test_softswitch
+[ 56%] Built target test_apple2_stub
+[ 56%] Building C object CMakeFiles/test_video_pixel_address.dir/tests/machine/test_video_pixel_address.c.o
+[ 56%] Building C object CMakeFiles/test_diskii.dir/tests/machine/test_diskii.c.o
+[ 57%] Building C object CMakeFiles/test_peripherals.dir/tests/machine/test_peripherals.c.o
+[ 57%] Building C object CMakeFiles/test_hostfs.dir/tests/machine/test_hostfs.c.o
+[ 57%] Built target test_video_beam
+[ 58%] Building C object CMakeFiles/test_cxxx_map.dir/tests/machine/test_cxxx_map.c.o
+[ 58%] Linking C executable test_video_pixel_address
+[ 58%] Built target test_video_block_paint
+[ 58%] Building C object CMakeFiles/test_memview.dir/tests/machine/test_memview.c.o
+[ 58%] Built target test_video_pixel_address
+[ 58%] Building C object src/runtime/CMakeFiles/runtime.dir/runtime_breakpoint_condition.c.o
+[ 59%] Building C object CMakeFiles/test_frontend_input.dir/src/frontend/frontend_input.c.o
+[ 59%] Linking C executable test_memview
+[ 59%] Linking C executable test_peripherals
+[ 59%] Built target test_memview
+[ 59%] Building C object src/runtime/CMakeFiles/runtime.dir/runtime_breakpoint_ini.c.o
+[ 59%] Linking C executable test_cxxx_map
+[ 60%] Linking C executable test_diskii
+[ 60%] Built target test_peripherals
+[ 61%] Building C object src/runtime/CMakeFiles/runtime.dir/runtime_command.c.o
+[ 61%] Building C object CMakeFiles/test_apple2_snapshot.dir/tests/machine/test_apple2_snapshot.c.o
+[ 61%] Built target test_diskii
+[ 61%] Built target test_cxxx_map
+[ 62%] Linking C executable test_apple2_snapshot
+[ 62%] Building C object src/runtime/CMakeFiles/runtime.dir/runtime_event.c.o
+[ 63%] Building C object src/runtime/CMakeFiles/runtime.dir/runtime_frame_ring.c.o
+[ 63%] Building C object src/runtime/CMakeFiles/runtime.dir/runtime_history.c.o
+[ 63%] Building C object CMakeFiles/bench_realtime.dir/tests/machine/bench_realtime.c.o
+[ 64%] Linking C executable bench_realtime
+[ 64%] Building C object src/runtime/CMakeFiles/runtime.dir/runtime_history_query_parse.c.o
+[ 65%] Building C object src/runtime/CMakeFiles/runtime.dir/runtime_history_wire.c.o
+[ 65%] Built target test_apple2_snapshot
+[ 65%] Building C object src/runtime/CMakeFiles/runtime.dir/runtime_assembler.c.o
+[ 65%] Linking C executable test_hostfs
+[ 65%] Building C object src/runtime/CMakeFiles/runtime.dir/runtime.c.o
+[ 66%] Building C object src/runtime/CMakeFiles/runtime.dir/runtime_slot_resolve.c.o
+[ 67%] Building C object src/runtime/CMakeFiles/runtime.dir/runtime_thread.c.o
+[ 67%] Built target bench_realtime
+[ 67%] Building C object src/runtime/CMakeFiles/runtime.dir/runtime_inspector.c.o
+[ 67%] Building C object src/runtime/CMakeFiles/runtime.dir/runtime_inspector_recorder.c.o
+[ 67%] Built target test_hostfs
+[ 67%] Linking C executable test_frontend_input
+[ 67%] Built target test_frontend_input
+[ 68%] Linking C static library libruntime.a
+[ 68%] Built target runtime
+[ 68%] Building C object CMakeFiles/test_runtime_step_nested.dir/tests/runtime/test_runtime_step_nested.c.o
+[ 68%] Building C object CMakeFiles/test_runtime_smartport_boot.dir/tests/runtime/test_runtime_smartport_boot.c.o
+[ 68%] Building C object CMakeFiles/test_runtime_stepping.dir/tests/runtime/test_runtime_stepping.c.o
+[ 69%] Building C object CMakeFiles/test_runtime_breakpoint.dir/tests/runtime/test_runtime_breakpoint.c.o
+[ 69%] Building C object CMakeFiles/test_runtime_display_stop.dir/tests/runtime/test_runtime_display_stop.c.o
+[ 70%] Building C object src/frontend/CMakeFiles/frontend.dir/debugger_layout.c.o
+[ 70%] Building C object src/control/CMakeFiles/control.dir/control_server.c.o
+[ 70%] Building C object CMakeFiles/test_runtime_memory_rpc.dir/tests/runtime/test_runtime_memory_rpc.c.o
+[ 70%] Building C object src/frontend/CMakeFiles/frontend.dir/debugger_disasm.c.o
+[ 71%] Linking C executable test_runtime_step_nested
+[ 71%] Built target test_runtime_step_nested
+[ 72%] Building C object CMakeFiles/test_runtime_breakpoint_ini.dir/tests/runtime/test_runtime_breakpoint_ini.c.o
+[ 73%] Linking C executable test_runtime_smartport_boot
+[ 73%] Linking C executable test_runtime_stepping
+[ 73%] Built target test_runtime_stepping
+[ 73%] Built target test_runtime_smartport_boot
+[ 73%] Building C object src/frontend/CMakeFiles/frontend.dir/disasm_pc_lock.c.o
+[ 73%] Linking C executable test_runtime_breakpoint
+[ 74%] Building C object CMakeFiles/test_runtime_turbo.dir/tests/runtime/test_runtime_turbo.c.o
+[ 74%] Linking C executable test_runtime_memory_rpc
+[ 75%] Linking C executable test_runtime_display_stop
+[ 76%] Building C object src/frontend/CMakeFiles/frontend.dir/crt_renderer.c.o
+[ 76%] Built target test_runtime_breakpoint
+[ 76%] Building C object src/frontend/CMakeFiles/frontend.dir/disk_led_data.c.o
+[ 76%] Building C object src/control/CMakeFiles/control.dir/control_protocol.c.o
+[ 76%] Built target test_runtime_display_stop
+[ 76%] Built target test_runtime_memory_rpc
+[ 77%] Building C object CMakeFiles/test_runtime_slot_resolve.dir/tests/runtime/test_runtime_slot_resolve.c.o
+[ 78%] Building C object CMakeFiles/test_runtime_savestate.dir/tests/runtime/test_runtime_savestate.c.o
+[ 79%] Building C object src/frontend/CMakeFiles/frontend.dir/frontend.c.o
+[ 79%] Building C object CMakeFiles/test_runtime_machine_files.dir/tests/runtime/test_runtime_machine_files.c.o
+[ 79%] Linking C executable test_runtime_slot_resolve
+[ 79%] Built target test_runtime_slot_resolve
+[ 79%] Building C object src/frontend/CMakeFiles/frontend.dir/frontend_input.c.o
+[ 80%] Building C object src/control/CMakeFiles/control.dir/control_deferred.c.o
+[ 80%] Building C object CMakeFiles/test_runtime_frame_ring.dir/tests/runtime/test_runtime_frame_ring.c.o
+[ 80%] Building C object src/control/CMakeFiles/control.dir/control_dispatch.c.o
+[ 81%] Linking C executable test_runtime_frame_ring
+[ 81%] Linking C executable test_runtime_breakpoint_ini
+[ 81%] Built target test_runtime_frame_ring
+[ 81%] Building C object CMakeFiles/test_runtime_history_basic.dir/tests/runtime/test_runtime_history_basic.c.o
+[ 81%] Built target test_runtime_breakpoint_ini
+[ 81%] Building C object CMakeFiles/test_runtime_history_commands.dir/tests/runtime/test_runtime_history_commands.c.o
+[ 81%] Linking C executable test_runtime_turbo
+[ 81%] Linking C executable test_runtime_savestate
+[ 81%] Built target test_runtime_turbo
+[ 82%] Building C object CMakeFiles/test_runtime_history_query.dir/tests/runtime/test_runtime_history_query.c.o
+[ 82%] Built target test_runtime_savestate
+[ 83%] Linking C executable test_runtime_machine_files
+[ 84%] Building C object CMakeFiles/test_runtime_history_query_parse.dir/tests/runtime/test_runtime_history_query_parse.c.o
+[ 84%] Built target test_runtime_machine_files
+[ 84%] Linking C executable test_runtime_history_query_parse
+[ 84%] Building C object CMakeFiles/test_runtime_history_wire_decode.dir/tests/runtime/test_runtime_history_wire_decode.c.o
+[ 84%] Building C object src/frontend/CMakeFiles/frontend.dir/frontend_joystick_input.c.o
+[ 84%] Built target test_runtime_history_query_parse
+[ 85%] Linking C executable test_runtime_history_wire_decode
+[ 85%] Building C object CMakeFiles/test_runtime_history_sessions.dir/tests/runtime/test_runtime_history_sessions.c.o
+[ 86%] Linking C executable test_runtime_history_basic
+[ 86%] Built target test_runtime_history_wire_decode
+[ 86%] Building C object CMakeFiles/test_runtime_state_changed.dir/tests/runtime/test_runtime_state_changed.c.o
+[ 86%] Linking C executable test_runtime_history_commands
+[ 86%] Built target test_runtime_history_basic
+[ 87%] Building C object src/control/CMakeFiles/control.dir/control_breakpoint.c.o
+[ 87%] Linking C executable test_runtime_history_query
+[ 87%] Building C object CMakeFiles/test_runtime_inspector.dir/tests/runtime/test_runtime_inspector.c.o
+[ 87%] Built target test_runtime_history_commands
+[ 88%] Building C object src/frontend/CMakeFiles/frontend.dir/help_view.c.o
+[ 88%] Linking C static library libcontrol.a
+[ 88%] Building C object src/frontend/CMakeFiles/frontend.dir/forensics_view.c.o
+[ 88%] Built target test_runtime_history_query
+[ 89%] Building C object src/frontend/CMakeFiles/frontend.dir/memory_search.c.o
+[ 90%] Linking C executable test_runtime_history_sessions
+[ 90%] Building C object src/frontend/CMakeFiles/frontend.dir/window_title.c.o
+[ 90%] Built target control
+[ 91%] Linking C executable test_runtime_state_changed
+[ 91%] Building C object CMakeFiles/test_runtime_inspector_replay.dir/tests/runtime/test_runtime_inspector_replay.c.o
+[ 91%] Linking C executable test_runtime_inspector
+[ 92%] Building C object CMakeFiles/test_runtime_inspector_bp.dir/tests/runtime/test_runtime_inspector_bp.c.o
+[ 92%] Building C object src/frontend/CMakeFiles/frontend.dir/nuklear_impl.c.o
+[ 92%] Built target test_runtime_history_sessions
+[ 93%] Building C object CMakeFiles/test_control_protocol.dir/tests/control/test_control_protocol.c.o
+[ 93%] Built target test_runtime_state_changed
+[ 93%] Building C object CMakeFiles/test_runtime_assembler.dir/tests/runtime/test_runtime_assembler.c.o
+[ 93%] Built target test_runtime_inspector
+[ 93%] Building C object CMakeFiles/test_runtime_assembler_mli.dir/tests/runtime/test_runtime_assembler_mli.c.o
+[ 94%] Building C object CMakeFiles/test_runtime_inspector_mode.dir/tests/runtime/test_runtime_inspector_mode.c.o
+[ 94%] Linking C executable test_control_protocol
+[ 95%] Linking C executable test_runtime_inspector_replay
+[ 95%] Linking C executable test_runtime_inspector_bp
+[ 95%] Built target test_control_protocol
+[ 95%] Built target test_runtime_inspector_replay
+[ 95%] Linking C executable test_runtime_assembler_mli
+[ 96%] Linking C executable test_runtime_assembler
+[ 96%] Built target test_runtime_inspector_bp
+[ 96%] Linking C executable test_runtime_inspector_mode
+[ 96%] Built target test_runtime_assembler
+[ 96%] Built target test_runtime_assembler_mli
+[ 96%] Built target test_runtime_inspector_mode
+[ 97%] Linking C static library libfrontend.a
+[ 97%] Built target frontend
+[ 97%] Building C object CMakeFiles/a2m.dir/src/main.c.o
+[ 97%] Building C object CMakeFiles/test_help_view.dir/tests/frontend/test_help_view.c.o
+[ 97%] Building C object CMakeFiles/a2m.dir/src/app_options.c.o
+[ 97%] Building C object CMakeFiles/test_forensics_view.dir/tests/frontend/test_forensics_view.c.o
+[ 98%] Linking C executable test_help_view
+[ 99%] Linking C executable test_forensics_view
+[ 99%] Built target test_forensics_view
+[ 99%] Built target test_help_view
+[100%] Linking C executable a2m
+[100%] Built target a2m

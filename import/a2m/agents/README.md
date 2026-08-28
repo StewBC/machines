@@ -4,6 +4,12 @@ Implementation brief for agents. **Source is authoritative** — if a doc and
 the code disagree, fix the doc (or the code) in the same change. These files
 describe the product as it is, not how it was built.
 
+**Freeze (machines Stage 0):** this tree now lives in the `machines` monorepo
+(`import/a2m/`). Feature work on `a2m.git` has stopped. Hotfixes land in
+`machines` first. See the monorepo `agents/README.md` and
+`design/import-revisions.md`. Do not edit am65 here; the copy is radioactive
+until Stage 3. Do not "fix" a twin only in this prefix.
+
 ## Product
 
 C99 **Apple ][+ / //e Enhanced** emulator (version **3.0.0**).

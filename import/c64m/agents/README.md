@@ -6,6 +6,12 @@ folder. Source and tests under `src/` and `tests/` are authoritative. If a
 handoff and the code disagree, trust the code and fix the handoff in the same
 change.
 
+**Freeze (machines Stage 0):** this tree now lives in the `machines` monorepo
+(`import/c64m/`). Feature work on `c64m.git` has stopped. Hotfixes land in
+`machines` first. See the monorepo `agents/README.md` and
+`design/import-revisions.md`. Do not edit am65 here; the copy is radioactive
+until Stage 3. Do not "fix" a twin only in this prefix.
+
 Do not read files under `md-files/`. They are historical working notes and are
 not guaranteed to be accurate.
 
