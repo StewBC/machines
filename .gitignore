@@ -1,0 +1,9 @@
+# Nested per-prefix CMake trees (Stage 0 helper)
+/build/
+
+.DS_Store
+.cache/
+.vscode/
+compile_commands.json
+*.user
+CMakeUserPresets.json
