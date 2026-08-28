@@ -8,7 +8,10 @@
 #include "runtime_event.h"
 
 typedef struct runtime runtime;
+#ifndef RUNTIME_CLIENT_DEFINED
+#define RUNTIME_CLIENT_DEFINED
 typedef struct runtime_client runtime_client;
+#endif
 
 /*
  * Turbo ladder encoding (config, commands, machine snapshot):

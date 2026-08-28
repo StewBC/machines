@@ -1092,7 +1092,6 @@ void control_dispatch_on_runtime_event(
         uint8_t *bytes = NULL;
         uint32_t length = 0;
         uint16_t address = 0;
-        runtime_memory_mode mode = RUNTIME_MEMORY_MODE_MAP;
         char meta[CONTROL_RESPONSE_TEXT_MAX];
 
         if (event->data.memory_rpc.status != RUNTIME_MEMORY_RPC_OK) {
@@ -1107,7 +1106,7 @@ void control_dispatch_on_runtime_event(
                 &bytes,
                 &length,
                 &address,
-                &mode)) {
+                NULL)) {
             post_error(disp, d->request_id, "rpc", "claim-failed");
             control_deferred_clear(d);
             return;

@@ -553,6 +553,13 @@ target_compile_features(test_memory_source PRIVATE c_std_99)
 target_link_libraries(test_memory_source PRIVATE shell)
 add_test(NAME memory_source COMMAND test_memory_source)
 
+add_executable(test_runtime_client
+    ${MACHINES_ROOT}/src/shell/tests/runtime/test_runtime_client.c
+)
+target_compile_features(test_runtime_client PRIVATE c_std_99)
+target_link_libraries(test_runtime_client PRIVATE shell)
+add_test(NAME runtime_client COMMAND test_runtime_client)
+
 add_test(
     NAME history_control_integration
     COMMAND

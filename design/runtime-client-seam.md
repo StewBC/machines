@@ -19,9 +19,9 @@ This is the detailed design for Stage 7. It does not reopen the stage map. Key D
 
 After Stages 5–6, leftover `runtime_client.h` / `.c` are still a **fork**, not a twin (Apple 336 / 1393 vs C64 356 / 1465). Picture poll, key types, media, and Inspector picture/catalog/film APIs disagree on purpose. Stage 8 chrome cannot compile into `libshell` against two forked headers.
 
-Stage 7 EXTRACT lifts a **shared subset header** into `src/shell/runtime/runtime_client.h`: run / pause / reset / step, get-cpu, get-memory (`uint32_t source_id` from Stage 5), id-based breakpoints, history FIND, inspector enter / leave / land **names**. Implementations stay leftover: they push leftover `runtime_command` whose enum values already diverge after `RUN_INSTRUCTIONS`. Per-machine verbs stay in leftover `runtime_client.h`.
+Stage 7 EXTRACT lifts a **shared subset header** into `src/shell/runtime/runtime_client_subset.h`: run / pause / reset / step, get-cpu, get-memory (`uint32_t source_id` from Stage 5), id-based breakpoints, history FIND, inspector enter / leave / land **names**. Implementations stay leftover: they push leftover `runtime_command` whose enum values already diverge after `RUN_INSTRUCTIONS`. Per-machine verbs stay in leftover `runtime_client.h`. The subset is not named `runtime_client.h` so leftover quoted `"runtime_client.h"` (control/frontend TUs) still finds leftover extras — leftover control PUBLIC-links `shell` *before* leftover `runtime`.
 
-A later pane **can** `#include "runtime_client.h"` and call those functions without `#include "apple2.h"` or `"c64.h"`. Chrome panes themselves are **not** this stage. Nuklear already lives under `src/shell/frontend/`.
+A later pane **can** `#include "runtime_client_subset.h"` and call those functions without `#include "apple2.h"` or `"c64.h"`. Chrome panes themselves are **not** this stage. Nuklear already lives under `src/shell/frontend/`.
 
 There is still no root `project(machines)`, no flattening of leftover `src/`, no `#ifdef APPLE2` in `src/shell`, and no A2M `enter-inspector` **wire** bump (the client function name already exists on both leftovers).
 
@@ -65,7 +65,7 @@ Mega-client union of both headers, unifying `runtime_thread.c` or leftover `runt
 
 ### Goals
 
-1. Shared subset header in `src/shell/runtime/runtime_client.h`. It does **not** include `apple2.h` or `c64.h`. It does not mention picture types, key types, media, or Inspector catalog/film.
+1. Shared subset header in `src/shell/runtime/runtime_client_subset.h`. It does **not** include `apple2.h` or `c64.h`. It does not mention picture types, key types, media, or Inspector catalog/film.
 2. Leftover `runtime_client.h` includes the subset and declares **only** leftover extras. Leftover `.c` still implements everything (subset + extras).
 3. get-memory / write-memory take `uint32_t source_id` (Stage 5 table id). Leftover call sites keep passing leftover `RUNTIME_MEMORY_MODE_*` (implicit conversion).
 4. Inspector enter / leave / land **names** are in the subset. Picture blit / catalog / cell-film stay leftover.
@@ -107,7 +107,7 @@ machines/
     runtime/
       runtime_history.*            # Stage 6; unchanged
       runtime_breakpoint_condition.*
-      runtime_client.h             # NEW: subset declarations only
+      runtime_client_subset.h      # NEW: subset declarations only
     tests/runtime/
       test_runtime_client.c        # NEW: stub client; no apple2.h/c64.h
   src/machine/apple2/src/runtime/
@@ -121,7 +121,7 @@ machines/
 ```mermaid
 flowchart LR
   subgraph shell["src/shell"]
-    Subset["runtime_client.h\nrun/pause/step\nget-cpu / get-memory(source_id)\nBP id-ops / history FIND\ninspector enter/leave/land"]
+    Subset["runtime_client_subset.h\nrun/pause/step\nget-cpu / get-memory(source_id)\nBP id-ops / history FIND\ninspector enter/leave/land"]
     Hist["runtime_history.h"]
     Mem["memory_source.h"]
   end
@@ -145,7 +145,7 @@ flowchart LR
   Mem -.-> Subset
 ```
 
-### Shared subset header (`src/shell/runtime/runtime_client.h`)
+### Shared subset header (`src/shell/runtime/runtime_client_subset.h`)
 
 Opaque client. No leftover `runtime_event.h`. No `runtime_memory_mode`. Includes shell `runtime_history.h` for FIND.
 
@@ -284,14 +284,14 @@ bool runtime_client_inspector_land_to_cycle(
 
 Leftover `runtime_client.h`:
 
-1. `#include "runtime/runtime_client.h"` (shell `src/shell` on the PUBLIC include path so this does not collide with leftover `"runtime_client.h"`).
+1. `#include "runtime_client_subset.h"` (shell `runtime/` PUBLIC dir). Leftover quoted `"runtime_client.h"` stays leftover extras.
 2. Drop the duplicate `typedef struct runtime_client` (C99 forbids a second typedef). Drop subset function declarations.
 3. Keep leftover includes (`apple2_file.h` / `c64.h` / frame / keyboard) **for leftover extras only**.
 4. Declare leftover extras: picture poll, keys, media, assemble extras, turbo, apply config, `poll_event`, frame-ring, Inspector catalog/film/sample/checkpoint, `session_open` / `session_close`, Apple cold-reset / gameport / display override, C64 `step_frame` / `run_to_raster` / joystick / VIC ring, create/update/poll breakpoints (leftover mapping types).
 
 Leftover TUs that already `#include "runtime_client.h"` keep doing so (quoted include finds leftover first) and get the subset transitively.
 
-Stage 8 chrome `#include "runtime_client.h"` finds the **shell** header because `libshell` PUBLIC includes `src/shell/runtime`.
+Stage 8 chrome `#include "runtime_client_subset.h"` finds the shell subset. Leftover TUs keep `#include "runtime_client.h"` for extras.
 
 ### Implementations stay leftover
 
@@ -318,7 +318,7 @@ Picture blit / catalog / `land_sample` / `checkpoint_step` / `copy_inspector_cel
 `src/shell/CMakeLists.txt`:
 
 - No new `libshell` `.c` (header-only seam).
-- PUBLIC includes add `${CMAKE_CURRENT_SOURCE_DIR}` (`src/shell`) so leftover can `#include "runtime/runtime_client.h"`. Existing `"runtime_client.h"` from leftover TUs still resolve to leftover (quoted include searches the including file's directory first). `"runtime_history.h"` etc. keep working via the existing `runtime/` PUBLIC dir.
+- PUBLIC includes unchanged (`runtime/` already finds `runtime_client_subset.h` and `runtime_history.h`). Do **not** also ship a shell `runtime_client.h`: leftover control links `shell` before leftover `runtime`, so `"runtime_client.h"` would resolve to the subset and drop leftover extras.
 
 Leftover root `CMakeLists.txt` (both products): register `test_runtime_client` linking **only** `shell` (stub implementations live in the test TU).
 
@@ -328,7 +328,7 @@ Leftover root `CMakeLists.txt` (both products): register `test_runtime_client` l
 
 | File | Role |
 |------|------|
-| `runtime/runtime_client.h` | subset declarations; opaque client; `source_id`; no machine includes |
+| `runtime/runtime_client_subset.h` | subset declarations; opaque client; `source_id`; no machine includes |
 | `tests/runtime/test_runtime_client.c` | stub `struct runtime_client`; calls subset; asserts `source_id` round-trip; does not include leftover headers |
 
 #### STAY leftover (updated)
@@ -346,7 +346,7 @@ Leftover root `CMakeLists.txt` (both products): register `test_runtime_client` l
 
 ## API / Interface Changes
 
-- New shell header: `runtime_client.h` (subset).
+- New shell header: `runtime_client_subset.h`.
 - Memory client verbs: `runtime_memory_mode` → `uint32_t source_id` (numeric values unchanged; Stage 5 id).
 - `claim_memory_rpc` last out-param: `uint32_t *out_source_id`.
 - No `A2M/N` / `C64M/N` bump. No `MACHINES/1`.
@@ -382,9 +382,9 @@ help_view compiles shell **source** because of per-binary `help_content.inc`, no
 
 Would UNIFY mapping axes the map left as leftover (Stage 6 INI stayed for the same reason). **Rejected** this stage. Id-ops + request are the subset.
 
-### 6. Name the shell header `runtime_client_subset.h` only
+### 6. Name the shell header `runtime_client.h` (same as leftover)
 
-Works (no include-path add). Stage 8 chrome wants to call `runtime_client_*` and include `runtime_client.h`. Leftover quoted `"runtime_client.h"` stays leftover; chrome compiled into `libshell` sees shell `runtime_client.h`. Unique leftover include is `"runtime/runtime_client.h"`. **Chosen.**
+Leftover control PUBLIC-links `shell` before leftover `runtime`. Leftover `"runtime_client.h"` then binds the subset and leftover extras go missing (`poll_symbols`, media, …). **Rejected.** Filename is `runtime_client_subset.h`.
 
 ---
 
@@ -442,7 +442,7 @@ None. Subset vs adapter is decided (subset). Breakpoint create/update stay lefto
 
 | Map item | This design |
 |----------|-------------|
-| Shared subset in `src/shell/runtime/` | `runtime_client.h` |
+| Shared subset in `src/shell/runtime/` | `runtime_client_subset.h` |
 | Or per-binary adapter | Rejected; headers not too tangled |
 | run / pause / step | subset |
 | get-cpu | request + set-reg (6502); poll_event leftover |
@@ -498,7 +498,7 @@ test -z "$(git grep -E 'apple2\\.h|c64\\.h|runtime_event\\.h' -- src/shell/tests
 
 ```bash
 git grep -n 'runtime_client_inspector_enter' -- src/shell/runtime src/machine
-git grep -n 'uint32_t source_id' -- src/shell/runtime/runtime_client.h
+git grep -n 'uint32_t source_id' -- src/shell/runtime/runtime_client_subset.h
 ```
 
 ---
@@ -511,7 +511,7 @@ git grep -n 'uint32_t source_id' -- src/shell/runtime/runtime_client.h
 4. **Breakpoint mapping types stay leftover.** Subset is id-ops + request.
 5. **Inspector enter/leave/land names in the subset.** No A2M wire bump. Picture/catalog/film leftover.
 6. **`session_open` / `runtime_session_kind` stay leftover.** FIND takes `uint32_t session_id` (0 = default).
-7. **Leftover includes `"runtime/runtime_client.h"`.** Shell chrome includes `"runtime_client.h"`.
+7. **Shell header is `runtime_client_subset.h`.** Leftover `"runtime_client.h"` stays leftover extras. Stage 8 includes the subset name.
 8. **Shell test uses a stub client** and links only `shell`. Leftover `runtime_memory_rpc` stays leftover.
 9. **No machines-root `project()`, no flatten, no Stage 8/9.**
 
@@ -542,7 +542,7 @@ Stage 7 is this design then implement. Grain is **two** independently reviewable
 
 - **Title:** `extract: src/shell runtime_client subset`
 - **Files / components:**
-  - `src/shell/runtime/runtime_client.h`
+  - `src/shell/runtime/runtime_client_subset.h`
   - `src/shell/tests/runtime/test_runtime_client.c`
   - leftover `runtime_client.h` / `.c` include + `source_id`
   - leftover claim call sites; leftover CMake registers the shell test

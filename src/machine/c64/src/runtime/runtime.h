@@ -7,7 +7,10 @@
 #include "c64.h"
 
 typedef struct runtime runtime;
+#ifndef RUNTIME_CLIENT_DEFINED
+#define RUNTIME_CLIENT_DEFINED
 typedef struct runtime_client runtime_client;
+#endif
 
 /* Turbo mode IDs (not wall-clock multipliers). Stored in active_turbo_multiplier
    and turbo_speeds[] for historical field names / Opt+T list compatibility. */

@@ -79,7 +79,7 @@ int main(void) {
     uint8_t *payload = NULL;
     uint32_t length = 0;
     uint16_t address = 0;
-    runtime_memory_mode mode = RUNTIME_MEMORY_MODE_CPU_MAP;
+    uint32_t mode = (uint32_t)RUNTIME_MEMORY_MODE_CPU_MAP;
 
     write_test_roms();
 

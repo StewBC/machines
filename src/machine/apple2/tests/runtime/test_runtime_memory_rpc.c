@@ -71,7 +71,7 @@ int main(void)
     uint8_t *bytes = NULL;
     uint32_t length = 0;
     uint16_t address = 0;
-    runtime_memory_mode mode = RUNTIME_MEMORY_MODE_MAP;
+    uint32_t mode = (uint32_t)RUNTIME_MEMORY_MODE_MAP;
     uint8_t poke[4] = { 0xDE, 0xAD, 0xBE, 0xEF };
     uint8_t verify[4];
 

@@ -2599,7 +2599,7 @@ static void complete_deferred_control_response(
             uint8_t *payload = NULL;
             uint32_t length = 0;
             uint16_t address = 0;
-            runtime_memory_mode mode = RUNTIME_MEMORY_MODE_CPU_MAP;
+            uint32_t source_id = (uint32_t)RUNTIME_MEMORY_MODE_CPU_MAP;
             if (client == NULL ||
                 !runtime_client_claim_memory_rpc(
                     client,
@@ -2607,7 +2607,7 @@ static void complete_deferred_control_response(
                     &payload,
                     &length,
                     &address,
-                    &mode)) {
+                    &source_id)) {
                 control_protocol_format_error(
                     &response,
                     deferred->request_id,
@@ -2627,7 +2627,7 @@ static void complete_deferred_control_response(
                     deferred->request_id,
                     address,
                     length,
-                    mode,
+                    (runtime_memory_mode)source_id,
                     payload);
                 if (control_server_post_response(control, &response)) {
                     deferred->active = false;

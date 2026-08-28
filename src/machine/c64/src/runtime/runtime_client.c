@@ -181,15 +181,15 @@ bool runtime_client_request_memory(
     runtime_client *client,
     uint16_t address,
     uint16_t length,
-    runtime_memory_mode mode) {
-    return runtime_client_request_memory_token(client, address, length, mode, 0u);
+    uint32_t source_id) {
+    return runtime_client_request_memory_token(client, address, length, source_id, 0u);
 }
 
 bool runtime_client_request_memory_token(
     runtime_client *client,
     uint16_t address,
     uint32_t length,
-    runtime_memory_mode mode,
+    uint32_t source_id,
     uint64_t request_token) {
     runtime_command command = {
         .type = RUNTIME_COMMAND_REQUEST_MEMORY,
@@ -208,7 +208,7 @@ bool runtime_client_request_memory_token(
 
     command.data.request_memory.address = address;
     command.data.request_memory.length = length;
-    command.data.request_memory.mode = (uint8_t)mode;
+    command.data.request_memory.mode = (uint8_t)source_id;
     return runtime_client_push(client, &command);
 }
 
@@ -218,7 +218,7 @@ bool runtime_client_claim_memory_rpc(
     uint8_t **out_bytes,
     uint32_t *out_length,
     uint16_t *out_address,
-    runtime_memory_mode *out_mode) {
+    uint32_t *out_source_id) {
     runtime_rpc_payload_pool *pool;
     size_t i;
 
@@ -245,8 +245,8 @@ bool runtime_client_claim_memory_rpc(
             if (out_address != NULL) {
                 *out_address = pool->slots[i].meta.memory.address;
             }
-            if (out_mode != NULL) {
-                *out_mode = pool->slots[i].meta.memory.mode;
+            if (out_source_id != NULL) {
+                *out_source_id = (uint32_t)pool->slots[i].meta.memory.mode;
             }
             pool->slots[i].bytes = NULL;
             pool->slots[i].in_use = 0u;
@@ -331,7 +331,7 @@ bool runtime_client_request_memory_view(
     runtime_client *client,
     uint16_t address,
     uint16_t length,
-    runtime_memory_mode mode) {
+    uint32_t source_id) {
     runtime_command command = {
         .type = RUNTIME_COMMAND_REQUEST_MEMORY_VIEW,
     };
@@ -342,7 +342,7 @@ bool runtime_client_request_memory_view(
 
     command.data.request_memory.address = address;
     command.data.request_memory.length = length;
-    command.data.request_memory.mode = (uint8_t)mode;
+    command.data.request_memory.mode = (uint8_t)source_id;
     return runtime_client_push(client, &command);
 }
 
@@ -440,7 +440,7 @@ bool runtime_client_write_memory_byte(
     runtime_client *client,
     uint16_t address,
     uint8_t value,
-    runtime_memory_mode mode) {
+    uint32_t source_id) {
     runtime_command command = {
         .type = RUNTIME_COMMAND_WRITE_MEMORY_BYTE,
     };
@@ -451,7 +451,7 @@ bool runtime_client_write_memory_byte(
 
     command.data.write_memory_byte.address = address;
     command.data.write_memory_byte.value = value;
-    command.data.write_memory_byte.mode = (uint8_t)mode;
+    command.data.write_memory_byte.mode = (uint8_t)source_id;
     return runtime_client_push(client, &command);
 }
 
@@ -459,7 +459,7 @@ bool runtime_client_write_memory(
     runtime_client *client,
     uint16_t address,
     uint16_t length,
-    runtime_memory_mode mode,
+    uint32_t source_id,
     const uint8_t *bytes) {
     runtime_command command = {
         .type = RUNTIME_COMMAND_WRITE_MEMORY,
@@ -472,7 +472,7 @@ bool runtime_client_write_memory(
 
     command.data.write_memory.address = address;
     command.data.write_memory.length = length;
-    command.data.write_memory.mode = (uint8_t)mode;
+    command.data.write_memory.mode = (uint8_t)source_id;
     memcpy(command.data.write_memory.bytes, bytes, length);
     return runtime_client_push(client, &command);
 }
