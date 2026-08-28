@@ -12,7 +12,7 @@
 #define NK_SDL_RENDERER_H_
 
 #ifndef NK_SDL_RENDERER_SDL_H
-#define NK_SDL_RENDERER_SDL_H <SDL2/SDL.h>
+#define NK_SDL_RENDERER_SDL_H <SDL.h>
 #endif
 #include NK_SDL_RENDERER_SDL_H
 NK_API struct nk_context*   nk_sdl_init(SDL_Window *win, SDL_Renderer *renderer);

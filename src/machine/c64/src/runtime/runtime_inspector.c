@@ -1,7 +1,7 @@
 #include "runtime_inspector.h"
 
 #include "c64_snapshot.h"
-#include "c64m_log.h"
+#include "host_log.h"
 #include "runtime_frame_ring.h"
 #include "runtime_internal.h"
 

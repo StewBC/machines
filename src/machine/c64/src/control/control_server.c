@@ -1,6 +1,6 @@
 #include "control_server.h"
 
-#include "c64m_log.h"
+#include "host_log.h"
 #include "control_deferred.h"
 #include "message_queue.h"
 #include "mutex.h"

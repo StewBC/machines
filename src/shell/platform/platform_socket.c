@@ -6,9 +6,9 @@
 #if defined(_WIN32)
 #include <winsock2.h>
 #include <ws2tcpip.h>
-typedef SOCKET c64m_socket_handle;
-#define C64M_INVALID_SOCKET INVALID_SOCKET
-#define c64m_close_socket closesocket
+typedef SOCKET platform_socket_handle;
+#define PLATFORM_INVALID_SOCKET INVALID_SOCKET
+#define platform_close_socket closesocket
 #else
 #include <errno.h>
 #include <fcntl.h>
@@ -16,17 +16,17 @@ typedef SOCKET c64m_socket_handle;
 #include <poll.h>
 #include <sys/socket.h>
 #include <unistd.h>
-typedef int c64m_socket_handle;
-#define C64M_INVALID_SOCKET (-1)
-#define c64m_close_socket close
+typedef int platform_socket_handle;
+#define PLATFORM_INVALID_SOCKET (-1)
+#define platform_close_socket close
 #endif
 
 struct platform_socket_listener {
-    c64m_socket_handle handle;
+    platform_socket_handle handle;
 };
 
 struct platform_socket_connection {
-    c64m_socket_handle handle;
+    platform_socket_handle handle;
 };
 
 bool platform_socket_startup(void)
@@ -49,12 +49,12 @@ void platform_socket_shutdown(void)
 platform_socket_listener *platform_socket_listen_localhost(uint16_t port)
 {
     platform_socket_listener *listener;
-    c64m_socket_handle handle;
+    platform_socket_handle handle;
     struct sockaddr_in addr;
     int one = 1;
 
     handle = socket(AF_INET, SOCK_STREAM, 0);
-    if (handle == C64M_INVALID_SOCKET) {
+    if (handle == PLATFORM_INVALID_SOCKET) {
         return NULL;
     }
 
@@ -67,13 +67,13 @@ platform_socket_listener *platform_socket_listen_localhost(uint16_t port)
 
     if (bind(handle, (struct sockaddr *)&addr, sizeof(addr)) != 0 ||
         listen(handle, 1) != 0) {
-        c64m_close_socket(handle);
+        platform_close_socket(handle);
         return NULL;
     }
 
     listener = (platform_socket_listener *)calloc(1, sizeof(*listener));
     if (listener == NULL) {
-        c64m_close_socket(handle);
+        platform_close_socket(handle);
         return NULL;
     }
     listener->handle = handle;
@@ -82,7 +82,7 @@ platform_socket_listener *platform_socket_listen_localhost(uint16_t port)
 
 void platform_socket_listener_close(platform_socket_listener *listener)
 {
-    if (listener == NULL || listener->handle == C64M_INVALID_SOCKET) {
+    if (listener == NULL || listener->handle == PLATFORM_INVALID_SOCKET) {
         return;
     }
 #if defined(_WIN32)
@@ -90,8 +90,8 @@ void platform_socket_listener_close(platform_socket_listener *listener)
 #else
     shutdown(listener->handle, SHUT_RDWR);
 #endif
-    c64m_close_socket(listener->handle);
-    listener->handle = C64M_INVALID_SOCKET;
+    platform_close_socket(listener->handle);
+    listener->handle = PLATFORM_INVALID_SOCKET;
 }
 
 void platform_socket_listener_destroy(platform_socket_listener *listener)
@@ -106,14 +106,14 @@ void platform_socket_listener_destroy(platform_socket_listener *listener)
 platform_socket_connection *platform_socket_accept(platform_socket_listener *listener)
 {
     platform_socket_connection *connection;
-    c64m_socket_handle handle;
+    platform_socket_handle handle;
 
-    if (listener == NULL || listener->handle == C64M_INVALID_SOCKET) {
+    if (listener == NULL || listener->handle == PLATFORM_INVALID_SOCKET) {
         return NULL;
     }
 
     handle = accept(listener->handle, NULL, NULL);
-    if (handle == C64M_INVALID_SOCKET) {
+    if (handle == PLATFORM_INVALID_SOCKET) {
         return NULL;
     }
 #if defined(SO_NOSIGPIPE)
@@ -125,7 +125,7 @@ platform_socket_connection *platform_socket_accept(platform_socket_listener *lis
 
     connection = (platform_socket_connection *)calloc(1, sizeof(*connection));
     if (connection == NULL) {
-        c64m_close_socket(handle);
+        platform_close_socket(handle);
         return NULL;
     }
     connection->handle = handle;
@@ -136,7 +136,7 @@ int platform_socket_read(platform_socket_connection *connection, void *buffer, s
 {
     int received;
 
-    if (connection == NULL || connection->handle == C64M_INVALID_SOCKET ||
+    if (connection == NULL || connection->handle == PLATFORM_INVALID_SOCKET ||
         buffer == NULL || size == 0) {
         return -1;
     }
@@ -169,7 +169,7 @@ bool platform_socket_write_all(
     const char *cursor = (const char *)buffer;
     size_t remaining = size;
 
-    if (connection == NULL || connection->handle == C64M_INVALID_SOCKET ||
+    if (connection == NULL || connection->handle == PLATFORM_INVALID_SOCKET ||
         (buffer == NULL && size > 0)) {
         return false;
     }
@@ -233,7 +233,7 @@ bool platform_socket_write_all(
 
 void platform_socket_connection_close(platform_socket_connection *connection)
 {
-    if (connection == NULL || connection->handle == C64M_INVALID_SOCKET) {
+    if (connection == NULL || connection->handle == PLATFORM_INVALID_SOCKET) {
         return;
     }
 #if defined(_WIN32)
@@ -241,8 +241,8 @@ void platform_socket_connection_close(platform_socket_connection *connection)
 #else
     shutdown(connection->handle, SHUT_RDWR);
 #endif
-    c64m_close_socket(connection->handle);
-    connection->handle = C64M_INVALID_SOCKET;
+    platform_close_socket(connection->handle);
+    connection->handle = PLATFORM_INVALID_SOCKET;
 }
 
 void platform_socket_connection_destroy(platform_socket_connection *connection)
@@ -256,7 +256,7 @@ void platform_socket_connection_destroy(platform_socket_connection *connection)
 
 bool platform_socket_set_nonblocking(platform_socket_connection *connection, bool enabled)
 {
-    if (connection == NULL || connection->handle == C64M_INVALID_SOCKET) {
+    if (connection == NULL || connection->handle == PLATFORM_INVALID_SOCKET) {
         return false;
     }
 #if defined(_WIN32)
@@ -280,7 +280,7 @@ int platform_socket_wait_readable(
     platform_socket_connection *connection,
     uint32_t timeout_ms)
 {
-    if (connection == NULL || connection->handle == C64M_INVALID_SOCKET) {
+    if (connection == NULL || connection->handle == PLATFORM_INVALID_SOCKET) {
         return -1;
     }
 #if defined(_WIN32)

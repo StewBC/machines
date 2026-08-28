@@ -7,7 +7,7 @@
 #include "runtime_internal.h"
 #include "video.h"
 
-#include "a2m_log.h"
+#include "host_log.h"
 
 #include <stdio.h>
 #include <stdlib.h>

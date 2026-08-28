@@ -8,7 +8,7 @@
 #include "apple2.h"
 #include "apple2_file.h"
 #include "fs_watch.h"
-#include "a2m_log.h"
+#include "host_log.h"
 
 #include <assert.h>
 #include <limits.h>

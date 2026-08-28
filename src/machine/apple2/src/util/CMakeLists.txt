@@ -1,4 +1,4 @@
-# src/util/CMakeLists.txt
+# Leftover a2m util (HostFS / disk image helpers). Twins live in src/shell.
 
 if(WIN32)
     set(FS_WATCH_PLATFORM_SOURCE fs_watch_windows.c)
@@ -11,26 +11,12 @@ else()
 endif()
 
 add_library(util STATIC
-    a2m_log.c
     apple2_file.c
     apple_type_script.c
-    audio_buffer.c
-    config.c
-    cond.c
     dynarray.c
     fs_watch.c
     ${FS_WATCH_PLATFORM_SOURCE}
-    message_queue.c
-    mutex.c
-    thread.c
-    util.c
     util_file.c
-)
-
-# audio_buffer.c uses C11 _Atomic for lock-free SPSC; the rest of util stays C99.
-set_source_files_properties(audio_buffer.c PROPERTIES
-    C_STANDARD 11
-    C_STANDARD_REQUIRED ON
 )
 
 target_include_directories(util PUBLIC
@@ -41,11 +27,9 @@ target_compile_features(util PUBLIC c_std_99)
 
 target_link_libraries(util
     PUBLIC
-        logc
+        shell
     PRIVATE
         SDL2::SDL2
-        inih
-        stb_ds
 )
 
 if(APPLE)

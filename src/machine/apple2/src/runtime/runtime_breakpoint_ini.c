@@ -6,7 +6,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "a2m_log.h"
+#include "host_log.h"
 
 enum {
     RUNTIME_BREAKPOINT_KEY_MAX = 64,

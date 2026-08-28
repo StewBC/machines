@@ -8,12 +8,12 @@
 
 #if defined(_WIN32)
 #include <direct.h>
-#define c64m_mkdir(path) _mkdir(path)
-#define c64m_rmdir _rmdir
+#define test_mkdir(path) _mkdir(path)
+#define test_rmdir _rmdir
 #else
 #include <unistd.h>
-#define c64m_mkdir(path) mkdir(path, 0777)
-#define c64m_rmdir rmdir
+#define test_mkdir(path) mkdir(path, 0777)
+#define test_rmdir rmdir
 #endif
 
 static void expect_true(const char *name, bool value) {
@@ -80,9 +80,9 @@ static void test_list_dir_sorts_and_reports_type(void) {
     int first_dir_index = -1;
     int first_file_index = -1;
 
-    c64m_mkdir("test_platform_fs_scratch");
-    c64m_mkdir("test_platform_fs_scratch/zzz_dir");
-    c64m_mkdir("test_platform_fs_scratch/AAA_dir");
+    test_mkdir("test_platform_fs_scratch");
+    test_mkdir("test_platform_fs_scratch/zzz_dir");
+    test_mkdir("test_platform_fs_scratch/AAA_dir");
     write_small_file("test_platform_fs_scratch/b.txt");
     write_small_file("test_platform_fs_scratch/A.txt");
 
@@ -111,13 +111,13 @@ static void test_list_dir_sorts_and_reports_type(void) {
 
     remove("test_platform_fs_scratch/b.txt");
     remove("test_platform_fs_scratch/A.txt");
-    c64m_rmdir("test_platform_fs_scratch/zzz_dir");
-    c64m_rmdir("test_platform_fs_scratch/AAA_dir");
-    c64m_rmdir("test_platform_fs_scratch");
+    test_rmdir("test_platform_fs_scratch/zzz_dir");
+    test_rmdir("test_platform_fs_scratch/AAA_dir");
+    test_rmdir("test_platform_fs_scratch");
 }
 
 static void test_is_dir(void) {
-    c64m_mkdir("test_platform_fs_isdir");
+    test_mkdir("test_platform_fs_isdir");
     write_small_file("test_platform_fs_isdir_file.txt");
 
     expect_true("directory reports is_dir", platform_fs_is_dir("test_platform_fs_isdir"));
@@ -125,7 +125,7 @@ static void test_is_dir(void) {
     expect_false("missing path is not is_dir", platform_fs_is_dir("test_platform_fs_does_not_exist"));
 
     remove("test_platform_fs_isdir_file.txt");
-    c64m_rmdir("test_platform_fs_isdir");
+    test_rmdir("test_platform_fs_isdir");
 }
 
 int main(void) {

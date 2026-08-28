@@ -1,4 +1,4 @@
-#include "c64m_log.h"
+#include "host_log.h"
 #include "app_options.h"
 #include "audio_buffer.h"
 #include "c64_snapshot.h"
@@ -34,7 +34,7 @@
 #endif
 
 
-/* Mirror c64m_log_level onto SDL's logger so leftover SDL/nuklear lines obey
+/* Mirror host_log_level onto SDL's logger so leftover SDL/nuklear lines obey
    the same --log-level / [config] log_level policy. */
 static void sdl_log_discard(
     void *userdata,
@@ -48,21 +48,21 @@ static void sdl_log_discard(
     (void)message;
 }
 
-static void apply_sdl_log_policy(c64m_log_level level)
+static void apply_sdl_log_policy(host_log_level level)
 {
     switch (level) {
-    case C64M_LOG_LEVEL_ALL:
+    case HOST_LOG_LEVEL_ALL:
         SDL_LogSetOutputFunction(NULL, NULL);
         SDL_LogSetAllPriority(SDL_LOG_PRIORITY_VERBOSE);
         break;
-    case C64M_LOG_LEVEL_ERROR:
+    case HOST_LOG_LEVEL_ERROR:
         SDL_LogSetOutputFunction(NULL, NULL);
         SDL_LogSetAllPriority(SDL_LOG_PRIORITY_ERROR);
         break;
-    case C64M_LOG_LEVEL_NONE:
+    case HOST_LOG_LEVEL_NONE:
         SDL_LogSetOutputFunction(sdl_log_discard, NULL);
         break;
-    case C64M_LOG_LEVEL_WARN:
+    case HOST_LOG_LEVEL_WARN:
     default:
         SDL_LogSetOutputFunction(NULL, NULL);
         SDL_LogSetAllPriority(SDL_LOG_PRIORITY_WARN);
@@ -7376,7 +7376,7 @@ int main(int argc, char **argv) {
     frontend *ui = NULL;
     platform_window *window = NULL;
     control_server *control = NULL;
-    platform_window_config window_config;
+    platform_window_config window_config = {0};
     frontend_layout_state layout_state;
     audio_buffer *abuf = NULL;
     platform_audio *paudio = NULL;
@@ -7384,13 +7384,13 @@ int main(int argc, char **argv) {
     int exit_code = 0;
     bool platform_started = false;
 
-    c64m_log_init();
+    host_log_init();
 
     if (!app_options_load_startup(&options, argc, argv)) {
         return 1;
     }
     /* INI/CLI may override the WARN default; apply before further host work. */
-    c64m_log_apply(options.log_level);
+    host_log_apply(options.log_level);
     apply_sdl_log_policy(options.log_level);
 
     if (options.headless) {
@@ -7581,6 +7581,9 @@ int main(int argc, char **argv) {
     }
     platform_started = true;
 
+    window_config.title = "c64m";
+    window_config.default_width = 1152;
+    window_config.default_height = 816;
     window_config.window_width = options.window_width;
     window_config.window_height = options.window_height;
 

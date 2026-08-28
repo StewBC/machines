@@ -1,6 +1,6 @@
 #include "platform_audio.h"
 
-#include "a2m_log.h"
+#include "host_log.h"
 
 #include <SDL.h>
 #include <stdlib.h>

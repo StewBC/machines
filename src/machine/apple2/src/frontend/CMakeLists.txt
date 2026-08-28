@@ -44,10 +44,6 @@ add_library(frontend STATIC
     window_title.c
     window_title.h
     "${A2M_HELP_CONTENT}"
-    nuklear_impl.c
-    nuklear_config.h
-    nuklear.h
-    nuklear_sdl.h
 )
 
 add_dependencies(frontend frontend_help_content)
@@ -76,6 +72,7 @@ target_link_libraries(frontend
     PUBLIC
         runtime
         platform
+        shell
         SDL2::SDL2
     PRIVATE
         tiny_regex

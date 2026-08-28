@@ -1829,8 +1829,8 @@ static void apply_config(app_options *options, config *cfg)
         cfg, "config", "history_off_on_max", options->history_off_on_max);
     value = config_get(cfg, "config", "log_level");
     if (value != NULL && value[0] != '\0') {
-        a2m_log_level parsed_log = A2M_LOG_LEVEL_WARN;
-        if (a2m_log_level_from_string(value, &parsed_log)) {
+        host_log_level parsed_log = HOST_LOG_LEVEL_WARN;
+        if (host_log_level_from_string(value, &parsed_log)) {
             options->log_level = parsed_log;
         }
     }
@@ -2357,8 +2357,8 @@ static bool parse_command_line_overrides(app_options *options, int argc, char **
         return false;
     }
     if (log_level_s != NULL) {
-        a2m_log_level parsed_log = A2M_LOG_LEVEL_WARN;
-        if (!a2m_log_level_from_string(log_level_s, &parsed_log)) {
+        host_log_level parsed_log = HOST_LOG_LEVEL_WARN;
+        if (!host_log_level_from_string(log_level_s, &parsed_log)) {
             fprintf(
                 stderr,
                 "a2m: --log-level expects all, warn, error, or none\n");
@@ -2463,7 +2463,7 @@ void app_options_init(app_options *options)
     memset(options, 0, sizeof(*options));
     options->use_ini = true;
     replace_string(&options->ini_path, A2M_DEFAULT_INI);
-    options->log_level = A2M_LOG_LEVEL_WARN;
+    options->log_level = HOST_LOG_LEVEL_WARN;
     options->scroll_wheel_lines = A2M_DEFAULT_SCROLL_WHEEL_LINES;
     options->original_del = false;
     replace_string(&options->video_standard, A2M_DEFAULT_VIDEO_STANDARD);
@@ -2780,7 +2780,7 @@ bool app_options_save_shutdown(const app_options *options)
     config_set_int(cfg, "config", "scroll_wheel_lines", options->scroll_wheel_lines);
     config_set_bool(cfg, "config", "original_del", options->original_del);
     /* Always persist so a non-default value (and an explicit warn) survives. */
-    config_set(cfg, "config", "log_level", a2m_log_level_name(options->log_level));
+    config_set(cfg, "config", "log_level", host_log_level_name(options->log_level));
     config_set_int(cfg, "debug", "history_memory_mb", options->history_memory_mb);
     config_set_bool(cfg, "config", "history_off_on_max", options->history_off_on_max);
     config_set_int(cfg, "debug", "frame_ring_memory_mb", options->frame_ring_memory_mb);

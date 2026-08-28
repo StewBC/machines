@@ -1,22 +1,8 @@
-# src/util/CMakeLists.txt
+# Leftover c64m util. Twins live in src/shell.
 
 add_library(util STATIC
-    audio_buffer.c
     basic_v2.c
-    c64m_log.c
-    config.c
-    cond.c
-    message_queue.c
-    mutex.c
     paste_parser.c
-    thread.c
-    util.c
-)
-
-# audio_buffer.c uses C11 _Atomic for lock-free SPSC; the rest of util stays C99.
-set_source_files_properties(audio_buffer.c PROPERTIES
-    C_STANDARD 11
-    C_STANDARD_REQUIRED ON
 )
 
 target_include_directories(util PUBLIC
@@ -27,9 +13,5 @@ target_compile_features(util PUBLIC c_std_99)
 
 target_link_libraries(util
     PUBLIC
-        logc
-    PRIVATE
-        SDL2::SDL2
-        inih
-        stb_ds
+        shell
 )

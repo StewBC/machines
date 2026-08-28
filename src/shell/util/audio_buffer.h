@@ -8,8 +8,9 @@
 
 typedef struct audio_buffer audio_buffer;
 
-/* Allocate and initialise a ring buffer for |capacity_samples| mono float
-   samples. Capacity is rounded up to the next power of two internally.
+/* Allocate and initialise a ring buffer for |capacity_samples| float slots.
+   Capacity is rounded up to the next power of two. Channel layout (mono vs
+   interleaved stereo) is a caller policy, not a buffer property.
    Returns NULL on allocation failure. */
 audio_buffer *audio_buffer_create(size_t capacity_samples);
 
@@ -20,15 +21,15 @@ void audio_buffer_destroy(audio_buffer *buf);
    producer and consumer are running concurrently. */
 void audio_buffer_reset(audio_buffer *buf);
 
-/* Producer (runtime thread): write up to |count| samples from |samples|.
-   Returns the number of samples actually written. If not all fit, the
-   surplus is dropped and the overrun counter is incremented once. */
+/* Producer (runtime thread): write up to |count| float slots from |samples|.
+   Returns slots written. If not all fit, the surplus is dropped and the
+   overrun counter is incremented once. */
 size_t audio_buffer_write(audio_buffer *buf, const float *samples, size_t count);
 
-/* Consumer (SDL callback thread): read up to |count| samples into |out|.
-   Returns the number of samples read. If fewer than |count| are available,
-   the underrun counter is incremented once; the caller fills the rest with
-   silence. Non-blocking; safe to call from the SDL audio callback. */
+/* Consumer (SDL callback thread): read up to |count| float slots into |out|.
+   Returns slots read. If fewer than |count| are available, the underrun
+   counter is incremented once; the caller pads/fades/silences the rest.
+   Non-blocking; safe to call from the SDL audio callback. */
 size_t audio_buffer_read(audio_buffer *buf, float *out, size_t count);
 
 size_t audio_buffer_available_read(const audio_buffer *buf);

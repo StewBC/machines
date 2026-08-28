@@ -14,14 +14,14 @@
 #endif
 
 #if defined(_WIN32)
-#define C64M_STAT_ISDIR(mode) (((mode) & _S_IFDIR) != 0)
-#define c64m_getcwd _getcwd
-#define c64m_stricmp _stricmp
+#define PLATFORM_FS_STAT_ISDIR(mode) (((mode) & _S_IFDIR) != 0)
+#define platform_fs_getcwd _getcwd
+#define platform_fs_stricmp _stricmp
 #define PLATFORM_FS_SEPARATOR '\\'
 #else
-#define C64M_STAT_ISDIR(mode) S_ISDIR(mode)
-#define c64m_getcwd getcwd
-#define c64m_stricmp strcasecmp
+#define PLATFORM_FS_STAT_ISDIR(mode) S_ISDIR(mode)
+#define platform_fs_getcwd getcwd
+#define platform_fs_stricmp strcasecmp
 #define PLATFORM_FS_SEPARATOR '/'
 #endif
 
@@ -30,14 +30,14 @@ bool platform_fs_get_cwd(char *out, size_t out_size)
     if (out == NULL || out_size == 0) {
         return false;
     }
-    return c64m_getcwd(out, (int)out_size) != NULL;
+    return platform_fs_getcwd(out, (int)out_size) != NULL;
 }
 
 bool platform_fs_is_dir(const char *path)
 {
     struct stat st;
 
-    return path != NULL && path[0] != '\0' && stat(path, &st) == 0 && C64M_STAT_ISDIR(st.st_mode);
+    return path != NULL && path[0] != '\0' && stat(path, &st) == 0 && PLATFORM_FS_STAT_ISDIR(st.st_mode);
 }
 
 void platform_fs_path_join(char *out, size_t out_size, const char *dir, const char *name)
@@ -73,7 +73,7 @@ static int platform_fs_entry_cmp(const void *pa, const void *pb)
     if (a->is_dir != b->is_dir) {
         return a->is_dir ? -1 : 1;
     }
-    return c64m_stricmp(a->name, b->name);
+    return platform_fs_stricmp(a->name, b->name);
 }
 
 static void platform_fs_add_entry(
@@ -146,7 +146,7 @@ bool platform_fs_list_dir(const char *dir_path, platform_fs_listing *out)
 
             platform_fs_path_join(path, sizeof(path), dir_path, entry->d_name);
             if (stat(path, &st) == 0) {
-                is_dir = C64M_STAT_ISDIR(st.st_mode);
+                is_dir = PLATFORM_FS_STAT_ISDIR(st.st_mode);
                 size = is_dir || st.st_size < 0 ? 0u : (uint64_t)st.st_size;
             }
             platform_fs_add_entry(out, entry->d_name, is_dir, size);

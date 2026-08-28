@@ -1,10 +1,7 @@
-# src/platform/CMakeLists.txt
+# Leftover c64m platform: SID mono audio. Host window/fs/socket live in src/shell.
 
 add_library(platform STATIC
-    platform.c
     platform_audio.c
-    platform_fs.c
-    platform_socket.c
 )
 
 target_include_directories(platform PUBLIC
@@ -16,10 +13,7 @@ target_compile_features(platform PUBLIC c_std_99)
 target_link_libraries(platform
     PUBLIC
         SDL2::SDL2
+        shell
     PRIVATE
         util
 )
-
-if(WIN32)
-    target_link_libraries(platform PRIVATE ws2_32)
-endif()

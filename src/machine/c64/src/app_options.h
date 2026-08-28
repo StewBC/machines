@@ -1,6 +1,6 @@
 #pragma once
 
-#include "c64m_log.h"
+#include "host_log.h"
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -29,7 +29,7 @@ typedef struct app_options {
     bool no_save_ini;
     /* Host log policy: all|warn|error|none (default warn). CLI --log-level /
        INI [config] log_level. Does not mute argparse / startup fprintf errors. */
-    c64m_log_level log_level;
+    host_log_level log_level;
     int scroll_wheel_lines;
     char *ini_path;
     app_disk_slot disk_slots[C64M_DRIVE_COUNT];

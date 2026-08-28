@@ -40,10 +40,6 @@ add_library(frontend STATIC
     window_title.c
     window_title.h
     "${C64M_HELP_CONTENT}"
-    nuklear_impl.c
-    nuklear_config.h
-    nuklear.h
-    nuklear_sdl.h
 )
 
 add_dependencies(frontend frontend_help_content)
@@ -68,6 +64,7 @@ endif()
 target_link_libraries(frontend
     PUBLIC
         runtime
+        shell
     PRIVATE
         tiny_regex
         stb_image

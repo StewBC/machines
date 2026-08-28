@@ -7,8 +7,11 @@ typedef struct SDL_Window SDL_Window;
 typedef struct platform_window platform_window;
 
 typedef struct platform_window_config {
-    int window_width;
-    int window_height;
+    int window_width;      /* >0 uses this; else default_width */
+    int window_height;     /* >0 uses this; else default_height */
+    int default_width;     /* required; must be >0 */
+    int default_height;    /* required; must be >0 */
+    const char *title;     /* required; SDL_CreateWindow title */
 } platform_window_config;
 
 bool platform_init(void);

@@ -1,6 +1,6 @@
 #include "runtime_breakpoint_ini.h"
 
-#include "c64m_log.h"
+#include "host_log.h"
 #include "config.h"
 
 #include <ctype.h>

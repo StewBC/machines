@@ -8,24 +8,25 @@ Home of two C99 emulators that share a debugger *shell* over time, not silicon:
 They remain **two binaries**. There is no dual-machine executable, no plugin
 loader, and no shared `runtime_thread`.
 
-Leftover silicon lives under `src/machine/{apple2,c64}` (Stage 1 relocate).
-Each tree is still its own CMake root. Internal `src/` / `main.c` layout is
-not flattened. `src/shell/` does not exist yet.
+Host primitives that link into both binaries live under `src/shell/` and
+repo-root `external/` (Stage 2). Leftover silicon lives under
+`src/machine/{apple2,c64}`. Each leftover tree is still its own CMake root.
+Internal leftover `src/` / `main.c` layout is not flattened.
 
 | Path | Product | Build as |
 |------|---------|----------|
+| `src/shell/` | shared util / platform / nuklear | `libshell.a` |
 | `src/machine/apple2/` | a2m | its own `project(a2m)` |
 | `src/machine/c64/` | c64m | its own `project(c64m)` |
 
-Nothing is shared yet except this README, `LICENSE`, `agents/`, and `design/`.
-Twins still exist in **both** leftover trees until EXTRACT deletes a copy.
 Do not `add_subdirectory` both nested `project()` files into one CMake
-invocation.
+invocation. Remaining twins (am65, forensics, help, …) still exist in both
+leftover trees until later EXTRACT.
 
 The program of work is [`design/merge-stage-map.md`](design/merge-stage-map.md).
 Imported SHAs and Stage 0 commands: [`design/import-revisions.md`](design/import-revisions.md).
 
-## Build (Stage 1)
+## Build (Stage 2)
 
 Requires CMake, SDL2, and Python 3 (help generation). On macOS: `brew install cmake sdl2`.
 

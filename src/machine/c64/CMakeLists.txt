@@ -28,6 +28,11 @@ if(NOT TARGET argparse)
         "${MACHINES_ROOT}/external"
         "${CMAKE_BINARY_DIR}/_external")
 endif()
+if(NOT TARGET shell)
+    add_subdirectory(
+        "${MACHINES_ROOT}/src/shell"
+        "${CMAKE_BINARY_DIR}/_shell")
+endif()
 
 add_subdirectory(src/util)
 add_subdirectory(src/machine)
@@ -62,7 +67,7 @@ target_include_directories(c64m PRIVATE
 )
 
 add_executable(test_audio_buffer
-    tests/util/test_audio_buffer.c
+    ${MACHINES_ROOT}/src/shell/tests/util/test_audio_buffer.c
 )
 
 target_compile_features(test_audio_buffer PRIVATE c_std_99)
@@ -468,7 +473,7 @@ target_include_directories(test_crt_renderer PRIVATE
 add_test(NAME crt_renderer COMMAND test_crt_renderer)
 
 add_executable(test_platform_fs
-    tests/platform/test_platform_fs.c
+    ${MACHINES_ROOT}/src/shell/tests/platform/test_platform_fs.c
 )
 
 target_compile_features(test_platform_fs PRIVATE c_std_99)

@@ -49,6 +49,11 @@ if(NOT TARGET argparse)
         "${MACHINES_ROOT}/external"
         "${CMAKE_BINARY_DIR}/_external")
 endif()
+if(NOT TARGET shell)
+    add_subdirectory(
+        "${MACHINES_ROOT}/src/shell"
+        "${CMAKE_BINARY_DIR}/_shell")
+endif()
 
 add_subdirectory(src/util)
 add_subdirectory(src/machine)
@@ -87,21 +92,21 @@ target_link_libraries(a2m PRIVATE
 # --- util ------------------------------------------------------------------
 
 add_executable(test_audio_buffer
-    tests/util/test_audio_buffer.c
+    ${MACHINES_ROOT}/src/shell/tests/util/test_audio_buffer.c
 )
 target_compile_features(test_audio_buffer PRIVATE c_std_99)
 target_link_libraries(test_audio_buffer PRIVATE util SDL2::SDL2)
 add_test(NAME audio_buffer COMMAND test_audio_buffer)
 
 add_executable(test_message_queue
-    tests/util/test_message_queue.c
+    ${MACHINES_ROOT}/src/shell/tests/util/test_message_queue.c
 )
 target_compile_features(test_message_queue PRIVATE c_std_99)
 target_link_libraries(test_message_queue PRIVATE util SDL2::SDL2)
 add_test(NAME message_queue COMMAND test_message_queue)
 
 add_executable(test_config
-    tests/util/test_config.c
+    ${MACHINES_ROOT}/src/shell/tests/util/test_config.c
 )
 target_compile_features(test_config PRIVATE c_std_99)
 target_link_libraries(test_config PRIVATE util SDL2::SDL2)

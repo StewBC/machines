@@ -22,7 +22,7 @@
 
 #include "stb_image.h"
 
-#include "a2m_log.h"
+#include "host_log.h"
 
 #include <math.h>
 #include <stdio.h>

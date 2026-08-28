@@ -1,11 +1,8 @@
 #include "platform.h"
 
-#include "c64m_log.h"
+#include "host_log.h"
 
 #include <SDL.h>
-
-#define C64M_STARTUP_WINDOW_WIDTH 1152
-#define C64M_STARTUP_WINDOW_HEIGHT 816
 
 struct platform_window {
     SDL_Window *window;
@@ -47,16 +44,15 @@ platform_window *platform_window_create(const platform_window_config *config)
     int window_width;
     int window_height;
 
-    if (config == NULL) {
+    if (config == NULL || config->title == NULL ||
+        config->default_width <= 0 || config->default_height <= 0) {
         return NULL;
     }
 
     window_width = config->window_width > 0 ?
-        config->window_width :
-        C64M_STARTUP_WINDOW_WIDTH;
+        config->window_width : config->default_width;
     window_height = config->window_height > 0 ?
-        config->window_height :
-        C64M_STARTUP_WINDOW_HEIGHT;
+        config->window_height : config->default_height;
 
     platform = (platform_window *)SDL_calloc(1, sizeof(*platform));
     if (platform == NULL) {
@@ -65,7 +61,7 @@ platform_window *platform_window_create(const platform_window_config *config)
     }
 
     platform->window = SDL_CreateWindow(
-        "c64m",
+        config->title,
         SDL_WINDOWPOS_CENTERED,
         SDL_WINDOWPOS_CENTERED,
         window_width,

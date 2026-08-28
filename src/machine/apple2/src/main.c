@@ -6,7 +6,7 @@
  *   text-input sync → debugger intents → present
  */
 
-#include "a2m_log.h"
+#include "host_log.h"
 #include "app_options.h"
 #include "apple2_snapshot.h"
 #include "audio_buffer.h"
@@ -44,7 +44,7 @@
 #define A2M_STAT_ISREG(mode) S_ISREG(mode)
 #endif
 
-/* Mirror a2m_log_level onto SDL's logger so leftover SDL/nuklear lines obey
+/* Mirror host_log_level onto SDL's logger so leftover SDL/nuklear lines obey
    the same --log-level / [config] log_level policy. */
 static void sdl_log_discard(
     void *userdata,
@@ -58,21 +58,21 @@ static void sdl_log_discard(
     (void)message;
 }
 
-static void apply_sdl_log_policy(a2m_log_level level)
+static void apply_sdl_log_policy(host_log_level level)
 {
     switch (level) {
-    case A2M_LOG_LEVEL_ALL:
+    case HOST_LOG_LEVEL_ALL:
         SDL_LogSetOutputFunction(NULL, NULL);
         SDL_LogSetAllPriority(SDL_LOG_PRIORITY_VERBOSE);
         break;
-    case A2M_LOG_LEVEL_ERROR:
+    case HOST_LOG_LEVEL_ERROR:
         SDL_LogSetOutputFunction(NULL, NULL);
         SDL_LogSetAllPriority(SDL_LOG_PRIORITY_ERROR);
         break;
-    case A2M_LOG_LEVEL_NONE:
+    case HOST_LOG_LEVEL_NONE:
         SDL_LogSetOutputFunction(sdl_log_discard, NULL);
         break;
-    case A2M_LOG_LEVEL_WARN:
+    case HOST_LOG_LEVEL_WARN:
     default:
         SDL_LogSetOutputFunction(NULL, NULL);
         SDL_LogSetAllPriority(SDL_LOG_PRIORITY_WARN);
@@ -2697,7 +2697,7 @@ int main(int argc, char **argv)
     runtime_client *client = NULL;
     frontend *ui = NULL;
     platform_window *window = NULL;
-    platform_window_config window_config;
+    platform_window_config window_config = {0};
     frontend_debug_state debug = {0};
     frontend_input_mapper input_mapper;
     frontend_joystick_input kbd_joystick;
@@ -2741,13 +2741,13 @@ int main(int argc, char **argv)
     controllers.last_axis[2] = FRONTEND_JOYSTICK_APPLE_AXIS_MID;
     controllers.last_axis[3] = FRONTEND_JOYSTICK_APPLE_AXIS_MID;
 
-    a2m_log_init();
+    host_log_init();
 
     if (!app_options_load_startup(&options, argc, argv)) {
         return EXIT_FAILURE;
     }
     /* INI/CLI may override the WARN default; apply before further host work. */
-    a2m_log_apply(options.log_level);
+    host_log_apply(options.log_level);
     frontend_input_mapper_set_original_del(&input_mapper, options.original_del);
     if (options.show_version) {
         printf("%s %s\n", A2M_NAME, A2M_VERSION);
@@ -2939,8 +2939,11 @@ int main(int argc, char **argv)
         goto done;
     }
 
-    window_config.window_width = options.window_width > 0 ? options.window_width : 1280;
-    window_config.window_height = options.window_height > 0 ? options.window_height : 800;
+    window_config.title = "a2m";
+    window_config.default_width = 1280;
+    window_config.default_height = 800;
+    window_config.window_width = options.window_width;
+    window_config.window_height = options.window_height;
     window = platform_window_create(&window_config);
     if (window == NULL) {
         fprintf(stderr, "a2m: window create failed\n");
