@@ -1,6 +1,6 @@
 With the exception of vendored files under `external/` (and, until Stage 2
-extracts them, the copies still inside `import/a2m/external/` and
-`import/c64m/external/`), the LICENSE for this repo is:
+extracts them, the copies still inside `src/machine/apple2/external/` and
+`src/machine/c64/external/`), the LICENSE for this repo is:
 
 This is free and unencumbered software released into the public domain.
 

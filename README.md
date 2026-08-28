@@ -8,22 +8,24 @@ Home of two C99 emulators that share a debugger *shell* over time, not silicon:
 They remain **two binaries**. There is no dual-machine executable, no plugin
 loader, and no shared `runtime_thread`.
 
-This repo is new. Until Stage 1 relocates the trees, the products live as
-imported prefixes with history preserved:
+Leftover silicon lives under `src/machine/{apple2,c64}` (Stage 1 relocate).
+Each tree is still its own CMake root. Internal `src/` / `main.c` layout is
+not flattened. `src/shell/` does not exist yet.
 
-| Prefix | Product | Build as |
-|--------|---------|----------|
-| `import/a2m/` | a2m | its own `project(a2m)` |
-| `import/c64m/` | c64m | its own `project(c64m)` |
+| Path | Product | Build as |
+|------|---------|----------|
+| `src/machine/apple2/` | a2m | its own `project(a2m)` |
+| `src/machine/c64/` | c64m | its own `project(c64m)` |
 
 Nothing is shared yet except this README, `LICENSE`, `agents/`, and `design/`.
-Do not merge the two `src/` trees. Do not `add_subdirectory` both imported
-`project()` files into one CMake invocation.
+Twins still exist in **both** leftover trees until EXTRACT deletes a copy.
+Do not `add_subdirectory` both nested `project()` files into one CMake
+invocation.
 
 The program of work is [`design/merge-stage-map.md`](design/merge-stage-map.md).
 Imported SHAs and Stage 0 commands: [`design/import-revisions.md`](design/import-revisions.md).
 
-## Build (Stage 0)
+## Build (Stage 1)
 
 Requires CMake, SDL2, and Python 3 (help generation). On macOS: `brew install cmake sdl2`.
 
@@ -35,8 +37,8 @@ That configures **two separate** source trees, builds both, and runs both ctest
 gates:
 
 ```bash
-cmake -B build/a2m  -S import/a2m  -DCMAKE_BUILD_TYPE=Debug
-cmake -B build/c64m -S import/c64m -DCMAKE_BUILD_TYPE=Debug
+cmake -B build/a2m  -S src/machine/apple2  -DCMAKE_BUILD_TYPE=Debug
+cmake -B build/c64m -S src/machine/c64    -DCMAKE_BUILD_TYPE=Debug
 cmake --build build/a2m -j && cmake --build build/c64m -j
 ctest --test-dir build/a2m  --output-on-failure
 ctest --test-dir build/c64m --output-on-failure
@@ -72,4 +74,4 @@ Public domain (Unlicense), except vendored files under `external/` — see
 
 ## Agents
 
-Read [`agents/README.md`](agents/README.md) before editing either prefix.
+Read [`agents/README.md`](agents/README.md) before editing either leftover tree.

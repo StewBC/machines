@@ -1,13 +1,13 @@
-# Import revisions (Stage 0)
+# Import revisions (Stage 0–1)
 
 | Field | Value |
 |-------|-------|
 | **Author** | Grok |
 | **Date** | 2026-08-27 |
-| **Status** | Landed (Stage 0) |
+| **Status** | Landed (Stage 0 + Stage 1) |
 | **Canonical path** | [`design/import-revisions.md`](import-revisions.md) |
 
-Execution notes for Stage 0 of [`merge-stage-map.md`](merge-stage-map.md). Not a new architecture.
+Execution notes for Stages 0–1 of [`merge-stage-map.md`](merge-stage-map.md). Not a new architecture. Append-only after Stage 0.
 
 ## Imported SHAs
 
@@ -118,4 +118,67 @@ Owner: README freeze blurb on the old remotes is still pending (Stage 11 retire)
 
 - Prefixes exist with history. Both `--help` run. ctest matches baseline (c64m SKIP 77 + the pre-existing `history_control_integration` fail). `agents/README.md` names `import/` as canonical until Stage 1. Freeze documented and tagged.
 
-**Stop.** Do not `git mv` to `src/machine/{apple2,c64}` (Stage 1). Do not EXTRACT.
+**Stage 0 stop (historical).** Stage 1 relocate follows.
+
+---
+
+## Stage 1 — Relocate leftover trees (PR 1.1)
+
+Mechanical `git mv`. Internal `src/` / `main.c` layout **not** flattened. No `src/shell`. No root `project(machines)`.
+
+```bash
+cd /Users/swessels/Develop/github/personal/machines
+mkdir -p src/machine
+git mv import/a2m src/machine/apple2
+git mv import/c64m src/machine/c64
+rmdir import   # empty after the moves
+
+# retarget helper (root Makefile)
+cmake -B build/a2m  -S src/machine/apple2  -DCMAKE_BUILD_TYPE=Debug
+cmake -B build/c64m -S src/machine/c64    -DCMAKE_BUILD_TYPE=Debug
+cmake --build build/a2m -j && cmake --build build/c64m -j
+ctest --test-dir build/a2m  --output-on-failure
+ctest --test-dir build/c64m --output-on-failure
+./build/a2m/a2m --help
+./build/c64m/c64m --help
+```
+
+`import/` is gone from the tree. History stays in git (`import/a2m` still exists as a path in older commits).
+
+`runtime_thread.c` after the move:
+
+- `src/machine/apple2/src/runtime/runtime_thread.c`
+- `src/machine/c64/src/runtime/runtime_thread.c`
+
+### History after rename
+
+Prefixed Stage 0 commits still have `import/a2m/…` / `import/c64m/…` paths. The Stage 1 commit is a rename. Path-limited log of the **new** directory plus the old prefix shows product history:
+
+```bash
+git log -- src/machine/apple2 import/a2m
+git log -- src/machine/c64 import/c64m
+git log --follow -- src/machine/apple2/src/runtime/runtime_thread.c
+```
+
+### Stage 1 ctest (match Stage 0)
+
+Host CMake 4.4.2, Debug. Logs: [`design/stage1-logs/`](stage1-logs/).
+
+| Gate | Stage 0 post-import | Stage 1 (`-S src/machine/{apple2,c64}`) |
+|------|---------------------|----------------------------------------|
+| a2m | **71/71 passed** | **71/71 passed** |
+| c64m | **69 passed, 10 skipped, 1 failed** | **69 passed, 10 skipped, 1 failed** |
+
+Same 10 SKIPs (no `assets/`). Same pre-existing fail: `history_control_integration`. Not fixed.
+
+`A2M_FIXTURE_DIR` (`${CMAKE_SOURCE_DIR}/tests/fixtures`) still works from `-B build/a2m -S src/machine/apple2`.
+
+Both `--help` run.
+
+### Stage 1 exit
+
+- `src/machine/apple2/` and `src/machine/c64/` exist; `import/` is gone.
+- `git log -- src/machine/apple2 import/a2m` shows a2m history (rename + prefixed commits).
+- Both ctest gates match Stage 0. `agents/README.md`: leftover silicon is those two trees; twins still exist in both until EXTRACT.
+
+**Stop.** Do not start Stage 2 (no `src/shell`, no EXTRACT of platform/util/nuklear).

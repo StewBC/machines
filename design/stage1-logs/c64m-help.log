@@ -1,0 +1,34 @@
+Usage: c64m [options]
+A Commodore 64 emulator written by Codex, Claude Code and Grok, produced by Stefan Wessels, 2026.
+
+    -A, --audio-smoke                 emit 440 Hz tone to verify audio path
+    --audio-record=<str>              record runtime mono audio to WAV
+    --audio-record-start=<flt>        recording start time in seconds
+    --audio-record-duration=<flt>     recording duration in seconds
+    -a, --autorun                     run automatically after load
+    -B, --basic=<str>                 load file as BASIC program at startup
+    -b, --break=<str>                 install a breakpoint
+    --crt=<str>                       load CRT cartridge at startup
+    --control-port=<int>              enable localhost control server on port
+    --headless                        run without creating a window; requires --control-port
+    --history-memory=<str>            CPU flight-recorder memory budget in MiB (0 or 16..4096)
+    --inspector                       enable Inspector recording (checkpoints; default off)
+    --inspector-memory=<str>          Inspector recording memory budget in MiB (0 or 16..4096)
+    --inspector-off-on-max            wipe Inspector Record on max/warp (default on; --no-inspector-off-on-max)
+    -f, --defaults                    use default settings
+    -d, --disk=<str>                  1541 drive image; format <drive>=<image>
+    -i, --inifile=<str>               path to an .ini file
+    --log-level=<str>                 host log policy: all|warn|error|none (default warn)
+    -n, --noini                       do not use an ini file
+    -!, --nosaveini                   do not save the ini no matter what
+    -p, --prg=<str>                   load file as PRG at startup
+    --sna=<str>                       load machine snapshot (.c64state) at startup
+    -P, --pal                         use PAL video timing
+    -N, --ntsc                        use NTSC video timing
+    --video=<str>                     video standard: PAL or NTSC
+    --kbdjoy=<int>                    drive keyboard joystick on C64 port: 0 off, 1 or 2
+    --kbdjoy-layout=<str>             keyboard joystick layout: numpad or wasd
+    -r, --remember                    add save at quit to ini file
+    -v, --saveini                     save to ini file at quit
+    -t, --turbo=<str>                 comma separated turbo modes (1=normal,2=max,3=warp)
+    -h, --help                        show this help message and exit

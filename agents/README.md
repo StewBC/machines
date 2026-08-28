@@ -7,61 +7,69 @@ drafts live under [`design/`](../design/); they are not product-as-is.
 
 1. This file (layout, freeze, what is shared).
 2. [`design/merge-stage-map.md`](../design/merge-stage-map.md) — stage map.
-   Stage 0 only until that stage's exit criteria are met. Do not start Stage 1
-   (`git mv` to `src/machine/`) or any EXTRACT from this note.
-3. [`design/import-revisions.md`](../design/import-revisions.md) — imported SHAs,
-   freeze tags, baseline ctest.
-4. The product handoff for the prefix you are changing:
-   - a2m: [`import/a2m/agents/README.md`](../import/a2m/agents/README.md)
-   - c64m: [`import/c64m/agents/README.md`](../import/c64m/agents/README.md)
+   Stage 1 is done (leftover trees relocated). Do not start Stage 2 EXTRACT
+   (`src/shell`, platform/util/nuklear) from this note.
+3. [`design/import-revisions.md`](../design/import-revisions.md) — imported
+   SHAs, freeze tags, baseline ctest, Stage 1 rename.
+4. The product handoff for the tree you are changing:
+   - a2m: [`src/machine/apple2/agents/README.md`](../src/machine/apple2/agents/README.md)
+   - c64m: [`src/machine/c64/agents/README.md`](../src/machine/c64/agents/README.md)
 
-Until Stage 1 relocates the trees, the product-as-is notes still live inside
-those prefixes. Do not invent a blended `agents/apple2` / `agents/c64` layout
-yet.
+Do not invent a blended `agents/apple2` / `agents/c64` layout yet (Stage 10).
 
-## Canonical sources (Stage 0)
+## Canonical sources (Stage 1)
 
-**Canonical sources are `import/a2m` and `import/c64m` until Stage 1.**
+**Leftover silicon is `src/machine/apple2` and `src/machine/c64`.** `import/`
+is gone (history stays in git). Each tree is still its own CMake root
+(`project(a2m)` / `project(c64m)`). Internal layout is **not** flattened:
+`main.c`, `src/runtime/`, `src/frontend/`, `src/machine/` still live inside
+each product tree.
 
 | Path | What it is |
 |------|------------|
-| `import/a2m/` | Full a2m tree with history. Still `project(a2m)`. |
-| `import/c64m/` | Full c64m tree with history. Still `project(c64m)`. |
+| `src/machine/apple2/` | Full a2m tree. Still `project(a2m)`. |
+| `src/machine/c64/` | Full c64m tree. Still `project(c64m)`. |
 | `src/shell/` | Does **not** exist yet. |
-| `src/machine/{apple2,c64}` | Does **not** exist yet. |
 
-**Nothing is shared yet** except this file, root `README.md` / `LICENSE`, and
-`design/`. Identical files (am65, nuklear, history parse, forensics, …) exist
-as **two copies**. That is tolerated only until later EXTRACT stages delete a
-copy.
+`runtime_thread.c` lives at:
 
-## Do not mix the prefixes
+- `src/machine/apple2/src/runtime/runtime_thread.c`
+- `src/machine/c64/src/runtime/runtime_thread.c`
 
-- Do not "fix" a twin in only one prefix. If a bug is in a file that exists in
-  both trees, either fix both with the same change or leave both alone until
-  EXTRACT lifts one copy.
-- Do not merge onto the same `src/` paths. Both trees have
+**Twins still exist in both trees** until EXTRACT deletes a copy. Identical
+files (am65, nuklear, history parse, forensics, …) are two copies. That is
+tolerated until later EXTRACT stages. **Nothing is shared yet** except this
+file, root `README.md` / `LICENSE`, and `design/`.
+
+## Do not mix the leftover trees
+
+- Do not "fix" a twin in only one tree. If a bug is in a file that exists in
+  both, either fix both with the same change or leave both alone until EXTRACT
+  lifts one copy.
+- Do not merge onto the same inner `src/` paths. Both trees have
   `src/frontend/frontend.c`.
-- Do not `add_subdirectory` both imported `project()` files into one CMake
+- Do not `add_subdirectory` both nested `project()` files into one CMake
   invocation. Build with two `-S` trees (see root `Makefile`).
-- Do not start cleaning leftover C64 aliases in a2m while it lives under
-  `import/`.
+- Do not flatten `src/machine/apple2/src/machine/cpu65.c` →
+  `src/machine/apple2/cpu65.c` (optional Stage 10).
+- Do not start cleaning leftover C64 aliases in a2m.
 - Do not touch Inspector clocks, control protocol, or `frontend.c` as part of
   "the merge." Those are later stages.
+- Do not invent a root `project(machines)` with two `add_executable`s (Stage 11).
 
 ## am65 is radioactive
 
-Each prefix has `src/tools/am65/` (37 files, intended to be byte-identical).
-**No assembler edits in either copy.** Two copies will fork if you touch one.
-One in-tree copy is Stage 3. There is no third am65 remote as a merge
-requirement.
+Each leftover tree has `src/tools/am65/` (37 files, intended to be
+byte-identical). **No assembler edits in either copy.** Two copies will fork
+if you touch one. One in-tree copy is Stage 3. There is no third am65 remote
+as a merge requirement. Same for nuklear until Stage 2.
 
 ## Freeze
 
 Feature work on `a2m.git` and `c64m.git` has stopped. Hotfixes land in
 `machines` first. Tag names are in `design/import-revisions.md`.
 
-## Verification (Stage 0)
+## Verification (Stage 1)
 
 ```bash
 make test
@@ -69,8 +77,15 @@ make test
 ./build/c64m/c64m --help
 ```
 
+That is two `-S` trees:
+
+```bash
+cmake -B build/a2m  -S src/machine/apple2  -DCMAKE_BUILD_TYPE=Debug
+cmake -B build/c64m -S src/machine/c64    -DCMAKE_BUILD_TYPE=Debug
+```
+
 Both ctest gates must match the Stage 0 baseline. c64m SKIP (CTest 77) without
-`assets/` is not a fail.
+`assets/` is not a fail. Do not "fix" `history_control_integration`.
 
 ## Design docs
 
