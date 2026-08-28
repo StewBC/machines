@@ -34,7 +34,7 @@ Canonical product-as-is notes (leftover trees after Stage 1):
 | Merge stage map (a2m + c64m → machines) | **active** (doc Status: **Accepted**; open questions resolved 2026-08-27) | 2026-08-27 | [`merge-stage-map.md`](merge-stage-map.md) |
 | Import revisions (Stage 0 SHAs, freeze; Stage 1 rename) | **landed** | 2026-08-27 | [`import-revisions.md`](import-revisions.md) |
 | Stage 2: Shared platform / util / external / nuklear | **landed** | 2026-08-27 | [`shell-extract-platform.md`](shell-extract-platform.md) |
-| Stage 3: Assembler and disasm CPU class | **active** (doc Status: **Accepted**) | 2026-08-27 | [`assembler-disasm.md`](assembler-disasm.md) |
+| Stage 3: Assembler and disasm CPU class | **landed** | 2026-08-27 | [`assembler-disasm.md`](assembler-disasm.md) |
 
 Follow-on designs named by the stage map (not written yet):
 `control-framing.md`, `control-command-tables.md`,

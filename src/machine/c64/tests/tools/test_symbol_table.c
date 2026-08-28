@@ -118,7 +118,7 @@ static int test_scoped_names_and_display_resolver(void)
     }
 
     symbol_table_make_resolver(table, &resolver);
-    line = disasm_6502_decode_line(0x0801, jsr, sizeof(jsr), &resolver);
+    line = disasm_6502_decode_line(0x0801, jsr, sizeof(jsr), &resolver, DISASM_6502_NMOS);
     failures += expect_string(line.text, "JSR loop", "scoped resolver disassembly");
 
     if (resolver.label_to_address(resolver.userdata, "anon_0001::render::loop", &address) != SYMBOL_LOOKUP_FOUND ||
@@ -180,7 +180,7 @@ static int test_add_find_and_resolver(void)
         failures++;
     }
 
-    line = disasm_6502_decode_line(0x0801, jsr, sizeof(jsr), &resolver);
+    line = disasm_6502_decode_line(0x0801, jsr, sizeof(jsr), &resolver, DISASM_6502_NMOS);
     failures += expect_string(line.text, "JSR CHROUT", "resolver disassembly");
 
     count = resolver.enumerate(resolver.userdata, entries, 4);

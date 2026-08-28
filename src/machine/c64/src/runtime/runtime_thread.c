@@ -2728,7 +2728,8 @@ static void runtime_write_trace_line(runtime *rt) {
     bytes[2] = c64_debug_read_cpu_map(&rt->machine, trace.opcode_pc + 2);
 
     symbol_table_make_resolver(rt->symbols, &resolver);
-    line = disasm_6502_decode_line(trace.opcode_pc, bytes, 3, &resolver);
+    line = disasm_6502_decode_line(
+        trace.opcode_pc, bytes, 3, &resolver, DISASM_6502_NMOS);
 
     switch (line.length) {
         case 1:  snprintf(bytes_str, sizeof(bytes_str), "%02X      ", bytes[0]); break;

@@ -68,30 +68,31 @@ int main(void)
 
     symbol_resolver_null(&symbols);
 
-    line = disasm_6502_decode_line(0x0801, lda, sizeof(lda), &symbols);
+    line = disasm_6502_decode_line(0x0801, lda, sizeof(lda), &symbols, DISASM_6502_NMOS);
     failures += expect_string(line.text, "LDA #$7F", "immediate");
     if (line.address != 0x0801 || line.length != 2 || line.forced_byte) {
         fprintf(stderr, "immediate metadata mismatch\n");
         failures++;
     }
 
-    line = disasm_6502_decode_line(0x1000, bne, sizeof(bne), &symbols);
+    line = disasm_6502_decode_line(0x1000, bne, sizeof(bne), &symbols, DISASM_6502_NMOS);
     failures += expect_string(line.text, "BNE $0FFE", "relative");
 
     symbols.userdata = NULL;
     symbols.address_to_label = test_address_to_label;
     symbols.label_to_address = test_label_to_address;
     symbols.enumerate = test_enumerate;
-    line = disasm_6502_decode_line(0x080d, jsr, sizeof(jsr), &symbols);
+    line = disasm_6502_decode_line(0x080d, jsr, sizeof(jsr), &symbols, DISASM_6502_NMOS);
     failures += expect_string(line.text, "JSR Start", "symbol absolute");
 
-    line = disasm_6502_decode_line(0x2000, bad, sizeof(bad), &symbols);
+    line = disasm_6502_decode_line(0x2000, bad, sizeof(bad), &symbols, DISASM_6502_NMOS);
     failures += expect_string(line.text, ".BYTE $02", "forced byte");
     if (!line.forced_byte || line.length != 1) {
         fprintf(stderr, "forced byte metadata mismatch\n");
         failures++;
     }
-    if (!disasm_6502_opcode_is_valid(0xa9) || disasm_6502_opcode_is_valid(0x02)) {
+    if (!disasm_6502_opcode_is_valid(0xa9, DISASM_6502_NMOS) ||
+        disasm_6502_opcode_is_valid(0x02, DISASM_6502_NMOS)) {
         fprintf(stderr, "opcode validity mismatch\n");
         failures++;
     }

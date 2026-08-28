@@ -184,6 +184,7 @@ typedef struct frontend_disassembly_view_state {
     uint16_t requested_length;
     runtime_memory_mode mode;
     runtime_memory_mode requested_mode;
+    disasm_6502_cpu_class cpu_class;
     uint8_t rows;
     uint8_t cursor_row;
     uint8_t cursor_length;
@@ -3736,6 +3737,16 @@ static bool frontend_disasm_cache_range_valid(
     return true;
 }
 
+static disasm_6502_cpu_class frontend_disasm_cpu_class(
+    const frontend_debug_state *debug_state)
+{
+    /* UI/options apple_model: 0 = //e Enhanced (65C02), 1 = ][+ (NMOS). */
+    if (debug_state != NULL && debug_state->apple_model == 0) {
+        return DISASM_6502_65C02;
+    }
+    return DISASM_6502_NMOS;
+}
+
 static void frontend_disassembly_decode(frontend *ui)
 {
     frontend_disassembly_view_state *view = &ui->disassembly;
@@ -3751,7 +3762,8 @@ static void frontend_disassembly_decode(frontend *ui)
             address,
             available > 0u ? fetched : NULL,
             available,
-            &ui->symbols);
+            &ui->symbols,
+            view->cpu_class);
         view->lines[row].is_provisional = (available == 0u);
         address = (uint16_t)(address + view->lines[row].base.length);
     }
@@ -3842,10 +3854,10 @@ static bool frontend_disassembly_previous_address(
         }
 
         opcode = cache->bytes[candidate];
-        length = disasm_6502_instruction_length(opcode);
+        length = disasm_6502_instruction_length(opcode, view->cpu_class);
         if (length == (uint8_t)back &&
             cache->valid[(uint16_t)(candidate + length - 1u)]) {
-            if (disasm_6502_opcode_is_valid(opcode)) {
+            if (disasm_6502_opcode_is_valid(opcode, view->cpu_class)) {
                 *out_previous = candidate;
                 return true;
             }
@@ -3992,6 +4004,7 @@ static void frontend_disassembly_build_pc_locked_lines(
     disasm_pc_lock_build(
         frontend_disassembly_active_cache_ro(view),
         &ui->symbols,
+        view->cpu_class,
         pc,
         rows,
         view->lines,
@@ -4621,11 +4634,11 @@ static frontend_disasm_target frontend_disassembly_compute_target(
     }
 
     opcode = line->bytes[0];
-    if (!disasm_6502_opcode_is_valid(opcode)) {
+    if (!disasm_6502_opcode_is_valid(opcode, ui->disassembly.cpu_class)) {
         return result;
     }
 
-    mode = disasm_6502_opcode_mode(opcode);
+    mode = disasm_6502_opcode_mode(opcode, ui->disassembly.cpu_class);
     x = debug_state->cpu.x;
     y = debug_state->cpu.y;
     b1 = line->bytes[1];
@@ -4676,6 +4689,26 @@ static frontend_disasm_target frontend_disassembly_compute_target(
             result.has_value = true;
             result.show = true;
             break;
+        case DISASM_MODE_ZPIND:
+            if (!frontend_disasm_map_get(ui, b1, &lo) ||
+                !frontend_disasm_map_get(ui, (uint8_t)(b1 + 1u), &hi)) {
+                return result;
+            }
+            result.address = (uint16_t)(lo | ((uint16_t)hi << 8));
+            result.has_value = true;
+            result.show = true;
+            break;
+        case DISASM_MODE_ABSINDX: {
+            uint16_t ptr = (uint16_t)(op16 + x);
+            uint16_t hi_addr = (uint16_t)(ptr + 1u);
+            if (!frontend_disasm_map_get(ui, ptr, &lo) ||
+                !frontend_disasm_map_get(ui, hi_addr, &hi)) {
+                return result;
+            }
+            result.address = (uint16_t)(lo | ((uint16_t)hi << 8));
+            result.show = true;
+            break;
+        }
         case DISASM_MODE_IND: {
             /* JMP (ind): replicate the 6502 page-boundary wrap bug on the high byte. */
             uint16_t hi_addr = (uint16_t)((op16 & 0xFF00u) | (uint16_t)((op16 + 1u) & 0x00FFu));
@@ -4720,6 +4753,8 @@ static void frontend_draw_disassembly_view(
     float scrollbar_w = 24.0f;
     float scrollbar_margin = 8.0f;
     float content_h;
+
+    view->cpu_class = frontend_disasm_cpu_class(debug_state);
 
     if (!view->initialized) {
         view->mode = RUNTIME_MEMORY_MODE_CPU_MAP;

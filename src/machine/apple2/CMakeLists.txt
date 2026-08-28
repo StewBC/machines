@@ -571,6 +571,13 @@ target_compile_features(test_disasm_6502 PRIVATE c_std_99)
 target_link_libraries(test_disasm_6502 PRIVATE disasm_6502)
 add_test(NAME disasm_6502 COMMAND test_disasm_6502)
 
+add_executable(test_disasm_6502_65c02
+    ${MACHINES_ROOT}/src/shell/tests/tools/test_disasm_6502_65c02.c
+)
+target_compile_features(test_disasm_6502_65c02 PRIVATE c_std_99)
+target_link_libraries(test_disasm_6502_65c02 PRIVATE disasm_6502)
+add_test(NAME disasm_6502_65c02 COMMAND test_disasm_6502_65c02)
+
 add_executable(test_assembler_65c02
     tests/tools/test_assembler_65c02.c
 )

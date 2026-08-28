@@ -127,16 +127,16 @@ int main(void)
 
     for (int op = 0; op < 256; op++) {
         uint8_t opcode = (uint8_t)op;
-        if (!disasm_6502_opcode_is_valid(opcode)) {
+        if (!disasm_6502_opcode_is_valid(opcode, DISASM_6502_NMOS)) {
             continue;
         }
 
-        uint8_t length = disasm_6502_instruction_length(opcode);
+        uint8_t length = disasm_6502_instruction_length(opcode, DISASM_6502_NMOS);
         uint8_t bytes[3];
         canonical_bytes(opcode, length, bytes);
 
         disasm_6502_line dl =
-            disasm_6502_decode_line(ORIGIN, bytes, length, NULL);
+            disasm_6502_decode_line(ORIGIN, bytes, length, NULL, DISASM_6502_NMOS);
 
         tested++;
 

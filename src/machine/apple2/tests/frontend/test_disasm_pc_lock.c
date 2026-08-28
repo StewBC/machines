@@ -30,7 +30,7 @@ static int check_pc_lock(uint16_t pc, uint8_t rows, const char *label)
 
     symbol_resolver_null(&symbols);
     memset(g_lines, 0, sizeof(g_lines));
-    disasm_pc_lock_build(&g_cache, &symbols, pc, rows, g_lines, &top);
+    disasm_pc_lock_build(&g_cache, &symbols, DISASM_6502_NMOS, pc, rows, g_lines, &top);
 
     pc_row = rows / 2u;
     if (g_lines[pc_row].base.address != pc) {

@@ -6,6 +6,11 @@
 
 typedef struct symbol_resolver symbol_resolver;
 
+typedef enum disasm_6502_cpu_class {
+    DISASM_6502_NMOS = 0,
+    DISASM_6502_65C02
+} disasm_6502_cpu_class;
+
 typedef enum disasm_6502_mode {
     DISASM_MODE_IMP = 0,
     DISASM_MODE_ACC,
@@ -19,7 +24,9 @@ typedef enum disasm_6502_mode {
     DISASM_MODE_IND,
     DISASM_MODE_INDX,
     DISASM_MODE_INDY,
-    DISASM_MODE_REL
+    DISASM_MODE_REL,
+    DISASM_MODE_ZPIND,
+    DISASM_MODE_ABSINDX
 } disasm_6502_mode;
 
 typedef enum symbol_lookup_result {
@@ -67,8 +74,9 @@ disasm_6502_line disasm_6502_decode_line(
     uint16_t address,
     const uint8_t *bytes,
     size_t length,
-    const symbol_resolver *symbols);
+    const symbol_resolver *symbols,
+    disasm_6502_cpu_class cpu);
 
-uint8_t disasm_6502_instruction_length(uint8_t opcode);
-bool disasm_6502_opcode_is_valid(uint8_t opcode);
-disasm_6502_mode disasm_6502_opcode_mode(uint8_t opcode);
+uint8_t disasm_6502_instruction_length(uint8_t opcode, disasm_6502_cpu_class cpu);
+bool disasm_6502_opcode_is_valid(uint8_t opcode, disasm_6502_cpu_class cpu);
+disasm_6502_mode disasm_6502_opcode_mode(uint8_t opcode, disasm_6502_cpu_class cpu);

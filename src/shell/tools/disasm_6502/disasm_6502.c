@@ -11,6 +11,7 @@ typedef struct opcode_info {
 
 #define OP(mn, mode, len) {mn, mode, len}
 #define XX OP(NULL, DISASM_MODE_IMP, 1)
+#define OP65(mn, mode, len) ((opcode_info){(mn), (mode), (len)})
 
 static const opcode_info opcode_table[256] = {
     OP("BRK",DISASM_MODE_IMP,1), OP("ORA",DISASM_MODE_INDX,2), XX, XX, XX, OP("ORA",DISASM_MODE_ZP,2), OP("ASL",DISASM_MODE_ZP,2), XX,
@@ -92,19 +93,57 @@ void symbol_resolver_null(symbol_resolver *resolver)
     resolver->enumerate = null_enumerate;
 }
 
-uint8_t disasm_6502_instruction_length(uint8_t opcode)
+static opcode_info opcode_info_at(uint8_t opcode, disasm_6502_cpu_class cpu)
 {
-    return opcode_table[opcode].length;
+    if (cpu == DISASM_6502_65C02) {
+        switch (opcode) {
+            case 0x04: return OP65("TSB", DISASM_MODE_ZP, 2);
+            case 0x0C: return OP65("TSB", DISASM_MODE_ABS, 3);
+            case 0x12: return OP65("ORA", DISASM_MODE_ZPIND, 2);
+            case 0x14: return OP65("TRB", DISASM_MODE_ZP, 2);
+            case 0x1A: return OP65("INC", DISASM_MODE_ACC, 1);
+            case 0x1C: return OP65("TRB", DISASM_MODE_ABS, 3);
+            case 0x32: return OP65("AND", DISASM_MODE_ZPIND, 2);
+            case 0x34: return OP65("BIT", DISASM_MODE_ZPX, 2);
+            case 0x3A: return OP65("DEC", DISASM_MODE_ACC, 1);
+            case 0x3C: return OP65("BIT", DISASM_MODE_ABSX, 3);
+            case 0x52: return OP65("EOR", DISASM_MODE_ZPIND, 2);
+            case 0x5A: return OP65("PHY", DISASM_MODE_IMP, 1);
+            case 0x64: return OP65("STZ", DISASM_MODE_ZP, 2);
+            case 0x72: return OP65("ADC", DISASM_MODE_ZPIND, 2);
+            case 0x74: return OP65("STZ", DISASM_MODE_ZPX, 2);
+            case 0x7A: return OP65("PLY", DISASM_MODE_IMP, 1);
+            case 0x7C: return OP65("JMP", DISASM_MODE_ABSINDX, 3);
+            case 0x80: return OP65("BRA", DISASM_MODE_REL, 2);
+            case 0x89: return OP65("BIT", DISASM_MODE_IMM, 2);
+            case 0x92: return OP65("STA", DISASM_MODE_ZPIND, 2);
+            case 0x9C: return OP65("STZ", DISASM_MODE_ABS, 3);
+            case 0x9E: return OP65("STZ", DISASM_MODE_ABSX, 3);
+            case 0xB2: return OP65("LDA", DISASM_MODE_ZPIND, 2);
+            case 0xD2: return OP65("CMP", DISASM_MODE_ZPIND, 2);
+            case 0xDA: return OP65("PHX", DISASM_MODE_IMP, 1);
+            case 0xF2: return OP65("SBC", DISASM_MODE_ZPIND, 2);
+            case 0xFA: return OP65("PLX", DISASM_MODE_IMP, 1);
+            default:
+                break;
+        }
+    }
+    return opcode_table[opcode];
 }
 
-bool disasm_6502_opcode_is_valid(uint8_t opcode)
+uint8_t disasm_6502_instruction_length(uint8_t opcode, disasm_6502_cpu_class cpu)
 {
-    return opcode_table[opcode].mnemonic != NULL;
+    return opcode_info_at(opcode, cpu).length;
 }
 
-disasm_6502_mode disasm_6502_opcode_mode(uint8_t opcode)
+bool disasm_6502_opcode_is_valid(uint8_t opcode, disasm_6502_cpu_class cpu)
 {
-    return opcode_table[opcode].mode;
+    return opcode_info_at(opcode, cpu).mnemonic != NULL;
+}
+
+disasm_6502_mode disasm_6502_opcode_mode(uint8_t opcode, disasm_6502_cpu_class cpu)
+{
+    return opcode_info_at(opcode, cpu).mode;
 }
 
 static bool resolve_label(
@@ -142,7 +181,8 @@ disasm_6502_line disasm_6502_decode_line(
     uint16_t address,
     const uint8_t *bytes,
     size_t length,
-    const symbol_resolver *symbols)
+    const symbol_resolver *symbols,
+    disasm_6502_cpu_class cpu)
 {
     disasm_6502_line line;
     opcode_info info;
@@ -161,7 +201,7 @@ disasm_6502_line disasm_6502_decode_line(
     }
 
     opcode = bytes[0];
-    info = opcode_table[opcode];
+    info = opcode_info_at(opcode, cpu);
     line.length = info.length;
     if (line.length > length) {
         line.length = (uint8_t)length;
@@ -215,6 +255,12 @@ disasm_6502_line disasm_6502_decode_line(
             break;
         case DISASM_MODE_INDY:
             snprintf(operand, sizeof(operand), "($%02X),Y", length >= 2 ? bytes[1] : 0);
+            break;
+        case DISASM_MODE_ZPIND:
+            snprintf(operand, sizeof(operand), "($%02X)", length >= 2 ? bytes[1] : 0);
+            break;
+        case DISASM_MODE_ABSINDX:
+            format_absolute_operand(operand, sizeof(operand), "(", operand16, ",X)", symbols);
             break;
         case DISASM_MODE_REL:
             target = (uint16_t)(address + 2u + (int8_t)(length >= 2 ? bytes[1] : 0));

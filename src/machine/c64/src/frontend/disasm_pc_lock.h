@@ -49,6 +49,7 @@ bool disasm_pc_lock_ends_at_or_before(uint16_t address, uint8_t length, uint16_t
 void disasm_pc_lock_build(
     const disasm_pc_lock_cache *cache,
     const symbol_resolver *symbols,
+    disasm_6502_cpu_class cpu,
     uint16_t pc,
     uint8_t rows,
     disasm_pc_lock_line *lines,

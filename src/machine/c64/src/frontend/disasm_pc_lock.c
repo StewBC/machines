@@ -63,6 +63,7 @@ static void disasm_pc_lock_emit_decoded(
     disasm_pc_lock_line *line,
     const disasm_pc_lock_cache *cache,
     const symbol_resolver *symbols,
+    disasm_6502_cpu_class cpu,
     uint16_t address,
     uint8_t step,
     bool force_byte)
@@ -81,7 +82,7 @@ static void disasm_pc_lock_emit_decoded(
     } else if (available == 0u) {
         disasm_pc_lock_emit_provisional(line, address);
     } else {
-        line->base = disasm_6502_decode_line(address, fetched, available, symbols);
+        line->base = disasm_6502_decode_line(address, fetched, available, symbols, cpu);
         line->is_provisional = false;
     }
 
@@ -121,6 +122,7 @@ static bool disasm_pc_lock_bytes_valid(
 void disasm_pc_lock_build(
     const disasm_pc_lock_cache *cache,
     const symbol_resolver *symbols,
+    disasm_6502_cpu_class cpu,
     uint16_t pc,
     uint8_t rows,
     disasm_pc_lock_line *lines,
@@ -144,7 +146,7 @@ void disasm_pc_lock_build(
     {
         uint16_t addr = pc;
         for (row = pc_row; row < rows; ++row) {
-            disasm_pc_lock_emit_decoded(&lines[row], cache, symbols, addr, 0, false);
+            disasm_pc_lock_emit_decoded(&lines[row], cache, symbols, cpu, addr, 0, false);
             addr = (uint16_t)(addr + lines[row].base.length);
         }
     }
@@ -179,12 +181,12 @@ void disasm_pc_lock_build(
 
         {
             uint8_t opcode = cache->bytes[addr];
-            uint8_t len = disasm_6502_instruction_length(opcode);
+            uint8_t len = disasm_6502_instruction_length(opcode, cpu);
             uint16_t j = (uint16_t)(i + len);
             if (j <= window_size &&
                 disasm_pc_lock_bytes_valid(cache, addr, len) &&
                 dp[j].score != (uint16_t)DISASM_PC_LOCK_DP_INF) {
-                uint16_t edge_cost = disasm_6502_opcode_is_valid(opcode) ? 1u : 10u;
+                uint16_t edge_cost = disasm_6502_opcode_is_valid(opcode, cpu) ? 1u : 10u;
                 uint16_t cand_score = (uint16_t)(edge_cost + dp[j].score);
                 uint8_t cand_steps = dp[j].nsteps < 254u ? (uint8_t)(dp[j].nsteps + 1u) : 255u;
                 if (cand_score < dp[i].score) {
@@ -271,6 +273,7 @@ void disasm_pc_lock_build(
                     &lines[row],
                     cache,
                     symbols,
+                    cpu,
                     addr,
                     step,
                     dp[node].is_byte_edge && cache->valid[addr]);
