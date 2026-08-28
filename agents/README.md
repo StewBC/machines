@@ -19,22 +19,28 @@ silicon. Do not open `src/machine/apple2` to decide C64 silicon.
    [`shell/control.md`](shell/control.md) · [`shell/history.md`](shell/history.md) ·
    [`shell/inspector-shape.md`](shell/inspector-shape.md)
 4. [`design/README.md`](../design/README.md) only for in-flight designs.
-   Stage 10 is done. Do not start Stage 11 from this note.
+   Stages 0–11 are done. There is no Stage 12.
 
 ## Where things live
 
 **Link-into-both and no machine ifdef → `src/shell/`. Link-into-one → that
 leftover machine tree.** Repo-root `external/` is the one vendor copy.
 
+Root `CMakeLists.txt` is `project(machines)` (CMake **3.24**). It
+`add_executable(a2m)` and `add_executable(c64m)`. Nested leftover
+`project(a2m)` / `project(c64m)` is **not** the CI entry — leftover CMake
+is library + tests included from the root (prefixed `apple2_*` / `c64_*`
+targets so names do not collide).
+
 | Path | What it is |
 |------|------------|
 | `src/shell/` | Shared util / platform / nuklear vendor / `control/` framing + verb runner + memory-source type / `runtime/` history+BP conditions + `runtime_client_subset.h` / `frontend/` forensics+disk LEDs+help source + debugger chrome (layout, 6502 CPU pane, disasm pane, memview pane, BP list, window title, Inspector tab) / `tools/{am65,disasm_6502,symbols,gen_help.py}`. Static `shell` plus named tool targets. `help_view.c` is compiled by leftover frontend (per-binary `help_content.inc`). Leftover picture/key/media/Inspector-film client APIs stay leftover. Exclusive Misc tabs (Machine/Debugger/Hardware/Assembler/Config) stay leftover. Inspector clocks stay leftover. |
 | `external/` | argparse, inih, logc, stb, tiny-regex-c, whereami (unprefixed targets). |
-| `src/machine/apple2/` | Leftover a2m silicon, `runtime_thread`, leftover util (HostFS), leftover `platform_audio`, leftover frontend chrome. Still `project(a2m)`. Nested leftover `src/` is **not** flattened. |
-| `src/machine/c64/` | Leftover c64m silicon, `runtime_thread`, leftover util (BASIC/paste), leftover `platform_audio`, leftover frontend chrome, TrueType, format parsers. Still `project(c64m)`. Nested leftover `src/` is **not** flattened. |
+| `src/machine/apple2/` | Leftover a2m silicon, `runtime_thread`, leftover util (HostFS), leftover `platform_audio`, leftover frontend chrome. Nested leftover `src/` is **not** flattened. |
+| `src/machine/c64/` | Leftover c64m silicon, `runtime_thread`, leftover util (BASIC/paste), leftover `platform_audio`, leftover frontend chrome, TrueType, format parsers. Nested leftover `src/` is **not** flattened. |
 | `manual/a2m/` | Apple user book (`manual.md` + `HELP_MARKDOWN.md`). |
 | `manual/c64m/` | C64 user book (`manual.md` + `HELP_MARKDOWN.md`). |
-| `tests/shell/` | Tests for shared shell TUs. Registered by **both** nested CMake trees where they already were. |
+| `tests/shell/` | Tests for shared shell TUs. Registered under both `a2m.*` and `c64m.*` ctest names where they already were. |
 | `tests/apple2/` | a2m leftover tests + fixtures. |
 | `tests/c64/` | c64m leftover tests + fixtures. Asset SKIP 77 still uses leftover `assets/`. |
 | `agents/apple2/` | a2m product-as-is notes. Bare `src/...` there means leftover `src/machine/apple2/src/...` unless the path already starts with `src/shell/`, `manual/`, or `tests/`. |
@@ -45,8 +51,6 @@ leftover machine tree.** Repo-root `external/` is the one vendor copy.
 
 - `src/machine/apple2/src/runtime/runtime_thread.c`
 - `src/machine/c64/src/runtime/runtime_thread.c`
-
-There is still no root `project(machines)` with two `add_executable`s.
 
 ## Do not mix leftover trees
 
@@ -63,7 +67,10 @@ There is still no root `project(machines)` with two `add_executable`s.
   The `vic_cycle` BP alias is already gone.
 - Do not smash Inspector clocks (Apple F/S vs C64 `film_cycle`) or leftover `runtime_thread` command handling. Shape: [`shell/inspector-shape.md`](shell/inspector-shape.md). Clocks: [`apple2/timemachine.md`](apple2/timemachine.md) and [`c64/runtime-control.md`](c64/runtime-control.md).
 - Do not unify `cpu65` with `c6510` or turn on `CPU_65c02` in C64 execution.
-- Do not invent a root `project(machines)` (Stage 11).
+- Do not `add_subdirectory` two leftover `project()` files into one CMake
+  invocation (those `project()` calls are gone; leftover CMake is included
+  from the root).
+- Do not configure `-S src/machine/apple2` or `-S src/machine/c64` as CI.
 - Do not leave a second `thread.c`, `nuklear.h`, or `am65/` in a machine tree.
 - Do not merge the two user manuals. Do not put `agents/` links in manuals.
 
@@ -81,8 +88,9 @@ Help overlay: one `src/shell/tools/gen_help.py`, two books
 
 ## Freeze
 
-Feature work on `a2m.git` and `c64m.git` has stopped. Hotfixes land in
-`machines` first. Tag names are in `design/import-revisions.md`.
+Feature work on `a2m.git` and `c64m.git` has stopped. Those GitHub
+repos are archived. Hotfixes land in `machines` first. Tag names:
+`design/import-revisions.md`. Archive record: `design/retire-remotes.md`.
 
 Control **framing + verb runner + memory-source type** is `src/shell/control/`.
 Leftover binaries supply verb tables and memory-source tables. `capabilities`
@@ -106,23 +114,18 @@ A2M wire has `enter-inspector` / `leave-inspector`. Record does not arm HST1.
 From the **machines repo root**:
 
 ```bash
-make test
-./build/a2m/a2m --help
-./build/c64m/c64m --help
+cmake -B build -S . -DCMAKE_BUILD_TYPE=Debug
+cmake --build build -j
+ctest --test-dir build --output-on-failure
+./build/a2m --help
+./build/c64m --help
 ```
 
-Two `-S` trees (the gate until Stage 11):
+Or `make test`. Product groups: `ctest --test-dir build -L a2m` and
+`ctest --test-dir build -L c64m`.
 
-```bash
-cmake -B build/a2m  -S src/machine/apple2  -DCMAKE_BUILD_TYPE=Debug
-cmake -B build/c64m -S src/machine/c64    -DCMAKE_BUILD_TYPE=Debug
-cmake --build build/a2m -j && cmake --build build/c64m -j
-ctest --test-dir build/a2m  --output-on-failure
-ctest --test-dir build/c64m --output-on-failure
-```
-
-ctest: a2m **82/82**; c64m **78 pass + 10 SKIP** (CTest 77 without
-gitignored leftover `assets/`) **+ `history_control_integration` fails**.
+ctest: a2m **82/82**. c64m **78 pass + 10 SKIP** (CTest 77 without
+gitignored leftover `assets/`) **+ `c64m.history_control_integration` fails**.
 Do not "fix" that fail. Hello shows A2M/14. Help overlay still builds from
 each manual.
 

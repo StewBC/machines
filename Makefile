@@ -1,46 +1,39 @@
-# Stage 10 helper: two separate CMake source trees. Not a parent project(machines).
-# Each nested project() add_subdirectorys src/shell + repo-root external/.
-# Tests live under tests/{shell,apple2,c64}; manuals under manual/{a2m,c64m}.
-# Do not add_subdirectory both nested project() files into one CMake invocation.
+# Stage 11: one CMake generation, two product binaries.
+# Nested leftover project(a2m)/project(c64m) is not the CI entry.
 
 CMAKE ?= cmake
 BUILD_TYPE ?= Debug
 JOBS ?= $(shell sysctl -n hw.ncpu 2>/dev/null || nproc 2>/dev/null || echo 4)
+BUILD ?= build
 
 .PHONY: help configure build test a2m c64m clean
 
 help:
-	@echo "Stage 10 dual-tree helper (not a unified CMake project)."
-	@echo "  make configure  # two -S trees: src/machine/apple2 and src/machine/c64"
-	@echo "  make build      # build both"
-	@echo "  make test       # build + both ctest gates (default)"
-	@echo "  make a2m / c64m # one tree"
-	@echo "  make clean      # rm -rf build/"
+	@echo "Stage 11 root two-target helper."
+	@echo "  make configure  # cmake -B $(BUILD) -S ."
+	@echo "  make build      # build a2m + c64m + tests"
+	@echo "  make test       # build + ctest (default)"
+	@echo "  make a2m / c64m # ctest -L a2m or -L c64m"
+	@echo "  make clean      # rm -rf $(BUILD)/"
+	@echo "Binaries: ./$(BUILD)/a2m  ./$(BUILD)/c64m  ./$(BUILD)/am65"
 	@echo "c64m SKIP (CTest 77) without leftover assets/ is not a failure."
 
 all: test
 
 configure:
-	$(CMAKE) -B build/a2m  -S src/machine/apple2  -DCMAKE_BUILD_TYPE=$(BUILD_TYPE)
-	$(CMAKE) -B build/c64m -S src/machine/c64    -DCMAKE_BUILD_TYPE=$(BUILD_TYPE)
+	$(CMAKE) -B $(BUILD) -S . -DCMAKE_BUILD_TYPE=$(BUILD_TYPE)
 
 build: configure
-	$(CMAKE) --build build/a2m -j$(JOBS)
-	$(CMAKE) --build build/c64m -j$(JOBS)
+	$(CMAKE) --build $(BUILD) -j$(JOBS)
 
 test: build
-	ctest --test-dir build/a2m  --output-on-failure
-	ctest --test-dir build/c64m --output-on-failure
+	ctest --test-dir $(BUILD) --output-on-failure
 
-a2m:
-	$(CMAKE) -B build/a2m -S src/machine/apple2 -DCMAKE_BUILD_TYPE=$(BUILD_TYPE)
-	$(CMAKE) --build build/a2m -j$(JOBS)
-	ctest --test-dir build/a2m --output-on-failure
+a2m: build
+	ctest --test-dir $(BUILD) -L a2m --output-on-failure
 
-c64m:
-	$(CMAKE) -B build/c64m -S src/machine/c64 -DCMAKE_BUILD_TYPE=$(BUILD_TYPE)
-	$(CMAKE) --build build/c64m -j$(JOBS)
-	ctest --test-dir build/c64m --output-on-failure
+c64m: build
+	ctest --test-dir $(BUILD) -L c64m --output-on-failure
 
 clean:
-	rm -rf build/
+	rm -rf $(BUILD)/

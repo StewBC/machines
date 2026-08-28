@@ -1,5 +1,8 @@
 # c64m — Commodore 64 Emulator
 
+This leftover tree is not a CMake root. Build from the **machines** repo
+root: `cmake -B build -S . && cmake --build build -j && ./build/c64m`.
+
 c64m is a Commodore 64 emulator written in C99. It was almost entirely written using
 coding agents — ChatGPT's Codex (5.x), Claude Code (4.8) and Grok (4.5). There are a few exceptions:
 

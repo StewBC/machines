@@ -1,6 +1,6 @@
 # src/control/CMakeLists.txt
 
-add_library(control STATIC
+add_library(${control} STATIC
     control_deferred.c
     control_deferred.h
     control_protocol.c
@@ -11,18 +11,18 @@ add_library(control STATIC
     control_server.h
 )
 
-target_include_directories(control PUBLIC
+target_include_directories(${control} PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}
 )
 
-target_compile_features(control PUBLIC c_std_99)
+target_compile_features(${control} PUBLIC c_std_99)
 
-target_link_libraries(control
+target_link_libraries(${control}
     PUBLIC
         shell
-        platform
-        util
-        runtime
+        ${platform}
+        ${util}
+        ${runtime}
     PRIVATE
         SDL2::SDL2
 )

@@ -5,15 +5,15 @@
 From the machines repo root:
 
 ```sh
-cmake -B build/c64m -S src/machine/c64 -DCMAKE_BUILD_TYPE=Debug
-cmake --build build/c64m -j
-ctest --test-dir build/c64m --output-on-failure
+cmake -B build -S . -DCMAKE_BUILD_TYPE=Debug
+cmake --build build -j
+ctest --test-dir build -L c64m --output-on-failure
 ```
 
-Leftover nested `CMakeLists.txt` currently registers 89 tests: **78 pass +
+Root `project(machines)` registers 89 c64m tests (`c64m.<name>`): **78 pass +
 10 SKIP** (CTest 77 without leftover gitignored `assets/`) **+
-`history_control_integration` fails**. Do not "fix" that fail. Count drifts
-as targets land.
+`c64m.history_control_integration` fails**. Do not "fix" that fail. Count drifts
+as targets land. Do not configure `-S src/machine/c64`.
 
 ### Asset SKIP, not fail
 
@@ -79,7 +79,7 @@ Edge of Disgrace checker remains a **manual** VICE compare. Match models
 
 ## Focused workflows
 
-- Binary smoke: `./build/c64m --help`
+- Binary smoke: `./build/c64m --help` (repo-root CMake; not `build/c64m/c64m`)
 - Automation: `./build/c64m --headless --control-port PORT`
 - SID: `tools/capture_sid_audio.py` and `tools/compare_sid_audio.py`
 - CIA races: `tools/cia-timing-corpus/` (optional fetch into

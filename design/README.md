@@ -33,7 +33,7 @@ Canonical product-as-is notes (Stage 10 destination):
 
 | Design | Status | Last worked on | Path |
 |--------|--------|----------------|------|
-| Merge stage map (a2m + c64m → machines) | **active** (doc Status: **Accepted**; open questions resolved 2026-08-27) | 2026-08-27 | [`merge-stage-map.md`](merge-stage-map.md) |
+| Merge stage map (a2m + c64m → machines) | **landed** (doc Status: **Accepted**; Stages 0–11 done) | 2026-08-27 | [`merge-stage-map.md`](merge-stage-map.md) |
 | Import revisions (Stage 0 SHAs, freeze; Stage 1 rename) | **landed** | 2026-08-27 | [`import-revisions.md`](import-revisions.md) |
 | Stage 2: Shared platform / util / external / nuklear | **landed** | 2026-08-27 | [`shell-extract-platform.md`](shell-extract-platform.md) |
 | Stage 3: Assembler and disasm CPU class | **landed** | 2026-08-27 | [`assembler-disasm.md`](assembler-disasm.md) |
@@ -44,9 +44,11 @@ Canonical product-as-is notes (Stage 10 destination):
 | Stage 8: Debugger UI chrome (layout / CPU / disasm / memview / BP) | **landed** | 2026-08-27 | [`debugger-chrome.md`](debugger-chrome.md) |
 | Stage 9: Inspector unification (shared tab; leftover clocks) | **landed** | 2026-08-27 | [`inspector-unification.md`](inspector-unification.md) |
 | Stage 10: Agent handoff, manuals, tests layout | **landed** | 2026-08-27 | [`monorepo-agents.md`](monorepo-agents.md) |
+| Stage 11: Root two-target CMake (layout, binaries, tests) | **landed** | 2026-08-27 | [`stage11-root-cmake.md`](stage11-root-cmake.md) |
+| Retire a2m.git / c64m.git (README + GitHub archive) | **landed** | 2026-08-27 | [`retire-remotes.md`](retire-remotes.md) |
 
 Follow-on designs named by the stage map (not written yet):
-none (Stage 11 has no follow-on design).
+none (Stage 11 was the last numbered stage).
 
 Landed Inspector / Forensics designs live in the leftover product trees
 (`src/machine/apple2/design/`, `src/machine/c64/design/`). Do not copy them here.

@@ -1,6 +1,6 @@
 # src/machine/CMakeLists.txt
 
-add_library(machine STATIC
+add_library(${machine} STATIC
     cia.c
     c1541.c
     c1541_gcr.c
@@ -17,14 +17,14 @@ add_library(machine STATIC
     vicii.c
 )
 
-target_include_directories(machine PUBLIC
+target_include_directories(${machine} PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}
 )
 
-target_compile_features(machine PUBLIC c_std_99)
+target_compile_features(${machine} PUBLIC c_std_99)
 
-target_link_libraries(machine PRIVATE
-    d64
-    g64
-    util
+target_link_libraries(${machine} PRIVATE
+    ${d64}
+    ${g64}
+    ${util}
 )

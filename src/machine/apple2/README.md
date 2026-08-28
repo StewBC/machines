@@ -1,5 +1,8 @@
 # a2m — Apple ][+ and //e Enhanced emulator
 
+This leftover tree is not a CMake root. Build from the **machines** repo
+root: `cmake -B build -S . && cmake --build build -j && ./build/a2m`.
+
 a2m is an Apple II emulator written in C99. It is aimed at people who enjoy
 developing or exploring Apple II software.
 
@@ -62,9 +65,9 @@ There is a details section with more [technical details](../../../manual/a2m/man
 ## Quick Start
 
 ```bash
-# macOS
+# From the machines repo root (not this leftover tree).
 brew install cmake sdl2
-cmake -B build -DCMAKE_BUILD_TYPE=Release
+cmake -B build -S . -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j
 ./build/a2m
 ```

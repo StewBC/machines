@@ -121,11 +121,11 @@ Keep docs current. Stale handoffs are worse than none.
 From the **machines repo root**:
 
 ```text
-cmake -B build/c64m -S src/machine/c64 -DCMAKE_BUILD_TYPE=Debug
-cmake --build build/c64m -j
-ctest --test-dir build/c64m --output-on-failure
+cmake -B build -S . -DCMAKE_BUILD_TYPE=Debug
+cmake --build build -j
+ctest --test-dir build -L c64m --output-on-failure
 ```
 
 Expect **78 pass + 10 SKIP** (CTest 77 without leftover gitignored `assets/`)
-**+ `history_control_integration` fails**. Do not "fix" that fail. Details in
+**+ `c64m.history_control_integration` fails**. Do not "fix" that fail. Details in
 `testing.md`.

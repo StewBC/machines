@@ -4,12 +4,13 @@
 
 ```bash
 # machines repo root
-cmake -B build/a2m -S src/machine/apple2 -DCMAKE_BUILD_TYPE=Debug
-cmake --build build/a2m -j
-ctest --test-dir build/a2m --output-on-failure
+cmake -B build -S . -DCMAKE_BUILD_TYPE=Debug
+cmake --build build -j
+ctest --test-dir build -L a2m --output-on-failure
 ```
 
-Expect **82** green. Nested leftover `project(a2m)` is still the gate.
+Expect **82** green. CTest names are `a2m.<name>`. Root `project(machines)`
+is the gate; do not configure `-S src/machine/apple2`.
 
 ## Registered tests
 
@@ -94,7 +95,7 @@ local sample.
 ## Perf smoke
 
 ```bash
-cmake --build build --target bench_realtime
+cmake --build build --target a2m_bench_realtime
 ./build/bench_realtime 2
 ```
 

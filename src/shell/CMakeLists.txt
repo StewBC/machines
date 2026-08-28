@@ -1,5 +1,5 @@
 # Library only. No project(). No cmake_minimum_required().
-# Inherits 3.16 policies from a2m or 3.28 from c64m.
+# Inherits 3.24 policies from repo-root project(machines).
 
 # Tool targets before libshell so panes can PUBLIC-link disasm_6502.
 add_subdirectory(tools/am65)

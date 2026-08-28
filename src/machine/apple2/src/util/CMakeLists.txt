@@ -10,7 +10,7 @@ else()
     set(FS_WATCH_PLATFORM_SOURCE fs_watch_unsupported.c)
 endif()
 
-add_library(util STATIC
+add_library(${util} STATIC
     apple2_file.c
     apple_type_script.c
     dynarray.c
@@ -19,13 +19,13 @@ add_library(util STATIC
     util_file.c
 )
 
-target_include_directories(util PUBLIC
+target_include_directories(${util} PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}
 )
 
-target_compile_features(util PUBLIC c_std_99)
+target_compile_features(${util} PUBLIC c_std_99)
 
-target_link_libraries(util
+target_link_libraries(${util}
     PUBLIC
         shell
     PRIVATE
@@ -34,5 +34,5 @@ target_link_libraries(util
 
 if(APPLE)
     find_library(CORESERVICES_FRAMEWORK CoreServices REQUIRED)
-    target_link_libraries(util PRIVATE ${CORESERVICES_FRAMEWORK})
+    target_link_libraries(${util} PRIVATE ${CORESERVICES_FRAMEWORK})
 endif()

@@ -94,10 +94,10 @@ Unicode punctuation (`...` not `…`, `-`/`--` not `—`, `->` not `→`, `<=` n
 ## Build defaults
 
 ```bash
-cmake -B build -DCMAKE_BUILD_TYPE=Debug
+cmake -B build -S . -DCMAKE_BUILD_TYPE=Debug
 cmake --build build -j
-ctest --test-dir build --output-on-failure
+ctest --test-dir build -L a2m --output-on-failure
 ```
 
-Run from **repo root** so fixtures and relative disk paths resolve.
+Run from **machines repo root** so fixtures and relative disk paths resolve.
 Use `--noini` for reproducible smokes.

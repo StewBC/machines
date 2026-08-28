@@ -11,7 +11,7 @@ help:
 	@echo "Targets:"
 	@echo "  make coop         # print two-terminal coop recipe"
 	@echo "  make coop-watch   # start tools/a2m_coop_watch.py (PORT=$(PORT))"
-	@echo "Build with: cmake -B build && cmake --build build -j"
+	@echo "Build from machines repo root: cmake -B build -S . && cmake --build build -j"
 
 coop:
 	@echo "Cooperative remote debug (A2M/10) — two terminals:"

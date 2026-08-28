@@ -112,7 +112,7 @@ git -C /Users/swessels/Develop/github/personal/c64m push origin \
   refs/tags/frozen-for-machines-7f3c1abeb1abc6a5121020cb0650db10ba8e2a0a
 ```
 
-Owner: README freeze blurb on the old remotes is still pending (Stage 11 retire). Tags are enough for Stage 0.
+Owner README + GitHub archive: Stage 11 ([`retire-remotes.md`](retire-remotes.md)). Tags were enough for Stage 0.
 
 ## Stage 0 exit
 

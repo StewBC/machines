@@ -1,4 +1,4 @@
-add_library(machine STATIC
+add_library(${machine} STATIC
     apple2.c
     apple2_snapshot.c
     ay38910.c
@@ -17,13 +17,13 @@ add_library(machine STATIC
     keyboard.c
 )
 
-target_include_directories(machine PUBLIC
+target_include_directories(${machine} PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}
 )
 
-target_compile_features(machine PUBLIC c_std_99)
+target_compile_features(${machine} PUBLIC c_std_99)
 
-target_link_libraries(machine
+target_link_libraries(${machine}
     PUBLIC
-        util
+        ${util}
 )
