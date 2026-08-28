@@ -316,6 +316,9 @@ target_include_directories(test_app_options_mounts PRIVATE
     ${CMAKE_SOURCE_DIR}/external/argparse
 )
 target_compile_features(test_app_options_mounts PRIVATE c_std_99)
+target_compile_definitions(test_app_options_mounts PRIVATE
+    A2M_FIXTURE_DIR="${CMAKE_SOURCE_DIR}/tests/fixtures"
+)
 target_link_libraries(test_app_options_mounts PRIVATE util a2m_argparse)
 add_test(NAME app_options_mounts COMMAND test_app_options_mounts)
 

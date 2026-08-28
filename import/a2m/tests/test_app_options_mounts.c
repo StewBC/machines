@@ -133,7 +133,7 @@ int main(void)
        no mounted media. */
     app_options_init(&options);
     expect_true("load slot-card INI",
-        app_options_apply_ini_file(&options, "../tests/fixtures/slot_cards.ini"));
+        app_options_apply_ini_file(&options, A2M_FIXTURE_DIR "/slot_cards.ini"));
     expect_true("slot INI model", options.apple_model == 1);
     expect_true("slot INI MB",
         options.slot_cards[2] == APP_SLOT_CARD_MOCKINGBOARD && options.mb_slot == 2);
@@ -191,7 +191,7 @@ int main(void)
     /* The six browse-folder keys load in the same order consumed by frontend. */
     app_options_init(&options);
     expect_true("load browse paths INI",
-        app_options_apply_ini_file(&options, "../tests/fixtures/browse_paths.ini"));
+        app_options_apply_ini_file(&options, A2M_FIXTURE_DIR "/browse_paths.ini"));
     expect_true("browse assembler", strcmp(options.browse_dirs[0], "asm") == 0);
     expect_true("browse floppy", strcmp(options.browse_dirs[1], "floppy") == 0);
     expect_true("browse smartport", strcmp(options.browse_dirs[2], "smartport") == 0);
