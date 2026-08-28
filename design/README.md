@@ -14,10 +14,12 @@ here; promote lasting invariants into `agents/*.md` and the per-binary
 
 The agents index points here: [`agents/README.md`](../agents/README.md) → Design docs.
 
-Canonical product-as-is notes (leftover trees after Stage 1):
+Canonical product-as-is notes (Stage 10 destination):
 
-- a2m: [`src/machine/apple2/agents/`](../src/machine/apple2/agents/)
-- c64m: [`src/machine/c64/agents/`](../src/machine/c64/agents/)
+- monorepo index: [`agents/README.md`](../agents/README.md)
+- a2m: [`agents/apple2/`](../agents/apple2/)
+- c64m: [`agents/c64/`](../agents/c64/)
+- shared shell shape: [`agents/shell/`](../agents/shell/)
 
 ## Status legend
 
@@ -41,9 +43,10 @@ Canonical product-as-is notes (leftover trees after Stage 1):
 | Stage 7: Runtime client seam (shared subset) | **landed** | 2026-08-27 | [`runtime-client-seam.md`](runtime-client-seam.md) |
 | Stage 8: Debugger UI chrome (layout / CPU / disasm / memview / BP) | **landed** | 2026-08-27 | [`debugger-chrome.md`](debugger-chrome.md) |
 | Stage 9: Inspector unification (shared tab; leftover clocks) | **landed** | 2026-08-27 | [`inspector-unification.md`](inspector-unification.md) |
+| Stage 10: Agent handoff, manuals, tests layout | **active** | 2026-08-27 | [`monorepo-agents.md`](monorepo-agents.md) |
 
 Follow-on designs named by the stage map (not written yet):
-`monorepo-agents.md`.
+none (Stage 11 has no follow-on design).
 
 Landed Inspector / Forensics designs live in the leftover product trees
 (`src/machine/apple2/design/`, `src/machine/c64/design/`). Do not copy them here.
