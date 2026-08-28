@@ -1,0 +1,2419 @@
+#include "app_options.h"
+
+#include <ctype.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/stat.h>
+#if defined(_WIN32)
+#include <direct.h>
+#include <windows.h>
+#else
+#include <dirent.h>
+#include <unistd.h>
+#endif
+
+#include "argparse.h"
+#include "config.h"
+
+#ifndef PATH_MAX
+#define PATH_MAX 4096
+#endif
+
+#define C64M_DEFAULT_INI "c64m.ini"
+#define C64M_DEFAULT_VIDEO_STANDARD "NTSC"
+#define C64M_DEFAULT_KEYBOARD_JOYSTICK_LAYOUT "numpad"
+#define C64M_DEFAULT_SCROLL_WHEEL_LINES 3
+#define C64M_DEFAULT_CRT_SCANLINE_STRENGTH 35
+#define C64M_DEFAULT_CRT_CURVATURE_AMOUNT 30
+#define C64M_DEFAULT_LAYOUT_SPLIT_DISPLAY_RIGHT 0.62f
+#define C64M_DEFAULT_LAYOUT_SPLIT_TOP_BOTTOM 0.58f
+#define C64M_DEFAULT_LAYOUT_SPLIT_MEMORY_MISC 0.55f
+#define C64M_DEFAULT_HISTORY_MEMORY_MB 256
+#define C64M_DEFAULT_FRAME_RING_MEMORY_MB 128
+#define C64M_DEFAULT_VIC_RING_MEMORY_MB 16
+#define C64M_DEFAULT_INSPECTOR_MEMORY_MB 128
+#define C64M_SYSTEM_ROM_SIZE 16384
+#define C64M_BASIC_ROM_SIZE 8192
+#define C64M_KERNAL_ROM_SIZE 8192
+#define C64M_CHARACTER_ROM_SIZE 4096
+
+#if defined(_WIN32)
+#define C64M_STAT_ISREG(mode) (((mode) & _S_IFREG) != 0)
+#define c64m_getcwd _getcwd
+#else
+#define C64M_STAT_ISREG(mode) S_ISREG(mode)
+#define c64m_getcwd getcwd
+#endif
+
+static void normalize_path_separators(char *path)
+{
+    char *cursor;
+
+    if (path == NULL) {
+        return;
+    }
+    for (cursor = path; *cursor != '\0'; ++cursor) {
+        if (*cursor == '\\') {
+            *cursor = '/';
+        }
+    }
+}
+
+static char *copy_string(const char *value)
+{
+    size_t length;
+    char *copy;
+
+    if (value == NULL) {
+        return NULL;
+    }
+
+    length = strlen(value);
+    copy = (char *)malloc(length + 1);
+    if (copy == NULL) {
+        return NULL;
+    }
+
+    memcpy(copy, value, length + 1);
+    return copy;
+}
+
+static bool replace_string(char **target, const char *value)
+{
+    char *copy;
+
+    copy = copy_string(value);
+    if (copy == NULL && value != NULL) {
+        return false;
+    }
+
+    free(*target);
+    *target = copy;
+    return true;
+}
+
+bool app_options_set_string(char **target, const char *value)
+{
+    return replace_string(target, value);
+}
+
+static bool path_is_absolute(const char *path)
+{
+    return path != NULL &&
+        (path[0] == '/'
+#if defined(_WIN32)
+         || path[0] == '\\' ||
+         (isalpha((unsigned char)path[0]) && path[1] == ':' &&
+          (path[2] == '/' || path[2] == '\\'))
+#endif
+        );
+}
+
+static bool copy_path(char *out, size_t out_size, const char *path)
+{
+    int written;
+
+    if (out == NULL || out_size == 0 || path == NULL) {
+        return false;
+    }
+
+    written = snprintf(out, out_size, "%s", path);
+    if (written < 0 || (size_t)written >= out_size) {
+        return false;
+    }
+    normalize_path_separators(out);
+    return true;
+}
+
+static bool join_path_buffer(char *out, size_t out_size, const char *dir, const char *path)
+{
+    int written;
+
+    if (out == NULL || out_size == 0 || dir == NULL || path == NULL) {
+        return false;
+    }
+    if (dir[0] == '\0' || strcmp(dir, ".") == 0) {
+        written = snprintf(out, out_size, "%s", path);
+    } else if (strcmp(dir, "/") == 0) {
+        written = snprintf(out, out_size, "/%s", path);
+    } else {
+        written = snprintf(out, out_size, "%s/%s", dir, path);
+    }
+
+    return written >= 0 && (size_t)written < out_size;
+}
+
+static bool copy_resolved_or_original(char *out, size_t out_size, const char *path)
+{
+    char resolved[PATH_MAX];
+
+#if defined(_WIN32)
+    if (_fullpath(resolved, path, sizeof(resolved)) != NULL) {
+        return copy_path(out, out_size, resolved);
+    }
+#else
+    if (realpath(path, resolved) != NULL) {
+        return copy_path(out, out_size, resolved);
+    }
+#endif
+    return copy_path(out, out_size, path);
+}
+
+static bool ini_directory_absolute(const app_options *options, char *out, size_t out_size)
+{
+    char cwd[PATH_MAX];
+    char ini_copy[PATH_MAX];
+    char joined[PATH_MAX];
+    char *slash;
+
+    if (out == NULL || out_size == 0) {
+        return false;
+    }
+    if (c64m_getcwd(cwd, sizeof(cwd)) == NULL) {
+        return copy_path(out, out_size, ".");
+    }
+    normalize_path_separators(cwd);
+    if (options == NULL || options->ini_path == NULL || options->ini_path[0] == '\0') {
+        return copy_path(out, out_size, cwd);
+    }
+
+    if (!copy_path(ini_copy, sizeof(ini_copy), options->ini_path)) {
+        return false;
+    }
+
+    slash = strrchr(ini_copy, '/');
+    if (slash == NULL) {
+        return copy_path(out, out_size, cwd);
+    }
+    if (slash == ini_copy) {
+        return copy_path(out, out_size, "/");
+    }
+    *slash = '\0';
+    if (path_is_absolute(ini_copy)) {
+        return copy_resolved_or_original(out, out_size, ini_copy);
+    }
+    if (!join_path_buffer(joined, sizeof(joined), cwd, ini_copy)) {
+        return false;
+    }
+    return copy_resolved_or_original(out, out_size, joined);
+}
+
+static bool path_absolute_from_ini(
+    const app_options *options,
+    const char *path,
+    char *out,
+    size_t out_size)
+{
+    char ini_dir[PATH_MAX];
+    char joined[PATH_MAX];
+
+    if (path == NULL || path[0] == '\0') {
+        return copy_path(out, out_size, "");
+    }
+    if (path_is_absolute(path)) {
+        return copy_resolved_or_original(out, out_size, path);
+    }
+    if (!ini_directory_absolute(options, ini_dir, sizeof(ini_dir))) {
+        return false;
+    }
+    if (!join_path_buffer(joined, sizeof(joined), ini_dir, path)) {
+        return false;
+    }
+    return copy_resolved_or_original(out, out_size, joined);
+}
+
+bool app_options_path_absolute_from_ini(
+    const app_options *options,
+    const char *path,
+    char *out,
+    size_t out_size)
+{
+    return path_absolute_from_ini(options, path, out, out_size);
+}
+
+/* Defined below; used by path_for_ini_storage. */
+static bool relative_path_from_dir(
+    const char *base_dir,
+    const char *abs_path,
+    char *out,
+    size_t out_size);
+
+/* True when path names an existing regular file. */
+static bool path_is_existing_file(const char *path)
+{
+    struct stat st;
+
+    if (path == NULL || path[0] == '\0') {
+        return false;
+    }
+    if (stat(path, &st) != 0 || !C64M_STAT_ISREG(st.st_mode)) {
+        return false;
+    }
+    return true;
+}
+
+/*
+ * Count leading ".." components in a relative path (e.g. "../../foo" -> 2).
+ * Used to decide whether an absolute path is "near" the INI (portable) or far
+ * enough away that the absolute form should be preserved on save.
+ */
+static int count_leading_dotdot_components(const char *rel)
+{
+    int count = 0;
+    const char *cursor = rel;
+
+    if (cursor == NULL) {
+        return 0;
+    }
+    while (cursor[0] == '.' && cursor[1] == '.' &&
+           (cursor[2] == '/' || cursor[2] == '\0')) {
+        count++;
+        if (cursor[2] == '\0') {
+            break;
+        }
+        cursor += 3;
+    }
+    return count;
+}
+
+/*
+ * Form suitable for writing into the INI:
+ *  - relative strings stay relative
+ *  - absolute paths that live near the INI (under it, or a sibling via at most
+ *    two leading "..") are stored relative so a moved install still works
+ *  - absolute paths farther away stay absolute (Config pick of JiffyDOS on
+ *    another volume, etc.)
+ */
+static bool path_for_ini_storage(
+    const app_options *options,
+    const char *path,
+    char *out,
+    size_t out_size)
+{
+    char ini_dir[PATH_MAX];
+    char resolved[PATH_MAX];
+    char relative[PATH_MAX];
+    int leading_dotdots;
+
+    if (path == NULL || path[0] == '\0') {
+        return copy_path(out, out_size, "");
+    }
+    if (!path_is_absolute(path)) {
+        return copy_path(out, out_size, path);
+    }
+    if (!ini_directory_absolute(options, ini_dir, sizeof(ini_dir))) {
+        return copy_path(out, out_size, path);
+    }
+
+#if defined(_WIN32)
+    if (_fullpath(resolved, path, sizeof(resolved)) != NULL) {
+        normalize_path_separators(resolved);
+    } else if (!copy_path(resolved, sizeof(resolved), path)) {
+        return false;
+    }
+#else
+    if (realpath(path, resolved) == NULL) {
+        if (!copy_path(resolved, sizeof(resolved), path)) {
+            return false;
+        }
+    } else {
+        normalize_path_separators(resolved);
+    }
+#endif
+
+    if (!relative_path_from_dir(ini_dir, resolved, relative, sizeof(relative))) {
+        return copy_path(out, out_size, resolved);
+    }
+
+    leading_dotdots = count_leading_dotdot_components(relative);
+    /* 0 = under/at the INI dir; 1-2 = sibling project folders (../disks, etc.). */
+    if (leading_dotdots <= 2) {
+        return copy_path(out, out_size, relative);
+    }
+    return copy_path(out, out_size, resolved);
+}
+
+/* Resolve argv[0] to the directory containing the running executable. */
+static bool resolve_argv0_directory(const char *argv0, char *out, size_t out_size)
+{
+    char cwd[PATH_MAX];
+    char joined[PATH_MAX];
+    char resolved[PATH_MAX];
+    char copy[PATH_MAX];
+    char *slash;
+
+    if (out == NULL || out_size == 0 || argv0 == NULL || argv0[0] == '\0') {
+        return false;
+    }
+
+#if defined(_WIN32)
+    if (_fullpath(resolved, argv0, sizeof(resolved)) != NULL) {
+        normalize_path_separators(resolved);
+        if (!copy_path(copy, sizeof(copy), resolved)) {
+            return false;
+        }
+    } else
+#else
+    if (realpath(argv0, resolved) != NULL) {
+        if (!copy_path(copy, sizeof(copy), resolved)) {
+            return false;
+        }
+    } else
+#endif
+    {
+        if (path_is_absolute(argv0)) {
+            if (!copy_path(copy, sizeof(copy), argv0)) {
+                return false;
+            }
+        } else {
+            if (c64m_getcwd(cwd, sizeof(cwd)) == NULL) {
+                return false;
+            }
+            normalize_path_separators(cwd);
+            if (!join_path_buffer(joined, sizeof(joined), cwd, argv0)) {
+                return false;
+            }
+            if (!copy_path(copy, sizeof(copy), joined)) {
+                return false;
+            }
+        }
+    }
+
+    slash = strrchr(copy, '/');
+    if (slash == NULL) {
+        return copy_path(out, out_size, ".");
+    }
+    if (slash == copy) {
+        return copy_path(out, out_size, "/");
+    }
+    *slash = '\0';
+    return copy_resolved_or_original(out, out_size, copy);
+}
+
+/* Store value resolved against the INI directory (absolute when possible). */
+static bool replace_string_from_ini(
+    app_options *options,
+    char **target,
+    const char *value)
+{
+    char abs_path[PATH_MAX];
+
+    if (value == NULL) {
+        return replace_string(target, NULL);
+    }
+    if (path_absolute_from_ini(options, value, abs_path, sizeof(abs_path))) {
+        return replace_string(target, abs_path);
+    }
+    return replace_string(target, value);
+}
+
+static size_t path_component_length(const char *path)
+{
+    const char *slash;
+
+    slash = strchr(path, '/');
+    return slash != NULL ? (size_t)(slash - path) : strlen(path);
+}
+
+static bool append_relative_up(char *out, size_t out_size, size_t *used)
+{
+    int written;
+
+    written = snprintf(out + *used, out_size - *used, "%s..", *used > 0 ? "/" : "");
+    if (written < 0 || (size_t)written >= out_size - *used) {
+        return false;
+    }
+    *used += (size_t)written;
+    return true;
+}
+
+static bool relative_path_from_dir(
+    const char *base_dir,
+    const char *abs_path,
+    char *out,
+    size_t out_size)
+{
+    const char *base_cursor;
+    const char *path_cursor;
+    const char *base_remainder;
+    const char *path_remainder;
+    size_t used = 0;
+
+    if (!path_is_absolute(base_dir) || !path_is_absolute(abs_path)) {
+        return copy_path(out, out_size, abs_path);
+    }
+
+    base_cursor = base_dir;
+    path_cursor = abs_path;
+    while (*base_cursor == '/' && *path_cursor == '/') {
+        base_cursor++;
+        path_cursor++;
+    }
+
+    base_remainder = base_cursor;
+    path_remainder = path_cursor;
+    while (*base_cursor != '\0' && *path_cursor != '\0') {
+        size_t base_len = path_component_length(base_cursor);
+        size_t path_len = path_component_length(path_cursor);
+
+        if (base_len != path_len || strncmp(base_cursor, path_cursor, base_len) != 0) {
+            break;
+        }
+
+        base_cursor += base_len;
+        path_cursor += path_len;
+        if (*base_cursor == '/') {
+            base_cursor++;
+        }
+        if (*path_cursor == '/') {
+            path_cursor++;
+        }
+        base_remainder = base_cursor;
+        path_remainder = path_cursor;
+    }
+
+    while (*base_remainder != '\0') {
+        size_t component_len = path_component_length(base_remainder);
+        if (component_len > 0 && !append_relative_up(out, out_size, &used)) {
+            return false;
+        }
+        base_remainder += component_len;
+        if (*base_remainder == '/') {
+            base_remainder++;
+        }
+    }
+
+    if (*path_remainder != '\0') {
+        int written = snprintf(out + used, out_size - used, "%s%s", used > 0 ? "/" : "", path_remainder);
+        if (written < 0 || (size_t)written >= out_size - used) {
+            return false;
+        }
+    } else if (used == 0) {
+        return copy_path(out, out_size, ".");
+    }
+
+    return true;
+}
+
+bool app_options_path_relative_to_ini(
+    const app_options *options,
+    const char *path,
+    char *out,
+    size_t out_size)
+{
+    char ini_dir[PATH_MAX];
+    char resolved[PATH_MAX];
+
+    if (path == NULL || path[0] == '\0') {
+        return copy_path(out, out_size, "");
+    }
+    if (!path_is_absolute(path)) {
+        return copy_path(out, out_size, path);
+    }
+    if (!ini_directory_absolute(options, ini_dir, sizeof(ini_dir))) {
+        return false;
+    }
+#if defined(_WIN32)
+    if (_fullpath(resolved, path, sizeof(resolved)) != NULL) {
+        normalize_path_separators(resolved);
+        return relative_path_from_dir(ini_dir, resolved, out, out_size);
+    }
+#else
+    if (realpath(path, resolved) != NULL) {
+        return relative_path_from_dir(ini_dir, resolved, out, out_size);
+    }
+#endif
+    return relative_path_from_dir(ini_dir, path, out, out_size);
+}
+
+static bool transform_symbol_files(
+    const app_options *options,
+    const char *symbol_files,
+    bool absolute,
+    char *out,
+    size_t out_size)
+{
+    const char *cursor;
+    size_t used = 0;
+
+    if (out == NULL || out_size == 0) {
+        return false;
+    }
+
+    out[0] = '\0';
+    cursor = symbol_files != NULL ? symbol_files : "";
+    while (*cursor != '\0') {
+        const char *start;
+        const char *end;
+        char path[PATH_MAX];
+        char transformed[PATH_MAX];
+        size_t length;
+        int written;
+
+        while (*cursor == ',' || isspace((unsigned char)*cursor)) {
+            cursor++;
+        }
+        if (*cursor == '\0') {
+            break;
+        }
+
+        start = cursor;
+        while (*cursor != '\0' && *cursor != ',') {
+            cursor++;
+        }
+        end = cursor;
+        while (end > start && isspace((unsigned char)end[-1])) {
+            end--;
+        }
+
+        length = (size_t)(end - start);
+        if (length == 0) {
+            continue;
+        }
+        if (length >= sizeof(path)) {
+            return false;
+        }
+        memcpy(path, start, length);
+        path[length] = '\0';
+
+        if (absolute) {
+            if (!path_absolute_from_ini(options, path, transformed, sizeof(transformed))) {
+                return false;
+            }
+        } else {
+            if (!app_options_path_relative_to_ini(options, path, transformed, sizeof(transformed))) {
+                return false;
+            }
+        }
+
+        written = snprintf(out + used, out_size - used, "%s%s", used > 0 ? "," : "", transformed);
+        if (written < 0 || (size_t)written >= out_size - used) {
+            return false;
+        }
+        used += (size_t)written;
+    }
+
+    return true;
+}
+
+bool app_options_symbol_files_absolute(
+    const app_options *options,
+    char *out,
+    size_t out_size)
+{
+    if (options == NULL) {
+        return false;
+    }
+    return transform_symbol_files(options, options->symbol_files, true, out, out_size);
+}
+
+static bool string_equal_ignore_case(const char *a, const char *b)
+{
+    unsigned char ca;
+    unsigned char cb;
+
+    while (*a != '\0' && *b != '\0') {
+        ca = (unsigned char)*a++;
+        cb = (unsigned char)*b++;
+        if (tolower(ca) != tolower(cb)) {
+            return false;
+        }
+    }
+
+    return *a == '\0' && *b == '\0';
+}
+
+static bool rom_candidate_name_matches(const char *filename, const char *rom_name)
+{
+    char stem[256];
+    const char *dot;
+    size_t length;
+
+    if (string_equal_ignore_case(filename, rom_name)) {
+        return true;
+    }
+
+    dot = strrchr(filename, '.');
+    if (dot == NULL || dot == filename) {
+        return false;
+    }
+
+    length = (size_t)(dot - filename);
+    if (length >= sizeof(stem)) {
+        return false;
+    }
+
+    memcpy(stem, filename, length);
+    stem[length] = '\0';
+    return string_equal_ignore_case(stem, rom_name);
+}
+
+static bool path_has_size(const char *path, size_t expected_size)
+{
+    struct stat st;
+
+    if (stat(path, &st) != 0 || !C64M_STAT_ISREG(st.st_mode)) {
+        return false;
+    }
+
+    return st.st_size >= 0 && (size_t)st.st_size == expected_size;
+}
+
+static bool join_path(char *out, size_t out_size, const char *dir, const char *filename)
+{
+    int written;
+
+    if (strcmp(dir, ".") == 0) {
+        written = snprintf(out, out_size, "%s", filename);
+    } else {
+        written = snprintf(out, out_size, "%s/%s", dir, filename);
+    }
+
+    return written >= 0 && (size_t)written < out_size;
+}
+
+static bool discover_rom_path(
+    const char *dir,
+    const char *rom_name,
+    size_t expected_size,
+    char **target)
+{
+#if defined(_WIN32)
+    WIN32_FIND_DATAA data;
+    HANDLE handle;
+    char search_path[1024];
+    char path[1024];
+#else
+    DIR *handle;
+    struct dirent *entry;
+    char path[1024];
+#endif
+
+    if (*target != NULL) {
+        return true;
+    }
+
+#if defined(_WIN32)
+    if (!join_path(search_path, sizeof(search_path), dir, "*")) {
+        return true;
+    }
+    handle = FindFirstFileA(search_path, &data);
+    if (handle == INVALID_HANDLE_VALUE) {
+        return true;
+    }
+
+    do {
+        if ((data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0 ||
+            !rom_candidate_name_matches(data.cFileName, rom_name)) {
+            continue;
+        }
+        if (!join_path(path, sizeof(path), dir, data.cFileName)) {
+            continue;
+        }
+        if (!path_has_size(path, expected_size)) {
+            continue;
+        }
+
+        FindClose(handle);
+        return replace_string(target, path);
+    } while (FindNextFileA(handle, &data));
+
+    FindClose(handle);
+#else
+    handle = opendir(dir);
+    if (handle == NULL) {
+        return true;
+    }
+
+    while ((entry = readdir(handle)) != NULL) {
+        if (!rom_candidate_name_matches(entry->d_name, rom_name)) {
+            continue;
+        }
+        if (!join_path(path, sizeof(path), dir, entry->d_name)) {
+            continue;
+        }
+        if (!path_has_size(path, expected_size)) {
+            continue;
+        }
+
+        closedir(handle);
+        return replace_string(target, path);
+    }
+
+    closedir(handle);
+#endif
+    return true;
+}
+
+/*
+ * Ensure *target names an existing ROM file when possible. If the current path
+ * already opens, leave it. If unset or missing, search roots; on a hit replace
+ * the path, otherwise restore the prior configured string so diagnostics still
+ * show what the INI asked for.
+ */
+static bool fill_rom_path_from_roots(
+    char **target,
+    const char *rom_name,
+    size_t expected_size,
+    char roots[][PATH_MAX],
+    size_t root_count)
+{
+    char *prior;
+    size_t i;
+
+    if (target == NULL) {
+        return false;
+    }
+    if (*target != NULL && path_is_existing_file(*target)) {
+        return true;
+    }
+
+    prior = *target;
+    *target = NULL;
+    for (i = 0; i < root_count; ++i) {
+        if (!discover_rom_path(roots[i], rom_name, expected_size, target)) {
+            *target = prior;
+            return false;
+        }
+        if (*target != NULL) {
+            free(prior);
+            return true;
+        }
+    }
+    *target = prior;
+    return true;
+}
+
+static bool append_discover_root(
+    char roots[][PATH_MAX],
+    size_t roots_cap,
+    size_t *root_count,
+    const char *root)
+{
+    size_t i;
+
+    if (root == NULL || root[0] == '\0' || *root_count >= roots_cap) {
+        return true;
+    }
+    for (i = 0; i < *root_count; ++i) {
+        if (strcmp(roots[i], root) == 0) {
+            return true;
+        }
+    }
+    if (!copy_path(roots[*root_count], PATH_MAX, root)) {
+        return false;
+    }
+    (*root_count)++;
+    return true;
+}
+
+static bool append_discover_root_and_rom_subdirs(
+    char roots[][PATH_MAX],
+    size_t roots_cap,
+    size_t *root_count,
+    const char *base)
+{
+    char child[PATH_MAX];
+
+    if (base == NULL || base[0] == '\0') {
+        return true;
+    }
+    if (!append_discover_root(roots, roots_cap, root_count, base)) {
+        return false;
+    }
+    if (!join_path_buffer(child, sizeof(child), base, "rom")) {
+        return false;
+    }
+    if (!append_discover_root(roots, roots_cap, root_count, child)) {
+        return false;
+    }
+    if (!join_path_buffer(child, sizeof(child), base, "roms")) {
+        return false;
+    }
+    return append_discover_root(roots, roots_cap, root_count, child);
+}
+
+/*
+ * Fill any still-unset ROM paths by scanning well-known locations, in order:
+ *   1. CWD, ./rom, ./roms
+ *   2. directory of the executable, and rom/roms under it
+ *   3. parent of the executable (build/c64m with ROMs in the project root)
+ *   4. directory of the INI (when known), and rom/roms under it
+ *
+ * Existing non-NULL targets are left alone (discover_rom_path no-ops on them).
+ */
+static bool discover_default_rom_paths(app_options *options, const char *exe_dir)
+{
+    char roots[16][PATH_MAX];
+    size_t root_count = 0;
+    char ini_dir[PATH_MAX];
+    char parent[PATH_MAX];
+    char *slash;
+
+    if (!append_discover_root_and_rom_subdirs(roots, 16, &root_count, ".")) {
+        return false;
+    }
+
+    if (exe_dir != NULL && exe_dir[0] != '\0') {
+        if (!append_discover_root_and_rom_subdirs(roots, 16, &root_count, exe_dir)) {
+            return false;
+        }
+        if (copy_path(parent, sizeof(parent), exe_dir)) {
+            slash = strrchr(parent, '/');
+            if (slash != NULL && slash != parent) {
+                *slash = '\0';
+                if (!append_discover_root_and_rom_subdirs(roots, 16, &root_count, parent)) {
+                    return false;
+                }
+            }
+        }
+    }
+    if (options != NULL && options->ini_path != NULL && options->ini_path[0] != '\0' &&
+        ini_directory_absolute(options, ini_dir, sizeof(ini_dir))) {
+        if (!append_discover_root_and_rom_subdirs(roots, 16, &root_count, ini_dir)) {
+            return false;
+        }
+    }
+
+    {
+        /* Only derive single_system when discovery is the source of the CPU ROM
+           set. If the INI (or caller) already supplied any of system/basic/kernal
+           that open (or that we keep as configured), keep the existing flag. */
+        bool had_open_cpu_roms =
+            (options->system_rom_path != NULL &&
+             path_is_existing_file(options->system_rom_path)) ||
+            (options->basic_rom_path != NULL &&
+             path_is_existing_file(options->basic_rom_path)) ||
+            (options->kernal_rom_path != NULL &&
+             path_is_existing_file(options->kernal_rom_path));
+        bool had_any_cpu_config =
+            (options->system_rom_path != NULL && options->system_rom_path[0] != '\0') ||
+            (options->basic_rom_path != NULL && options->basic_rom_path[0] != '\0') ||
+            (options->kernal_rom_path != NULL && options->kernal_rom_path[0] != '\0');
+
+        if (!fill_rom_path_from_roots(
+                &options->system_rom_path,
+                "system",
+                C64M_SYSTEM_ROM_SIZE,
+                roots,
+                root_count) ||
+            !fill_rom_path_from_roots(
+                &options->basic_rom_path,
+                "basic",
+                C64M_BASIC_ROM_SIZE,
+                roots,
+                root_count) ||
+            !fill_rom_path_from_roots(
+                &options->char_rom_path,
+                "character",
+                C64M_CHARACTER_ROM_SIZE,
+                roots,
+                root_count) ||
+            !fill_rom_path_from_roots(
+                &options->kernal_rom_path,
+                "kernal",
+                C64M_KERNAL_ROM_SIZE,
+                roots,
+                root_count) ||
+            !fill_rom_path_from_roots(
+                &options->rom1541_path,
+                "1541",
+                C64M_SYSTEM_ROM_SIZE,
+                roots,
+                root_count)) {
+            return false;
+        }
+
+        /* Derive only when nothing was configured and discovery filled the set
+           (classic --noini / missing-ini case). Do not stomp an INI flag. */
+        if (!had_any_cpu_config && !had_open_cpu_roms) {
+            bool have_system =
+                options->system_rom_path != NULL && options->system_rom_path[0] != '\0';
+            bool have_basic =
+                options->basic_rom_path != NULL && options->basic_rom_path[0] != '\0';
+            bool have_kernal =
+                options->kernal_rom_path != NULL && options->kernal_rom_path[0] != '\0';
+            options->rom_single_system = have_system && !(have_basic && have_kernal);
+        }
+    }
+
+    return true;
+}
+
+static float config_get_float(config *cfg, const char *section, const char *key, float default_value)
+{
+    const char *value;
+    char *end;
+    float parsed;
+
+    value = config_get(cfg, section, key);
+    if (value == NULL) {
+        return default_value;
+    }
+
+    parsed = strtof(value, &end);
+    if (end == value || *end != '\0') {
+        return default_value;
+    }
+
+    return parsed;
+}
+
+static void config_set_float(config *cfg, const char *section, const char *key, float value)
+{
+    char buffer[32];
+
+    snprintf(buffer, sizeof(buffer), "%.6g", value);
+    config_set(cfg, section, key, buffer);
+}
+
+/* --- disk slot helpers --------------------------------------------------- */
+
+static void disk_slot_free(app_disk_slot *slot)
+{
+    int i;
+
+    for (i = 0; i < slot->count; ++i) {
+        free(slot->paths[i]);
+    }
+    free(slot->paths);
+    free(slot->writable);
+    slot->paths = NULL;
+    slot->writable = NULL;
+    slot->count = 0;
+    slot->current = 0;
+}
+
+static bool disk_slot_append(app_disk_slot *slot, const char *path)
+{
+    char **grown;
+    bool *grown_writable;
+    char *copy;
+
+    copy = copy_string(path);
+    if (copy == NULL) {
+        return false;
+    }
+
+    grown = (char **)realloc(slot->paths, (size_t)(slot->count + 1) * sizeof(char *));
+    if (grown == NULL) {
+        free(copy);
+        return false;
+    }
+    slot->paths = grown;
+
+    grown_writable = (bool *)realloc(slot->writable, (size_t)(slot->count + 1) * sizeof(bool));
+    if (grown_writable == NULL) {
+        free(copy);
+        return false;
+    }
+
+    grown[slot->count] = copy;
+    slot->writable = grown_writable;
+    slot->writable[slot->count] = false;
+    slot->count++;
+    return true;
+}
+
+static void disk_slot_parse_writable_list(app_disk_slot *slot, const char *spec)
+{
+    const char *cursor = spec;
+    int index = 0;
+
+    if (slot == NULL || spec == NULL) {
+        return;
+    }
+
+    while (*cursor != '\0' && index < slot->count) {
+        const char *start;
+        const char *end;
+        size_t len;
+
+        while (*cursor == ' ') {
+            cursor++;
+        }
+        start = cursor;
+        while (*cursor != '\0' && *cursor != ',') {
+            cursor++;
+        }
+        end = cursor;
+        while (end > start && end[-1] == ' ') {
+            end--;
+        }
+        len = (size_t)(end - start);
+        slot->writable[index] =
+            (len == 1 && start[0] == '1') ||
+            (len == 4 && strncmp(start, "true", 4) == 0) ||
+            (len == 2 && strncmp(start, "rw", 2) == 0);
+        index++;
+        if (*cursor == ',') {
+            cursor++;
+        }
+    }
+}
+
+static bool disk_slot_format_writable_list(
+    const app_disk_slot *slot,
+    char *out,
+    size_t out_size)
+{
+    size_t used = 0;
+    int j;
+
+    if (slot == NULL || out == NULL || out_size == 0) {
+        return false;
+    }
+    out[0] = '\0';
+    for (j = 0; j < slot->count; ++j) {
+        int written = snprintf(
+            out + used,
+            out_size - used,
+            "%s%d",
+            used > 0 ? "," : "",
+            slot->writable[j] ? 1 : 0);
+        if (written < 0 || (size_t)written >= out_size - used) {
+            return false;
+        }
+        used += (size_t)written;
+    }
+    return true;
+}
+
+/*
+ * Parse a comma-separated list of paths into slot (replacing any prior
+ * contents).  When resolve_options is non-NULL each path is resolved
+ * relative to the INI directory; otherwise paths are kept as-is.
+ */
+static bool disk_slot_parse_list(
+    app_disk_slot *slot,
+    const app_options *resolve_options,
+    const char *spec)
+{
+    const char *cursor = spec;
+
+    disk_slot_free(slot);
+
+    while (*cursor != '\0') {
+        const char *start;
+        const char *end;
+        char path[PATH_MAX];
+        size_t len;
+
+        while (*cursor == ' ') {
+            cursor++;
+        }
+        if (*cursor == '\0') {
+            break;
+        }
+
+        start = cursor;
+        while (*cursor != '\0' && *cursor != ',') {
+            cursor++;
+        }
+        end = cursor;
+        while (end > start && end[-1] == ' ') {
+            end--;
+        }
+
+        len = (size_t)(end - start);
+        if (len == 0) {
+            if (*cursor == ',') {
+                cursor++;
+            }
+            continue;
+        }
+        if (len >= sizeof(path)) {
+            return false;
+        }
+        memcpy(path, start, len);
+        path[len] = '\0';
+
+        if (resolve_options != NULL) {
+            char abs_path[PATH_MAX];
+            if (path_absolute_from_ini(resolve_options, path, abs_path, sizeof(abs_path))) {
+                if (!disk_slot_append(slot, abs_path)) {
+                    return false;
+                }
+            } else {
+                if (!disk_slot_append(slot, path)) {
+                    return false;
+                }
+            }
+        } else {
+            if (!disk_slot_append(slot, path)) {
+                return false;
+            }
+        }
+
+        if (*cursor == ',') {
+            cursor++;
+        }
+    }
+
+    return true;
+}
+
+/*
+ * Write slot paths as a comma-separated string into out, converting each
+ * absolute path to be relative to the INI directory.
+ */
+static bool disk_slot_format_list(
+    const app_disk_slot *slot,
+    const app_options *options,
+    char *out,
+    size_t out_size)
+{
+    size_t used = 0;
+    int j;
+
+    if (out == NULL || out_size == 0) {
+        return false;
+    }
+    out[0] = '\0';
+
+    for (j = 0; j < slot->count; ++j) {
+        char stored[PATH_MAX];
+        int written;
+
+        if (!path_for_ini_storage(options, slot->paths[j], stored, sizeof(stored))) {
+            if (!copy_path(stored, sizeof(stored), slot->paths[j])) {
+                return false;
+            }
+        }
+
+        written = snprintf(out + used, out_size - used, "%s%s", used > 0 ? "," : "", stored);
+        if (written < 0 || (size_t)written >= out_size - used) {
+            return false;
+        }
+        used += (size_t)written;
+    }
+
+    return true;
+}
+
+/* Public slot API ---------------------------------------------------------- */
+
+bool app_disk_slot_set(app_disk_slot *slot, const char *path)
+{
+    disk_slot_free(slot);
+    if (path == NULL || path[0] == '\0') {
+        return true;
+    }
+    return disk_slot_append(slot, path);
+}
+
+void app_disk_slot_clear(app_disk_slot *slot)
+{
+    disk_slot_free(slot);
+}
+
+bool app_disk_slot_copy(app_disk_slot *dest, const app_disk_slot *src)
+{
+    int i;
+
+    disk_slot_free(dest);
+    for (i = 0; i < src->count; ++i) {
+        if (!disk_slot_append(dest, src->paths[i])) {
+            disk_slot_free(dest);
+            return false;
+        }
+        dest->writable[i] = src->writable != NULL && src->writable[i];
+    }
+    dest->current = src->current;
+    dest->power_on_only = src->power_on_only;
+    return true;
+}
+
+const char *app_disk_slot_eject_current(app_disk_slot *slot)
+{
+    int i;
+
+    if (slot == NULL || slot->count == 0) {
+        return NULL;
+    }
+
+    free(slot->paths[slot->current]);
+    for (i = slot->current; i < slot->count - 1; ++i) {
+        slot->paths[i] = slot->paths[i + 1];
+        slot->writable[i] = slot->writable[i + 1];
+    }
+    slot->paths[slot->count - 1] = NULL;
+    slot->count--;
+
+    if (slot->count == 0) {
+        free(slot->paths);
+        free(slot->writable);
+        slot->paths = NULL;
+        slot->writable = NULL;
+        slot->current = 0;
+        return NULL;
+    }
+
+    if (slot->current >= slot->count) {
+        slot->current = 0;
+    }
+    return slot->paths[slot->current];
+}
+
+bool app_disk_slot_add_after_current(app_disk_slot *slot, const char *path)
+{
+    char **grown;
+    bool *grown_writable;
+    char *copy;
+    int insert_at;
+    int i;
+
+    if (slot == NULL || path == NULL || path[0] == '\0') {
+        return false;
+    }
+
+    copy = copy_string(path);
+    if (copy == NULL) {
+        return false;
+    }
+
+    grown = (char **)realloc(slot->paths, (size_t)(slot->count + 1) * sizeof(char *));
+    if (grown == NULL) {
+        free(copy);
+        return false;
+    }
+    slot->paths = grown;
+
+    grown_writable = (bool *)realloc(slot->writable, (size_t)(slot->count + 1) * sizeof(bool));
+    if (grown_writable == NULL) {
+        free(copy);
+        return false;
+    }
+    slot->writable = grown_writable;
+
+    insert_at = slot->count == 0 ? 0 : slot->current + 1;
+    for (i = slot->count; i > insert_at; --i) {
+        slot->paths[i] = slot->paths[i - 1];
+        slot->writable[i] = slot->writable[i - 1];
+    }
+    slot->paths[insert_at] = copy;
+    slot->writable[insert_at] = false;
+    slot->count++;
+    return true;
+}
+
+const char *app_disk_slot_select(app_disk_slot *slot, int index)
+{
+    if (slot == NULL || index < 0 || index >= slot->count) {
+        return NULL;
+    }
+    slot->current = index;
+    return slot->paths[index];
+}
+
+bool app_disk_slot_current_writable(const app_disk_slot *slot)
+{
+    if (slot == NULL || slot->count == 0 || slot->current < 0 || slot->current >= slot->count ||
+        slot->writable == NULL) {
+        return false;
+    }
+    return slot->writable[slot->current];
+}
+
+bool app_disk_slot_set_current_writable(app_disk_slot *slot, bool writable)
+{
+    if (slot == NULL || slot->count == 0 || slot->current < 0 || slot->current >= slot->count ||
+        slot->writable == NULL) {
+        return false;
+    }
+    slot->writable[slot->current] = writable;
+    return true;
+}
+
+/* --- disk spec parsing for --disk CLI arg --------------------------------- */
+
+static bool apply_disk_spec(app_options *options, const char *spec)
+{
+    char *end;
+    long drive;
+    const char *images;
+
+    drive = strtol(spec, &end, 10);
+    if (end == spec || *end != '=' || drive < 0 || drive >= C64M_DRIVE_COUNT) {
+        fprintf(stderr, "invalid disk spec `%s`; expected <drive>=<image>\n", spec);
+        return false;
+    }
+
+    images = end + 1;
+    if (*images == '\0') {
+        /* `-d 8=` / `-d 9=`: soft power-on only (no image). */
+        options->disk_slots[drive].power_on_only = true;
+        return true;
+    }
+
+    /* Command-line paths stay as-is (relative to CWD). */
+    options->disk_slots[drive].power_on_only = false;
+    return disk_slot_parse_list(&options->disk_slots[drive], NULL, images);
+}
+
+/* Keys in the [browse] section, indexed by frontend_browse_slot / APP_BROWSE_DIR
+   order. Keep in sync with frontend_browse_slot in frontend/frontend.h. */
+static const char *const browse_dir_keys[APP_BROWSE_DIR_COUNT] = {
+    "assembler", "disk", "program", "basic", "text", "snapshot"
+};
+/* Index of the "snapshot" slot within browse_dir_keys / browse_dirs. Doubles as
+   the quicksave folder (see the frontend Paths tab). */
+#define APP_BROWSE_DIR_SNAPSHOT 5
+
+/* Write the ROM file paths and the single/separate-ROM flag into cfg. Empty or
+   unset paths remove their key so a cleared field disappears from the INI. Shared
+   by the full-shutdown save and the "Save Paths Only" save. Paths near the INI
+   are stored relative; far absolute paths stay absolute. */
+static void config_write_rom_config(config *cfg, const app_options *options)
+{
+    struct {
+        const char *key;
+        const char *value;
+    } roms[] = {
+        { "basic", options->basic_rom_path },
+        { "character", options->char_rom_path },
+        { "kernal", options->kernal_rom_path },
+        { "system", options->system_rom_path },
+        { "1541", options->rom1541_path },
+    };
+    size_t i;
+
+    for (i = 0; i < sizeof(roms) / sizeof(roms[0]); ++i) {
+        if (roms[i].value != NULL && roms[i].value[0] != '\0') {
+            char storage[PATH_MAX];
+            if (path_for_ini_storage(options, roms[i].value, storage, sizeof(storage))) {
+                config_set(cfg, "roms", roms[i].key, storage);
+            } else {
+                config_set(cfg, "roms", roms[i].key, roms[i].value);
+            }
+        } else {
+            config_remove_prefix(cfg, "roms", roms[i].key);
+        }
+    }
+    config_set_bool(cfg, "roms", "single_system", options->rom_single_system);
+}
+
+static void apply_config(app_options *options, config *cfg)
+{
+    const char *value;
+    char key[32];
+    int drive;
+    int i;
+
+    if (cfg == NULL) {
+        return;
+    }
+
+    options->remember = config_get_bool(cfg, "config", "Save", options->remember);
+    options->scroll_wheel_lines = config_get_int(
+        cfg, "config", "scroll_wheel_lines", options->scroll_wheel_lines);
+    if (options->scroll_wheel_lines < 1) {
+        options->scroll_wheel_lines = 1;
+    }
+    value = config_get(cfg, "config", "log_level");
+    if (value != NULL && value[0] != '\0') {
+        c64m_log_level parsed_log = C64M_LOG_LEVEL_WARN;
+        if (c64m_log_level_from_string(value, &parsed_log)) {
+            options->log_level = parsed_log;
+        }
+    }
+    value = config_get(cfg, "config", "symbol_files");
+    if (value != NULL) {
+        replace_string(&options->symbol_files, value);
+    }
+    value = config_get(cfg, "Video", "standard");
+    if (value != NULL) {
+        replace_string(&options->video_standard, value);
+    }
+    options->true_aspect = config_get_bool(
+        cfg, "Video", "true_aspect", options->true_aspect);
+    options->crt_smoothing = config_get_bool(
+        cfg, "Video", "crt_smoothing", options->crt_smoothing);
+    options->crt_scanlines = config_get_bool(
+        cfg, "Video", "crt_scanlines", options->crt_scanlines);
+    options->crt_scanline_strength = config_get_int(
+        cfg, "Video", "crt_scanline_strength", options->crt_scanline_strength);
+    /* Floor of 1: crt_scanlines is what turns the effect off, so 0 would only
+       describe an enabled effect that draws nothing. */
+    if (options->crt_scanline_strength < 1) {
+        options->crt_scanline_strength = 1;
+    }
+    if (options->crt_scanline_strength > 100) {
+        options->crt_scanline_strength = 100;
+    }
+    options->crt_curvature = config_get_bool(
+        cfg, "Video", "crt_curvature", options->crt_curvature);
+    options->crt_curvature_amount = config_get_int(
+        cfg, "Video", "crt_curvature_amount", options->crt_curvature_amount);
+    if (options->crt_curvature_amount < 1) {
+        options->crt_curvature_amount = 1;
+    }
+    if (options->crt_curvature_amount > 100) {
+        options->crt_curvature_amount = 100;
+    }
+    value = config_get(cfg, "input", "keyboard_joystick_layout");
+    if (value != NULL) {
+        replace_string(&options->keyboard_joystick_layout, value);
+    }
+    options->keyboard_joystick_port = config_get_int(
+        cfg, "input", "keyboard_joystick_port", options->keyboard_joystick_port);
+    if (options->keyboard_joystick_port < 0 || options->keyboard_joystick_port > 2) {
+        options->keyboard_joystick_port = 0;
+    }
+
+    options->window_width = config_get_int(
+        cfg, "Window", "width", options->window_width);
+    options->window_height = config_get_int(
+        cfg, "Window", "height", options->window_height);
+    options->layout_split_display_right = config_get_float(
+        cfg, "Layout", "split_display_right", options->layout_split_display_right);
+    options->layout_split_top_bottom = config_get_float(
+        cfg, "Layout", "split_top_bottom", options->layout_split_top_bottom);
+    options->layout_split_memory_misc = config_get_float(
+        cfg, "Layout", "split_memory_misc", options->layout_split_memory_misc);
+    value = config_get(cfg, "config", "turbo_speeds");
+    if (value != NULL) {
+        replace_string(&options->turbo_multipliers, value);
+    }
+    value = config_get(cfg, "rom", "basic");
+    if (value == NULL) {
+        value = config_get(cfg, "roms", "basic");
+    }
+    if (value != NULL) {
+        replace_string_from_ini(options, &options->basic_rom_path, value);
+    }
+    value = config_get(cfg, "rom", "char");
+    if (value == NULL) {
+        value = config_get(cfg, "rom", "character");
+    }
+    if (value == NULL) {
+        value = config_get(cfg, "roms", "char");
+    }
+    if (value == NULL) {
+        value = config_get(cfg, "roms", "character");
+    }
+    if (value != NULL) {
+        replace_string_from_ini(options, &options->char_rom_path, value);
+    }
+    value = config_get(cfg, "rom", "kernal");
+    if (value == NULL) {
+        value = config_get(cfg, "roms", "kernal");
+    }
+    if (value != NULL) {
+        replace_string_from_ini(options, &options->kernal_rom_path, value);
+    }
+    value = config_get(cfg, "rom", "system");
+    if (value == NULL) {
+        value = config_get(cfg, "roms", "system");
+    }
+    if (value != NULL) {
+        replace_string_from_ini(options, &options->system_rom_path, value);
+    }
+    value = config_get(cfg, "rom", "1541");
+    if (value == NULL) {
+        value = config_get(cfg, "roms", "1541");
+    }
+    if (value != NULL) {
+        replace_string_from_ini(options, &options->rom1541_path, value);
+    }
+
+    {
+        /* When the flag is absent, derive it: a lone combined system ROM implies
+           single-ROM mode; a basic+kernal pair (with or without system) implies
+           the separate-ROM mode. */
+        bool have_system = options->system_rom_path != NULL && options->system_rom_path[0] != '\0';
+        bool have_basic = options->basic_rom_path != NULL && options->basic_rom_path[0] != '\0';
+        bool have_kernal = options->kernal_rom_path != NULL && options->kernal_rom_path[0] != '\0';
+        bool default_single = have_system && !(have_basic && have_kernal);
+        options->rom_single_system = config_get_bool(
+            cfg, "roms", "single_system",
+            config_get_bool(cfg, "rom", "single_system", default_single));
+    }
+
+    options->emulate_1541 = config_get_bool(cfg, "disk", "emulate_1541", options->emulate_1541);
+    options->media_1541 = config_get_bool(cfg, "disk", "media_1541", options->media_1541);
+    options->show_disk_leds = config_get_bool(cfg, "disk", "show_disk_leds", options->show_disk_leds);
+    /* Absent key defaults to false, so a machine with no explicit setting runs
+       through BRKs (Wonderboy et al. boot without stopping). */
+    options->pause_on_brk = config_get_bool(cfg, "config", "pause_on_brk", options->pause_on_brk);
+    value = config_get(cfg, "debug", "history_memory_mb");
+    if (value != NULL) {
+        char *end = NULL;
+        unsigned long parsed = strtoul(value, &end, 0);
+        if (end == value || *end != '\0' ||
+            (parsed != 0u && (parsed < 16u || parsed > 4096u))) {
+            fprintf(
+                stderr,
+                "invalid [debug] history_memory_mb `%s`; using %d\n",
+                value,
+                C64M_DEFAULT_HISTORY_MEMORY_MB);
+            options->history_memory_mb = C64M_DEFAULT_HISTORY_MEMORY_MB;
+        } else {
+            options->history_memory_mb = (int)parsed;
+        }
+    }
+    value = config_get(cfg, "debug", "frame_ring_memory_mb");
+    if (value != NULL) {
+        char *end = NULL;
+        unsigned long parsed = strtoul(value, &end, 0);
+        if (end == value || *end != '\0' ||
+            (parsed != 0u && (parsed < 8u || parsed > 4096u))) {
+            fprintf(
+                stderr,
+                "invalid [debug] frame_ring_memory_mb `%s`; using %d\n",
+                value,
+                C64M_DEFAULT_FRAME_RING_MEMORY_MB);
+            options->frame_ring_memory_mb = C64M_DEFAULT_FRAME_RING_MEMORY_MB;
+        } else {
+            options->frame_ring_memory_mb = (int)parsed;
+        }
+    }
+    value = config_get(cfg, "debug", "vic_ring_memory_mb");
+    if (value != NULL) {
+        char *end = NULL;
+        unsigned long parsed = strtoul(value, &end, 0);
+        if (end == value || *end != '\0' ||
+            (parsed != 0u && (parsed < 1u || parsed > 1024u))) {
+            fprintf(
+                stderr,
+                "invalid [debug] vic_ring_memory_mb `%s`; using %d\n",
+                value,
+                C64M_DEFAULT_VIC_RING_MEMORY_MB);
+            options->vic_ring_memory_mb = C64M_DEFAULT_VIC_RING_MEMORY_MB;
+        } else {
+            options->vic_ring_memory_mb = (int)parsed;
+        }
+    }
+    options->inspector = config_get_bool(
+        cfg, "debug", "inspector", options->inspector);
+    options->inspector_off_on_max = config_get_bool(
+        cfg, "debug", "inspector_off_on_max", options->inspector_off_on_max);
+    value = config_get(cfg, "debug", "inspector_memory_mb");
+    if (value != NULL) {
+        char *end = NULL;
+        unsigned long parsed = strtoul(value, &end, 0);
+        if (end == value || *end != '\0' ||
+            (parsed != 0u && (parsed < 16u || parsed > 4096u))) {
+            fprintf(
+                stderr,
+                "invalid [debug] inspector_memory_mb `%s`; using %d\n",
+                value,
+                C64M_DEFAULT_INSPECTOR_MEMORY_MB);
+            options->inspector_memory_mb = C64M_DEFAULT_INSPECTOR_MEMORY_MB;
+        } else {
+            options->inspector_memory_mb = (int)parsed;
+        }
+    }
+
+    value = config_get(cfg, "assembler", "file");
+    if (value != NULL) {
+        replace_string_from_ini(options, &options->assembler_file, value);
+    }
+    value = config_get(cfg, "assembler", "address");
+    if (value != NULL) {
+        replace_string(&options->assembler_address, value);
+    }
+    value = config_get(cfg, "assembler", "run_address");
+    if (value != NULL) {
+        replace_string(&options->assembler_run_address, value);
+    }
+    options->assembler_use_address = config_get_bool(
+        cfg, "assembler", "use_address", options->assembler_use_address);
+    options->assembler_auto_run = config_get_bool(
+        cfg, "assembler", "auto_run", options->assembler_auto_run);
+    options->assembler_basic_run = config_get_bool(
+        cfg, "assembler", "basic_run", options->assembler_basic_run);
+    options->assembler_reset_first = config_get_bool(
+        cfg, "assembler", "reset", options->assembler_reset_first);
+    options->assembler_rearm_oneshots = config_get_bool(
+        cfg, "assembler", "rearm_oneshots", options->assembler_rearm_oneshots);
+    options->assembler_auto_adjust_segments = config_get_bool(
+        cfg, "assembler", "auto_adjust_segments",
+        options->assembler_auto_adjust_segments);
+
+    for (drive = 0; drive < C64M_DRIVE_COUNT; ++drive) {
+        snprintf(key, sizeof(key), "%d", drive);
+        value = config_get(cfg, "disk", key);
+        if (value != NULL) {
+            disk_slot_parse_list(&options->disk_slots[drive], options, value);
+        }
+        snprintf(key, sizeof(key), "%d_writable", drive);
+        value = config_get(cfg, "disk", key);
+        if (value != NULL) {
+            disk_slot_parse_writable_list(&options->disk_slots[drive], value);
+        }
+    }
+
+    for (i = 0; i < APP_BROWSE_DIR_COUNT; ++i) {
+        value = config_get(cfg, "browse", browse_dir_keys[i]);
+        if (value != NULL && value[0] != '\0') {
+            replace_string_from_ini(options, &options->browse_dirs[i], value);
+        }
+    }
+    /* Migrate the pre-unification [state] quicksave_folder into the snapshot slot
+       when no [browse] snapshot is present. */
+    if (options->browse_dirs[APP_BROWSE_DIR_SNAPSHOT] == NULL ||
+            options->browse_dirs[APP_BROWSE_DIR_SNAPSHOT][0] == '\0') {
+        value = config_get(cfg, "state", "quicksave_folder");
+        if (value != NULL && value[0] != '\0') {
+            replace_string_from_ini(
+                options, &options->browse_dirs[APP_BROWSE_DIR_SNAPSHOT], value);
+        }
+    }
+}
+
+static bool apply_disk_args(app_options *options, int argc, char **argv)
+{
+    int i;
+
+    for (i = 1; i < argc; ++i) {
+        const char *arg = argv[i];
+
+        if (arg == NULL) {
+            break;
+        }
+        if (strcmp(arg, "--disk") == 0 || strcmp(arg, "-d") == 0) {
+            if (i + 1 >= argc) {
+                fprintf(stderr, "%s requires a value\n", arg);
+                return false;
+            }
+            if (!apply_disk_spec(options, argv[++i])) {
+                return false;
+            }
+        } else if (strncmp(arg, "--disk=", 7) == 0) {
+            if (!apply_disk_spec(options, arg + 7)) {
+                return false;
+            }
+        } else if (strncmp(arg, "-d", 2) == 0 && arg[2] != '\0') {
+            if (!apply_disk_spec(options, arg + 2)) {
+                return false;
+            }
+        }
+    }
+
+    return true;
+}
+
+static bool apply_video_standard_arg(app_options *options, const char *value)
+{
+    if (value == NULL) {
+        return true;
+    }
+    if (strcmp(value, "PAL") == 0 || strcmp(value, "NTSC") == 0) {
+        return replace_string(&options->video_standard, value);
+    }
+
+    fprintf(stderr, "invalid video standard `%s`; expected PAL or NTSC\n", value);
+    return false;
+}
+
+static bool preparse_ini_options(app_options *options, int argc, char **argv)
+{
+    int i;
+
+    for (i = 1; i < argc; ++i) {
+        const char *arg = argv[i];
+
+        if (strcmp(arg, "--defaults") == 0 || strcmp(arg, "-f") == 0) {
+            options->defaults = true;
+            options->use_ini = false;
+        } else if (strcmp(arg, "--noini") == 0 || strcmp(arg, "-n") == 0) {
+            options->use_ini = false;
+        } else if (strcmp(arg, "--inifile") == 0 || strcmp(arg, "-i") == 0) {
+            if (i + 1 >= argc) {
+                fprintf(stderr, "%s requires a value\n", arg);
+                return false;
+            }
+            if (!replace_string(&options->ini_path, argv[++i])) {
+                return false;
+            }
+        } else if (strncmp(arg, "--inifile=", 10) == 0) {
+            if (!replace_string(&options->ini_path, arg + 10)) {
+                return false;
+            }
+        } else if (strncmp(arg, "-i", 2) == 0 && arg[2] != '\0') {
+            if (!replace_string(&options->ini_path, arg + 2)) {
+                return false;
+            }
+        }
+    }
+
+    return true;
+}
+
+static bool parse_command_line_overrides(app_options *options, int argc, char **argv)
+{
+    int defaults = 0;
+    int noini = 0;
+    int no_save_ini = 0;
+    int remember = 0;
+    int save_ini = 0;
+    int audio_smoke = 0;
+    int autorun = 0;
+    int control_port = 0;
+    int headless = 0;
+    int video_pal = 0;
+    int video_ntsc = 0;
+    int kbdjoy_port = -1;
+    const char *kbdjoy_layout = NULL;
+    float audio_record_start = 0.0f;
+    float audio_record_duration = 0.0f;
+    const char *basic_path = NULL;
+    const char *breakpoint = NULL;
+    const char *crt_path = NULL;
+    const char *disk = NULL;
+    const char *ini_path = NULL;
+    const char *prg_path = NULL;
+    const char *sna_path = NULL;
+    const char *audio_record_path = NULL;
+    const char *turbo = NULL;
+    const char *video_standard = NULL;
+    const char *history_memory = NULL;
+    const char *inspector_memory = NULL;
+    const char *log_level_s = NULL;
+    int inspector = 0;
+    int inspector_cli = -1;
+    int inspector_off_on_max_flag = 0;
+    int inspector_off_on_max_cli = -1;
+    int i;
+    struct argparse argparse;
+    const char *const usages[] = {
+        "c64m [options]",
+        NULL,
+    };
+    struct argparse_option parse_options[] = {
+        OPT_BOOLEAN('A', "audio-smoke", &audio_smoke, "emit 440 Hz tone to verify audio path", NULL, 0, OPT_NONEG),
+        OPT_STRING('\0', "audio-record", &audio_record_path, "record runtime mono audio to WAV", NULL, 0, 0),
+        OPT_FLOAT('\0', "audio-record-start", &audio_record_start, "recording start time in seconds", NULL, 0, 0),
+        OPT_FLOAT('\0', "audio-record-duration", &audio_record_duration, "recording duration in seconds", NULL, 0, 0),
+        OPT_BOOLEAN('a', "autorun", &autorun, "run automatically after load", NULL, 0, OPT_NONEG),
+        OPT_STRING('B', "basic", &basic_path, "load file as BASIC program at startup", NULL, 0, 0),
+        OPT_STRING('b', "break", &breakpoint, "install a breakpoint", NULL, 0, 0),
+        OPT_STRING('\0', "crt", &crt_path, "load CRT cartridge at startup", NULL, 0, 0),
+        OPT_INTEGER('\0', "control-port", &control_port, "enable localhost control server on port", NULL, 0, 0),
+        OPT_BOOLEAN('\0', "headless", &headless, "run without creating a window; requires --control-port", NULL, 0, OPT_NONEG),
+        OPT_STRING('\0', "history-memory", &history_memory, "CPU flight-recorder memory budget in MiB (0 or 16..4096)", NULL, 0, 0),
+        OPT_BOOLEAN('\0', "inspector", &inspector, "enable Inspector recording (checkpoints; default off)", NULL, 0, 0),
+        OPT_STRING('\0', "inspector-memory", &inspector_memory, "Inspector recording memory budget in MiB (0 or 16..4096)", NULL, 0, 0),
+        OPT_BOOLEAN('\0', "inspector-off-on-max", &inspector_off_on_max_flag, "wipe Inspector Record on max/warp (default on; --no-inspector-off-on-max)", NULL, 0, 0),
+        OPT_BOOLEAN('f', "defaults", &defaults, "use default settings", NULL, 0, OPT_NONEG),
+        OPT_STRING('d', "disk", &disk, "1541 drive image; format <drive>=<image>", NULL, 0, 0),
+        OPT_STRING('i', "inifile", &ini_path, "path to an .ini file", NULL, 0, 0),
+        OPT_STRING('\0', "log-level", &log_level_s,
+                   "host log policy: all|warn|error|none (default warn)", NULL, 0, 0),
+        OPT_BOOLEAN('n', "noini", &noini, "do not use an ini file", NULL, 0, OPT_NONEG),
+        OPT_BOOLEAN('!', "nosaveini", &no_save_ini, "do not save the ini no matter what", NULL, 0, OPT_NONEG),
+        OPT_STRING('p', "prg", &prg_path, "load file as PRG at startup", NULL, 0, 0),
+        OPT_STRING('\0', "sna", &sna_path, "load machine snapshot (.c64state) at startup", NULL, 0, 0),
+        OPT_BOOLEAN('P', "pal", &video_pal, "use PAL video timing", NULL, 0, OPT_NONEG),
+        OPT_BOOLEAN('N', "ntsc", &video_ntsc, "use NTSC video timing", NULL, 0, OPT_NONEG),
+        OPT_STRING('\0', "video", &video_standard, "video standard: PAL or NTSC", NULL, 0, 0),
+        OPT_INTEGER('\0', "kbdjoy", &kbdjoy_port, "drive keyboard joystick on C64 port: 0 off, 1 or 2", NULL, 0, 0),
+        OPT_STRING('\0', "kbdjoy-layout", &kbdjoy_layout, "keyboard joystick layout: numpad or wasd", NULL, 0, 0),
+        OPT_BOOLEAN('r', "remember", &remember, "add save at quit to ini file", NULL, 0, OPT_NONEG),
+        OPT_BOOLEAN('v', "saveini", &save_ini, "save to ini file at quit", NULL, 0, OPT_NONEG),
+        OPT_STRING('t', "turbo", &turbo, "comma separated turbo modes (1=normal,2=max,3=warp)", NULL, 0, 0),
+        OPT_HELP(),
+        OPT_END(),
+    };
+
+    /* Scan original argv before argparse compact-shifts it so --inspector /
+       --no-inspector and --inspector-off-on-max / --no-inspector-off-on-max
+       can override INI (argparse BOOLEAN cannot tell unset from the --no-
+       form). Last occurrence wins. */
+    for (i = 1; i < argc; ++i) {
+        if (argv[i] == NULL) {
+            continue;
+        }
+        if (strcmp(argv[i], "--inspector") == 0) {
+            inspector_cli = 1;
+        } else if (strcmp(argv[i], "--no-inspector") == 0) {
+            inspector_cli = 0;
+        } else if (strcmp(argv[i], "--inspector-off-on-max") == 0) {
+            inspector_off_on_max_cli = 1;
+        } else if (strcmp(argv[i], "--no-inspector-off-on-max") == 0) {
+            inspector_off_on_max_cli = 0;
+        }
+    }
+
+    argparse_init(&argparse, parse_options, usages, 0);
+    argparse_describe(&argparse, "A Commodore 64 emulator written by Codex, Claude Code and Grok, produced by Stefan Wessels, 2026.", NULL);
+    argparse_parse(&argparse, argc, (const char **)argv);
+    (void)inspector; /* consumed so --inspector is a known flag; CLI value comes from inspector_cli */
+    (void)inspector_off_on_max_flag;
+
+    if (defaults) {
+        options->defaults = true;
+        options->use_ini = false;
+    }
+    if (ini_path != NULL) {
+        replace_string(&options->ini_path, ini_path);
+    }
+    if (noini) {
+        options->use_ini = false;
+    }
+    if (breakpoint != NULL) {
+        replace_string(&options->breakpoint, breakpoint);
+    }
+    if (!apply_disk_args(options, argc, argv)) {
+        return false;
+    }
+    if (prg_path != NULL) {
+        replace_string(&options->prg_path, prg_path);
+    }
+    if (sna_path != NULL) {
+        replace_string(&options->sna_path, sna_path);
+    }
+    if (crt_path != NULL) {
+        replace_string(&options->crt_path, crt_path);
+    }
+    if (basic_path != NULL) {
+        replace_string(&options->basic_path, basic_path);
+    }
+    if (turbo != NULL) {
+        replace_string(&options->turbo_multipliers, turbo);
+    }
+    if (!apply_video_standard_arg(options, video_standard)) {
+        return false;
+    }
+    if (video_pal && !apply_video_standard_arg(options, "PAL")) {
+        return false;
+    }
+    if (video_ntsc && !apply_video_standard_arg(options, "NTSC")) {
+        return false;
+    }
+    if (kbdjoy_port >= 0) {
+        if (kbdjoy_port > 2) {
+            fprintf(stderr, "--kbdjoy expects 0, 1, or 2\n");
+            return false;
+        }
+        options->keyboard_joystick_port = kbdjoy_port;
+    }
+    if (kbdjoy_layout != NULL) {
+        if (strcmp(kbdjoy_layout, "numpad") != 0 && strcmp(kbdjoy_layout, "wasd") != 0) {
+            fprintf(stderr, "--kbdjoy-layout expects 'numpad' or 'wasd'\n");
+            return false;
+        }
+        replace_string(&options->keyboard_joystick_layout, kbdjoy_layout);
+    }
+    if (log_level_s != NULL) {
+        c64m_log_level parsed_log = C64M_LOG_LEVEL_WARN;
+        if (!c64m_log_level_from_string(log_level_s, &parsed_log)) {
+            fprintf(
+                stderr,
+                "c64m: --log-level expects all, warn, error, or none\n");
+            return false;
+        }
+        options->log_level = parsed_log;
+    }
+
+    if (remember) {
+        options->remember = true;
+        options->save_ini = true;
+    }
+    if (save_ini) {
+        options->save_ini = true;
+    }
+    if (no_save_ini) {
+        options->no_save_ini = true;
+        options->save_ini = false;
+    }
+    if (audio_smoke) {
+        options->audio_smoke = true;
+    }
+    if (audio_record_path != NULL) {
+        replace_string(&options->audio_record_path, audio_record_path);
+    }
+    if (audio_record_start > 0.0f) {
+        options->audio_record_start_seconds = audio_record_start;
+    }
+    if (audio_record_duration > 0.0f) {
+        options->audio_record_duration_seconds = audio_record_duration;
+    }
+    if (autorun) {
+        options->autorun = true;
+    }
+    if (control_port < 0 || control_port > 65535) {
+        fprintf(stderr, "invalid control port `%d`; expected 0..65535\n", control_port);
+        return false;
+    }
+    if (control_port > 0) {
+        options->control_port = control_port;
+    }
+    if (headless) {
+        options->headless = true;
+    }
+    if (history_memory != NULL) {
+        char *end = NULL;
+        unsigned long parsed = strtoul(history_memory, &end, 0);
+        if (end == history_memory || *end != '\0' ||
+            (parsed != 0u && (parsed < 16u || parsed > 4096u))) {
+            fprintf(
+                stderr,
+                "--history-memory expects 0 or a value from 16 through 4096 MiB\n");
+            return false;
+        }
+        options->history_memory_mb = (int)parsed;
+    }
+    if (inspector_cli >= 0) {
+        options->inspector = inspector_cli != 0;
+    }
+    if (inspector_off_on_max_cli >= 0) {
+        options->inspector_off_on_max = inspector_off_on_max_cli != 0;
+    }
+    if (inspector_memory != NULL) {
+        char *end = NULL;
+        unsigned long parsed = strtoul(inspector_memory, &end, 0);
+        if (end == inspector_memory || *end != '\0' ||
+            (parsed != 0u && (parsed < 16u || parsed > 4096u))) {
+            fprintf(
+                stderr,
+                "--inspector-memory expects 0 or a value from 16 through 4096 MiB\n");
+            return false;
+        }
+        options->inspector_memory_mb = (int)parsed;
+    }
+    if (options->headless && options->control_port <= 0) {
+        fprintf(stderr, "--headless requires --control-port PORT\n");
+        return false;
+    }
+
+    return true;
+}
+
+void app_options_init(app_options *options)
+{
+    memset(options, 0, sizeof(*options));
+    options->use_ini = true;
+    replace_string(&options->ini_path, C64M_DEFAULT_INI);
+    options->log_level = C64M_LOG_LEVEL_WARN;
+    options->scroll_wheel_lines = C64M_DEFAULT_SCROLL_WHEEL_LINES;
+    replace_string(&options->video_standard, C64M_DEFAULT_VIDEO_STANDARD);
+    options->crt_scanline_strength = C64M_DEFAULT_CRT_SCANLINE_STRENGTH;
+    options->crt_curvature_amount = C64M_DEFAULT_CRT_CURVATURE_AMOUNT;
+    replace_string(&options->keyboard_joystick_layout,
+                   C64M_DEFAULT_KEYBOARD_JOYSTICK_LAYOUT);
+    options->keyboard_joystick_port = 0;
+    options->window_width = 0;
+    options->window_height = 0;
+    options->layout_split_display_right = C64M_DEFAULT_LAYOUT_SPLIT_DISPLAY_RIGHT;
+    options->layout_split_top_bottom = C64M_DEFAULT_LAYOUT_SPLIT_TOP_BOTTOM;
+    options->layout_split_memory_misc = C64M_DEFAULT_LAYOUT_SPLIT_MEMORY_MISC;
+    options->assembler_use_address = true;
+    options->assembler_auto_run = false;
+    options->assembler_basic_run = false;
+    options->assembler_reset_first = true;
+    options->assembler_rearm_oneshots = false;
+    options->assembler_auto_adjust_segments = false;
+    options->control_port = 0;
+    options->headless = false;
+    options->show_disk_leds = true;
+    options->history_memory_mb = C64M_DEFAULT_HISTORY_MEMORY_MB;
+    options->frame_ring_memory_mb = C64M_DEFAULT_FRAME_RING_MEMORY_MB;
+    options->vic_ring_memory_mb = C64M_DEFAULT_VIC_RING_MEMORY_MB;
+    options->inspector = false;
+    options->inspector_memory_mb = C64M_DEFAULT_INSPECTOR_MEMORY_MB;
+    options->inspector_off_on_max = true;
+}
+
+bool app_options_apply_ini_file(app_options *options, const char *path)
+{
+    config *cfg;
+
+    if (options == NULL || path == NULL || path[0] == '\0') {
+        return false;
+    }
+
+    cfg = config_load(path);
+    if (cfg == NULL) {
+        return false;
+    }
+
+    apply_config(options, cfg);
+    config_destroy(cfg);
+    return true;
+}
+
+bool app_options_copy(app_options *dest, const app_options *src)
+{
+    int i;
+
+    if (dest == NULL || src == NULL) {
+        return false;
+    }
+
+    app_options_init(dest);
+    dest->use_ini = src->use_ini;
+    dest->save_ini = src->save_ini;
+    dest->remember = src->remember;
+    dest->defaults = src->defaults;
+    dest->no_save_ini = src->no_save_ini;
+    dest->log_level = src->log_level;
+    dest->autorun = src->autorun;
+    dest->emulate_1541 = src->emulate_1541;
+    dest->media_1541 = src->media_1541;
+    dest->show_disk_leds = src->show_disk_leds;
+    dest->pause_on_brk = src->pause_on_brk;
+    dest->true_aspect = src->true_aspect;
+    dest->crt_smoothing = src->crt_smoothing;
+    dest->crt_scanlines = src->crt_scanlines;
+    dest->crt_scanline_strength = src->crt_scanline_strength;
+    dest->crt_curvature = src->crt_curvature;
+    dest->crt_curvature_amount = src->crt_curvature_amount;
+    dest->rom_single_system = src->rom_single_system;
+    dest->audio_smoke = src->audio_smoke;
+    dest->audio_record_start_seconds = src->audio_record_start_seconds;
+    dest->audio_record_duration_seconds = src->audio_record_duration_seconds;
+    dest->scroll_wheel_lines = src->scroll_wheel_lines;
+    dest->window_width = src->window_width;
+    dest->window_height = src->window_height;
+    dest->layout_split_display_right = src->layout_split_display_right;
+    dest->layout_split_top_bottom = src->layout_split_top_bottom;
+    dest->layout_split_memory_misc = src->layout_split_memory_misc;
+
+    dest->assembler_use_address = src->assembler_use_address;
+    dest->assembler_auto_run = src->assembler_auto_run;
+    dest->assembler_basic_run = src->assembler_basic_run;
+    dest->assembler_reset_first = src->assembler_reset_first;
+    dest->assembler_rearm_oneshots = src->assembler_rearm_oneshots;
+    dest->assembler_auto_adjust_segments =
+        src->assembler_auto_adjust_segments;
+    dest->control_port = src->control_port;
+    dest->headless = src->headless;
+    dest->keyboard_joystick_port = src->keyboard_joystick_port;
+    dest->history_memory_mb = src->history_memory_mb;
+    dest->frame_ring_memory_mb = src->frame_ring_memory_mb;
+    dest->vic_ring_memory_mb = src->vic_ring_memory_mb;
+    dest->inspector = src->inspector;
+    dest->inspector_memory_mb = src->inspector_memory_mb;
+    dest->inspector_off_on_max = src->inspector_off_on_max;
+
+    if (!replace_string(&dest->keyboard_joystick_layout, src->keyboard_joystick_layout) ||
+        !replace_string(&dest->ini_path, src->ini_path) ||
+        !replace_string(&dest->breakpoint, src->breakpoint) ||
+        !replace_string(&dest->turbo_multipliers, src->turbo_multipliers) ||
+        !replace_string(&dest->symbol_files, src->symbol_files) ||
+        !replace_string(&dest->video_standard, src->video_standard) ||
+        !replace_string(&dest->basic_rom_path, src->basic_rom_path) ||
+        !replace_string(&dest->char_rom_path, src->char_rom_path) ||
+        !replace_string(&dest->kernal_rom_path, src->kernal_rom_path) ||
+        !replace_string(&dest->system_rom_path, src->system_rom_path) ||
+        !replace_string(&dest->rom1541_path, src->rom1541_path) ||
+        !replace_string(&dest->crt_path, src->crt_path) ||
+        !replace_string(&dest->prg_path, src->prg_path) ||
+        !replace_string(&dest->basic_path, src->basic_path) ||
+        !replace_string(&dest->sna_path, src->sna_path) ||
+        !replace_string(&dest->audio_record_path, src->audio_record_path) ||
+        !replace_string(&dest->assembler_file, src->assembler_file) ||
+        !replace_string(&dest->assembler_address, src->assembler_address) ||
+        !replace_string(&dest->assembler_run_address, src->assembler_run_address)) {
+        app_options_destroy(dest);
+        return false;
+    }
+
+    for (i = 0; i < C64M_DRIVE_COUNT; ++i) {
+        if (!app_disk_slot_copy(&dest->disk_slots[i], &src->disk_slots[i])) {
+            app_options_destroy(dest);
+            return false;
+        }
+    }
+
+    for (i = 0; i < APP_BROWSE_DIR_COUNT; ++i) {
+        if (!replace_string(&dest->browse_dirs[i], src->browse_dirs[i])) {
+            app_options_destroy(dest);
+            return false;
+        }
+    }
+
+    return true;
+}
+
+bool app_options_load_startup(app_options *options, int argc, char **argv)
+{
+    config *cfg = NULL;
+    char exe_dir[PATH_MAX];
+    const char *exe_dir_arg = NULL;
+
+    app_options_init(options);
+
+    /*
+     * Capture the executable directory before argparse rewrites argv[] (it
+     * compact-shifts remaining non-options over argv[0]).
+     */
+    if (argv != NULL && argc > 0 && argv[0] != NULL &&
+        resolve_argv0_directory(argv[0], exe_dir, sizeof(exe_dir))) {
+        exe_dir_arg = exe_dir;
+    }
+
+    if (!preparse_ini_options(options, argc, argv)) {
+        return false;
+    }
+
+    if (options->use_ini) {
+        cfg = config_load(options->ini_path);
+        if (cfg != NULL) {
+            apply_config(options, cfg);
+        }
+    }
+
+    if (!parse_command_line_overrides(options, argc, argv)) {
+        config_destroy(cfg);
+        return false;
+    }
+
+    /*
+     * ROM friendliness: relative INI keys are already absolutized against the
+     * INI directory. Fill any unset or unopenable ROM path by scanning CWD,
+     * the executable tree, and the INI tree for standard ROM names. Always run
+     * (unless --defaults) so a broken key or a no-INI launch still finds ROMs
+     * next to the binary.
+     */
+    if (!options->defaults) {
+        if (!discover_default_rom_paths(options, exe_dir_arg)) {
+            config_destroy(cfg);
+            return false;
+        }
+    }
+
+    config_destroy(cfg);
+    return true;
+}
+
+bool app_options_save_shutdown(const app_options *options)
+{
+    config *cfg;
+    bool ok;
+    int drive;
+    char key[32];
+    char relative_symbol_files[1024];
+
+    if (options == NULL || options->no_save_ini || options->ini_path == NULL) {
+        return true;
+    }
+
+    cfg = config_load(options->ini_path);
+    if (cfg == NULL) {
+        cfg = config_load(NULL);
+    }
+    if (cfg == NULL) {
+        return false;
+    }
+
+    if (options->video_standard != NULL) {
+        config_set(cfg, "Video", "standard", options->video_standard);
+    }
+    config_set_bool(cfg, "Video", "true_aspect", options->true_aspect);
+    config_set_bool(cfg, "Video", "crt_smoothing", options->crt_smoothing);
+    config_set_bool(cfg, "Video", "crt_scanlines", options->crt_scanlines);
+    config_set_int(cfg, "Video", "crt_scanline_strength", options->crt_scanline_strength);
+    config_set_bool(cfg, "Video", "crt_curvature", options->crt_curvature);
+    config_set_int(cfg, "Video", "crt_curvature_amount", options->crt_curvature_amount);
+    config_remove_prefix(cfg, "Video", "display_width");
+    config_remove_prefix(cfg, "Video", "display_height");
+    if (options->keyboard_joystick_layout != NULL) {
+        config_set(cfg, "input", "keyboard_joystick_layout",
+                   options->keyboard_joystick_layout);
+    }
+    config_set_int(cfg, "input", "keyboard_joystick_port",
+                   options->keyboard_joystick_port);
+
+    config_remove_prefix(cfg, "runtime", "turbo");
+    if (options->turbo_multipliers != NULL) {
+        config_set(cfg, "config", "turbo_speeds", options->turbo_multipliers);
+    }
+    config_set_int(cfg, "config", "scroll_wheel_lines", options->scroll_wheel_lines);
+    /* Always persist so a non-default value (and an explicit warn) survives. */
+    config_set(cfg, "config", "log_level", c64m_log_level_name(options->log_level));
+    config_set_int(cfg, "debug", "history_memory_mb", options->history_memory_mb);
+    config_set_int(cfg, "debug", "frame_ring_memory_mb", options->frame_ring_memory_mb);
+    config_set_int(cfg, "debug", "vic_ring_memory_mb", options->vic_ring_memory_mb);
+    config_set_int(cfg, "debug", "inspector", options->inspector ? 1 : 0);
+    config_set_int(cfg, "debug", "inspector_memory_mb", options->inspector_memory_mb);
+    config_set_int(
+        cfg, "debug", "inspector_off_on_max", options->inspector_off_on_max ? 1 : 0);
+    /* The snapshot folder is now [browse] snapshot; drop the legacy key. */
+    config_remove_prefix(cfg, "state", "quicksave_folder");
+    if (options->symbol_files != NULL &&
+        transform_symbol_files(options, options->symbol_files, false, relative_symbol_files, sizeof(relative_symbol_files))) {
+        config_set(cfg, "config", "symbol_files", relative_symbol_files);
+    }
+    if (options->remember) {
+        config_set(cfg, "config", "Save", "yes");
+    } else {
+        config_remove_prefix(cfg, "config", "Save");
+    }
+
+    if (options->window_width > 0 && options->window_height > 0) {
+        config_set_int(cfg, "Window", "width", options->window_width);
+        config_set_int(cfg, "Window", "height", options->window_height);
+    }
+
+    config_set_float(cfg, "Layout", "split_display_right", options->layout_split_display_right);
+    config_set_float(cfg, "Layout", "split_top_bottom", options->layout_split_top_bottom);
+    config_set_float(cfg, "Layout", "split_memory_misc", options->layout_split_memory_misc);
+    config_remove_prefix(cfg, "Layout", "display_width");
+    config_remove_prefix(cfg, "Layout", "display_height");
+
+    config_write_rom_config(cfg, options);
+
+    config_remove_prefix(cfg, "disk", "");
+    for (drive = 0; drive < C64M_DRIVE_COUNT; ++drive) {
+        const app_disk_slot *slot = &options->disk_slots[drive];
+        if (slot->count > 0) {
+            char joined[4096];
+            if (disk_slot_format_list(slot, options, joined, sizeof(joined))) {
+                snprintf(key, sizeof(key), "%d", drive);
+                config_set(cfg, "disk", key, joined);
+            }
+            if (disk_slot_format_writable_list(slot, joined, sizeof(joined))) {
+                snprintf(key, sizeof(key), "%d_writable", drive);
+                config_set(cfg, "disk", key, joined);
+            }
+        }
+    }
+    if (options->emulate_1541) {
+        config_set_bool(cfg, "disk", "emulate_1541", true);
+    } else {
+        config_remove_prefix(cfg, "disk", "emulate_1541");
+    }
+    if (options->media_1541) {
+        config_set_bool(cfg, "disk", "media_1541", true);
+    } else {
+        config_remove_prefix(cfg, "disk", "media_1541");
+    }
+    /* Default is false; only persist when set, so an absent key means false. */
+    if (options->pause_on_brk) {
+        config_set_bool(cfg, "config", "pause_on_brk", true);
+    } else {
+        config_remove_prefix(cfg, "config", "pause_on_brk");
+    }
+    /* Always persist so a false value survives (default is true). */
+    config_set_bool(cfg, "disk", "show_disk_leds", options->show_disk_leds);
+
+    if (options->assembler_file != NULL && options->assembler_file[0] != '\0') {
+        char storage[PATH_MAX];
+        if (path_for_ini_storage(options, options->assembler_file, storage, sizeof(storage))) {
+            config_set(cfg, "assembler", "file", storage);
+        }
+    }
+    if (options->assembler_address != NULL && options->assembler_address[0] != '\0') {
+        config_set(cfg, "assembler", "address", options->assembler_address);
+    }
+    if (options->assembler_run_address != NULL && options->assembler_run_address[0] != '\0') {
+        config_set(cfg, "assembler", "run_address", options->assembler_run_address);
+    }
+    config_set_bool(cfg, "assembler", "use_address", options->assembler_use_address);
+    config_set_bool(cfg, "assembler", "auto_run", options->assembler_auto_run);
+    config_set_bool(cfg, "assembler", "basic_run", options->assembler_basic_run);
+    config_set_bool(cfg, "assembler", "reset", options->assembler_reset_first);
+    config_set_bool(cfg, "assembler", "rearm_oneshots", options->assembler_rearm_oneshots);
+    config_set_bool(
+        cfg,
+        "assembler",
+        "auto_adjust_segments",
+        options->assembler_auto_adjust_segments);
+
+    {
+        int i;
+        for (i = 0; i < APP_BROWSE_DIR_COUNT; ++i) {
+            if (options->browse_dirs[i] != NULL && options->browse_dirs[i][0] != '\0') {
+                char storage[PATH_MAX];
+                if (path_for_ini_storage(
+                        options, options->browse_dirs[i], storage, sizeof(storage))) {
+                    config_set(cfg, "browse", browse_dir_keys[i], storage);
+                } else {
+                    config_set(cfg, "browse", browse_dir_keys[i], options->browse_dirs[i]);
+                }
+            }
+        }
+    }
+
+    ok = config_save(cfg, options->ini_path);
+    config_destroy(cfg);
+    return ok;
+}
+
+bool app_options_save_paths_only(const app_options *options)
+{
+    config *cfg;
+    bool ok;
+    int i;
+
+    if (options == NULL || options->no_save_ini ||
+            options->ini_path == NULL || options->ini_path[0] == '\0') {
+        return true; /* nothing named to write to: silent no-op */
+    }
+
+    /* Re-read the file so we preserve every other setting, then overwrite only
+       the [browse] path keys. */
+    cfg = config_load(options->ini_path);
+    if (cfg == NULL) {
+        cfg = config_load(NULL);
+    }
+    if (cfg == NULL) {
+        return false;
+    }
+
+    for (i = 0; i < APP_BROWSE_DIR_COUNT; ++i) {
+        if (options->browse_dirs[i] != NULL && options->browse_dirs[i][0] != '\0') {
+            char storage[PATH_MAX];
+            if (path_for_ini_storage(
+                    options, options->browse_dirs[i], storage, sizeof(storage))) {
+                config_set(cfg, "browse", browse_dir_keys[i], storage);
+            } else {
+                config_set(cfg, "browse", browse_dir_keys[i], options->browse_dirs[i]);
+            }
+        } else {
+            config_remove_prefix(cfg, "browse", browse_dir_keys[i]);
+        }
+    }
+
+    /* ROM file paths are persisted here too, so "Save Paths Only" captures both
+       the browse folders and the ROM endpoints. */
+    config_write_rom_config(cfg, options);
+
+    /* The snapshot folder is now [browse] snapshot; drop the legacy key. */
+    config_remove_prefix(cfg, "state", "quicksave_folder");
+
+    ok = config_save(cfg, options->ini_path);
+    config_destroy(cfg);
+    return ok;
+}
+
+void app_options_destroy(app_options *options)
+{
+    int i;
+
+    if (options == NULL) {
+        return;
+    }
+
+    free(options->ini_path);
+    free(options->breakpoint);
+    free(options->turbo_multipliers);
+    free(options->symbol_files);
+    free(options->video_standard);
+    free(options->keyboard_joystick_layout);
+    free(options->basic_rom_path);
+    free(options->char_rom_path);
+    free(options->kernal_rom_path);
+    free(options->system_rom_path);
+    free(options->rom1541_path);
+    free(options->crt_path);
+    free(options->prg_path);
+    free(options->basic_path);
+    free(options->sna_path);
+    free(options->audio_record_path);
+    free(options->assembler_file);
+    free(options->assembler_address);
+    free(options->assembler_run_address);
+    for (i = 0; i < APP_BROWSE_DIR_COUNT; ++i) {
+        free(options->browse_dirs[i]);
+    }
+    for (i = 0; i < C64M_DRIVE_COUNT; ++i) {
+        disk_slot_free(&options->disk_slots[i]);
+    }
+
+    memset(options, 0, sizeof(*options));
+}

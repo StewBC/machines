@@ -1,0 +1,7739 @@
+#include "c64m_log.h"
+#include "app_options.h"
+#include "audio_buffer.h"
+#include "c64_snapshot.h"
+#include "control_server.h"
+#include "control_deferred.h"
+#include "frontend.h"
+#include "frontend_input.h"
+#include "frontend_joystick_input.h"
+#include "paste_parser.h"
+#include "platform.h"
+#include "platform_audio.h"
+#include "runtime.h"
+#include "runtime_client.h"
+#include "runtime_history_wire.h"
+#include "runtime_inspector.h"
+
+#include <SDL2/SDL.h>
+#include <stdbool.h>
+#include <ctype.h>
+#include <stddef.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <time.h>
+#if defined(_WIN32)
+#include <direct.h>
+#include <io.h>
+#include <windows.h>
+#else
+#include <dirent.h>
+#include <sys/stat.h>
+#include <unistd.h>
+#endif
+
+
+/* Mirror c64m_log_level onto SDL's logger so leftover SDL/nuklear lines obey
+   the same --log-level / [config] log_level policy. */
+static void sdl_log_discard(
+    void *userdata,
+    int category,
+    SDL_LogPriority priority,
+    const char *message)
+{
+    (void)userdata;
+    (void)category;
+    (void)priority;
+    (void)message;
+}
+
+static void apply_sdl_log_policy(c64m_log_level level)
+{
+    switch (level) {
+    case C64M_LOG_LEVEL_ALL:
+        SDL_LogSetOutputFunction(NULL, NULL);
+        SDL_LogSetAllPriority(SDL_LOG_PRIORITY_VERBOSE);
+        break;
+    case C64M_LOG_LEVEL_ERROR:
+        SDL_LogSetOutputFunction(NULL, NULL);
+        SDL_LogSetAllPriority(SDL_LOG_PRIORITY_ERROR);
+        break;
+    case C64M_LOG_LEVEL_NONE:
+        SDL_LogSetOutputFunction(sdl_log_discard, NULL);
+        break;
+    case C64M_LOG_LEVEL_WARN:
+    default:
+        SDL_LogSetOutputFunction(NULL, NULL);
+        SDL_LogSetAllPriority(SDL_LOG_PRIORITY_WARN);
+        break;
+    }
+}
+
+enum {
+    C64M_CONTROLLER_MAX = 2,
+    C64M_CONTROLLER_AXIS_THRESHOLD = 16000,
+    C64M_STATE_CHUNK_HEADER_SIZE = 8,
+    /* v1 HOST payload: version + port + layout + 2 pad bytes. */
+    C64M_STATE_HOST_V1_SIZE = 8,
+    C64M_STATE_HOST_PATH_MAX = 4096,
+    C64M_STATE_HOST_QUEUE_MAX = 64
+};
+
+#define C64M_STATE_TAG(a, b, c, d) \
+    ((uint32_t)(uint8_t)(a) | ((uint32_t)(uint8_t)(b) << 8) | \
+     ((uint32_t)(uint8_t)(c) << 16) | ((uint32_t)(uint8_t)(d) << 24))
+
+enum {
+    C64M_STATE_HOST_TAG = C64M_STATE_TAG('H', 'O', 'S', 'T'),
+    /* v1: joystick only. v2: joystick + disk queues for devices 8 and 9. */
+    C64M_STATE_HOST_VERSION = 2u,
+    C64M_STATE_HOST_VERSION_V1 = 1u
+};
+
+typedef struct sdl_c64_controller {
+    SDL_GameController *controller;
+    SDL_JoystickID instance_id;
+    uint8_t inputs;
+} sdl_c64_controller;
+
+typedef struct sdl_c64_controller_state {
+    sdl_c64_controller controllers[C64M_CONTROLLER_MAX];
+    unsigned single_controller_port;
+    bool swapped;
+    /* Optional host-keyboard joystick source, OR'd into its assigned C64 port
+       when the port states are published. NULL when not wired. */
+    const frontend_joystick_input *kbd_joystick;
+} sdl_c64_controller_state;
+
+/* deferred_control_response / table: control_deferred.h */
+
+/* Runtime session bound to the current TCP control client (0 = unbound). */
+typedef struct control_session_bind {
+    uint32_t session_id;
+    uint64_t session_epoch;
+} control_session_bind;
+
+static bool deferred_table_any_active(const deferred_control_table *table)
+{
+    size_t i;
+    if (table == NULL) {
+        return false;
+    }
+    for (i = 0; i < CONTROL_DEFERRED_CAPACITY; ++i) {
+        if (table->entries[i].active) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/* Exclusive deferred (breakpoints, waits, most commands): one at a time.
+   Multi deferred (get-cpu, get-memory): concurrent token-matched slots. */
+static deferred_control_response *deferred_begin(
+    deferred_control_table *table,
+    control_command_type type,
+    const char **out_busy_msg)
+{
+    bool multi = (type == CONTROL_COMMAND_GET_CPU ||
+                  type == CONTROL_COMMAND_GET_MEMORY);
+    bool is_wait = control_deferred_is_wait(type);
+
+    if (table == NULL) {
+        return NULL;
+    }
+    if (!multi && deferred_table_any_active(table)) {
+        if (out_busy_msg != NULL) {
+            *out_busy_msg = is_wait ? "wait already active" : "deferred-response-active";
+        }
+        return NULL;
+    }
+    return control_deferred_reserve(table, is_wait, out_busy_msg);
+}
+
+
+typedef struct control_cached_state {
+    bool has_frame;
+    c64_frame frame;
+    bool has_symbols;
+    runtime_symbol_snapshot symbols;
+    /* Phase 6 hot state for get-cpu / get-vic / get-cia (main-thread only). */
+    bool has_hot;
+    bool hot_stale;   /* true after a mutating command until a barrier snapshot */
+    bool hot_paused;  /* last snapshot reported paused */
+    uint64_t hot_runtime_seq;
+    uint64_t hot_machine_cycle;
+    uint64_t hot_frame_number;
+    runtime_cpu_snapshot hot_cpu;
+    c64_vicii_hardware_snapshot hot_vicii;
+    c64_cia_hardware_snapshot hot_cia1;
+    c64_cia_hardware_snapshot hot_cia2;
+} control_cached_state;
+
+static void control_cache_invalidate_hot(control_cached_state *cache)
+{
+    if (cache != NULL) {
+        cache->hot_stale = true;
+    }
+}
+
+static bool control_cache_hot_fresh(const control_cached_state *cache)
+{
+    return cache != NULL &&
+           cache->has_hot &&
+           !cache->hot_stale &&
+           cache->hot_paused;
+}
+
+static void control_cache_note_machine(
+    control_cached_state *cache,
+    const runtime_machine_snapshot *machine)
+{
+    if (cache == NULL || machine == NULL) {
+        return;
+    }
+    cache->has_hot = true;
+    cache->hot_stale = false;
+    cache->hot_paused = machine->running == 0;
+    cache->hot_runtime_seq = machine->runtime_seq;
+    cache->hot_machine_cycle = machine->cycle;
+    cache->hot_frame_number = machine->frame_number;
+    cache->hot_cpu.pc = machine->pc;
+    cache->hot_cpu.a = machine->a;
+    cache->hot_cpu.x = machine->x;
+    cache->hot_cpu.y = machine->y;
+    cache->hot_cpu.sp = machine->sp;
+    cache->hot_cpu.p = machine->p;
+    cache->hot_cpu.cycles = machine->cpu_cycles;
+    cache->hot_vicii = machine->vicii_hardware;
+    cache->hot_cia1 = machine->cia1_hardware;
+    cache->hot_cia2 = machine->cia2_hardware;
+}
+
+static void control_cache_note_cpu(
+    control_cached_state *cache,
+    const runtime_cpu_snapshot *cpu)
+{
+    if (cache == NULL || cpu == NULL) {
+        return;
+    }
+    /* CPU-only reply: keep stamps if present; do not claim paused without
+       a machine barrier snapshot. */
+    cache->has_hot = true;
+    cache->hot_cpu = *cpu;
+}
+
+/* Sticky completion events: latched with a sequence number so wait-event can
+   observe an event that fired before the wait was registered (classic
+   load-state then wait-event race). Continuous events like frame are not
+   sticky. */
+typedef struct control_event_latch {
+    uint64_t seq;
+    uint64_t load_state_complete_seq;
+    uint64_t save_state_complete_seq;
+    uint64_t reset_complete_seq;
+    uint64_t assemble_complete_seq;
+    uint64_t assemble_error_seq;
+    uint64_t step_complete_seq;
+    uint64_t run_complete_seq;
+    uint64_t paused_seq;
+    uint64_t running_seq;
+    uint64_t breakpoints_seq;
+    bool has_load_state_complete;
+    bool has_save_state_complete;
+    bool has_reset_complete;
+    bool has_assemble_complete;
+    bool has_assemble_error;
+    bool has_step_complete;
+    bool has_run_complete;
+    /* Execution-state events toggle constantly, so unlike the one-shot
+       completion events these are cross-cleared in note(): a resume (running)
+       invalidates a stale paused/breakpoints latch so a later wait targets the
+       NEXT stop, not a previous one. */
+    bool has_paused;
+    bool has_running;
+    bool has_breakpoints;
+} control_event_latch;
+
+static void sdl_c64_controller_send_ports(
+    const sdl_c64_controller_state *state,
+    runtime_client *client);
+
+static bool path_has_extension(const char *path, const char *extension) {
+    const char *dot;
+
+    if (path == NULL || extension == NULL) {
+        return false;
+    }
+
+    dot = strrchr(path, '.');
+    return dot != NULL && SDL_strcasecmp(dot + 1, extension) == 0;
+}
+
+static void make_relative_path(const char *abs_path, char *out, size_t out_size) {
+    char cwd[1024];
+    size_t cwd_len;
+
+    if (abs_path == NULL || out == NULL || out_size == 0) {
+        return;
+    }
+
+    if (
+#if defined(_WIN32)
+        _getcwd(cwd, sizeof(cwd))
+#else
+        getcwd(cwd, sizeof(cwd))
+#endif
+        == NULL) {
+        snprintf(out, out_size, "%s", abs_path);
+        return;
+    }
+
+    cwd_len = strlen(cwd);
+    if (cwd_len > 0 &&
+        strncmp(abs_path, cwd, cwd_len) == 0 &&
+        (abs_path[cwd_len] == '/' || abs_path[cwd_len] == '\\')) {
+        snprintf(out, out_size, ".%s", abs_path + cwd_len);
+    } else {
+        snprintf(out, out_size, "%s", abs_path);
+    }
+}
+
+static bool path_is_absolute_local(const char *path) {
+    if (path == NULL || path[0] == '\0') {
+        return false;
+    }
+#if defined(_WIN32)
+    return path[0] == '/' || path[0] == '\\' ||
+        (isalpha((unsigned char)path[0]) && path[1] == ':');
+#else
+    return path[0] == '/';
+#endif
+}
+
+static bool join_path_local(char *out, size_t out_size, const char *dir, const char *name) {
+    const char *separator = "/";
+    size_t dir_len;
+
+    if (out == NULL || out_size == 0 || name == NULL) {
+        return false;
+    }
+    if (dir == NULL || dir[0] == '\0') {
+        return snprintf(out, out_size, "%s", name) < (int)out_size;
+    }
+    dir_len = strlen(dir);
+    if (dir_len > 0 && (dir[dir_len - 1] == '/' || dir[dir_len - 1] == '\\')) {
+        separator = "";
+    }
+    return snprintf(out, out_size, "%s%s%s", dir, separator, name) < (int)out_size;
+}
+
+static bool options_ini_dir(const app_options *options, char *out, size_t out_size) {
+    char cwd[1024];
+    const char *ini_path;
+    const char *slash;
+    size_t len;
+
+    if (out == NULL || out_size == 0) {
+        return false;
+    }
+    if (
+#if defined(_WIN32)
+        _getcwd(cwd, sizeof(cwd))
+#else
+        getcwd(cwd, sizeof(cwd))
+#endif
+        == NULL) {
+        return false;
+    }
+
+    ini_path = (options != NULL && options->ini_path != NULL && options->ini_path[0] != '\0') ?
+        options->ini_path : ".";
+    slash = strrchr(ini_path, '/');
+#if defined(_WIN32)
+    {
+        const char *backslash = strrchr(ini_path, '\\');
+        if (backslash != NULL && (slash == NULL || backslash > slash)) {
+            slash = backslash;
+        }
+    }
+#endif
+    if (slash == NULL) {
+        return snprintf(out, out_size, "%s", cwd) < (int)out_size;
+    }
+    len = (size_t)(slash - ini_path);
+    if (len == 0) {
+        return snprintf(out, out_size, "%c", ini_path[0]) < (int)out_size;
+    }
+    if (path_is_absolute_local(ini_path)) {
+        if (len >= out_size) {
+            return false;
+        }
+        memcpy(out, ini_path, len);
+        out[len] = '\0';
+        return true;
+    }
+    if (len >= sizeof(cwd)) {
+        return false;
+    }
+    {
+        char rel_dir[1024];
+        memcpy(rel_dir, ini_path, len);
+        rel_dir[len] = '\0';
+        return join_path_local(out, out_size, cwd, rel_dir);
+    }
+}
+
+static bool quicksave_folder_absolute(
+    const app_options *options,
+    const char *folder,
+    char *out,
+    size_t out_size) {
+    char ini_dir[1024];
+
+    if (out == NULL || out_size == 0) {
+        return false;
+    }
+    if (folder == NULL || folder[0] == '\0') {
+        folder = ".";
+    }
+    if (path_is_absolute_local(folder)) {
+        return snprintf(out, out_size, "%s", folder) < (int)out_size;
+    }
+    if (!options_ini_dir(options, ini_dir, sizeof(ini_dir))) {
+        return snprintf(out, out_size, "%s", folder) < (int)out_size;
+    }
+    return join_path_local(out, out_size, ini_dir, folder);
+}
+
+static const char *path_basename_local(const char *path) {
+    const char *slash;
+
+    if (path == NULL) {
+        return "";
+    }
+    slash = strrchr(path, '/');
+#if defined(_WIN32)
+    {
+        const char *backslash = strrchr(path, '\\');
+        if (backslash != NULL && (slash == NULL || backslash > slash)) {
+            slash = backslash;
+        }
+    }
+#endif
+    return slash != NULL ? slash + 1 : path;
+}
+
+static void sanitize_snapshot_stem(const char *input, char *out, size_t out_size) {
+    const char *base = path_basename_local(input);
+    size_t i = 0;
+
+    if (out == NULL || out_size == 0) {
+        return;
+    }
+    if (base == NULL || base[0] == '\0') {
+        base = "c64m";
+    }
+    while (base[i] != '\0' && i + 1 < out_size) {
+        if (base[i] == '.') {
+            break;
+        }
+        out[i] = (isalnum((unsigned char)base[i]) || base[i] == '-' || base[i] == '_') ?
+            base[i] : '_';
+        ++i;
+    }
+    if (i == 0) {
+        snprintf(out, out_size, "c64m");
+    } else {
+        out[i] = '\0';
+    }
+}
+
+static const char *active_content_path(const app_options *options) {
+    const app_disk_slot *slot;
+
+    if (options == NULL) {
+        return NULL;
+    }
+    if (options->sna_path != NULL && options->sna_path[0] != '\0') {
+        return options->sna_path;
+    }
+    if (options->crt_path != NULL && options->crt_path[0] != '\0') {
+        return options->crt_path;
+    }
+    slot = &options->disk_slots[8];
+    if (slot->count > 0 && slot->current >= 0 && slot->current < slot->count) {
+        return slot->paths[slot->current];
+    }
+    if (options->prg_path != NULL && options->prg_path[0] != '\0') {
+        return options->prg_path;
+    }
+    if (options->basic_path != NULL && options->basic_path[0] != '\0') {
+        return options->basic_path;
+    }
+    return NULL;
+}
+
+static void remember_loaded_content(app_options *options, const char *path, const char *kind) {
+    if (options == NULL || path == NULL || kind == NULL) {
+        return;
+    }
+    app_options_set_string(&options->crt_path, "");
+    app_options_set_string(&options->prg_path, "");
+    app_options_set_string(&options->basic_path, "");
+    if (strcmp(kind, "crt") == 0) {
+        app_options_set_string(&options->crt_path, path);
+    } else if (strcmp(kind, "basic") == 0) {
+        app_options_set_string(&options->basic_path, path);
+    } else {
+        app_options_set_string(&options->prg_path, path);
+    }
+}
+
+static bool append_state_extension(char *path, size_t path_size) {
+    size_t len;
+
+    if (path == NULL || path_size == 0 || path[0] == '\0') {
+        return false;
+    }
+    if (path_has_extension(path, "c64state")) {
+        return true;
+    }
+    len = strlen(path);
+    if (len + strlen(".c64state") + 1 > path_size) {
+        return false;
+    }
+    strcat(path, ".c64state");
+    return true;
+}
+
+static bool make_quicksave_path(
+    const app_options *options, const char *snapshot_dir, char *out, size_t out_size) {
+    char folder[1024];
+    char stem[256];
+    char filename[512];
+    time_t now;
+    struct tm tm_value;
+    int suffix;
+
+    if (!quicksave_folder_absolute(options, snapshot_dir, folder, sizeof(folder))) {
+        return false;
+    }
+    sanitize_snapshot_stem(active_content_path(options), stem, sizeof(stem));
+    now = time(NULL);
+#if defined(_WIN32)
+    localtime_s(&tm_value, &now);
+#else
+    {
+        struct tm *tmp = localtime(&now);
+        if (tmp == NULL) {
+            return false;
+        }
+        tm_value = *tmp;
+    }
+#endif
+    for (suffix = 0; suffix < 1000; ++suffix) {
+        int written;
+        if (suffix == 0) {
+            written = snprintf(
+                filename,
+                sizeof(filename),
+                "%s-%04d%02d%02d-%02d%02d%02d.c64state",
+                stem,
+                tm_value.tm_year + 1900,
+                tm_value.tm_mon + 1,
+                tm_value.tm_mday,
+                tm_value.tm_hour,
+                tm_value.tm_min,
+                tm_value.tm_sec);
+        } else {
+            written = snprintf(
+                filename,
+                sizeof(filename),
+                "%s-%04d%02d%02d-%02d%02d%02d-%d.c64state",
+                stem,
+                tm_value.tm_year + 1900,
+                tm_value.tm_mon + 1,
+                tm_value.tm_mday,
+                tm_value.tm_hour,
+                tm_value.tm_min,
+                tm_value.tm_sec,
+                suffix);
+        }
+        if (written < 0 || (size_t)written >= sizeof(filename)) {
+            return false;
+        }
+        if (!join_path_local(out, out_size, folder, filename)) {
+            return false;
+        }
+#if defined(_WIN32)
+        if (_access(out, 0) != 0) {
+#else
+        if (access(out, 0) != 0) {
+#endif
+            return true;
+        }
+    }
+    return false;
+}
+
+static bool find_newest_state_file(
+    const app_options *options, const char *snapshot_dir, char *out, size_t out_size) {
+    char folder[1024];
+    bool found = false;
+
+    if (!quicksave_folder_absolute(options, snapshot_dir, folder, sizeof(folder))) {
+        return false;
+    }
+#if defined(_WIN32)
+    {
+        char pattern[1200];
+        HANDLE handle;
+        WIN32_FIND_DATAA data;
+        FILETIME newest_time = {0, 0};
+
+        if (!join_path_local(pattern, sizeof(pattern), folder, "*.c64state")) {
+            return false;
+        }
+        handle = FindFirstFileA(pattern, &data);
+        if (handle == INVALID_HANDLE_VALUE) {
+            return false;
+        }
+        do {
+            if ((data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) == 0 &&
+                (!found || CompareFileTime(&data.ftLastWriteTime, &newest_time) > 0)) {
+                if (join_path_local(out, out_size, folder, data.cFileName)) {
+                    newest_time = data.ftLastWriteTime;
+                    found = true;
+                }
+            }
+        } while (FindNextFileA(handle, &data));
+        FindClose(handle);
+    }
+#else
+    {
+        DIR *dir = opendir(folder);
+        struct dirent *entry;
+        time_t newest_mtime = 0;
+
+        if (dir == NULL) {
+            return false;
+        }
+        while ((entry = readdir(dir)) != NULL) {
+            char candidate[1200];
+            struct stat st;
+            if (!path_has_extension(entry->d_name, "c64state")) {
+                continue;
+            }
+            if (!join_path_local(candidate, sizeof(candidate), folder, entry->d_name)) {
+                continue;
+            }
+            if (stat(candidate, &st) != 0 || !S_ISREG(st.st_mode)) {
+                continue;
+            }
+            if (!found || st.st_mtime > newest_mtime ||
+                (st.st_mtime == newest_mtime && strcmp(candidate, out) > 0)) {
+                snprintf(out, out_size, "%s", candidate);
+                newest_mtime = st.st_mtime;
+                found = true;
+            }
+        }
+        closedir(dir);
+    }
+#endif
+    return found;
+}
+
+static bool key_is_quicksave_shortcut(const SDL_KeyboardEvent *key) {
+    if (!frontend_input_has_option_modifier(key) ||
+        !frontend_input_has_shift_modifier(key)) {
+        return false;
+    }
+    return key->keysym.sym == SDLK_GREATER || key->keysym.sym == SDLK_PERIOD;
+}
+
+static bool key_is_quickload_shortcut(const SDL_KeyboardEvent *key) {
+    if (!frontend_input_has_option_modifier(key) ||
+        !frontend_input_has_shift_modifier(key)) {
+        return false;
+    }
+    return key->keysym.sym == SDLK_LESS || key->keysym.sym == SDLK_COMMA;
+}
+
+static bool send_quicksave(runtime_client *client, const app_options *options, const frontend *ui) {
+    char path[1200];
+    const char *snapshot_dir = frontend_get_browse_dir(ui, FRONTEND_BROWSE_SLOT_SNAPSHOT);
+
+    if (!make_quicksave_path(options, snapshot_dir, path, sizeof(path))) {
+        log_warn("quicksave: failed to build snapshot path");
+        return false;
+    }
+    log_info("quicksave: %s", path);
+    return runtime_client_save_state(client, path);
+}
+
+static bool send_quickload(runtime_client *client, const app_options *options, const frontend *ui) {
+    char path[1200];
+    const char *snapshot_dir = frontend_get_browse_dir(ui, FRONTEND_BROWSE_SLOT_SNAPSHOT);
+
+    if (!find_newest_state_file(options, snapshot_dir, path, sizeof(path))) {
+        log_warn("quickload: no .c64state files found");
+        return false;
+    }
+    log_info("quickload: %s", path);
+    return runtime_client_load_state(client, path);
+}
+
+static uint32_t read_le32_local(const uint8_t *bytes) {
+    return (uint32_t)bytes[0] |
+        ((uint32_t)bytes[1] << 8) |
+        ((uint32_t)bytes[2] << 16) |
+        ((uint32_t)bytes[3] << 24);
+}
+
+static void write_le32_local(uint8_t *bytes, uint32_t value) {
+    bytes[0] = (uint8_t)(value & 0xffu);
+    bytes[1] = (uint8_t)((value >> 8) & 0xffu);
+    bytes[2] = (uint8_t)((value >> 16) & 0xffu);
+    bytes[3] = (uint8_t)(value >> 24);
+}
+
+static size_t host_state_queue_encoded_size(const app_disk_slot *slot) {
+    size_t size = 4u + 4u + 1u; /* count, current, power_on_only */
+    int i;
+    int count;
+
+    if (slot == NULL) {
+        return size;
+    }
+    count = slot->count;
+    if (count < 0) {
+        count = 0;
+    }
+    if (count > C64M_STATE_HOST_QUEUE_MAX) {
+        count = C64M_STATE_HOST_QUEUE_MAX;
+    }
+    for (i = 0; i < count; ++i) {
+        size_t path_len = 0;
+        if (slot->paths != NULL && slot->paths[i] != NULL) {
+            path_len = strlen(slot->paths[i]);
+            if (path_len > (size_t)C64M_STATE_HOST_PATH_MAX) {
+                path_len = (size_t)C64M_STATE_HOST_PATH_MAX;
+            }
+        }
+        size += 4u + path_len + 1u; /* path_len, path, writable */
+    }
+    return size;
+}
+
+static bool host_state_write_u32(uint8_t **cursor, uint8_t *end, uint32_t value) {
+    if (*cursor == NULL || end == NULL || (size_t)(end - *cursor) < 4u) {
+        return false;
+    }
+    write_le32_local(*cursor, value);
+    *cursor += 4;
+    return true;
+}
+
+static bool host_state_write_u8(uint8_t **cursor, uint8_t *end, uint8_t value) {
+    if (*cursor == NULL || end == NULL || *cursor >= end) {
+        return false;
+    }
+    *(*cursor)++ = value;
+    return true;
+}
+
+static bool host_state_write_queue(
+    uint8_t **cursor,
+    uint8_t *end,
+    const app_disk_slot *slot) {
+    int count = 0;
+    int current = 0;
+    int i;
+
+    if (slot != NULL) {
+        count = slot->count;
+        current = slot->current;
+    }
+    if (count < 0) {
+        count = 0;
+    }
+    if (count > C64M_STATE_HOST_QUEUE_MAX) {
+        count = C64M_STATE_HOST_QUEUE_MAX;
+    }
+    if (current < 0 || current >= count) {
+        current = 0;
+    }
+    if (!host_state_write_u32(cursor, end, (uint32_t)count) ||
+        !host_state_write_u32(cursor, end, (uint32_t)current) ||
+        !host_state_write_u8(cursor, end, (slot != NULL && slot->power_on_only) ? 1u : 0u)) {
+        return false;
+    }
+    for (i = 0; i < count; ++i) {
+        const char *path =
+            (slot != NULL && slot->paths != NULL) ? slot->paths[i] : NULL;
+        size_t path_len = (path != NULL) ? strlen(path) : 0;
+        bool writable =
+            slot != NULL && slot->writable != NULL && slot->writable[i];
+
+        if (path_len > (size_t)C64M_STATE_HOST_PATH_MAX) {
+            path_len = (size_t)C64M_STATE_HOST_PATH_MAX;
+        }
+        if (!host_state_write_u32(cursor, end, (uint32_t)path_len)) {
+            return false;
+        }
+        if (path_len > 0) {
+            if ((size_t)(end - *cursor) < path_len) {
+                return false;
+            }
+            memcpy(*cursor, path, path_len);
+            *cursor += path_len;
+        }
+        if (!host_state_write_u8(cursor, end, writable ? 1u : 0u)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static bool host_state_read_u32(
+    const uint8_t **cursor,
+    const uint8_t *end,
+    uint32_t *out) {
+    if (*cursor == NULL || end == NULL || out == NULL || (size_t)(end - *cursor) < 4u) {
+        return false;
+    }
+    *out = read_le32_local(*cursor);
+    *cursor += 4;
+    return true;
+}
+
+static bool host_state_read_u8(
+    const uint8_t **cursor,
+    const uint8_t *end,
+    uint8_t *out) {
+    if (*cursor == NULL || end == NULL || out == NULL || *cursor >= end) {
+        return false;
+    }
+    *out = *(*cursor)++;
+    return true;
+}
+
+/* Rebuild a disk queue from ordered paths without relying on add_after_current. */
+static bool host_state_slot_from_paths(
+    app_disk_slot *slot,
+    char **paths,
+    bool *writable,
+    int count,
+    int current,
+    bool power_on_only) {
+    int i;
+
+    app_disk_slot_clear(slot);
+    slot->power_on_only = power_on_only;
+    for (i = 0; i < count; ++i) {
+        if (paths[i] == NULL || paths[i][0] == '\0') {
+            app_disk_slot_clear(slot);
+            return false;
+        }
+        if (i == 0) {
+            if (!app_disk_slot_set(slot, paths[i])) {
+                return false;
+            }
+        } else {
+            /* Append at end: select last then add_after_current. */
+            if (app_disk_slot_select(slot, slot->count - 1) == NULL ||
+                !app_disk_slot_add_after_current(slot, paths[i])) {
+                app_disk_slot_clear(slot);
+                return false;
+            }
+        }
+        if (slot->writable != NULL) {
+            slot->writable[slot->count - 1] = writable != NULL && writable[i];
+        }
+    }
+    if (count > 0 && current >= 0 && current < count) {
+        slot->current = current;
+    }
+    return true;
+}
+
+static bool host_state_read_queue_ordered(
+    const uint8_t **cursor,
+    const uint8_t *end,
+    app_disk_slot *slot) {
+    uint32_t count_u = 0;
+    uint32_t current_u = 0;
+    uint8_t power_on_only = 0;
+    char **paths = NULL;
+    bool *writable = NULL;
+    uint32_t i;
+    bool ok = false;
+
+    if (slot == NULL) {
+        return false;
+    }
+    app_disk_slot_clear(slot);
+    if (!host_state_read_u32(cursor, end, &count_u) ||
+        !host_state_read_u32(cursor, end, &current_u) ||
+        !host_state_read_u8(cursor, end, &power_on_only)) {
+        return false;
+    }
+    if (count_u > (uint32_t)C64M_STATE_HOST_QUEUE_MAX) {
+        return false;
+    }
+    if (count_u == 0u) {
+        slot->power_on_only = power_on_only != 0;
+        return true;
+    }
+
+    paths = (char **)calloc(count_u, sizeof(*paths));
+    writable = (bool *)calloc(count_u, sizeof(*writable));
+    if (paths == NULL || writable == NULL) {
+        free(paths);
+        free(writable);
+        return false;
+    }
+
+    for (i = 0; i < count_u; ++i) {
+        uint32_t path_len = 0;
+        uint8_t wr = 0;
+
+        if (!host_state_read_u32(cursor, end, &path_len) ||
+            path_len == 0u ||
+            path_len > (uint32_t)C64M_STATE_HOST_PATH_MAX ||
+            (size_t)(end - *cursor) < (size_t)path_len) {
+            goto done;
+        }
+        paths[i] = (char *)malloc((size_t)path_len + 1u);
+        if (paths[i] == NULL) {
+            goto done;
+        }
+        memcpy(paths[i], *cursor, path_len);
+        paths[i][path_len] = '\0';
+        *cursor += path_len;
+        if (!host_state_read_u8(cursor, end, &wr)) {
+            goto done;
+        }
+        writable[i] = wr != 0;
+    }
+
+    ok = host_state_slot_from_paths(
+        slot,
+        paths,
+        writable,
+        (int)count_u,
+        (int)current_u,
+        power_on_only != 0);
+
+done:
+    for (i = 0; i < count_u; ++i) {
+        free(paths[i]);
+    }
+    free(paths);
+    free(writable);
+    if (!ok) {
+        app_disk_slot_clear(slot);
+    }
+    return ok;
+}
+
+static bool append_host_state_chunk(
+    const char *path,
+    const app_options *options,
+    const frontend_joystick_input *kbd_joystick) {
+    FILE *file;
+    uint8_t *bytes = NULL;
+    uint8_t *cursor;
+    uint8_t *end;
+    size_t payload_size;
+    size_t total_size;
+    uint8_t port;
+    uint8_t layout;
+    const app_disk_slot *slot8 = NULL;
+    const app_disk_slot *slot9 = NULL;
+
+    if (path == NULL || path[0] == '\0') {
+        return false;
+    }
+    port = kbd_joystick != NULL ? (uint8_t)kbd_joystick->port :
+        (uint8_t)(options != NULL ? options->keyboard_joystick_port : 0);
+    if (port > 2u) {
+        port = 0;
+    }
+    layout = kbd_joystick != NULL ? (uint8_t)kbd_joystick->layout :
+        (uint8_t)frontend_joystick_layout_from_string(
+            options != NULL ? options->keyboard_joystick_layout : NULL);
+    if (layout > (uint8_t)FRONTEND_JOYSTICK_LAYOUT_WASD) {
+        layout = (uint8_t)FRONTEND_JOYSTICK_LAYOUT_NUMPAD;
+    }
+    if (options != NULL) {
+        slot8 = &options->disk_slots[8];
+        slot9 = &options->disk_slots[9];
+    }
+
+    payload_size = 4u + 1u + 1u + 2u; /* version, port, layout, pad */
+    payload_size += host_state_queue_encoded_size(slot8);
+    payload_size += host_state_queue_encoded_size(slot9);
+    total_size = C64M_STATE_CHUNK_HEADER_SIZE + payload_size;
+    bytes = (uint8_t *)malloc(total_size);
+    if (bytes == NULL) {
+        return false;
+    }
+    cursor = bytes;
+    end = bytes + total_size;
+    write_le32_local(cursor, C64M_STATE_HOST_TAG);
+    cursor += 4;
+    write_le32_local(cursor, (uint32_t)payload_size);
+    cursor += 4;
+    write_le32_local(cursor, C64M_STATE_HOST_VERSION);
+    cursor += 4;
+    *cursor++ = port;
+    *cursor++ = layout;
+    *cursor++ = 0;
+    *cursor++ = 0;
+    if (!host_state_write_queue(&cursor, end, slot8) ||
+        !host_state_write_queue(&cursor, end, slot9) ||
+        cursor != end) {
+        free(bytes);
+        return false;
+    }
+
+    file = fopen(path, "ab");
+    if (file == NULL) {
+        free(bytes);
+        return false;
+    }
+    if (fwrite(bytes, 1, total_size, file) != total_size) {
+        fclose(file);
+        free(bytes);
+        return false;
+    }
+    fclose(file);
+    free(bytes);
+    return true;
+}
+
+typedef struct host_state_loaded {
+    uint8_t port;
+    frontend_joystick_layout layout;
+    bool has_joystick;
+    bool has_disk_queues;
+    app_disk_slot disk8;
+    app_disk_slot disk9;
+} host_state_loaded;
+
+static void host_state_loaded_clear(host_state_loaded *state) {
+    if (state == NULL) {
+        return;
+    }
+    app_disk_slot_clear(&state->disk8);
+    app_disk_slot_clear(&state->disk9);
+    memset(state, 0, sizeof(*state));
+}
+
+static bool read_host_state_chunk(const char *path, host_state_loaded *out) {
+    FILE *file;
+    uint8_t *bytes = NULL;
+    long length;
+    size_t pos;
+    bool found = false;
+
+    if (path == NULL || out == NULL) {
+        return false;
+    }
+    host_state_loaded_clear(out);
+    file = fopen(path, "rb");
+    if (file == NULL) {
+        return false;
+    }
+    if (fseek(file, 0, SEEK_END) != 0) {
+        fclose(file);
+        return false;
+    }
+    length = ftell(file);
+    if (length < 32 || fseek(file, 0, SEEK_SET) != 0) {
+        fclose(file);
+        return false;
+    }
+    bytes = (uint8_t *)malloc((size_t)length);
+    if (bytes == NULL) {
+        fclose(file);
+        return false;
+    }
+    if (fread(bytes, 1, (size_t)length, file) != (size_t)length) {
+        free(bytes);
+        fclose(file);
+        return false;
+    }
+    fclose(file);
+
+    if (read_le32_local(bytes) != C64_SNAPSHOT_MAGIC ||
+        read_le32_local(bytes + 4) != C64_SNAPSHOT_VERSION) {
+        free(bytes);
+        return false;
+    }
+    pos = read_le32_local(bytes + 8);
+    while (pos + C64M_STATE_CHUNK_HEADER_SIZE <= (size_t)length) {
+        uint32_t tag = read_le32_local(bytes + pos);
+        uint32_t chunk_len = read_le32_local(bytes + pos + 4);
+        const uint8_t *payload;
+        uint32_t version;
+
+        pos += C64M_STATE_CHUNK_HEADER_SIZE;
+        if (chunk_len > (uint32_t)((size_t)length - pos)) {
+            break;
+        }
+        payload = bytes + pos;
+        if (tag == C64M_STATE_HOST_TAG && chunk_len >= C64M_STATE_HOST_V1_SIZE) {
+            version = read_le32_local(payload);
+            if (version == C64M_STATE_HOST_VERSION_V1 ||
+                version == C64M_STATE_HOST_VERSION) {
+                uint8_t port = payload[4];
+                uint8_t layout = payload[5];
+                if (port <= 2u && layout <= (uint8_t)FRONTEND_JOYSTICK_LAYOUT_WASD) {
+                    out->port = port;
+                    out->layout = (frontend_joystick_layout)layout;
+                    out->has_joystick = true;
+                    found = true;
+                }
+                if (version == C64M_STATE_HOST_VERSION &&
+                    chunk_len > C64M_STATE_HOST_V1_SIZE) {
+                    const uint8_t *cursor = payload + C64M_STATE_HOST_V1_SIZE;
+                    const uint8_t *end = payload + chunk_len;
+                    app_disk_slot disk8;
+                    app_disk_slot disk9;
+
+                    memset(&disk8, 0, sizeof(disk8));
+                    memset(&disk9, 0, sizeof(disk9));
+                    if (host_state_read_queue_ordered(&cursor, end, &disk8) &&
+                        host_state_read_queue_ordered(&cursor, end, &disk9) &&
+                        cursor == end) {
+                        app_disk_slot_clear(&out->disk8);
+                        app_disk_slot_clear(&out->disk9);
+                        out->disk8 = disk8;
+                        out->disk9 = disk9;
+                        memset(&disk8, 0, sizeof(disk8));
+                        memset(&disk9, 0, sizeof(disk9));
+                        out->has_disk_queues = true;
+                    } else {
+                        app_disk_slot_clear(&disk8);
+                        app_disk_slot_clear(&disk9);
+                    }
+                }
+            }
+        }
+        pos += chunk_len;
+    }
+    free(bytes);
+    return found;
+}
+
+static void apply_loaded_host_state(
+    const char *path,
+    app_options *options,
+    frontend *ui,
+    runtime_client *client,
+    sdl_c64_controller_state *controller_state,
+    frontend_joystick_input *kbd_joystick) {
+    host_state_loaded host;
+
+    memset(&host, 0, sizeof(host));
+    if (!read_host_state_chunk(path, &host)) {
+        host_state_loaded_clear(&host);
+        return;
+    }
+
+    if (host.has_joystick && kbd_joystick != NULL) {
+        frontend_joystick_set_layout(kbd_joystick, host.layout);
+        frontend_joystick_set_port(kbd_joystick, host.port);
+        if (options != NULL) {
+            options->keyboard_joystick_port = (int)host.port;
+            app_options_set_string(
+                &options->keyboard_joystick_layout,
+                frontend_joystick_layout_to_string(host.layout));
+        }
+        if (controller_state != NULL) {
+            sdl_c64_controller_send_ports(controller_state, client);
+        }
+        log_info(
+            "loaded host keyboard joystick: port %u (%s)",
+            (unsigned)host.port,
+            frontend_joystick_layout_to_string(host.layout));
+    }
+
+    if (host.has_disk_queues && options != NULL) {
+        app_disk_slot_clear(&options->disk_slots[8]);
+        app_disk_slot_clear(&options->disk_slots[9]);
+        options->disk_slots[8] = host.disk8;
+        options->disk_slots[9] = host.disk9;
+        memset(&host.disk8, 0, sizeof(host.disk8));
+        memset(&host.disk9, 0, sizeof(host.disk9));
+        if (ui != NULL) {
+            frontend_set_disk_queue(ui, 8, &options->disk_slots[8]);
+            frontend_set_disk_queue(ui, 9, &options->disk_slots[9]);
+        }
+        log_info(
+            "loaded host disk queues: 8=%d (current=%d) 9=%d (current=%d)",
+            options->disk_slots[8].count,
+            options->disk_slots[8].current,
+            options->disk_slots[9].count,
+            options->disk_slots[9].current);
+    }
+
+    if (ui != NULL && options != NULL && !frontend_config_dialog_is_open(ui)) {
+        frontend_set_config_state(ui, options);
+    }
+    host_state_loaded_clear(&host);
+}
+
+static c64_config machine_config_from_options(const app_options *options) {
+    c64_config config = {
+        .video_standard = C64_VIDEO_STANDARD_NTSC,
+    };
+
+    if (options != NULL &&
+        options->video_standard != NULL &&
+        strcmp(options->video_standard, "PAL") == 0) {
+        config.video_standard = C64_VIDEO_STANDARD_PAL;
+    }
+    if (options != NULL) {
+        config.emulate_1541 = options->emulate_1541 ? 1 : 0;
+        config.media_1541 = options->media_1541 ? 1 : 0;
+        config.pause_on_brk = options->pause_on_brk ? 1 : 0;
+    }
+    return config;
+}
+
+/* Resolve which ROM paths actually load, honoring the single/separate flag: in
+   single mode the combined system ROM is used and the separate BASIC/KERNAL
+   paths are suppressed; in separate mode the reverse. Character and 1541 ROMs
+   are independent of the flag. Empty strings collapse to NULL (== "not set").
+   Any of the out pointers may be NULL. */
+static const char *nonempty_or_null(const char *s) {
+    return (s != NULL && s[0] != '\0') ? s : NULL;
+}
+
+static void effective_rom_paths(
+    const app_options *options,
+    const char **system_out,
+    const char **basic_out,
+    const char **char_out,
+    const char **kernal_out,
+    const char **rom1541_out) {
+    const char *system_path = NULL;
+    const char *basic_path = NULL;
+    const char *kernal_path = NULL;
+
+    if (options != NULL) {
+        if (options->rom_single_system) {
+            system_path = nonempty_or_null(options->system_rom_path);
+        } else {
+            basic_path = nonempty_or_null(options->basic_rom_path);
+            kernal_path = nonempty_or_null(options->kernal_rom_path);
+        }
+    }
+    if (system_out != NULL) *system_out = system_path;
+    if (basic_out != NULL) *basic_out = basic_path;
+    if (kernal_out != NULL) *kernal_out = kernal_path;
+    if (char_out != NULL) *char_out = options != NULL ? nonempty_or_null(options->char_rom_path) : NULL;
+    if (rom1541_out != NULL) *rom1541_out = options != NULL ? nonempty_or_null(options->rom1541_path) : NULL;
+}
+
+static runtime_config runtime_config_from_options(const app_options *options) {
+    runtime_config config = {0};
+
+    runtime_config_set_turbo_defaults(&config);
+    if (options != NULL) {
+        runtime_config_set_turbo_csv(&config, options->turbo_multipliers);
+    }
+    return config;
+}
+
+/* Phase 4 cadence split:
+   - Telemetry (per UI refresh while free-running): machine snapshot only
+     (includes CPU regs, VIC/CIA/SID, drive HW). Not breakpoints/disk tables.
+   - Tables (breakpoints, disk metadata): mutation publishes + explicit refresh
+     after stop/step/startup. */
+static void request_debug_telemetry(runtime_client *client) {
+    if (client == NULL) {
+        return;
+    }
+    runtime_client_request_machine_state(client);
+}
+
+static void request_debug_tables(runtime_client *client) {
+    if (client == NULL) {
+        return;
+    }
+    runtime_client_request_breakpoints(client);
+    runtime_client_request_disk_status(client, 8);
+    runtime_client_request_disk_status(client, 9);
+}
+
+static void request_debug_state(runtime_client *client) {
+    /* Full refresh: telemetry + large tables (startup / after step-stop). */
+    request_debug_telemetry(client);
+    request_debug_tables(client);
+}
+
+static void update_debug_state_from_event(
+    frontend_debug_state *debug_state,
+    const runtime_event *event) {
+    if (debug_state == NULL || event == NULL) {
+        return;
+    }
+
+    switch (event->type) {
+        case RUNTIME_EVENT_RUNNING:
+            debug_state->runtime_state = FRONTEND_RUNTIME_STATE_RUNNING;
+            break;
+
+        case RUNTIME_EVENT_PAUSED:
+        case RUNTIME_EVENT_RESET_COMPLETE:
+        case RUNTIME_EVENT_STEP_COMPLETE:
+        case RUNTIME_EVENT_RUN_COMPLETE:
+            debug_state->runtime_state = FRONTEND_RUNTIME_STATE_PAUSED;
+            break;
+
+        case RUNTIME_EVENT_ERROR:
+            debug_state->runtime_state = FRONTEND_RUNTIME_STATE_ERROR;
+            break;
+
+        case RUNTIME_EVENT_CPU_STATE_RESPONSE:
+            debug_state->cpu = event->data.cpu_state;
+            debug_state->has_cpu = true;
+            break;
+
+        case RUNTIME_EVENT_MACHINE_STATE_RESPONSE:
+            debug_state->runtime_seq = event->data.machine_state.runtime_seq;
+            debug_state->cpu.pc = event->data.machine_state.pc;
+            debug_state->cpu.a = event->data.machine_state.a;
+            debug_state->cpu.x = event->data.machine_state.x;
+            debug_state->cpu.y = event->data.machine_state.y;
+            debug_state->cpu.sp = event->data.machine_state.sp;
+            debug_state->cpu.p = event->data.machine_state.p;
+            debug_state->cpu.cycles = event->data.machine_state.cpu_cycles;
+            debug_state->machine_cycle = event->data.machine_state.cycle;
+            debug_state->vic_cycles = event->data.machine_state.vic_cycles;
+            debug_state->cia_cycles = event->data.machine_state.cia_cycles;
+            debug_state->stop_reason = event->data.machine_state.stop_reason;
+            debug_state->active_turbo_multiplier = event->data.machine_state.active_turbo_multiplier;
+            debug_state->frame_number = event->data.machine_state.frame_number;
+            debug_state->frame_cycle = event->data.machine_state.frame_cycle;
+            debug_state->dropped_frames = event->data.machine_state.dropped_frames;
+            debug_state->memory_banking = event->data.machine_state.memory_banking;
+            debug_state->vicii_hardware = event->data.machine_state.vicii_hardware;
+            debug_state->cia1_hardware = event->data.machine_state.cia1_hardware;
+            debug_state->cia2_hardware = event->data.machine_state.cia2_hardware;
+            debug_state->sid_hardware = event->data.machine_state.sid_hardware;
+            debug_state->drive8_hardware = event->data.machine_state.drive8_hardware;
+            debug_state->drive9_hardware = event->data.machine_state.drive9_hardware;
+            debug_state->screen_ram_writes = event->data.machine_state.screen_ram_writes;
+            debug_state->color_ram_writes = event->data.machine_state.color_ram_writes;
+            debug_state->vic_register_writes = event->data.machine_state.vic_register_writes;
+            debug_state->cia1_register_writes = event->data.machine_state.cia1_register_writes;
+            debug_state->cia2_register_writes = event->data.machine_state.cia2_register_writes;
+            debug_state->sid_register_writes = event->data.machine_state.sid_register_writes;
+            debug_state->keyboard_events = event->data.machine_state.keyboard_events;
+            debug_state->irq_entries = event->data.machine_state.irq_entries;
+            debug_state->cia1_icr_reads = event->data.machine_state.cia1_icr_reads;
+            debug_state->cia1_icr_writes = event->data.machine_state.cia1_icr_writes;
+            debug_state->cia1_interrupt_assertions = event->data.machine_state.cia1_interrupt_assertions;
+            debug_state->nmi_entries = event->data.machine_state.nmi_entries;
+            debug_state->restore_requests = event->data.machine_state.restore_requests;
+            debug_state->cartridge_attached = event->data.machine_state.cartridge_attached != 0;
+            debug_state->inspector_mode = event->data.machine_state.inspector_mode;
+            debug_state->inspector_enabled = event->data.machine_state.inspector_enabled;
+            debug_state->inspector_focus_cycle =
+                event->data.machine_state.inspector_focus_cycle;
+            debug_state->inspector_start_kind =
+                event->data.machine_state.inspector_start_kind;
+            debug_state->inspector_start_arg1 =
+                event->data.machine_state.inspector_start_arg1;
+            debug_state->inspecting =
+                event->data.machine_state.inspector_mode ==
+                (uint8_t)RUNTIME_INSPECTOR_MODE_INSPECT;
+            debug_state->inspector_window_valid =
+                event->data.machine_state.inspector_window_valid != 0u;
+            debug_state->inspector_oldest_cycle =
+                event->data.machine_state.inspector_oldest_cycle;
+            debug_state->inspector_newest_cycle =
+                event->data.machine_state.inspector_newest_cycle;
+            debug_state->inspector_clock_hz =
+                event->data.machine_state.inspector_clock_hz;
+            debug_state->inspector_stopped_for_max =
+                event->data.machine_state.inspector_stopped_for_max != 0u;
+            debug_state->has_cpu = true;
+            debug_state->has_memory_banking = true;
+            debug_state->has_hardware = true;
+            if (debug_state->runtime_state != FRONTEND_RUNTIME_STATE_ERROR) {
+                debug_state->runtime_state = event->data.machine_state.running ?
+                    FRONTEND_RUNTIME_STATE_RUNNING :
+                    FRONTEND_RUNTIME_STATE_PAUSED;
+            }
+            break;
+
+        case RUNTIME_EVENT_MEMORY_RESPONSE:
+            debug_state->memory = event->data.memory;
+            debug_state->has_memory = true;
+            break;
+
+        case RUNTIME_EVENT_MEMORY_VIEW_RESPONSE: {
+            int mv_i;
+            bool mv_found = false;
+            for (mv_i = 0; mv_i < debug_state->memory_view_snapshot_count; mv_i++) {
+                runtime_memory_snapshot *slot = &debug_state->memory_view_snapshots[mv_i];
+                if (slot->address == event->data.memory.address &&
+                    slot->length == event->data.memory.length &&
+                    slot->mode == event->data.memory.mode) {
+                    *slot = event->data.memory;
+                    mv_found = true;
+                    break;
+                }
+            }
+            if (!mv_found && debug_state->memory_view_snapshot_count < 16) {
+                debug_state->memory_view_snapshots[debug_state->memory_view_snapshot_count++] =
+                    event->data.memory;
+            }
+            break;
+        }
+
+        case RUNTIME_EVENT_BREAKPOINTS_RESPONSE:
+            /* Table is in breakpoint_slot; main poll path fills debug_state. */
+            break;
+
+        case RUNTIME_EVENT_DISK_STATUS_RESPONSE:
+            if (event->data.disk_status.device >= 8 && event->data.disk_status.device <= 9) {
+                size_t index = (size_t)(event->data.disk_status.device - 8u);
+                debug_state->disk_status[index] = event->data.disk_status;
+                debug_state->has_disk_status[index] = true;
+            }
+            break;
+
+        case RUNTIME_EVENT_INSPECTOR_MODE:
+            debug_state->inspector_mode = event->data.inspector_mode.mode;
+            debug_state->inspector_focus_cycle = event->data.inspector_mode.focus.cycle;
+            debug_state->inspector_start_kind = event->data.inspector_mode.start_kind;
+            debug_state->inspector_start_arg1 = event->data.inspector_mode.start_arg1;
+            debug_state->inspecting =
+                event->data.inspector_mode.mode ==
+                (uint8_t)RUNTIME_INSPECTOR_MODE_INSPECT;
+            break;
+
+        case RUNTIME_EVENT_FRAME_READY:
+            debug_state->frame_number = event->data.frame_ready.frame_number;
+            debug_state->frame_cycle = event->data.frame_ready.machine_cycle;
+            debug_state->dropped_frames = event->data.frame_ready.dropped_frames;
+            debug_state->has_frame = true;
+            break;
+
+        case RUNTIME_EVENT_CALL_STACK_RESPONSE:
+            debug_state->call_stack = event->data.call_stack;
+            debug_state->has_call_stack = true;
+            break;
+
+        case RUNTIME_EVENT_DEBUG_MEMORY_READY:
+            break;
+
+        case RUNTIME_EVENT_STARTED:
+            if (debug_state->runtime_state == FRONTEND_RUNTIME_STATE_UNKNOWN ||
+                debug_state->runtime_state == FRONTEND_RUNTIME_STATE_ERROR) {
+                debug_state->runtime_state = FRONTEND_RUNTIME_STATE_PAUSED;
+            }
+            break;
+
+        case RUNTIME_EVENT_STOPPED:
+            debug_state->runtime_state = FRONTEND_RUNTIME_STATE_UNKNOWN;
+            break;
+
+        case RUNTIME_EVENT_NONE:
+        case RUNTIME_EVENT_PONG:
+        default:
+            break;
+    }
+}
+
+static const char *control_runtime_state_name(frontend_runtime_state state)
+{
+    switch (state) {
+        case FRONTEND_RUNTIME_STATE_RUNNING:
+            return "running";
+        case FRONTEND_RUNTIME_STATE_PAUSED:
+            return "paused";
+        case FRONTEND_RUNTIME_STATE_ERROR:
+            return "error";
+        case FRONTEND_RUNTIME_STATE_UNKNOWN:
+        default:
+            return "unknown";
+    }
+}
+
+static const char *control_stop_reason_name(runtime_stop_reason reason)
+{
+    switch (reason) {
+        case RUNTIME_STOP_REASON_RESET:
+            return "reset";
+        case RUNTIME_STOP_REASON_PAUSE_COMMAND:
+            return "pause-command";
+        case RUNTIME_STOP_REASON_STEP:
+            return "step";
+        case RUNTIME_STOP_REASON_RUN_COMPLETE:
+            return "run-complete";
+        case RUNTIME_STOP_REASON_BREAKPOINT:
+            return "breakpoint";
+        case RUNTIME_STOP_REASON_BRK:
+            return "brk";
+        case RUNTIME_STOP_REASON_ERROR:
+            return "error";
+        case RUNTIME_STOP_REASON_NONE:
+        default:
+            return "none";
+    }
+}
+
+static const char *control_runtime_event_name(runtime_event_type type)
+{
+    switch (type) {
+        case RUNTIME_EVENT_PONG:
+            return "pong";
+        case RUNTIME_EVENT_STARTED:
+            return "started";
+        case RUNTIME_EVENT_RUNNING:
+            return "running";
+        case RUNTIME_EVENT_PAUSED:
+            return "paused";
+        case RUNTIME_EVENT_STOPPED:
+            return "stopped";
+        case RUNTIME_EVENT_ERROR:
+            return "error";
+        case RUNTIME_EVENT_RESET_COMPLETE:
+            return "reset-complete";
+        case RUNTIME_EVENT_STEP_COMPLETE:
+            return "step-complete";
+        case RUNTIME_EVENT_RUN_COMPLETE:
+            return "run-complete";
+        case RUNTIME_EVENT_CPU_STATE_RESPONSE:
+            return "cpu-state";
+        case RUNTIME_EVENT_MACHINE_STATE_RESPONSE:
+            return "machine-state";
+        case RUNTIME_EVENT_MEMORY_RESPONSE:
+            return "memory";
+        case RUNTIME_EVENT_MEMORY_VIEW_RESPONSE:
+            return "memory-view";
+        case RUNTIME_EVENT_BREAKPOINTS_RESPONSE:
+            return "breakpoints";
+        case RUNTIME_EVENT_DISK_STATUS_RESPONSE:
+            return "disk-status";
+        case RUNTIME_EVENT_ASSEMBLE_COMPLETE:
+            return "assemble-complete";
+        case RUNTIME_EVENT_ASSEMBLE_ERROR:
+            return "assemble-error";
+        case RUNTIME_EVENT_FRAME_READY:
+            return "frame";
+        case RUNTIME_EVENT_CALL_STACK_RESPONSE:
+            return "call-stack";
+        case RUNTIME_EVENT_DISK_SWAP:
+            return "disk-swap";
+        case RUNTIME_EVENT_DEBUG_MEMORY_READY:
+            return "debug-memory";
+        case RUNTIME_EVENT_SAVE_STATE_COMPLETE:
+            return "save-state-complete";
+        case RUNTIME_EVENT_LOAD_STATE_COMPLETE:
+            return "load-state-complete";
+        case RUNTIME_EVENT_HISTORY_STATUS_RESPONSE:
+            return "history-status";
+        case RUNTIME_EVENT_HISTORY_RESULT_RESPONSE:
+            return "history-result";
+        case RUNTIME_EVENT_SESSION_RESPONSE:
+            return "session";
+        case RUNTIME_EVENT_STATE_CHANGED:
+            return "state-changed";
+        case RUNTIME_EVENT_NONE:
+        default:
+            return "none";
+    }
+}
+
+static void control_format_cpu_response(
+    control_response *response,
+    uint32_t request_id,
+    const runtime_cpu_snapshot *cpu)
+{
+    char text[CONTROL_RESPONSE_TEXT_MAX];
+
+    if (response == NULL || cpu == NULL) {
+        return;
+    }
+    snprintf(
+        text,
+        sizeof(text),
+        "pc=%04X a=%02X x=%02X y=%02X sp=%02X p=%02X cycles=%llu",
+        cpu->pc,
+        cpu->a,
+        cpu->x,
+        cpu->y,
+        cpu->sp,
+        cpu->p,
+        (unsigned long long)cpu->cycles);
+    control_protocol_format_ok(response, request_id, text, false);
+}
+
+static void control_format_memory_response(
+    control_response *response,
+    uint32_t request_id,
+    const runtime_memory_snapshot *memory)
+{
+    uint8_t *payload;
+    char metadata[CONTROL_RESPONSE_TEXT_MAX];
+
+    if (response == NULL || memory == NULL || memory->length == 0) {
+        return;
+    }
+    payload = (uint8_t *)malloc(memory->length);
+    if (payload == NULL) {
+        control_protocol_format_error(response, request_id, "memory", "allocation failed", false);
+        return;
+    }
+    memcpy(payload, memory->bytes, memory->length);
+    snprintf(
+        metadata,
+        sizeof(metadata),
+        "addr=%04X length=%u mode=%u",
+        memory->address,
+        memory->length,
+        (unsigned)memory->mode);
+    control_protocol_format_data(
+        response,
+        request_id,
+        "memory",
+        payload,
+        memory->length,
+        metadata,
+        false);
+}
+
+static void control_format_memory_rpc_response(
+    control_response *response,
+    uint32_t request_id,
+    uint16_t address,
+    uint32_t length,
+    runtime_memory_mode mode,
+    uint8_t *payload_owned)
+{
+    char metadata[CONTROL_RESPONSE_TEXT_MAX];
+
+    if (response == NULL || payload_owned == NULL || length == 0u) {
+        free(payload_owned);
+        return;
+    }
+    snprintf(
+        metadata,
+        sizeof(metadata),
+        "addr=%04X length=%u mode=%u",
+        address,
+        (unsigned)length,
+        (unsigned)mode);
+    control_protocol_format_data(
+        response,
+        request_id,
+        "memory",
+        payload_owned,
+        (size_t)length,
+        metadata,
+        false);
+}
+
+/* Shared by get-frame and get-frame-at so a ring frame and a live frame go
+   through identical conversion; `extra_metadata` may be NULL. */
+static void control_format_frame_response_ex(
+    control_response *response,
+    uint32_t request_id,
+    const c64_frame *frame,
+    uint8_t frame_format,
+    const char *extra_metadata)
+{
+    uint8_t *payload;
+    size_t payload_size;
+    char metadata[CONTROL_RESPONSE_TEXT_MAX];
+    const char *format_name;
+    uint32_t stride;
+
+    if (response == NULL || frame == NULL) {
+        return;
+    }
+    if (frame->pixel_format != C64_FRAME_PIXEL_FORMAT_INDEXED8 ||
+        frame->stride_bytes != C64_FRAME_WIDTH) {
+        control_protocol_format_error(
+            response, request_id, "frame", "unexpected native frame format", false);
+        return;
+    }
+
+    if (frame_format == CONTROL_FRAME_FORMAT_INDEXED8) {
+        uint32_t y;
+        uint32_t width = frame->width;
+        uint32_t height = frame->height;
+        format_name = "indexed8";
+        stride = width; /* one byte per pixel; row pitch = width */
+        payload_size = (size_t)height * (size_t)stride;
+        payload = (uint8_t *)malloc(payload_size);
+        if (payload == NULL) {
+            control_protocol_format_error(response, request_id, "memory", "allocation failed", false);
+            return;
+        }
+        for (y = 0; y < height; y++) {
+            uint32_t x;
+            const uint8_t *src_row =
+                frame->pixels + (size_t)y * (size_t)frame->stride_bytes;
+            uint8_t *dst_row = payload + (size_t)y * (size_t)stride;
+            for (x = 0; x < width; x++) {
+                dst_row[x] = c64_frame_pixel_to_index(src_row[x]);
+            }
+        }
+    } else {
+        format_name = "argb8888";
+        stride = C64_FRAME_WIDTH * sizeof(uint32_t);
+        payload_size = (size_t)frame->height * (size_t)stride;
+        payload = (uint8_t *)malloc(payload_size);
+        if (payload == NULL) {
+            control_protocol_format_error(response, request_id, "memory", "allocation failed", false);
+            return;
+        }
+        if (!c64_frame_expand_argb(
+                frame, (uint32_t *)(void *)payload, C64_FRAME_WIDTH, 0u)) {
+            free(payload);
+            control_protocol_format_error(
+                response, request_id, "frame", "frame expansion failed", false);
+            return;
+        }
+    }
+
+    snprintf(
+        metadata,
+        sizeof(metadata),
+        "width=%u height=%u stride=%u format=%s frame=%llu cycle=%llu%s%s",
+        frame->width,
+        frame->height,
+        stride,
+        format_name,
+        (unsigned long long)frame->frame_number,
+        (unsigned long long)frame->machine_cycle,
+        extra_metadata != NULL ? " " : "",
+        extra_metadata != NULL ? extra_metadata : "");
+    control_protocol_format_data(
+        response,
+        request_id,
+        "frame",
+        payload,
+        payload_size,
+        metadata,
+        false);
+}
+
+static void control_format_frame_response(
+    control_response *response,
+    uint32_t request_id,
+    const c64_frame *frame,
+    uint8_t frame_format)
+{
+    control_format_frame_response_ex(
+        response, request_id, frame, frame_format, NULL);
+}
+
+/* get-frame-at reports what was asked for alongside what was returned, because
+   the lookup resolves to the nearest frame at or before the target. */
+static void control_format_frame_at_response(
+    control_response *response,
+    uint32_t request_id,
+    const c64_frame *frame,
+    uint8_t frame_format,
+    uint64_t target,
+    bool by_cycle)
+{
+    char extra[96];
+
+    snprintf(
+        extra,
+        sizeof(extra),
+        "target=%llu target_kind=%s",
+        (unsigned long long)target,
+        by_cycle ? "cycle" : "frame");
+    control_format_frame_response_ex(
+        response, request_id, frame, frame_format, extra);
+}
+
+static size_t control_append_u8_list(
+    char *out,
+    size_t out_size,
+    const char *key,
+    const uint8_t *values,
+    size_t count)
+{
+    size_t used = (size_t)snprintf(out, out_size, "%s=", key);
+    size_t i;
+
+    for (i = 0; i < count && used < out_size; ++i) {
+        used += (size_t)snprintf(
+            out + used, out_size - used, "%s%02X",
+            i == 0u ? "" : ",", values[i]);
+    }
+    return used;
+}
+
+/* One text line per raster line. The flight recorder uses a binary format
+   because it holds millions of records; this holds hundreds, so readable
+   key=value text is worth more than a decoder. */
+static void control_format_vic_ring_response(
+    control_response *response,
+    uint32_t request_id,
+    const vicii_line_record *records,
+    uint32_t count)
+{
+    enum { RECORD_TEXT_MAX = 512 };
+    uint8_t *payload;
+    size_t payload_size = 1u + (size_t)count * RECORD_TEXT_MAX;
+    size_t used = 0;
+    char metadata[64];
+    uint32_t i;
+
+    if (response == NULL) {
+        return;
+    }
+    payload = (uint8_t *)malloc(payload_size);
+    if (payload == NULL) {
+        control_protocol_format_error(response, request_id, "memory", "allocation failed", false);
+        return;
+    }
+
+    for (i = 0; i < count; ++i) {
+        const vicii_line_record *r = &records[i];
+        char line[RECORD_TEXT_MAX];
+        size_t at = 0;
+        int written;
+        uint8_t n;
+
+        at += (size_t)snprintf(
+            line + at, sizeof(line) - at,
+            "frame=%llu raster=%u cycle=%llu "
+            "badline=%u allow_bl=%u display=%u vborder=%u mborder=%u "
+            "d011=%02X d016=%02X d018=%02X vc=%04X vcbase=%04X rc=%u vmli=%u "
+            "border=%X bg=%X,%X,%X,%X irq=%02X/%02X "
+            "spr_en=%02X spr_vis=%02X spr_act=%02X spr_pri=%02X "
+            "spr_mc=%02X spr_xe=%02X spr_yeff=%02X ",
+            (unsigned long long)r->frame_number,
+            (unsigned)r->raster_line,
+            (unsigned long long)r->machine_cycle,
+            r->bad_line, r->allow_bad_lines, r->display_state,
+            r->vertical_border, r->main_border_ff,
+            r->d011, r->d016, r->d018,
+            r->vc, r->vc_base, r->rc, r->vmli,
+            r->border_color,
+            r->background[0], r->background[1], r->background[2], r->background[3],
+            r->irq_status, r->irq_enable,
+            r->sprite_enabled, r->sprite_visible, r->sprite_active,
+            r->sprite_priority, r->sprite_multicolor,
+            r->sprite_x_expand, r->sprite_y_expand_ff);
+
+        /* The latched X is the reason this ring exists: it is what the line was
+           painted with, which a mid-frame $D010 write can make differ from the
+           register the CPU last wrote. */
+        at += (size_t)snprintf(line + at, sizeof(line) - at, "spr_x=");
+        for (n = 0; n < 8u && at < sizeof(line); ++n) {
+            at += (size_t)snprintf(
+                line + at, sizeof(line) - at, "%s%04X",
+                n == 0u ? "" : ",", r->sprite_x[n]);
+        }
+        at += (size_t)snprintf(line + at, sizeof(line) - at, " ");
+        at += control_append_u8_list(line + at, sizeof(line) - at, "spr_y", r->sprite_y, 8u);
+        at += (size_t)snprintf(line + at, sizeof(line) - at, " ");
+        at += control_append_u8_list(line + at, sizeof(line) - at, "spr_ptr", r->sprite_pointer, 8u);
+        at += (size_t)snprintf(line + at, sizeof(line) - at, " ");
+        at += control_append_u8_list(line + at, sizeof(line) - at, "spr_col", r->sprite_color, 8u);
+        at += (size_t)snprintf(line + at, sizeof(line) - at, " ");
+        at += control_append_u8_list(line + at, sizeof(line) - at, "spr_mcnt", r->sprite_mc, 8u);
+        at += (size_t)snprintf(line + at, sizeof(line) - at, " ");
+        (void)control_append_u8_list(line + at, sizeof(line) - at, "spr_mcbase", r->sprite_mcbase, 8u);
+
+        written = snprintf(
+            (char *)payload + used, payload_size - used, "%s\n", line);
+        if (written < 0 || (size_t)written >= payload_size - used) {
+            break;
+        }
+        used += (size_t)written;
+    }
+
+    snprintf(metadata, sizeof(metadata), "count=%u", count);
+    control_protocol_format_data(
+        response, request_id, "vic-ring", payload, used, metadata, false);
+}
+
+static void control_format_debug_memory_response(
+    control_response *response,
+    uint32_t request_id,
+    const runtime_debug_memory_snapshot *debug_memory,
+    bool include_write_history)
+{
+    uint8_t *payload;
+    uint8_t *cursor;
+    size_t payload_size = (size_t)C64_RAM_SIZE * 3u;
+    char metadata[CONTROL_RESPONSE_TEXT_MAX];
+
+    if (response == NULL || debug_memory == NULL) {
+        return;
+    }
+    if (include_write_history) {
+        payload_size += (size_t)C64_RAM_SIZE * sizeof(debug_memory->write_history[0]);
+    }
+    payload = (uint8_t *)malloc(payload_size);
+    if (payload == NULL) {
+        control_protocol_format_error(response, request_id, "memory", "allocation failed", false);
+        return;
+    }
+    cursor = payload;
+    memcpy(cursor, debug_memory->map, C64_RAM_SIZE);
+    cursor += C64_RAM_SIZE;
+    memcpy(cursor, debug_memory->ram, C64_RAM_SIZE);
+    cursor += C64_RAM_SIZE;
+    memcpy(cursor, debug_memory->rom, C64_RAM_SIZE);
+    cursor += C64_RAM_SIZE;
+    if (include_write_history) {
+        memcpy(cursor, debug_memory->write_history,
+            (size_t)C64_RAM_SIZE * sizeof(debug_memory->write_history[0]));
+    }
+    snprintf(
+        metadata,
+        sizeof(metadata),
+        "generation=%llu map=%u ram=%u rom=%u write_history=%u",
+        (unsigned long long)debug_memory->generation,
+        (unsigned)C64_RAM_SIZE,
+        (unsigned)C64_RAM_SIZE,
+        (unsigned)C64_RAM_SIZE,
+        include_write_history ? 1u : 0u);
+    control_protocol_format_data(
+        response,
+        request_id,
+        "debug-memory",
+        payload,
+        payload_size,
+        metadata,
+        false);
+}
+
+static void control_format_call_stack_response(
+    control_response *response,
+    uint32_t request_id,
+    const runtime_call_stack_snapshot *call_stack)
+{
+    char text[CONTROL_RESPONSE_TEXT_MAX];
+    size_t used = 0;
+    int written;
+    uint8_t i;
+
+    if (response == NULL || call_stack == NULL) {
+        return;
+    }
+    written = snprintf(text, sizeof(text), "sp=%02X count=%u", call_stack->sp, call_stack->count);
+    if (written < 0 || (size_t)written >= sizeof(text)) {
+        control_protocol_format_error(response, request_id, "internal", "format failed", false);
+        return;
+    }
+    used = (size_t)written;
+    for (i = 0; i < call_stack->count && i < RUNTIME_CALL_STACK_MAX; i++) {
+        written = snprintf(
+            text + used,
+            sizeof(text) - used,
+            " frame%u=%04X:%04X",
+            (unsigned)i,
+            call_stack->entries[i].jsr_address,
+            call_stack->entries[i].dest_address);
+        if (written < 0 || (size_t)written >= sizeof(text) - used) {
+            break;
+        }
+        used += (size_t)written;
+    }
+    control_protocol_format_ok(response, request_id, text, false);
+}
+
+static void control_format_disk_status_response(
+    control_response *response,
+    uint32_t request_id,
+    const runtime_disk_status_snapshot *disk_status)
+{
+    char text[CONTROL_RESPONSE_TEXT_MAX];
+
+    if (response == NULL || disk_status == NULL) {
+        return;
+    }
+    snprintf(
+        text,
+        sizeof(text),
+        "device=%u mounted=%u powered=%u writable=%u dirty=%u kind=%u result=%u name=%s title=%s",
+        disk_status->device,
+        disk_status->mounted,
+        disk_status->powered,
+        disk_status->writable,
+        disk_status->dirty,
+        (unsigned)disk_status->image_kind,
+        (unsigned)disk_status->last_result,
+        disk_status->display_name,
+        disk_status->disk_title);
+    control_protocol_format_ok(response, request_id, text, false);
+}
+
+static void control_format_drive_cpu_response(
+    control_response *response,
+    uint32_t request_id,
+    const c64_1541_hardware_snapshot *drive)
+{
+    char text[CONTROL_RESPONSE_TEXT_MAX];
+
+    if (response == NULL || drive == NULL) {
+        return;
+    }
+    snprintf(
+        text,
+        sizeof(text),
+        "device=%d rom=%u powered=%u media=%u tracks=%u g64=%u pc=%04X ht=%d dens=%d "
+        "mot=%u/%u wr=%u sync=%u",
+        drive->device_number,
+        drive->rom_loaded ? 1u : 0u,
+        drive->powered ? 1u : 0u,
+        drive->media_enabled ? 1u : 0u,
+        drive->tracks_valid ? 1u : 0u,
+        drive->from_g64 ? 1u : 0u,
+        (unsigned)drive->pc,
+        drive->half_track,
+        drive->density,
+        drive->motor_on ? 1u : 0u,
+        drive->motor_ready ? 1u : 0u,
+        drive->writing ? 1u : 0u,
+        drive->in_sync ? 1u : 0u);
+    control_protocol_format_ok(response, request_id, text, false);
+}
+
+static void control_format_vic_response(
+    control_response *response,
+    uint32_t request_id,
+    const c64_vicii_hardware_snapshot *vic)
+{
+    char text[CONTROL_RESPONSE_TEXT_MAX];
+
+    if (response == NULL || vic == NULL) {
+        return;
+    }
+    snprintf(
+        text,
+        sizeof(text),
+        "standard=%s raster=%u cycle=%u compare=%u d011=%02X d016=%02X "
+        "mem=%02X irq_st=%02X irq_en=%02X irq=%u display=%u badline=%u "
+        "ba=%u aec=%u rdy=%u vc=%04X vcbase=%04X rc=%u "
+        "frame=%llu border=%u bg0=%u",
+        vic->standard == C64_VIDEO_STANDARD_PAL ? "PAL" : "NTSC",
+        vic->raster_line,
+        vic->cycle_in_line,
+        (unsigned)vic->raster_compare,
+        vic->control_1,
+        vic->control_2,
+        vic->memory_pointer,
+        vic->irq_status,
+        vic->irq_enable,
+        vic->irq_pending ? 1u : 0u,
+        vic->display_state ? 1u : 0u,
+        vic->bad_line ? 1u : 0u,
+        vic->ba_active ? 1u : 0u,
+        vic->aec_active ? 1u : 0u,
+        vic->rdy_active ? 1u : 0u,
+        (unsigned)vic->vc,
+        (unsigned)vic->vc_base,
+        (unsigned)vic->rc,
+        (unsigned long long)vic->frame_number,
+        (unsigned)vic->border_color,
+        (unsigned)vic->background_color[0]);
+    control_protocol_format_ok(response, request_id, text, false);
+}
+
+static void control_format_cia_response(
+    control_response *response,
+    uint32_t request_id,
+    uint8_t cia_index,
+    const c64_cia_hardware_snapshot *cia)
+{
+    char text[CONTROL_RESPONSE_TEXT_MAX];
+
+    if (response == NULL || cia == NULL) {
+        return;
+    }
+    snprintf(
+        text,
+        sizeof(text),
+        "cia=%u pra=%02X prb=%02X ddra=%02X ddrb=%02X "
+        "ta=%04X/%04X cra=%02X tb=%04X/%04X crb=%02X "
+        "icr_flags=%02X icr_mask=%02X irq=%u "
+        "tod=%02X:%02X:%02X.%02X alarm=%02X:%02X:%02X.%02X",
+        (unsigned)cia_index,
+        cia->port_a,
+        cia->port_b,
+        cia->ddra,
+        cia->ddrb,
+        (unsigned)cia->timer_a_counter,
+        (unsigned)cia->timer_a_latch,
+        cia->timer_a_control,
+        (unsigned)cia->timer_b_counter,
+        (unsigned)cia->timer_b_latch,
+        cia->timer_b_control,
+        cia->interrupt_flags,
+        cia->interrupt_mask,
+        cia->interrupt_pending ? 1u : 0u,
+        cia->tod_hours,
+        cia->tod_minutes,
+        cia->tod_seconds,
+        cia->tod_tenths,
+        cia->alarm_hours,
+        cia->alarm_minutes,
+        cia->alarm_seconds,
+        cia->alarm_tenths);
+    control_protocol_format_ok(response, request_id, text, false);
+}
+
+static void control_format_breakpoints_response(
+    control_response *response,
+    uint32_t request_id,
+    const runtime_breakpoint_snapshot *breakpoints)
+{
+    uint8_t *payload;
+    char *cursor;
+    /* Per record: ~180 bytes of fixed fields plus `when=` carrying a condition
+       up to RUNTIME_BREAKPOINT_CONDITION_TEXT_MAX. Undersizing this silently
+       drops breakpoints from the listing. */
+    size_t payload_size = 1u + (size_t)RUNTIME_BREAKPOINT_SNAPSHOT_MAX * 384u;
+    size_t used = 0;
+    char metadata[64];
+    uint16_t i;
+
+    if (response == NULL || breakpoints == NULL) {
+        return;
+    }
+    payload = (uint8_t *)malloc(payload_size);
+    if (payload == NULL) {
+        control_protocol_format_error(response, request_id, "memory", "allocation failed", false);
+        return;
+    }
+    cursor = (char *)payload;
+    for (i = 0; i < breakpoints->count && i < RUNTIME_BREAKPOINT_SNAPSHOT_MAX; i++) {
+        const runtime_breakpoint_snapshot_entry *entry = &breakpoints->entries[i];
+        char condition_text[RUNTIME_BREAKPOINT_CONDITION_TEXT_MAX];
+        int written;
+
+        if (!runtime_bp_condition_format(
+                &entry->condition, condition_text, sizeof(condition_text))) {
+            condition_text[0] = '\0';
+        }
+        written = snprintf(
+            cursor + used,
+            payload_size - used,
+            "id=%u enabled=%u start=%04X end=%04X has_end=%u access=%u mapping=%u actions=%u use_counter=%u hits=%u initial=%u reset=%u counter=%u cond=%u when=%s\n",
+            entry->id,
+            entry->enabled,
+            entry->start_address,
+            entry->end_address,
+            entry->has_end_address,
+            (unsigned)entry->access,
+            (unsigned)entry->mapping,
+            entry->actions,
+            entry->use_counter,
+            entry->current_hits,
+            entry->initial_count,
+            entry->reset_count,
+            entry->counter,
+            (unsigned)entry->condition.term_count,
+            condition_text);
+        if (written < 0 || (size_t)written >= payload_size - used) {
+            break;
+        }
+        used += (size_t)written;
+    }
+    snprintf(metadata, sizeof(metadata), "count=%u", breakpoints->count);
+    control_protocol_format_data(
+        response,
+        request_id,
+        "breakpoints",
+        payload,
+        used,
+        metadata,
+        false);
+}
+
+static bool control_breakpoint_snapshot_find(
+    const runtime_breakpoint_snapshot *breakpoints,
+    uint32_t id,
+    const runtime_breakpoint_snapshot_entry **out_entry)
+{
+    uint16_t i;
+
+    if (breakpoints == NULL) {
+        return false;
+    }
+    for (i = 0; i < breakpoints->count && i < RUNTIME_BREAKPOINT_SNAPSHOT_MAX; i++) {
+        if (breakpoints->entries[i].id == id) {
+            if (out_entry != NULL) {
+                *out_entry = &breakpoints->entries[i];
+            }
+            return true;
+        }
+    }
+    return false;
+}
+
+static bool control_parse_breakpoint_actions(const char *value, uint32_t *out_actions)
+{
+    uint32_t actions = 0;
+    const char *cursor = value;
+    bool saw_none = false;
+
+    if (value == NULL || value[0] == '\0' || out_actions == NULL) {
+        return false;
+    }
+    while (*cursor != '\0') {
+        const char *start = cursor;
+        size_t length;
+        while (*cursor != '\0' && *cursor != ',') {
+            cursor++;
+        }
+        length = (size_t)(cursor - start);
+        if (length == 4 && strncmp(start, "none", length) == 0) {
+            /* Count-only / non-stopping: hits accumulate, machine free-runs. */
+            saw_none = true;
+        } else if (length == 5 && strncmp(start, "break", length) == 0) {
+            actions |= RUNTIME_BREAKPOINT_ACTION_BREAK;
+        } else if (length == 4 && strncmp(start, "fast", length) == 0) {
+            actions |= RUNTIME_BREAKPOINT_ACTION_FAST;
+        } else if (length == 4 && strncmp(start, "slow", length) == 0) {
+            actions |= RUNTIME_BREAKPOINT_ACTION_SLOW;
+        } else if (length == 4 && strncmp(start, "tron", length) == 0) {
+            actions |= RUNTIME_BREAKPOINT_ACTION_TRON;
+        } else if (length == 5 && strncmp(start, "troff", length) == 0) {
+            actions |= RUNTIME_BREAKPOINT_ACTION_TROFF;
+        } else if (length == 4 && strncmp(start, "type", length) == 0) {
+            actions |= RUNTIME_BREAKPOINT_ACTION_TYPE;
+        } else if (length == 4 && strncmp(start, "swap", length) == 0) {
+            actions |= RUNTIME_BREAKPOINT_ACTION_SWAP;
+        } else {
+            return false;
+        }
+        if (*cursor == ',') {
+            cursor++;
+        }
+    }
+    if (saw_none && actions != 0) {
+        return false; /* none is exclusive */
+    }
+    *out_actions = actions;
+    return saw_none || actions != 0;
+}
+
+static bool control_parse_u32_field(const char *value, uint32_t *out)
+{
+    char *end;
+    unsigned long parsed;
+
+    if (value == NULL || value[0] == '\0' || out == NULL) {
+        return false;
+    }
+    parsed = strtoul(value, &end, 0);
+    if (end == value || *end != '\0' || parsed > 0xfffffffful) {
+        return false;
+    }
+    *out = (uint32_t)parsed;
+    return true;
+}
+
+static bool control_parse_u16_field(const char *value, uint16_t *out)
+{
+    char *end;
+    unsigned long parsed;
+    int base = 0;
+
+    if (value == NULL || value[0] == '\0' || out == NULL) {
+        return false;
+    }
+    if (value[0] == '$') {
+        value++;
+        base = 16;
+    }
+    parsed = strtoul(value, &end, base);
+    if (end == value || *end != '\0' || parsed > 0xfffful) {
+        return false;
+    }
+    *out = (uint16_t)parsed;
+    return true;
+}
+
+static bool control_parse_bool_field(const char *value, uint8_t *out)
+{
+    if (value == NULL || out == NULL) {
+        return false;
+    }
+    if (strcmp(value, "1") == 0 || strcmp(value, "true") == 0) {
+        *out = 1u;
+        return true;
+    }
+    if (strcmp(value, "0") == 0 || strcmp(value, "false") == 0) {
+        *out = 0u;
+        return true;
+    }
+    return false;
+}
+
+static bool control_parse_breakpoint_access(const char *token, uint32_t *out_access)
+{
+    if (token == NULL || out_access == NULL) {
+        return false;
+    }
+    if (strcmp(token, "exec") == 0 || strcmp(token, "execute") == 0) {
+        *out_access = RUNTIME_BREAKPOINT_ACCESS_EXECUTE;
+        return true;
+    }
+    if (strcmp(token, "read") == 0 || strcmp(token, "load") == 0) {
+        *out_access = RUNTIME_BREAKPOINT_ACCESS_READ;
+        return true;
+    }
+    if (strcmp(token, "write") == 0 || strcmp(token, "store") == 0) {
+        *out_access = RUNTIME_BREAKPOINT_ACCESS_WRITE;
+        return true;
+    }
+    /* Combined forms: load-store, read-write */
+    if (strcmp(token, "read-write") == 0 || strcmp(token, "load-store") == 0) {
+        *out_access = RUNTIME_BREAKPOINT_ACCESS_READ | RUNTIME_BREAKPOINT_ACCESS_WRITE;
+        return true;
+    }
+    return false;
+}
+
+/* `error` receives a specific diagnostic where one is available (currently the
+   condition grammar, which is the part a caller is most likely to get wrong);
+   it is left empty when only the generic message applies. */
+static bool control_parse_breakpoint_definition(
+    const char *text,
+    runtime_breakpoint_definition *definition,
+    char *error,
+    size_t error_size)
+{
+    char buffer[1024];
+    char *token;
+
+    if (error != NULL && error_size > 0u) {
+        error[0] = '\0';
+    }
+    if (text == NULL || definition == NULL) {
+        return false;
+    }
+    snprintf(buffer, sizeof(buffer), "%s", text);
+    memset(definition, 0, sizeof(*definition));
+    definition->enabled = 1u;
+    definition->access = RUNTIME_BREAKPOINT_ACCESS_EXECUTE;
+    definition->mapping = RUNTIME_BREAKPOINT_MAPPING_MAP;
+    definition->actions = RUNTIME_BREAKPOINT_ACTION_BREAK;
+    definition->reset_count = 1u;
+
+    token = strtok(buffer, " \t");
+    if (token == NULL || !control_parse_breakpoint_access(token, &definition->access)) {
+        return false;
+    }
+    token = strtok(NULL, " \t");
+    if (token == NULL || !control_parse_u16_field(token, &definition->start_address)) {
+        return false;
+    }
+    definition->end_address = definition->start_address;
+
+    while ((token = strtok(NULL, " \t")) != NULL) {
+        char *eq = strchr(token, '=');
+        char *key;
+        char *value;
+        if (eq == NULL) {
+            return false;
+        }
+        *eq = '\0';
+        key = token;
+        value = eq + 1;
+        if (strcmp(key, "enabled") == 0) {
+            if (!control_parse_bool_field(value, &definition->enabled)) {
+                return false;
+            }
+        } else if (strcmp(key, "end") == 0) {
+            if (!control_parse_u16_field(value, &definition->end_address)) {
+                return false;
+            }
+            definition->has_end_address = 1u;
+        } else if (strcmp(key, "actions") == 0) {
+            if (!control_parse_breakpoint_actions(value, &definition->actions)) {
+                return false;
+            }
+        } else if (strcmp(key, "counter") == 0) {
+            if (!control_parse_u32_field(value, &definition->initial_count)) {
+                return false;
+            }
+            definition->use_counter = 1u;
+        } else if (strcmp(key, "reset") == 0) {
+            if (!control_parse_u32_field(value, &definition->reset_count)) {
+                return false;
+            }
+        } else if (strcmp(key, "mapping") == 0) {
+            if (strcmp(value, "map") == 0) {
+                definition->mapping = RUNTIME_BREAKPOINT_MAPPING_MAP;
+            } else if (strcmp(value, "rom") == 0) {
+                definition->mapping = RUNTIME_BREAKPOINT_MAPPING_ROM;
+            } else if (strcmp(value, "ram") == 0) {
+                definition->mapping = RUNTIME_BREAKPOINT_MAPPING_RAM;
+            } else {
+                return false;
+            }
+        } else if (strcmp(key, "when") == 0) {
+            if (!runtime_bp_condition_parse(
+                    value, &definition->condition, error, error_size)) {
+                return false;
+            }
+        } else {
+            return false;
+        }
+    }
+
+    /* An instruction fetch carries no accessed byte, so a `value` term could
+       never hold on an exec breakpoint. Reject it rather than arm a guard that
+       can only ever be false. */
+    if ((definition->access & RUNTIME_BREAKPOINT_ACCESS_EXECUTE) != 0 &&
+        runtime_bp_condition_uses_value(&definition->condition)) {
+        if (error != NULL && error_size > 0u) {
+            snprintf(error, error_size,
+                     "`value` has no meaning on an exec breakpoint");
+        }
+        return false;
+    }
+    return true;
+}
+
+static const char *control_history_unavailable_reason_name(
+    runtime_history_unavailable_reason reason) {
+    switch (reason) {
+    case RUNTIME_HISTORY_UNAVAILABLE_DISABLED_BY_CONFIG:
+        return "disabled-by-config";
+    case RUNTIME_HISTORY_UNAVAILABLE_ALLOCATION_FAILED:
+        return "allocation-failed";
+    case RUNTIME_HISTORY_UNAVAILABLE_INVALID_CAPACITY:
+        return "invalid-capacity";
+    case RUNTIME_HISTORY_UNAVAILABLE_NONE:
+    default:
+        return "none";
+    }
+}
+
+static void control_format_history_status_response(
+    control_response *response,
+    uint32_t request_id,
+    const runtime_history_status *status) {
+    char text[CONTROL_RESPONSE_TEXT_MAX];
+
+    if (!status->available) {
+        snprintf(
+            text,
+            sizeof(text),
+            "available=0 recording=0 requested_bytes=%llu "
+            "capacity_bytes=0 reason=%s",
+            (unsigned long long)status->requested_bytes,
+            control_history_unavailable_reason_name(
+                status->unavailable_reason));
+    } else {
+        snprintf(
+            text,
+            sizeof(text),
+            "available=1 recording=%u requested_bytes=%llu "
+            "capacity_bytes=%llu used_bytes=%llu epoch=%llu timeline=%u "
+            "records=%llu oldest=%llu newest=%llu wrapped=%llu "
+            "partial=%llu truncated_accesses=%llu",
+            status->recording ? 1u : 0u,
+            (unsigned long long)status->requested_bytes,
+            (unsigned long long)status->capacity_bytes,
+            (unsigned long long)status->used_bytes,
+            (unsigned long long)status->epoch,
+            status->timeline,
+            (unsigned long long)status->record_count,
+            (unsigned long long)status->oldest_id,
+            (unsigned long long)status->newest_id,
+            (unsigned long long)status->wrap_count,
+            (unsigned long long)status->partial_records,
+            (unsigned long long)status->truncated_accesses);
+    }
+    control_protocol_format_ok(response, request_id, text, false);
+}
+
+static void control_format_history_rpc_error(
+    control_response *response,
+    uint32_t request_id,
+    runtime_history_rpc_status status) {
+    const char *code = "runtime";
+    const char *message = "history-query-failed";
+
+    switch (status) {
+    case RUNTIME_HISTORY_RPC_UNAVAILABLE:
+        code = "unavailable";
+        message = "history-recorder-unavailable";
+        break;
+    case RUNTIME_HISTORY_RPC_MACHINE_RUNNING:
+        code = "busy";
+        message = "machine-running";
+        break;
+    case RUNTIME_HISTORY_RPC_REQUEST_ACTIVE:
+        code = "busy";
+        message = "history-request-active";
+        break;
+    case RUNTIME_HISTORY_RPC_BAD_ARGS:
+        code = "bad-args";
+        message = "history-query-invalid";
+        break;
+    case RUNTIME_HISTORY_RPC_CURSOR_STALE:
+        code = "stale";
+        message = "history-cursor-stale";
+        break;
+    case RUNTIME_HISTORY_RPC_EPOCH_MISMATCH:
+        code = "stale";
+        message = "history-epoch-mismatch";
+        break;
+    case RUNTIME_HISTORY_RPC_RECORD_NOT_RETAINED:
+        code = "not-found";
+        message = "history-record-not-retained";
+        break;
+    case RUNTIME_HISTORY_RPC_ERROR:
+    case RUNTIME_HISTORY_RPC_OK:
+    default:
+        break;
+    }
+    control_protocol_format_error(
+        response, request_id, code, message, false);
+}
+
+static void complete_deferred_control_response(
+    control_server *control,
+    runtime_client *client,
+    frontend_debug_state *debug_state,
+    deferred_control_response *deferred,
+    const runtime_event *event)
+{
+    control_response response;
+
+    if (control == NULL || deferred == NULL || !deferred->active || event == NULL) {
+        return;
+    }
+
+    /* Token-bearing deferred work must not complete from UI/token-0 telemetry or
+       a different solicited response (see agents/runtime-control.md). */
+    if (!control_deferred_token_matches(deferred->request_token, event->request_token)) {
+        return;
+    }
+
+    /* Breakpoint mutations wait for a snapshot that may never match when the
+       runtime rejects the definition (expected count +1, but install failed).
+       Surface RUNTIME_EVENT_ERROR as a clean protocol error instead of hanging. */
+    if (event->type == RUNTIME_EVENT_ERROR &&
+        (deferred->command_type == CONTROL_COMMAND_BREAK_EXEC ||
+         deferred->command_type == CONTROL_COMMAND_BREAK_CLEAR ||
+         deferred->command_type == CONTROL_COMMAND_BREAK_ENABLE ||
+         deferred->command_type == CONTROL_COMMAND_BREAK_LIST ||
+         deferred->command_type == CONTROL_COMMAND_BREAK_CLEAR_ALL ||
+         deferred->command_type == CONTROL_COMMAND_BREAK_CREATE ||
+         deferred->command_type == CONTROL_COMMAND_BREAK_UPDATE ||
+         deferred->command_type == CONTROL_COMMAND_REARM_ONESHOTS ||
+         deferred->command_type == CONTROL_COMMAND_SET_MEMORY)) {
+        control_protocol_format_error(
+            &response,
+            deferred->request_id,
+            "runtime",
+            event->data.error.message[0] != '\0' ?
+                event->data.error.message :
+                "command failed",
+            false);
+        if (control_server_post_response(control, &response)) {
+            deferred->active = false;
+            deferred->request_token = 0u;
+        } else {
+            control_response_release(&response);
+            log_warn("control: response queue full");
+        }
+        return;
+    }
+
+    if (deferred->command_type == CONTROL_COMMAND_GET_CPU &&
+        event->type == RUNTIME_EVENT_CPU_STATE_RESPONSE) {
+        control_format_cpu_response(&response, deferred->request_id, &event->data.cpu_state);
+        if (control_server_post_response(control, &response)) {
+            deferred->active = false;
+            deferred->request_token = 0u;
+        } else {
+            control_response_release(&response);
+            log_warn("control: response queue full");
+        }
+    } else if (deferred->command_type == CONTROL_COMMAND_GET_MEMORY &&
+               event->type == RUNTIME_EVENT_MEMORY_RPC_COMPLETE) {
+        if (event->data.memory_rpc.status != RUNTIME_MEMORY_RPC_OK) {
+            const char *code = "runtime";
+            const char *msg = "memory request failed";
+            if (event->data.memory_rpc.status == RUNTIME_MEMORY_RPC_BUSY) {
+                code = "busy";
+                msg = "memory rpc pool full";
+            } else if (event->data.memory_rpc.status == RUNTIME_MEMORY_RPC_BAD_ARGS) {
+                code = "bad-args";
+                msg = "invalid memory range";
+            }
+            control_protocol_format_error(
+                &response,
+                deferred->request_id,
+                code,
+                msg,
+                false);
+            if (control_server_post_response(control, &response)) {
+                deferred->active = false;
+                deferred->request_token = 0u;
+            } else {
+                control_response_release(&response);
+                log_warn("control: response queue full");
+            }
+        } else {
+            uint8_t *payload = NULL;
+            uint32_t length = 0;
+            uint16_t address = 0;
+            runtime_memory_mode mode = RUNTIME_MEMORY_MODE_CPU_MAP;
+            if (client == NULL ||
+                !runtime_client_claim_memory_rpc(
+                    client,
+                    deferred->request_token,
+                    &payload,
+                    &length,
+                    &address,
+                    &mode)) {
+                control_protocol_format_error(
+                    &response,
+                    deferred->request_id,
+                    "runtime",
+                    "memory rpc payload missing",
+                    false);
+                if (control_server_post_response(control, &response)) {
+                    deferred->active = false;
+                    deferred->request_token = 0u;
+                } else {
+                    control_response_release(&response);
+                    log_warn("control: response queue full");
+                }
+            } else {
+                control_format_memory_rpc_response(
+                    &response,
+                    deferred->request_id,
+                    address,
+                    length,
+                    mode,
+                    payload);
+                if (control_server_post_response(control, &response)) {
+                    deferred->active = false;
+                    deferred->request_token = 0u;
+                } else {
+                    control_response_release(&response);
+                    log_warn("control: response queue full");
+                }
+            }
+        }
+    } else if (deferred->command_type == CONTROL_COMMAND_SET_MEMORY &&
+               event->type == RUNTIME_EVENT_MEMORY_RESPONSE &&
+               event->data.memory.address == deferred->memory_address &&
+               event->data.memory.length == deferred->memory_length &&
+               event->data.memory.mode == deferred->memory_mode) {
+        char text[CONTROL_RESPONSE_TEXT_MAX];
+        snprintf(
+            text,
+            sizeof(text),
+            "addr=%04X length=%u mode=%u",
+            event->data.memory.address,
+            (unsigned)event->data.memory.length,
+            (unsigned)event->data.memory.mode);
+        control_protocol_format_ok(&response, deferred->request_id, text, false);
+        if (control_server_post_response(control, &response)) {
+            deferred->active = false;
+        } else {
+            control_response_release(&response);
+            log_warn("control: response queue full");
+        }
+    } else if (deferred->command_type == CONTROL_COMMAND_GET_CALL_STACK &&
+               event->type == RUNTIME_EVENT_CALL_STACK_RESPONSE) {
+        control_format_call_stack_response(&response, deferred->request_id, &event->data.call_stack);
+        if (control_server_post_response(control, &response)) {
+            deferred->active = false;
+        } else {
+            control_response_release(&response);
+            log_warn("control: response queue full");
+        }
+    } else if (deferred->command_type == CONTROL_COMMAND_GET_DISK_STATUS &&
+               event->type == RUNTIME_EVENT_DISK_STATUS_RESPONSE &&
+               event->data.disk_status.device == deferred->memory_address) {
+        control_format_disk_status_response(&response, deferred->request_id, &event->data.disk_status);
+        if (control_server_post_response(control, &response)) {
+            deferred->active = false;
+        } else {
+            control_response_release(&response);
+            log_warn("control: response queue full");
+        }
+    } else if (deferred->command_type == CONTROL_COMMAND_GET_DRIVE_CPU &&
+               event->type == RUNTIME_EVENT_MACHINE_STATE_RESPONSE) {
+        const c64_1541_hardware_snapshot *drive =
+            (deferred->memory_address == 9u) ? &event->data.machine_state.drive9_hardware
+                                             : &event->data.machine_state.drive8_hardware;
+        control_format_drive_cpu_response(&response, deferred->request_id, drive);
+        if (control_server_post_response(control, &response)) {
+            deferred->active = false;
+        } else {
+            control_response_release(&response);
+            log_warn("control: response queue full");
+        }
+    } else if (deferred->command_type == CONTROL_COMMAND_GET_VIC &&
+               event->type == RUNTIME_EVENT_MACHINE_STATE_RESPONSE) {
+        control_format_vic_response(
+            &response,
+            deferred->request_id,
+            &event->data.machine_state.vicii_hardware);
+        if (control_server_post_response(control, &response)) {
+            deferred->active = false;
+        } else {
+            control_response_release(&response);
+            log_warn("control: response queue full");
+        }
+    } else if (deferred->command_type == CONTROL_COMMAND_GET_CIA &&
+               event->type == RUNTIME_EVENT_MACHINE_STATE_RESPONSE) {
+        const c64_cia_hardware_snapshot *cia =
+            (deferred->cia_index == 2u) ? &event->data.machine_state.cia2_hardware
+                                        : &event->data.machine_state.cia1_hardware;
+        control_format_cia_response(
+            &response,
+            deferred->request_id,
+            deferred->cia_index,
+            cia);
+        if (control_server_post_response(control, &response)) {
+            deferred->active = false;
+        } else {
+            control_response_release(&response);
+            log_warn("control: response queue full");
+        }
+    } else if ((deferred->command_type == CONTROL_COMMAND_BREAK_EXEC ||
+                deferred->command_type == CONTROL_COMMAND_BREAK_CLEAR ||
+                deferred->command_type == CONTROL_COMMAND_BREAK_ENABLE ||
+                deferred->command_type == CONTROL_COMMAND_BREAK_LIST ||
+                deferred->command_type == CONTROL_COMMAND_BREAK_CLEAR_ALL ||
+                deferred->command_type == CONTROL_COMMAND_BREAK_CREATE ||
+                deferred->command_type == CONTROL_COMMAND_BREAK_UPDATE ||
+                deferred->command_type == CONTROL_COMMAND_REARM_ONESHOTS) &&
+               event->type == RUNTIME_EVENT_BREAKPOINTS_RESPONSE) {
+        const runtime_breakpoint_snapshot *bps =
+            (debug_state != NULL && debug_state->has_breakpoints) ?
+                &debug_state->breakpoints :
+                NULL;
+        if (bps == NULL) {
+            return;
+        }
+        if (deferred->has_expected_breakpoint_count &&
+            bps->count < deferred->expected_breakpoint_count) {
+            return;
+        }
+        if (deferred->has_expected_breakpoint_enabled) {
+            const runtime_breakpoint_snapshot_entry *entry = NULL;
+            if (!control_breakpoint_snapshot_find(
+                    bps,
+                    deferred->expected_breakpoint_id,
+                    &entry) ||
+                ((entry->enabled != 0) != deferred->expected_breakpoint_enabled)) {
+                return;
+            }
+        }
+        if (deferred->has_expected_breakpoint_start) {
+            const runtime_breakpoint_snapshot_entry *entry = NULL;
+            if (!control_breakpoint_snapshot_find(
+                    bps,
+                    deferred->expected_breakpoint_id,
+                    &entry) ||
+                entry->start_address != deferred->expected_breakpoint_start) {
+                return;
+            }
+        }
+        if (deferred->expect_breakpoint_absent &&
+            control_breakpoint_snapshot_find(
+                bps,
+                deferred->expected_breakpoint_id,
+                NULL)) {
+            return;
+        }
+        control_format_breakpoints_response(&response, deferred->request_id, bps);
+        if (control_server_post_response(control, &response)) {
+            deferred->active = false;
+        } else {
+            control_response_release(&response);
+            log_warn("control: response queue full");
+        }
+    } else if ((deferred->command_type == CONTROL_COMMAND_HISTORY_INFO ||
+                deferred->command_type == CONTROL_COMMAND_HISTORY_RECORD ||
+                deferred->command_type == CONTROL_COMMAND_HISTORY_CLEAR) &&
+               event->type == RUNTIME_EVENT_HISTORY_STATUS_RESPONSE) {
+        if (deferred->command_type != CONTROL_COMMAND_HISTORY_INFO &&
+            !event->data.history_status.available) {
+            control_protocol_format_error(
+                &response,
+                deferred->request_id,
+                "unavailable",
+                "history-recorder-unavailable",
+                false);
+        } else {
+            control_format_history_status_response(
+                &response,
+                deferred->request_id,
+                &event->data.history_status);
+        }
+        if (control_server_post_response(control, &response)) {
+            deferred->active = false;
+            deferred->request_token = 0u;
+        } else {
+            control_response_release(&response);
+            log_warn("control: response queue full");
+        }
+    } else if ((deferred->command_type == CONTROL_COMMAND_HISTORY_FIND ||
+                deferred->command_type == CONTROL_COMMAND_HISTORY_NEXT ||
+                deferred->command_type == CONTROL_COMMAND_HISTORY_READ ||
+                deferred->command_type == CONTROL_COMMAND_HISTORY_CLOSE) &&
+               event->type == RUNTIME_EVENT_HISTORY_RESULT_RESPONSE) {
+        if (event->data.history_rpc.status != RUNTIME_HISTORY_RPC_OK) {
+            control_format_history_rpc_error(
+                &response,
+                deferred->request_id,
+                event->data.history_rpc.status);
+        } else if (deferred->command_type ==
+                   CONTROL_COMMAND_HISTORY_CLOSE) {
+            control_protocol_format_ok(
+                &response, deferred->request_id, NULL, false);
+        } else {
+            uint8_t *payload = NULL;
+            uint32_t length = 0u;
+            runtime_history_rpc_meta meta;
+            char metadata[CONTROL_RESPONSE_TEXT_MAX];
+
+            if (client == NULL ||
+                !runtime_client_claim_history_rpc(
+                    client,
+                    deferred->request_token,
+                    &payload,
+                    &length,
+                    &meta)) {
+                control_protocol_format_error(
+                    &response,
+                    deferred->request_id,
+                    "runtime",
+                    "history-query-failed",
+                    false);
+            } else {
+                snprintf(
+                    metadata,
+                    sizeof(metadata),
+                    "epoch=%llu count=%u cursor=%llu more=%u "
+                    "oldest=%llu newest=%llu",
+                    (unsigned long long)meta.epoch,
+                    meta.count,
+                    (unsigned long long)meta.cursor,
+                    meta.more ? 1u : 0u,
+                    (unsigned long long)meta.oldest,
+                    (unsigned long long)meta.newest);
+                control_protocol_format_data(
+                    &response,
+                    deferred->request_id,
+                    "history",
+                    payload,
+                    length,
+                    metadata,
+                    false);
+            }
+        }
+        if (control_server_post_response(control, &response)) {
+            deferred->active = false;
+            deferred->request_token = 0u;
+        } else {
+            control_response_release(&response);
+            log_warn("control: response queue full");
+        }
+    } else if (deferred->command_type == CONTROL_COMMAND_ASSEMBLE &&
+               (event->type == RUNTIME_EVENT_ASSEMBLE_COMPLETE ||
+                event->type == RUNTIME_EVENT_ASSEMBLE_ERROR)) {
+        if (event->type == RUNTIME_EVENT_ASSEMBLE_COMPLETE) {
+            char metadata[CONTROL_RESPONSE_TEXT_MAX];
+            snprintf(
+                metadata,
+                sizeof(metadata),
+                "address=$%04X",
+                (unsigned)event->data.assemble.address);
+            control_protocol_format_ok(&response, deferred->request_id, metadata, false);
+        } else {
+            control_protocol_format_error(
+                &response,
+                deferred->request_id,
+                "assemble-error",
+                event->data.error.message[0] != '\0'
+                    ? event->data.error.message
+                    : "assembly failed",
+                false);
+        }
+        if (control_server_post_response(control, &response)) {
+            deferred->active = false;
+        } else {
+            control_response_release(&response);
+            log_warn("control: response queue full");
+        }
+    }
+}
+
+static void complete_deferred_debug_memory_response(
+    control_server *control,
+    deferred_control_response *deferred,
+    const runtime_debug_memory_snapshot *debug_memory)
+{
+    control_response response;
+
+    if (control == NULL || deferred == NULL || !deferred->active ||
+        debug_memory == NULL ||
+        deferred->command_type != CONTROL_COMMAND_GET_DEBUG_MEMORY) {
+        return;
+    }
+
+    control_format_debug_memory_response(
+        &response,
+        deferred->request_id,
+        debug_memory,
+        deferred->include_write_history);
+    if (control_server_post_response(control, &response)) {
+        deferred->active = false;
+    } else {
+        control_response_release(&response);
+        log_warn("control: response queue full");
+    }
+}
+
+static void complete_deferred_frame_response(
+    control_server *control,
+    deferred_control_response *deferred,
+    const c64_frame *frame)
+{
+    control_response response;
+
+    if (control == NULL || deferred == NULL || !deferred->active ||
+        frame == NULL ||
+        deferred->command_type != CONTROL_COMMAND_GET_FRAME) {
+        return;
+    }
+
+    control_format_frame_response(
+        &response,
+        deferred->request_id,
+        frame,
+        deferred->frame_format);
+    if (control_server_post_response(control, &response)) {
+        deferred->active = false;
+    } else {
+        control_response_release(&response);
+        log_warn("control: response queue full");
+    }
+}
+
+static uint32_t control_timeout_or_default(uint32_t timeout_ms)
+{
+    return timeout_ms != 0 ? timeout_ms : 2000u;
+}
+
+static void complete_deferred_wait_response(
+    control_server *control,
+    deferred_control_response *deferred,
+    const char *metadata)
+{
+    control_response response;
+
+    if (control == NULL || deferred == NULL || !deferred->active) {
+        return;
+    }
+    control_protocol_format_ok(
+        &response,
+        deferred->request_id,
+        metadata,
+        false);
+    if (control_server_post_response(control, &response)) {
+        deferred->active = false;
+    } else {
+        control_response_release(&response);
+        log_warn("control: response queue full");
+    }
+}
+
+static void check_deferred_state_wait(
+    control_server *control,
+    deferred_control_response *deferred,
+    const frontend_debug_state *debug_state,
+    const runtime_event *event)
+{
+    char metadata[CONTROL_RESPONSE_TEXT_MAX];
+
+    if (control == NULL || deferred == NULL || !deferred->active ||
+        debug_state == NULL) {
+        return;
+    }
+    /* wait-paused: only complete on MACHINE_STATE_RESPONSE so stop_reason is
+       populated. PAUSED alone arrives first with a stale stop=none. */
+    if (deferred->command_type == CONTROL_COMMAND_WAIT_PAUSED &&
+        debug_state->runtime_state == FRONTEND_RUNTIME_STATE_PAUSED &&
+        event != NULL &&
+        event->type == RUNTIME_EVENT_MACHINE_STATE_RESPONSE) {
+        snprintf(
+            metadata,
+            sizeof(metadata),
+            "state=paused frame=%llu stop=%s",
+            (unsigned long long)debug_state->frame_number,
+            control_stop_reason_name(debug_state->stop_reason));
+        complete_deferred_wait_response(control, deferred, metadata);
+    } else if (deferred->command_type == CONTROL_COMMAND_WAIT_RUNNING &&
+               debug_state->runtime_state == FRONTEND_RUNTIME_STATE_RUNNING) {
+        snprintf(
+            metadata,
+            sizeof(metadata),
+            "state=running frame=%llu",
+            (unsigned long long)debug_state->frame_number);
+        complete_deferred_wait_response(control, deferred, metadata);
+    }
+}
+
+static void check_deferred_frame_wait(
+    control_server *control,
+    deferred_control_response *deferred,
+    uint64_t frame_number)
+{
+    char metadata[CONTROL_RESPONSE_TEXT_MAX];
+
+    if (control == NULL || deferred == NULL || !deferred->active ||
+        deferred->command_type != CONTROL_COMMAND_WAIT_FRAME) {
+        return;
+    }
+    if (frame_number < deferred->start_frame_number + deferred->frame_delta) {
+        return;
+    }
+    snprintf(
+        metadata,
+        sizeof(metadata),
+        "frame=%llu delta=%llu",
+        (unsigned long long)frame_number,
+        (unsigned long long)(frame_number - deferred->start_frame_number));
+    complete_deferred_wait_response(control, deferred, metadata);
+}
+
+static void control_event_latch_note(
+    control_event_latch *latch,
+    runtime_event_type type)
+{
+    uint64_t seq;
+
+    if (latch == NULL) {
+        return;
+    }
+    latch->seq++;
+    seq = latch->seq;
+    switch (type) {
+        case RUNTIME_EVENT_LOAD_STATE_COMPLETE:
+            latch->load_state_complete_seq = seq;
+            latch->has_load_state_complete = true;
+            break;
+        case RUNTIME_EVENT_SAVE_STATE_COMPLETE:
+            latch->save_state_complete_seq = seq;
+            latch->has_save_state_complete = true;
+            break;
+        case RUNTIME_EVENT_RESET_COMPLETE:
+            latch->reset_complete_seq = seq;
+            latch->has_reset_complete = true;
+            break;
+        case RUNTIME_EVENT_ASSEMBLE_COMPLETE:
+            latch->assemble_complete_seq = seq;
+            latch->has_assemble_complete = true;
+            break;
+        case RUNTIME_EVENT_ASSEMBLE_ERROR:
+            latch->assemble_error_seq = seq;
+            latch->has_assemble_error = true;
+            break;
+        case RUNTIME_EVENT_STEP_COMPLETE:
+            latch->step_complete_seq = seq;
+            latch->has_step_complete = true;
+            break;
+        case RUNTIME_EVENT_RUN_COMPLETE:
+            latch->run_complete_seq = seq;
+            latch->has_run_complete = true;
+            break;
+        case RUNTIME_EVENT_RUNNING:
+            latch->running_seq = seq;
+            latch->has_running = true;
+            /* A resume makes any prior stop stale: drop paused/breakpoints so a
+               later wait matches the next stop, not the previous one. run always
+               emits RUNNING before the following PAUSED, so this ordering holds. */
+            latch->has_paused = false;
+            latch->has_breakpoints = false;
+            break;
+        case RUNTIME_EVENT_PAUSED:
+            latch->paused_seq = seq;
+            latch->has_paused = true;
+            latch->has_running = false;
+            break;
+        case RUNTIME_EVENT_BREAKPOINTS_RESPONSE:
+            latch->breakpoints_seq = seq;
+            latch->has_breakpoints = true;
+            break;
+        default:
+            break;
+    }
+}
+
+/* Consume a sticky latched completion event if one is pending for name.
+   Returns true and clears the latch so a second wait requires a new event. */
+static bool control_event_latch_consume(
+    control_event_latch *latch,
+    const char *event_name,
+    uint64_t *out_seq)
+{
+    if (latch == NULL || event_name == NULL) {
+        return false;
+    }
+    if (strcmp(event_name, "load-state-complete") == 0 &&
+        latch->has_load_state_complete) {
+        if (out_seq != NULL) {
+            *out_seq = latch->load_state_complete_seq;
+        }
+        latch->has_load_state_complete = false;
+        return true;
+    }
+    if (strcmp(event_name, "save-state-complete") == 0 &&
+        latch->has_save_state_complete) {
+        if (out_seq != NULL) {
+            *out_seq = latch->save_state_complete_seq;
+        }
+        latch->has_save_state_complete = false;
+        return true;
+    }
+    if (strcmp(event_name, "reset-complete") == 0 && latch->has_reset_complete) {
+        if (out_seq != NULL) {
+            *out_seq = latch->reset_complete_seq;
+        }
+        latch->has_reset_complete = false;
+        return true;
+    }
+    if (strcmp(event_name, "assemble-complete") == 0 &&
+        latch->has_assemble_complete) {
+        if (out_seq != NULL) {
+            *out_seq = latch->assemble_complete_seq;
+        }
+        latch->has_assemble_complete = false;
+        return true;
+    }
+    if (strcmp(event_name, "assemble-error") == 0 && latch->has_assemble_error) {
+        if (out_seq != NULL) {
+            *out_seq = latch->assemble_error_seq;
+        }
+        latch->has_assemble_error = false;
+        return true;
+    }
+    if (strcmp(event_name, "step-complete") == 0 && latch->has_step_complete) {
+        if (out_seq != NULL) {
+            *out_seq = latch->step_complete_seq;
+        }
+        latch->has_step_complete = false;
+        return true;
+    }
+    if (strcmp(event_name, "run-complete") == 0 && latch->has_run_complete) {
+        if (out_seq != NULL) {
+            *out_seq = latch->run_complete_seq;
+        }
+        latch->has_run_complete = false;
+        return true;
+    }
+    if (strcmp(event_name, "paused") == 0 && latch->has_paused) {
+        if (out_seq != NULL) {
+            *out_seq = latch->paused_seq;
+        }
+        latch->has_paused = false;
+        return true;
+    }
+    if (strcmp(event_name, "running") == 0 && latch->has_running) {
+        if (out_seq != NULL) {
+            *out_seq = latch->running_seq;
+        }
+        latch->has_running = false;
+        return true;
+    }
+    if (strcmp(event_name, "breakpoints") == 0 && latch->has_breakpoints) {
+        if (out_seq != NULL) {
+            *out_seq = latch->breakpoints_seq;
+        }
+        latch->has_breakpoints = false;
+        return true;
+    }
+    return false;
+}
+
+static void check_deferred_event_wait(
+    control_server *control,
+    deferred_control_response *deferred,
+    const runtime_event *event,
+    control_event_latch *latch)
+{
+    char metadata[CONTROL_RESPONSE_TEXT_MAX];
+    const char *event_name;
+    uint64_t event_seq = 0;
+
+    if (control == NULL || deferred == NULL || !deferred->active ||
+        deferred->command_type != CONTROL_COMMAND_WAIT_EVENT) {
+        return;
+    }
+
+    /* Sticky completion: if the event already fired and has not been
+       consumed, complete immediately (fixes load-state then wait-event race). */
+    if (control_event_latch_consume(latch, deferred->wait_event_name, &event_seq)) {
+        snprintf(
+            metadata,
+            sizeof(metadata),
+            "event=%s seq=%llu",
+            deferred->wait_event_name,
+            (unsigned long long)event_seq);
+        complete_deferred_wait_response(control, deferred, metadata);
+        return;
+    }
+
+    if (event == NULL) {
+        return;
+    }
+    event_name = control_runtime_event_name(event->type);
+    if (strcmp(event_name, deferred->wait_event_name) != 0) {
+        return;
+    }
+    /* Live match. Sticky types were just latched in note(); consume so a
+       later wait does not re-fire. Sequence was already advanced by note(). */
+    if (!control_event_latch_consume(latch, event_name, &event_seq)) {
+        event_seq = latch != NULL ? latch->seq : 0u;
+    }
+    snprintf(
+        metadata,
+        sizeof(metadata),
+        "event=%s seq=%llu",
+        event_name,
+        (unsigned long long)event_seq);
+    complete_deferred_wait_response(control, deferred, metadata);
+}
+
+static void cancel_deferred_control_response(
+    control_server *control,
+    runtime_client *client,
+    deferred_control_response *deferred,
+    const char *code,
+    const char *message)
+{
+    control_response response;
+
+    if (control == NULL || deferred == NULL || !deferred->active) {
+        return;
+    }
+    if (client != NULL && deferred->request_token != 0u) {
+        (void)runtime_client_cancel_rpc(
+            client, deferred->request_token);
+    }
+    control_protocol_format_error(
+        &response,
+        deferred->request_id,
+        code != NULL ? code : "cancelled",
+        message != NULL ? message : "deferred response cancelled",
+        false);
+    if (control_server_post_response(control, &response)) {
+        deferred->active = false;
+        deferred->request_token = 0u;
+    } else {
+        /* Client may already be gone; drop local wait either way. */
+        control_response_release(&response);
+        deferred->active = false;
+        deferred->request_token = 0u;
+        log_warn("control: response queue full while cancelling deferred");
+    }
+}
+
+static const char *state_changed_reason_name(runtime_state_changed_reason reason)
+{
+    switch (reason) {
+    case RUNTIME_STATE_CHANGED_STEP:
+        return "step";
+    case RUNTIME_STATE_CHANGED_RUN:
+        return "run";
+    case RUNTIME_STATE_CHANGED_PAUSE:
+        return "pause";
+    case RUNTIME_STATE_CHANGED_POKE:
+        return "poke";
+    case RUNTIME_STATE_CHANGED_RESET:
+        return "reset";
+    case RUNTIME_STATE_CHANGED_LOAD_STATE:
+        return "load-state";
+    case RUNTIME_STATE_CHANGED_HISTORY_CLEAR:
+        return "history-clear";
+    case RUNTIME_STATE_CHANGED_MEDIA:
+        return "media";
+    case RUNTIME_STATE_CHANGED_INSPECTOR_ENTER:
+        return "inspector-enter";
+    case RUNTIME_STATE_CHANGED_INSPECTOR_LAND:
+        return "inspector-land";
+    case RUNTIME_STATE_CHANGED_INSPECTOR_LEAVE:
+        return "inspector-leave";
+    case RUNTIME_STATE_CHANGED_OTHER:
+    default:
+        return "other";
+    }
+}
+
+static void control_post_state_changed(
+    control_server *control,
+    const runtime_event *event)
+{
+    control_response response;
+    char text[CONTROL_RESPONSE_TEXT_MAX];
+
+    if (control == NULL || event == NULL) {
+        return;
+    }
+    /* Always push: awareness only. Clients ignore or log; Ctl skips in cmd(). */
+    snprintf(
+        text,
+        sizeof(text),
+        "state-changed reason=%s session=%u cycles=%llu frame=%llu epoch=%llu",
+        state_changed_reason_name(event->data.state_changed.reason),
+        (unsigned)event->data.state_changed.source_session_id,
+        (unsigned long long)event->data.state_changed.cycles,
+        (unsigned long long)event->data.state_changed.frame,
+        (unsigned long long)event->data.state_changed.history_epoch);
+    control_protocol_format_event(&response, 0u, text);
+    (void)control_server_post_response(control, &response);
+}
+
+/* Close the bound control session without waiting (fire-and-forget). */
+static void control_session_release(
+    runtime_client *client,
+    control_session_bind *bind)
+{
+    uint64_t token;
+
+    if (client == NULL || bind == NULL || bind->session_id == 0u) {
+        return;
+    }
+    token = runtime_client_alloc_request_token(client);
+    (void)runtime_client_session_close(client, bind->session_id, token);
+    bind->session_id = 0u;
+    bind->session_epoch = 0u;
+    runtime_client_set_command_session(client, 0u);
+}
+
+/*
+ * Ensure TCP client is bound to a kind=control runtime session for the current
+ * connection epoch. Opens synchronously by pumping runtime events briefly.
+ * Completes deferred work for any events drained while waiting.
+ */
+static bool control_session_ensure(
+    control_server *control,
+    runtime_client *client,
+    deferred_control_table *deferred_table,
+    frontend_debug_state *debug_state,
+    control_event_latch *event_latch,
+    control_session_bind *bind)
+{
+    uint64_t epoch;
+    uint64_t token;
+    uint32_t start_ms;
+    runtime_event event;
+
+    if (control == NULL || client == NULL || bind == NULL) {
+        return false;
+    }
+    if (!control_server_has_client(control)) {
+        return false;
+    }
+
+    epoch = control_server_connection_epoch(control);
+    if (bind->session_id != 0u && bind->session_epoch == epoch) {
+        return true;
+    }
+
+    if (bind->session_id != 0u) {
+        control_session_release(client, bind);
+    }
+
+    token = runtime_client_alloc_request_token(client);
+    if (!runtime_client_session_open(
+            client, RUNTIME_SESSION_KIND_CONTROL, epoch, token)) {
+        return false;
+    }
+
+    start_ms = SDL_GetTicks();
+    while ((SDL_GetTicks() - start_ms) < 2000u) {
+        while (runtime_client_poll_event(client, &event)) {
+            if (event.type == RUNTIME_EVENT_SESSION_RESPONSE &&
+                event.request_token == token) {
+                if (event.data.session.status == RUNTIME_SESSION_OK &&
+                    event.data.session.session_id != 0u) {
+                    bind->session_id = event.data.session.session_id;
+                    bind->session_epoch = epoch;
+                    runtime_client_set_command_session(
+                        client, bind->session_id);
+                    return true;
+                }
+                return false;
+            }
+            /* Keep deferred completions / latches / informs coherent. */
+            if (event.type == RUNTIME_EVENT_STATE_CHANGED) {
+                control_post_state_changed(control, &event);
+            }
+            control_event_latch_note(event_latch, event.type);
+            if (deferred_table != NULL) {
+                size_t di;
+                for (di = 0; di < CONTROL_DEFERRED_CAPACITY; ++di) {
+                    deferred_control_response *deferred =
+                        &deferred_table->entries[di];
+                    if (!deferred->active) {
+                        continue;
+                    }
+                    complete_deferred_control_response(
+                        control, client, debug_state, deferred, &event);
+                    check_deferred_event_wait(
+                        control, deferred, &event, event_latch);
+                    check_deferred_state_wait(
+                        control, deferred, debug_state, &event);
+                    if (debug_state != NULL && debug_state->has_frame) {
+                        check_deferred_frame_wait(
+                            control, deferred, debug_state->frame_number);
+                    }
+                }
+            }
+        }
+        SDL_Delay(1);
+    }
+    return false;
+}
+
+static uint32_t control_session_history_id(
+    control_server *control,
+    runtime_client *client,
+    deferred_control_table *deferred_table,
+    frontend_debug_state *debug_state,
+    control_event_latch *event_latch,
+    control_session_bind *bind)
+{
+    if (bind == NULL) {
+        return 0u;
+    }
+    if (!control_session_ensure(
+            control,
+            client,
+            deferred_table,
+            debug_state,
+            event_latch,
+            bind)) {
+        return 0u; /* fall back to default session */
+    }
+    return bind->session_id;
+}
+
+static void check_deferred_control_session_one(
+    control_server *control,
+    runtime_client *client,
+    deferred_control_response *deferred)
+{
+    if (control == NULL || deferred == NULL || !deferred->active) {
+        return;
+    }
+    if (deferred->connection_epoch == 0u) {
+        return;
+    }
+    if (!control_server_has_client(control) ||
+        control_server_connection_epoch(control) != deferred->connection_epoch) {
+        if (client != NULL && deferred->request_token != 0u) {
+            (void)runtime_client_cancel_rpc(
+                client, deferred->request_token);
+        }
+        deferred->active = false;
+        deferred->request_token = 0u;
+    }
+}
+
+static void check_deferred_control_session(
+    control_server *control,
+    runtime_client *client,
+    deferred_control_table *table,
+    frontend_debug_state *debug_state,
+    control_event_latch *event_latch,
+    control_session_bind *bind)
+{
+    size_t i;
+    uint64_t epoch;
+    bool has_client;
+
+    if (control == NULL || table == NULL) {
+        return;
+    }
+
+    has_client = control_server_has_client(control);
+    epoch = control_server_connection_epoch(control);
+
+    /* Disconnect / epoch bump: free the control session slot. */
+    if (bind != NULL && bind->session_id != 0u &&
+        (!has_client || bind->session_epoch != epoch)) {
+        control_session_release(client, bind);
+    }
+
+    /* New TCP client: bind a control session early (before history cmds). */
+    if (bind != NULL && has_client &&
+        (bind->session_id == 0u || bind->session_epoch != epoch)) {
+        (void)control_session_ensure(
+            control, client, table, debug_state, event_latch, bind);
+    }
+
+    for (i = 0; i < CONTROL_DEFERRED_CAPACITY; ++i) {
+        check_deferred_control_session_one(
+            control, client, &table->entries[i]);
+    }
+}
+
+static void check_deferred_control_timeout(
+    control_server *control,
+    runtime_client *client,
+    deferred_control_table *table)
+{
+    size_t i;
+    if (control == NULL || table == NULL) {
+        return;
+    }
+    for (i = 0; i < CONTROL_DEFERRED_CAPACITY; ++i) {
+        deferred_control_response *deferred = &table->entries[i];
+        if (!deferred->active) {
+            continue;
+        }
+        if (SDL_GetTicks64() < deferred->deadline_ms) {
+            continue;
+        }
+        cancel_deferred_control_response(
+            control,
+            client,
+            deferred,
+            "timeout",
+            "deferred response timed out");
+    }
+}
+
+static bool control_parse_and_send_paste_events(
+    runtime_client *client,
+    const char *text,
+    size_t length)
+{
+    paste_event_t events[PASTE_EVENTS_MAX];
+    paste_parse_error_t parse_error = { -1, NULL };
+    size_t count = 0;
+    char buffer[4097];
+
+    if (client == NULL || text == NULL || length == 0 || length >= sizeof(buffer)) {
+        return false;
+    }
+    memcpy(buffer, text, length);
+    buffer[length] = '\0';
+    if (!paste_parse(buffer, events, PASTE_EVENTS_MAX, &count, &parse_error) || count == 0) {
+        return false;
+    }
+    return runtime_client_paste_events(client, events, count);
+}
+
+/* Consume any freshly published symbol snapshot once and distribute it to the
+   frontend (for the debugger views) and/or the control cache (so a control
+   client can resolve labels via find-symbol). The runtime symbol slot is a
+   single-consumer handoff, so this must be the only poll site. */
+static void poll_symbols_into(
+    runtime_client *client,
+    frontend *ui,
+    control_cached_state *control_cache) {
+    runtime_symbol_snapshot *symbols = malloc(sizeof(*symbols));
+
+    if (symbols == NULL) {
+        return;
+    }
+    if (runtime_client_poll_symbols(client, symbols)) {
+        if (ui != NULL) {
+            frontend_update_symbols(ui, symbols);
+        }
+        if (control_cache != NULL) {
+            control_cache->symbols = *symbols;
+            control_cache->has_symbols = true;
+        }
+    }
+    free(symbols);
+}
+
+static void forensics_handle_history_event(
+    runtime_client *client,
+    frontend *ui,
+    const runtime_event *event);
+
+static void poll_runtime_events(
+    runtime_client *client,
+    frontend *ui,
+    frontend_debug_state *debug_state,
+    app_options *options,
+    sdl_c64_controller_state *controller_state,
+    frontend_joystick_input *kbd_joystick,
+    control_server *control,
+    deferred_control_table *deferred_table,
+    control_cached_state *control_cache,
+    control_event_latch *event_latch) {
+    runtime_event event;
+    c64_frame frame;
+    bool consumed_frame = false;
+
+    while (runtime_client_poll_event(client, &event)) {
+        if (event.type == RUNTIME_EVENT_BREAKPOINTS_RESPONSE && debug_state != NULL) {
+            if (runtime_client_poll_breakpoints(client, &debug_state->breakpoints)) {
+                debug_state->has_breakpoints = true;
+            }
+        }
+        if (control_cache != NULL) {
+            if (event.type == RUNTIME_EVENT_MACHINE_STATE_RESPONSE) {
+                control_cache_note_machine(control_cache, &event.data.machine_state);
+            } else if (event.type == RUNTIME_EVENT_CPU_STATE_RESPONSE) {
+                control_cache_note_cpu(control_cache, &event.data.cpu_state);
+            }
+        }
+        if (event.type == RUNTIME_EVENT_STATE_CHANGED) {
+            control_post_state_changed(control, &event);
+        }
+        update_debug_state_from_event(debug_state, &event);
+        if (ui != NULL && debug_state != NULL && !debug_state->inspecting) {
+            frontend_inspector_clear_preview(ui);
+        }
+        control_event_latch_note(event_latch, event.type);
+        if (deferred_table != NULL) {
+            size_t di;
+            for (di = 0; di < CONTROL_DEFERRED_CAPACITY; ++di) {
+                deferred_control_response *deferred = &deferred_table->entries[di];
+                if (!deferred->active) {
+                    continue;
+                }
+                complete_deferred_control_response(
+                    control, client, debug_state, deferred, &event);
+                check_deferred_event_wait(control, deferred, &event, event_latch);
+                check_deferred_state_wait(control, deferred, debug_state, &event);
+                if (debug_state != NULL && debug_state->has_frame) {
+                    check_deferred_frame_wait(control, deferred, debug_state->frame_number);
+                }
+            }
+        }
+        if (event.type == RUNTIME_EVENT_RESET_COMPLETE) {
+            if (ui != NULL) {
+                frontend_clear_disk_activity_leds(ui);
+            }
+            if (debug_state != NULL) {
+                debug_state->drive8_hardware.activity_read_seq = 0;
+                debug_state->drive8_hardware.activity_write_seq = 0;
+                debug_state->drive9_hardware.activity_read_seq = 0;
+                debug_state->drive9_hardware.activity_write_seq = 0;
+            }
+        } else if (event.type == RUNTIME_EVENT_ERROR) {
+            log_error("runtime error: %s", event.data.error.message);
+        } else if (event.type == RUNTIME_EVENT_ASSEMBLE_ERROR) {
+            if (ui != NULL) {
+                frontend_show_assembler_errors(ui, event.data.error.message);
+            }
+        } else if (event.type == RUNTIME_EVENT_ASSEMBLE_COMPLETE) {
+            poll_symbols_into(client, ui, control_cache);
+            if (event.data.assemble.notice[0] != '\0') {
+                log_info("%s", event.data.assemble.notice);
+            }
+            if (ui != NULL) {
+                frontend_invalidate_disassembly_cache(ui);
+                if (event.data.assemble.notice[0] != '\0') {
+                    frontend_show_assembler_notice(
+                        ui,
+                        event.data.assemble.notice);
+                }
+            }
+        } else if (event.type == RUNTIME_EVENT_SAVE_STATE_COMPLETE) {
+            if (!append_host_state_chunk(event.data.state_file.path, options, kbd_joystick)) {
+                log_warn("save state host settings append failed: %s", event.data.state_file.path);
+            }
+            log_info("save state complete: %s", event.data.state_file.path);
+        } else if (event.type == RUNTIME_EVENT_LOAD_STATE_COMPLETE) {
+            apply_loaded_host_state(
+                event.data.state_file.path,
+                options,
+                ui,
+                client,
+                controller_state,
+                kbd_joystick);
+            log_info("load state complete: %s", event.data.state_file.path);
+        } else if (event.type == RUNTIME_EVENT_DISK_SWAP && options != NULL) {
+            uint8_t device = event.data.disk_swap.device;
+            int32_t param = event.data.disk_swap.swap_param;
+            uint8_t relative = event.data.disk_swap.swap_relative;
+            app_disk_slot *slot = &options->disk_slots[device];
+            const char *path = NULL;
+
+            if (param != 0 && slot->count > 0) {
+                int new_index;
+                if (relative) {
+                    new_index = (slot->current + param % slot->count + slot->count) % slot->count;
+                } else {
+                    /* absolute 1-based, wrap */
+                    new_index = ((param - 1) % slot->count + slot->count) % slot->count;
+                }
+                path = app_disk_slot_select(slot, new_index);
+            }
+            if (path != NULL) {
+                runtime_client_mount_d64_ex(
+                    client,
+                    device,
+                    path,
+                    app_disk_slot_current_writable(slot));
+                if (ui != NULL) {
+                    frontend_set_disk_queue(ui, device, slot);
+                }
+            }
+        } else if (event.type == RUNTIME_EVENT_DEBUG_MEMORY_READY &&
+                   debug_state != NULL) {
+            if (runtime_client_poll_debug_memory(client, &debug_state->debug_memory)) {
+                debug_state->has_debug_memory = true;
+                if (deferred_table != NULL) {
+                    size_t di;
+                    for (di = 0; di < CONTROL_DEFERRED_CAPACITY; ++di) {
+                        deferred_control_response *d = &deferred_table->entries[di];
+                        if (d->active) {
+                            complete_deferred_debug_memory_response(
+                                control, d, &debug_state->debug_memory);
+                        }
+                    }
+                }
+            }
+        } else if (event.type == RUNTIME_EVENT_HISTORY_STATUS_RESPONSE ||
+                   event.type == RUNTIME_EVENT_HISTORY_RESULT_RESPONSE) {
+            forensics_handle_history_event(client, ui, &event);
+        }
+    }
+
+    if (ui != NULL || control_cache != NULL) {
+        poll_symbols_into(client, ui, control_cache);
+    }
+
+    while ((ui != NULL || control != NULL) && runtime_client_poll_frame(client, &frame)) {
+        if (ui != NULL && frontend_submit_frame(ui, &frame) && debug_state != NULL) {
+            debug_state->frame_number = frame.frame_number;
+            debug_state->frame_cycle = frame.machine_cycle;
+            debug_state->has_frame = true;
+            consumed_frame = true;
+        } else if (ui == NULL && debug_state != NULL) {
+            debug_state->frame_number = frame.frame_number;
+            debug_state->frame_cycle = frame.machine_cycle;
+            debug_state->has_frame = true;
+        }
+        if (control_cache != NULL) {
+            control_cache->frame = frame;
+            control_cache->has_frame = true;
+            if (deferred_table != NULL) {
+                size_t di;
+                for (di = 0; di < CONTROL_DEFERRED_CAPACITY; ++di) {
+                    deferred_control_response *d = &deferred_table->entries[di];
+                    if (d->active) {
+                        complete_deferred_frame_response(control, d, &control_cache->frame);
+                        check_deferred_frame_wait(control, d, frame.frame_number);
+                    }
+                }
+            }
+        }
+    }
+
+    if (consumed_frame && debug_state != NULL &&
+        debug_state->runtime_state == FRONTEND_RUNTIME_STATE_RUNNING) {
+        /* Free-run: telemetry only — not full breakpoint/disk table poll. */
+        request_debug_telemetry(client);
+    }
+}
+
+static void send_run_command(runtime_client *client) {
+    if (runtime_client_run(client)) {
+        request_debug_state(client);
+    }
+}
+
+static void send_pause_command(runtime_client *client) {
+    if (runtime_client_pause(client)) {
+        request_debug_state(client);
+    }
+}
+
+static void open_help(frontend *ui, runtime_client *client, const frontend_debug_state *debug_state) {
+    bool was_running = debug_state != NULL &&
+        debug_state->runtime_state == FRONTEND_RUNTIME_STATE_RUNNING;
+
+    if (was_running) {
+        send_pause_command(client);
+    }
+    frontend_open_help(ui, was_running);
+}
+
+static void close_help(frontend *ui, runtime_client *client, const frontend_debug_state *debug_state) {
+    bool paused_by_help = frontend_close_help(ui);
+
+    if (paused_by_help &&
+        debug_state != NULL &&
+        debug_state->runtime_state != FRONTEND_RUNTIME_STATE_ERROR) {
+        send_run_command(client);
+    }
+}
+
+/* One in-flight Forensics HISTORY RPC (mirrors RUNTIME_HISTORY_RPC_REQUEST_ACTIVE). */
+typedef struct forensics_history_rpc {
+    bool pending;
+    uint64_t token;
+    frontend_history_verb verb;
+    char label[160];
+} forensics_history_rpc;
+
+static forensics_history_rpc g_forensics_history_rpc;
+
+static void forensics_history_rpc_clear(void)
+{
+    g_forensics_history_rpc.pending = false;
+    g_forensics_history_rpc.token = 0u;
+    g_forensics_history_rpc.verb = FRONTEND_HISTORY_VERB_NONE;
+    g_forensics_history_rpc.label[0] = '\0';
+}
+
+static void forensics_history_close_cursor(runtime_client *client, frontend *ui)
+{
+    uint64_t token;
+    uint64_t cursor;
+
+    if (client == NULL) {
+        return;
+    }
+    if (g_forensics_history_rpc.pending) {
+        (void)runtime_client_cancel_rpc(client, g_forensics_history_rpc.token);
+        forensics_history_rpc_clear();
+    }
+    cursor = frontend_forensics_last_cursor(ui);
+    token = runtime_client_alloc_request_token(client);
+    if (token == 0u) {
+        return;
+    }
+    /* Fire-and-forget: clear UI session cursor; do not session_close default. */
+    (void)runtime_client_history_close(client, 0u, cursor, token);
+}
+
+static bool forensics_history_begin_rpc(
+    runtime_client *client,
+    frontend *ui,
+    frontend_history_verb verb,
+    const char *label,
+    uint64_t *out_token)
+{
+    uint64_t token;
+
+    if (client == NULL || out_token == NULL) {
+        return false;
+    }
+    if (g_forensics_history_rpc.pending) {
+        if (ui != NULL) {
+            frontend_forensics_apply_rpc_error(
+                ui, RUNTIME_HISTORY_RPC_REQUEST_ACTIVE);
+        }
+        return false;
+    }
+    token = runtime_client_alloc_request_token(client);
+    if (token == 0u) {
+        return false;
+    }
+    g_forensics_history_rpc.pending = true;
+    g_forensics_history_rpc.token = token;
+    g_forensics_history_rpc.verb = verb;
+    if (label != NULL) {
+        snprintf(
+            g_forensics_history_rpc.label,
+            sizeof(g_forensics_history_rpc.label),
+            "%s",
+            label);
+    } else {
+        g_forensics_history_rpc.label[0] = '\0';
+    }
+    *out_token = token;
+    return true;
+}
+
+static void forensics_handle_history_event(
+    runtime_client *client,
+    frontend *ui,
+    const runtime_event *event)
+{
+    if (client == NULL || event == NULL || !g_forensics_history_rpc.pending ||
+        event->request_token != g_forensics_history_rpc.token) {
+        return;
+    }
+
+    if (event->type == RUNTIME_EVENT_HISTORY_STATUS_RESPONSE) {
+        /* User-typed `info` carries label; open-time refresh uses empty label. */
+        bool note = g_forensics_history_rpc.verb == FRONTEND_HISTORY_VERB_INFO &&
+            g_forensics_history_rpc.label[0] != '\0';
+        frontend_forensics_apply_status(
+            ui, &event->data.history_status, note);
+        forensics_history_rpc_clear();
+        return;
+    }
+
+    if (event->type != RUNTIME_EVENT_HISTORY_RESULT_RESPONSE) {
+        return;
+    }
+
+    {
+        const runtime_history_rpc_meta *meta = &event->data.history_rpc;
+        if (meta->status != RUNTIME_HISTORY_RPC_OK) {
+            frontend_forensics_apply_rpc_error(ui, meta->status);
+            forensics_history_rpc_clear();
+            return;
+        }
+        if (meta->byte_length == 0u) {
+            /* status-only success (history-close) */
+            if (g_forensics_history_rpc.verb == FRONTEND_HISTORY_VERB_CLOSE &&
+                frontend_forensics_is_open(ui)) {
+                frontend_forensics_apply_result(
+                    ui,
+                    FRONTEND_HISTORY_VERB_CLOSE,
+                    g_forensics_history_rpc.label,
+                    meta,
+                    NULL,
+                    0u,
+                    NULL);
+            }
+            forensics_history_rpc_clear();
+            return;
+        }
+        {
+            uint8_t *bytes = NULL;
+            uint32_t length = 0u;
+            runtime_history_rpc_meta claimed;
+            runtime_history_record *records = NULL;
+            bool *anchors = NULL;
+            size_t count = 0u;
+            uint64_t epoch = 0u;
+
+            if (!runtime_client_claim_history_rpc(
+                    client,
+                    g_forensics_history_rpc.token,
+                    &bytes,
+                    &length,
+                    &claimed)) {
+                frontend_forensics_apply_rpc_error(
+                    ui, RUNTIME_HISTORY_RPC_ERROR);
+                forensics_history_rpc_clear();
+                return;
+            }
+            if (runtime_history_wire_decode(
+                    bytes,
+                    length,
+                    &epoch,
+                    &records,
+                    &anchors,
+                    &count) != RUNTIME_HISTORY_WIRE_OK) {
+                free(bytes);
+                free(records);
+                free(anchors);
+                frontend_forensics_apply_rpc_error(
+                    ui, RUNTIME_HISTORY_RPC_BAD_ARGS);
+                forensics_history_rpc_clear();
+                return;
+            }
+            frontend_forensics_apply_result(
+                ui,
+                g_forensics_history_rpc.verb,
+                g_forensics_history_rpc.label,
+                &claimed,
+                records,
+                count,
+                anchors);
+            free(bytes);
+            free(records);
+            free(anchors);
+            forensics_history_rpc_clear();
+        }
+    }
+}
+
+/*
+ * Leave Forensics.
+ * force_debugger (F9 or successful Land): always debugger, never resume.
+ * Otherwise (Opt+R / Close): return to entry surface; resume only if that
+ * surface was full-screen CRT and it was running when Forensics opened.
+ */
+static void leave_forensics_mode(
+    platform_window *window,
+    runtime_client *client,
+    frontend *ui,
+    bool *ui_visible,
+    bool force_debugger)
+{
+    bool show_debugger = true;
+    bool resume = false;
+    int min_w = 0;
+    int min_h = 0;
+
+    if (ui == NULL || ui_visible == NULL || !frontend_forensics_is_open(ui)) {
+        return;
+    }
+    forensics_history_close_cursor(client, ui);
+    if (!force_debugger && frontend_forensics_entered_from_crt(ui)) {
+        show_debugger = false;
+        resume = frontend_forensics_crt_was_running(ui);
+    }
+    frontend_close_forensics(ui);
+    *ui_visible = show_debugger;
+    if (show_debugger) {
+        frontend_debug_min_window_size(ui, &min_w, &min_h);
+        request_debug_state(client);
+    }
+    platform_window_set_minimum_size(window, min_w, min_h);
+    if (resume) {
+        send_run_command(client);
+    }
+}
+
+static void send_step_instruction_command(runtime_client *client) {
+    if (runtime_client_step_instruction(client)) {
+        request_debug_state(client);
+    }
+}
+
+static void send_step_out_command(runtime_client *client) {
+    if (runtime_client_step_out(client)) {
+        request_debug_state(client);
+    }
+}
+
+static void send_step_over_command(runtime_client *client) {
+    if (runtime_client_step_over(client)) {
+        request_debug_state(client);
+    }
+}
+
+static bool handle_step_key_event(
+    runtime_client *client,
+    frontend_debug_state *debug_state,
+    const SDL_KeyboardEvent *key,
+    bool allow_pause)
+{
+    if (client == NULL || debug_state == NULL || key == NULL) {
+        return false;
+    }
+
+    if (key->keysym.sym == SDLK_F10 && !frontend_input_has_shift_modifier(key)) {
+        if (debug_state->runtime_state == FRONTEND_RUNTIME_STATE_RUNNING) {
+            if (allow_pause) {
+                send_pause_command(client);
+            }
+        } else {
+            debug_state->step_cycle_start = debug_state->machine_cycle;
+            debug_state->step_cpu_cycle_start = debug_state->cpu.cycles;
+            send_step_instruction_command(client);
+        }
+        return true;
+    }
+
+    if (key->keysym.sym == SDLK_F11) {
+        debug_state->step_cycle_start = debug_state->machine_cycle;
+        debug_state->step_cpu_cycle_start = debug_state->cpu.cycles;
+        send_step_over_command(client);
+        return true;
+    }
+
+    return false;
+}
+
+static void send_run_to_cursor_command(
+    runtime_client *client,
+    frontend *ui,
+    const frontend_debug_state *debug_state) {
+    uint16_t addr;
+    if (!frontend_get_disassembly_cursor(ui, &addr)) {
+        if (debug_state == NULL || !debug_state->has_cpu) {
+            return;
+        }
+        addr = debug_state->cpu.pc;
+    }
+    if (runtime_client_run_to_cursor(client, addr)) {
+        request_debug_state(client);
+    }
+}
+
+static void dispatch_input_actions(
+    runtime_client *client,
+    const frontend_input_action *actions,
+    size_t count) {
+    size_t i;
+
+    if (client == NULL || actions == NULL) {
+        return;
+    }
+
+    for (i = 0; i < count; i++) {
+        switch (actions[i].type) {
+            case FRONTEND_INPUT_ACTION_KEY:
+                runtime_client_keyboard_key(client, actions[i].key, actions[i].pressed);
+                break;
+
+            case FRONTEND_INPUT_ACTION_RESTORE:
+                runtime_client_restore(client);
+                break;
+
+            case FRONTEND_INPUT_ACTION_NONE:
+            default:
+                break;
+        }
+    }
+}
+
+static void sdl_c64_controllers_reset(sdl_c64_controller_state *state) {
+    if (state == NULL) {
+        return;
+    }
+
+    memset(state, 0, sizeof(*state));
+    state->single_controller_port = 2u;
+}
+
+static size_t sdl_c64_controller_count(const sdl_c64_controller_state *state) {
+    size_t i;
+    size_t count = 0;
+
+    if (state == NULL) {
+        return 0;
+    }
+
+    for (i = 0; i < C64M_CONTROLLER_MAX; i++) {
+        if (state->controllers[i].controller != NULL) {
+            count++;
+        }
+    }
+    return count;
+}
+
+static int sdl_c64_controller_find_slot(
+    const sdl_c64_controller_state *state,
+    SDL_JoystickID instance_id) {
+    size_t i;
+
+    if (state == NULL) {
+        return -1;
+    }
+
+    for (i = 0; i < C64M_CONTROLLER_MAX; i++) {
+        if (state->controllers[i].controller != NULL &&
+            state->controllers[i].instance_id == instance_id) {
+            return (int)i;
+        }
+    }
+    return -1;
+}
+
+static unsigned sdl_c64_controller_slot_port(
+    const sdl_c64_controller_state *state,
+    size_t slot,
+    size_t connected_count) {
+    if (state == NULL || connected_count == 0) {
+        return 0;
+    }
+
+    if (connected_count == 1) {
+        return state->single_controller_port;
+    }
+
+    if (slot == 0) {
+        return state->swapped ? 2u : 1u;
+    }
+    if (slot == 1) {
+        return state->swapped ? 1u : 2u;
+    }
+    return 0;
+}
+
+static void sdl_c64_controller_send_ports(
+    const sdl_c64_controller_state *state,
+    runtime_client *client) {
+    uint8_t ports[3] = {0, 0, 0};
+    size_t connected_count;
+    size_t i;
+
+    if (state == NULL || client == NULL) {
+        return;
+    }
+
+    connected_count = sdl_c64_controller_count(state);
+    for (i = 0; i < C64M_CONTROLLER_MAX; i++) {
+        unsigned port;
+
+        if (state->controllers[i].controller == NULL) {
+            continue;
+        }
+        port = sdl_c64_controller_slot_port(state, i, connected_count);
+        if (port >= 1u && port <= 2u) {
+            ports[port] = state->controllers[i].inputs;
+        }
+    }
+
+    /* The keyboard joystick is just another source assigned to a port; OR it in
+       so it coexists with any real controller mapped to the same port. */
+    if (state->kbd_joystick != NULL &&
+        state->kbd_joystick->port >= 1u && state->kbd_joystick->port <= 2u) {
+        ports[state->kbd_joystick->port] |= state->kbd_joystick->inputs;
+    }
+
+    runtime_client_set_joystick(client, 1u, ports[1]);
+    runtime_client_set_joystick(client, 2u, ports[2]);
+}
+
+static uint8_t sdl_c64_controller_read_inputs(SDL_GameController *controller) {
+    Sint16 x;
+    Sint16 y;
+    uint8_t inputs = 0;
+
+    if (controller == NULL) {
+        return 0;
+    }
+
+    x = SDL_GameControllerGetAxis(controller, SDL_CONTROLLER_AXIS_LEFTX);
+    y = SDL_GameControllerGetAxis(controller, SDL_CONTROLLER_AXIS_LEFTY);
+
+    if (x <= -C64M_CONTROLLER_AXIS_THRESHOLD ||
+        SDL_GameControllerGetButton(controller, SDL_CONTROLLER_BUTTON_DPAD_LEFT)) {
+        inputs |= C64_JOYSTICK_LEFT;
+    }
+    if (x >= C64M_CONTROLLER_AXIS_THRESHOLD ||
+        SDL_GameControllerGetButton(controller, SDL_CONTROLLER_BUTTON_DPAD_RIGHT)) {
+        inputs |= C64_JOYSTICK_RIGHT;
+    }
+    if (y <= -C64M_CONTROLLER_AXIS_THRESHOLD ||
+        SDL_GameControllerGetButton(controller, SDL_CONTROLLER_BUTTON_DPAD_UP)) {
+        inputs |= C64_JOYSTICK_UP;
+    }
+    if (y >= C64M_CONTROLLER_AXIS_THRESHOLD ||
+        SDL_GameControllerGetButton(controller, SDL_CONTROLLER_BUTTON_DPAD_DOWN)) {
+        inputs |= C64_JOYSTICK_DOWN;
+    }
+    if (SDL_GameControllerGetButton(controller, SDL_CONTROLLER_BUTTON_A)) {
+        inputs |= C64_JOYSTICK_FIRE;
+    }
+
+    return inputs;
+}
+
+static void sdl_c64_controller_refresh_slot(
+    sdl_c64_controller_state *state,
+    size_t slot,
+    runtime_client *client) {
+    uint8_t inputs;
+
+    if (state == NULL || slot >= C64M_CONTROLLER_MAX ||
+        state->controllers[slot].controller == NULL) {
+        return;
+    }
+
+    inputs = sdl_c64_controller_read_inputs(state->controllers[slot].controller);
+    if (inputs != state->controllers[slot].inputs) {
+        state->controllers[slot].inputs = inputs;
+        sdl_c64_controller_send_ports(state, client);
+    }
+}
+
+static void sdl_c64_controller_add(
+    sdl_c64_controller_state *state,
+    runtime_client *client,
+    int device_index) {
+    SDL_GameController *controller;
+    SDL_Joystick *joystick;
+    SDL_JoystickID instance_id;
+    size_t slot;
+
+    if (state == NULL || !SDL_IsGameController(device_index)) {
+        return;
+    }
+
+    for (slot = 0; slot < C64M_CONTROLLER_MAX; slot++) {
+        if (state->controllers[slot].controller == NULL) {
+            break;
+        }
+    }
+    if (slot >= C64M_CONTROLLER_MAX) {
+        log_info("ignoring extra controller: %s", SDL_GameControllerNameForIndex(device_index));
+        return;
+    }
+
+    controller = SDL_GameControllerOpen(device_index);
+    if (controller == NULL) {
+        log_error("SDL_GameControllerOpen failed: %s", SDL_GetError());
+        return;
+    }
+
+    joystick = SDL_GameControllerGetJoystick(controller);
+    instance_id = joystick != NULL ? SDL_JoystickInstanceID(joystick) : -1;
+    if (instance_id < 0) {
+        log_error("SDL_JoystickInstanceID failed: %s", SDL_GetError());
+        SDL_GameControllerClose(controller);
+        return;
+    }
+    if (sdl_c64_controller_find_slot(state, instance_id) >= 0) {
+        SDL_GameControllerClose(controller);
+        return;
+    }
+
+    state->controllers[slot].controller = controller;
+    state->controllers[slot].instance_id = instance_id;
+    state->controllers[slot].inputs = sdl_c64_controller_read_inputs(controller);
+    log_info("controller connected: %s", SDL_GameControllerName(controller));
+    sdl_c64_controller_send_ports(state, client);
+}
+
+static void sdl_c64_controller_remove(
+    sdl_c64_controller_state *state,
+    runtime_client *client,
+    SDL_JoystickID instance_id) {
+    int slot;
+
+    slot = sdl_c64_controller_find_slot(state, instance_id);
+    if (slot < 0) {
+        return;
+    }
+
+    log_info("controller disconnected: %s", SDL_GameControllerName(state->controllers[slot].controller));
+    SDL_GameControllerClose(state->controllers[slot].controller);
+    memset(&state->controllers[slot], 0, sizeof(state->controllers[slot]));
+    sdl_c64_controller_send_ports(state, client);
+}
+
+static void sdl_c64_controller_handle_event(
+    sdl_c64_controller_state *state,
+    runtime_client *client,
+    const SDL_Event *event) {
+    int slot;
+
+    if (state == NULL || event == NULL) {
+        return;
+    }
+
+    switch (event->type) {
+        case SDL_CONTROLLERDEVICEADDED:
+            sdl_c64_controller_add(state, client, event->cdevice.which);
+            break;
+
+        case SDL_CONTROLLERDEVICEREMOVED:
+            sdl_c64_controller_remove(state, client, event->cdevice.which);
+            break;
+
+        case SDL_CONTROLLERAXISMOTION:
+            if (event->caxis.axis == SDL_CONTROLLER_AXIS_LEFTX ||
+                event->caxis.axis == SDL_CONTROLLER_AXIS_LEFTY) {
+                slot = sdl_c64_controller_find_slot(state, event->caxis.which);
+                if (slot >= 0) {
+                    sdl_c64_controller_refresh_slot(state, (size_t)slot, client);
+                }
+            }
+            break;
+
+        case SDL_CONTROLLERBUTTONDOWN:
+        case SDL_CONTROLLERBUTTONUP:
+            switch (event->cbutton.button) {
+                case SDL_CONTROLLER_BUTTON_A:
+                case SDL_CONTROLLER_BUTTON_DPAD_UP:
+                case SDL_CONTROLLER_BUTTON_DPAD_DOWN:
+                case SDL_CONTROLLER_BUTTON_DPAD_LEFT:
+                case SDL_CONTROLLER_BUTTON_DPAD_RIGHT:
+                    slot = sdl_c64_controller_find_slot(state, event->cbutton.which);
+                    if (slot >= 0) {
+                        sdl_c64_controller_refresh_slot(state, (size_t)slot, client);
+                    }
+                    break;
+                default:
+                    break;
+            }
+            break;
+
+        default:
+            break;
+    }
+}
+
+static void sdl_c64_controller_switch_mapping(
+    sdl_c64_controller_state *state,
+    runtime_client *client,
+    unsigned port) {
+    size_t connected_count;
+
+    if (state == NULL || (port != 1u && port != 2u)) {
+        return;
+    }
+
+    connected_count = sdl_c64_controller_count(state);
+    if (connected_count >= 2) {
+        state->swapped = !state->swapped;
+        log_info("controller ports swapped");
+    } else {
+        state->single_controller_port = port;
+        log_info("single controller mapped to C64 joystick port %u", port);
+    }
+    sdl_c64_controller_send_ports(state, client);
+}
+
+static void sdl_c64_controllers_open_existing(
+    sdl_c64_controller_state *state,
+    runtime_client *client) {
+    int i;
+    int count;
+
+    count = SDL_NumJoysticks();
+    for (i = 0; i < count; i++) {
+        sdl_c64_controller_add(state, client, i);
+    }
+}
+
+static void sdl_c64_controllers_close(sdl_c64_controller_state *state, runtime_client *client) {
+    size_t i;
+
+    if (state == NULL) {
+        return;
+    }
+
+    for (i = 0; i < C64M_CONTROLLER_MAX; i++) {
+        if (state->controllers[i].controller != NULL) {
+            SDL_GameControllerClose(state->controllers[i].controller);
+            memset(&state->controllers[i], 0, sizeof(state->controllers[i]));
+        }
+    }
+    sdl_c64_controller_send_ports(state, client);
+}
+
+static bool intent_mutates_in_inspect(frontend_debugger_intent_type type)
+{
+    switch (type) {
+        case FRONTEND_DEBUGGER_INTENT_REGISTER_SET_PC:
+        case FRONTEND_DEBUGGER_INTENT_REGISTER_SET_SP:
+        case FRONTEND_DEBUGGER_INTENT_REGISTER_SET_A:
+        case FRONTEND_DEBUGGER_INTENT_REGISTER_SET_X:
+        case FRONTEND_DEBUGGER_INTENT_REGISTER_SET_Y:
+        case FRONTEND_DEBUGGER_INTENT_REGISTER_SET_STATUS:
+        case FRONTEND_DEBUGGER_INTENT_MEMORY_WRITE_BYTE:
+        case FRONTEND_DEBUGGER_INTENT_MACHINE_RESET:
+        case FRONTEND_DEBUGGER_INTENT_ASSEMBLE_RUN:
+        case FRONTEND_DEBUGGER_INTENT_LOAD_BIN_EXECUTE:
+        case FRONTEND_DEBUGGER_INTENT_SAVE_BIN_EXECUTE:
+        case FRONTEND_DEBUGGER_INTENT_STATE_SAVE_AS_DIALOG:
+        case FRONTEND_DEBUGGER_INTENT_STATE_LOAD_DIALOG:
+        case FRONTEND_DEBUGGER_INTENT_PROGRAM_LOAD_PRG_DIALOG:
+        case FRONTEND_DEBUGGER_INTENT_DISK_MOUNT_DIALOG:
+        case FRONTEND_DEBUGGER_INTENT_DISK_ADD_DIALOG:
+        case FRONTEND_DEBUGGER_INTENT_DISK_UNMOUNT:
+        case FRONTEND_DEBUGGER_INTENT_DISK_EJECT_ALL:
+        case FRONTEND_DEBUGGER_INTENT_DISK_POWER_ON:
+        case FRONTEND_DEBUGGER_INTENT_DISK_POWER_OFF:
+        case FRONTEND_DEBUGGER_INTENT_DISK_SELECT:
+        case FRONTEND_DEBUGGER_INTENT_DISK_SET_WRITABLE:
+        case FRONTEND_DEBUGGER_INTENT_CONFIG_APPLY:
+        case FRONTEND_DEBUGGER_INTENT_INSPECTOR_SET_ENABLED:
+            return true;
+        default:
+            return false;
+    }
+}
+
+static void dispatch_debugger_intents(
+    platform_window *window,
+    runtime_client *client,
+    frontend *ui,
+    const frontend_debug_state *debug_state,
+    app_options *options,
+    sdl_c64_controller_state *controller_state,
+    frontend_joystick_input *kbd_joystick) {
+    frontend_debugger_intent intent;
+
+    if (client == NULL || ui == NULL) {
+        return;
+    }
+
+    while (frontend_poll_debugger_intent(ui, &intent)) {
+        bool sent = false;
+
+        if (debug_state != NULL && debug_state->inspecting &&
+            intent_mutates_in_inspect(intent.type)) {
+            app_options_destroy(&intent.config);
+            continue;
+        }
+
+        switch (intent.type) {
+            case FRONTEND_DEBUGGER_INTENT_REGISTER_SET_PC:
+                sent = runtime_client_set_pc(client, intent.value);
+                break;
+
+            case FRONTEND_DEBUGGER_INTENT_REGISTER_SET_SP:
+                sent = runtime_client_set_sp(client, (uint8_t)intent.value);
+                break;
+
+            case FRONTEND_DEBUGGER_INTENT_REGISTER_SET_A:
+                sent = runtime_client_set_a(client, (uint8_t)intent.value);
+                break;
+
+            case FRONTEND_DEBUGGER_INTENT_REGISTER_SET_X:
+                sent = runtime_client_set_x(client, (uint8_t)intent.value);
+                break;
+
+            case FRONTEND_DEBUGGER_INTENT_REGISTER_SET_Y:
+                sent = runtime_client_set_y(client, (uint8_t)intent.value);
+                break;
+
+            case FRONTEND_DEBUGGER_INTENT_REGISTER_SET_STATUS:
+                sent = runtime_client_set_status(client, (uint8_t)intent.value);
+                break;
+
+            case FRONTEND_DEBUGGER_INTENT_REQUEST_MEMORY:
+                sent = runtime_client_request_memory(
+                    client,
+                    intent.address,
+                    intent.length,
+                    intent.memory_mode);
+                break;
+
+            case FRONTEND_DEBUGGER_INTENT_REQUEST_MEMORY_VIEW:
+                sent = runtime_client_request_memory_view(
+                    client,
+                    intent.address,
+                    intent.length,
+                    intent.memory_mode);
+                break;
+
+            case FRONTEND_DEBUGGER_INTENT_REQUEST_DEBUG_MEMORY:
+                sent = runtime_client_request_debug_memory(client, intent.include_write_history);
+                break;
+
+            case FRONTEND_DEBUGGER_INTENT_MEMORY_WRITE_BYTE:
+                sent = runtime_client_write_memory_byte(
+                    client,
+                    intent.address,
+                    (uint8_t)intent.value,
+                    intent.memory_mode);
+                break;
+
+            case FRONTEND_DEBUGGER_INTENT_BREAKPOINT_SET_EXECUTE:
+                sent = runtime_client_set_execute_breakpoint(client, intent.value);
+                break;
+
+            case FRONTEND_DEBUGGER_INTENT_BREAKPOINT_CLEAR:
+                sent = runtime_client_clear_breakpoint(client, intent.id);
+                break;
+
+            case FRONTEND_DEBUGGER_INTENT_BREAKPOINT_CLEAR_ALL:
+                sent = runtime_client_clear_all_breakpoints(client);
+                break;
+
+            case FRONTEND_DEBUGGER_INTENT_BREAKPOINT_SET_ENABLED:
+                sent = runtime_client_set_breakpoint_enabled(client, intent.id, intent.enabled);
+                break;
+
+            case FRONTEND_DEBUGGER_INTENT_BREAKPOINT_CREATE:
+                sent = runtime_client_create_breakpoint(client, &intent.breakpoint);
+                break;
+
+            case FRONTEND_DEBUGGER_INTENT_BREAKPOINT_UPDATE:
+                sent = runtime_client_update_breakpoint(client, intent.id, &intent.breakpoint);
+                break;
+
+            case FRONTEND_DEBUGGER_INTENT_BREAKPOINT_REQUEST_SNAPSHOT:
+                sent = runtime_client_request_breakpoints(client);
+                break;
+
+            case FRONTEND_DEBUGGER_INTENT_PROGRAM_LOAD_PRG_DIALOG:
+                frontend_open_file_browser(ui, FRONTEND_DEBUGGER_INTENT_PROGRAM_LOAD_PRG_DIALOG,
+                    "Load PRG/BAS", false, NULL, NULL, 0);
+                break;
+
+            case FRONTEND_DEBUGGER_INTENT_DISK_MOUNT_DIALOG:
+                if (intent.disk_device == 8 || intent.disk_device == 9) {
+                    /* Device button = soft power switch + replace-mount flow. */
+                    (void)runtime_client_power_on_drive(client, intent.disk_device);
+                    /* Empty filter: show .d64 and .g64 (and other files). */
+                    frontend_open_file_browser(ui, FRONTEND_DEBUGGER_INTENT_DISK_MOUNT_DIALOG,
+                        "Mount Disk Image", false, "", NULL, intent.disk_device);
+                }
+                break;
+
+            case FRONTEND_DEBUGGER_INTENT_DISK_ADD_DIALOG:
+                if (intent.disk_device == 8 || intent.disk_device == 9) {
+                    (void)runtime_client_power_on_drive(client, intent.disk_device);
+                    frontend_open_file_browser(ui, FRONTEND_DEBUGGER_INTENT_DISK_ADD_DIALOG,
+                        "Add Disk Image", false, "", NULL, intent.disk_device);
+                }
+                break;
+
+            case FRONTEND_DEBUGGER_INTENT_DISK_UNMOUNT:
+                if (intent.disk_device == 8 || intent.disk_device == 9) {
+                    app_disk_slot *slot = &options->disk_slots[intent.disk_device];
+                    const char *next_path = app_disk_slot_eject_current(slot);
+                    if (next_path != NULL) {
+                        sent = runtime_client_mount_d64_ex(
+                            client,
+                            intent.disk_device,
+                            next_path,
+                            app_disk_slot_current_writable(slot));
+                    } else {
+                        sent = runtime_client_unmount_disk(client, intent.disk_device);
+                    }
+                    frontend_set_disk_queue(ui, intent.disk_device, slot);
+                }
+                break;
+
+            case FRONTEND_DEBUGGER_INTENT_DISK_EJECT_ALL:
+                if (intent.disk_device == 8 || intent.disk_device == 9) {
+                    sent = runtime_client_unmount_disk(client, intent.disk_device);
+                    if (sent) {
+                        app_disk_slot_clear(&options->disk_slots[intent.disk_device]);
+                        frontend_set_disk_queue(ui, intent.disk_device,
+                            &options->disk_slots[intent.disk_device]);
+                    }
+                }
+                break;
+
+            case FRONTEND_DEBUGGER_INTENT_DISK_POWER_ON:
+                if (intent.disk_device == 8 || intent.disk_device == 9) {
+                    sent = runtime_client_power_on_drive(client, intent.disk_device);
+                }
+                break;
+
+            case FRONTEND_DEBUGGER_INTENT_DISK_POWER_OFF:
+                if (intent.disk_device == 8 || intent.disk_device == 9) {
+                    /* Machine ejects media then powers off; clear host queue too. */
+                    sent = runtime_client_power_off_drive(client, intent.disk_device);
+                    if (sent) {
+                        app_disk_slot_clear(&options->disk_slots[intent.disk_device]);
+                        frontend_set_disk_queue(ui, intent.disk_device,
+                            &options->disk_slots[intent.disk_device]);
+                    }
+                }
+                break;
+
+            case FRONTEND_DEBUGGER_INTENT_DISK_SELECT:
+                if (intent.disk_device == 8 || intent.disk_device == 9) {
+                    app_disk_slot *slot = &options->disk_slots[intent.disk_device];
+                    const char *path = app_disk_slot_select(slot, intent.disk_queue_index);
+                    if (path != NULL) {
+                        sent = runtime_client_mount_d64_ex(
+                            client,
+                            intent.disk_device,
+                            path,
+                            app_disk_slot_current_writable(slot));
+                        frontend_set_disk_queue(ui, intent.disk_device, slot);
+                    }
+                }
+                break;
+
+            case FRONTEND_DEBUGGER_INTENT_DISK_SET_WRITABLE:
+                if (intent.disk_device == 8 || intent.disk_device == 9) {
+                    app_disk_slot *slot = &options->disk_slots[intent.disk_device];
+                    if (app_disk_slot_set_current_writable(slot, intent.disk_writable)) {
+                        sent = runtime_client_set_disk_writable(
+                            client,
+                            intent.disk_device,
+                            intent.disk_writable);
+                        frontend_set_disk_queue(ui, intent.disk_device, slot);
+                    }
+                }
+                break;
+
+            case FRONTEND_DEBUGGER_INTENT_MACHINE_RESET:
+                sent = runtime_client_reset_ex_with_resume(
+                    client,
+                    intent.machine_reset_detach_cartridge,
+                    intent.machine_reset_resume_running);
+                break;
+
+            case FRONTEND_DEBUGGER_INTENT_CONFIG_PICK_INI_DIALOG:
+                frontend_open_file_browser(ui, FRONTEND_DEBUGGER_INTENT_CONFIG_PICK_INI_DIALOG,
+                    "Select INI File", false, "ini", NULL, 0);
+                break;
+
+            case FRONTEND_DEBUGGER_INTENT_CONFIG_PICK_PATH_DIALOG:
+                frontend_open_file_browser(ui, FRONTEND_DEBUGGER_INTENT_CONFIG_PICK_PATH_DIALOG,
+                    "Select Folder", false, NULL, NULL, 0);
+                break;
+
+            case FRONTEND_DEBUGGER_INTENT_CONFIG_PICK_ROM_DIALOG:
+                frontend_open_file_browser(ui, FRONTEND_DEBUGGER_INTENT_CONFIG_PICK_ROM_DIALOG,
+                    "Select ROM File", false, NULL, NULL, 0);
+                break;
+
+            case FRONTEND_DEBUGGER_INTENT_CONFIG_PICK_SYMBOL_DIALOG:
+                frontend_open_file_browser(ui, FRONTEND_DEBUGGER_INTENT_CONFIG_PICK_SYMBOL_DIALOG,
+                    "Select Symbol File", false, NULL, NULL, 0);
+                break;
+
+            case FRONTEND_DEBUGGER_INTENT_CONFIG_APPLY:
+            case FRONTEND_DEBUGGER_INTENT_SAVE_INI_NOW:
+                {
+                    int d;
+                    int slot;
+                    bool save_now = (intent.type == FRONTEND_DEBUGGER_INTENT_SAVE_INI_NOW);
+                    c64_config machine_config = machine_config_from_options(&intent.config);
+                    runtime_config runtime_options = runtime_config_from_options(&intent.config);
+                    char absolute_symbol_files[1024];
+                    for (d = 0; d < C64M_DRIVE_COUNT; ++d) {
+                        app_disk_slot_copy(
+                            &intent.config.disk_slots[d], &options->disk_slots[d]);
+                    }
+                    app_options_destroy(options);
+                    *options = intent.config;
+                    memset(&intent.config, 0, sizeof(intent.config));
+                    /* Auto-save preference is options->remember; session save follows it. */
+                    options->save_ini = options->remember;
+                    runtime_client_rom_paths rom_paths;
+                    if (!app_options_symbol_files_absolute(options, absolute_symbol_files, sizeof(absolute_symbol_files))) {
+                        snprintf(absolute_symbol_files, sizeof(absolute_symbol_files), "%s", options->symbol_files ? options->symbol_files : "");
+                    }
+                    effective_rom_paths(
+                        options,
+                        &rom_paths.system_rom_path,
+                        &rom_paths.basic_rom_path,
+                        &rom_paths.char_rom_path,
+                        &rom_paths.kernal_rom_path,
+                        &rom_paths.rom1541_path);
+                    sent = runtime_client_apply_machine_config(
+                        client,
+                        &machine_config,
+                        &runtime_options,
+                        options->ini_path,
+                        absolute_symbol_files,
+                        intent.config_result.needs_reboot,
+                        options->save_ini && !options->no_save_ini,
+                        debug_state != NULL &&
+                            debug_state->runtime_state == FRONTEND_RUNTIME_STATE_RUNNING,
+                        &rom_paths,
+                        intent.config_result.roms_changed);
+                    /* Pull live browse/ROM path edits into options before any save. */
+                    for (slot = 0; slot < FRONTEND_BROWSE_SLOT_COUNT &&
+                             slot < APP_BROWSE_DIR_COUNT; ++slot) {
+                        const char *dir = frontend_get_browse_dir(ui, (frontend_browse_slot)slot);
+                        app_options_set_string(&options->browse_dirs[slot], dir[0] ? dir : NULL);
+                    }
+                    frontend_config_export_rom_paths(ui, options);
+                    if (save_now) {
+                        /* Configure's copied options still hold the load-time
+                           geometry; refresh from the live window/layout like quit. */
+                        if (window != NULL) {
+                            platform_window_get_size(
+                                window, &options->window_width, &options->window_height);
+                        }
+                        {
+                            frontend_layout_state layout_state;
+                            frontend_get_layout_state(ui, &layout_state);
+                            options->layout_split_display_right =
+                                layout_state.split_display_right;
+                            options->layout_split_top_bottom =
+                                layout_state.split_top_bottom;
+                            options->layout_split_memory_misc =
+                                layout_state.split_memory_misc;
+                        }
+                        if (options->no_save_ini) {
+                            log_info("Save INI now: saving disabled (--nosaveini)");
+                        } else if (!app_options_save_shutdown(options)) {
+                            log_error("Save INI now failed: %s",
+                                    options->ini_path ? options->ini_path : "(null)");
+                        } else {
+                            log_info("Save INI now: wrote %s",
+                                    options->ini_path ? options->ini_path : "(null)");
+                        }
+                    }
+                    /* Save INI now leaves Configure open; OK already closed it. */
+                    frontend_set_config_state(ui, options);
+                    frontend_set_disk_queue(ui, 8, &options->disk_slots[8]);
+                    frontend_set_disk_queue(ui, 9, &options->disk_slots[9]);
+                    /* Apply keyboard-joystick config to the live input source. */
+                    if (kbd_joystick != NULL) {
+                        frontend_joystick_set_layout(
+                            kbd_joystick,
+                            frontend_joystick_layout_from_string(
+                                options->keyboard_joystick_layout));
+                        frontend_joystick_set_port(
+                            kbd_joystick, (unsigned)options->keyboard_joystick_port);
+                        if (controller_state != NULL) {
+                            sdl_c64_controller_send_ports(controller_state, client);
+                        }
+                    }
+                    if (intent.config_result.symbols_changed) {
+                        runtime_client_request_memory(client, 0, 1, RUNTIME_MEMORY_MODE_CPU_MAP);
+                    }
+                }
+                break;
+
+            case FRONTEND_DEBUGGER_INTENT_ASSEMBLE_BROWSE:
+                frontend_open_file_browser(ui, FRONTEND_DEBUGGER_INTENT_ASSEMBLE_BROWSE,
+                    "Select Assembler Source", false, NULL, NULL, 0);
+                break;
+
+            case FRONTEND_DEBUGGER_INTENT_SAVE_PATHS_ONLY:
+                /* Pull the live folders from the frontend, then rewrite only the
+                   [browse] keys in the named INI (leaving everything else). */
+                if (options != NULL) {
+                    int slot;
+                    for (slot = 0; slot < FRONTEND_BROWSE_SLOT_COUNT &&
+                             slot < APP_BROWSE_DIR_COUNT; ++slot) {
+                        const char *dir = frontend_get_browse_dir(ui, (frontend_browse_slot)slot);
+                        app_options_set_string(&options->browse_dirs[slot], dir[0] ? dir : NULL);
+                    }
+                    frontend_config_export_rom_paths(ui, options);
+                    app_options_save_paths_only(options);
+                }
+                break;
+
+            case FRONTEND_DEBUGGER_INTENT_ASSEMBLE_RUN:
+                if (intent.assemble_rearm_oneshots) {
+                    runtime_client_rearm_oneshot_breakpoints(client);
+                }
+                {
+                    char assemble_path[1024];
+                    const char *source_path = intent.assemble_path;
+
+                    if (options != NULL &&
+                        app_options_path_absolute_from_ini(
+                            options, intent.assemble_path,
+                            assemble_path, sizeof(assemble_path))) {
+                        source_path = assemble_path;
+                    }
+                sent = runtime_client_assemble_file_full(
+                    client,
+                    source_path,
+                    intent.assemble_address,
+                    intent.assemble_run_address,
+                    intent.assemble_auto_run,
+                    intent.assemble_basic_run,
+                    intent.assemble_reset_first,
+                    options != NULL &&
+                        options->assembler_auto_adjust_segments);
+                }
+                break;
+
+            case FRONTEND_DEBUGGER_INTENT_LOAD_BIN_BROWSE:
+                frontend_open_file_browser(ui, FRONTEND_DEBUGGER_INTENT_LOAD_BIN_BROWSE,
+                    "Select Binary File", false, NULL, NULL, 0);
+                break;
+
+            case FRONTEND_DEBUGGER_INTENT_LOAD_BIN_EXECUTE:
+                if (path_has_extension(intent.load_bin_path, "crt")) {
+                    sent = runtime_client_load_crt(client, intent.load_bin_path);
+                    if (sent) {
+                        remember_loaded_content(options, intent.load_bin_path, "crt");
+                    }
+                } else if (path_has_extension(intent.load_bin_path, "t64")) {
+                    sent = runtime_client_load_prg(client, intent.load_bin_path);
+                    if (sent) {
+                        remember_loaded_content(options, intent.load_bin_path, "prg");
+                    }
+                } else {
+                    sent = runtime_client_load_bin(
+                        client,
+                        intent.load_bin_path,
+                        intent.load_bin_address,
+                        intent.load_bin_use_file_address,
+                        intent.load_bin_reset_first,
+                        intent.load_bin_is_basic,
+                        intent.load_bin_is_basic_text);
+                    if (sent) {
+                        remember_loaded_content(
+                            options,
+                            intent.load_bin_path,
+                            (intent.load_bin_is_basic || intent.load_bin_is_basic_text)
+                                ? "basic" : "prg");
+                    }
+                }
+                break;
+
+            case FRONTEND_DEBUGGER_INTENT_SAVE_BIN_BROWSE:
+                frontend_open_file_browser(ui, FRONTEND_DEBUGGER_INTENT_SAVE_BIN_BROWSE,
+                    "Save File", true, NULL, NULL, 0);
+                break;
+
+            case FRONTEND_DEBUGGER_INTENT_SAVE_BIN_EXECUTE:
+                sent = runtime_client_save_bin(
+                    client,
+                    intent.save_bin_path,
+                    intent.save_bin_start,
+                    intent.save_bin_end,
+                    intent.save_bin_write_file_address,
+                    intent.save_bin_is_basic,
+                    intent.save_bin_is_basic_text);
+                break;
+
+            case FRONTEND_DEBUGGER_INTENT_STATE_SAVE_AS_DIALOG:
+                frontend_open_file_browser(ui, FRONTEND_DEBUGGER_INTENT_STATE_SAVE_AS_DIALOG,
+                    "Save State", true, "c64state", "c64state", 0);
+                break;
+
+            case FRONTEND_DEBUGGER_INTENT_STATE_LOAD_DIALOG:
+                frontend_open_file_browser(ui, FRONTEND_DEBUGGER_INTENT_STATE_LOAD_DIALOG,
+                    "Load State", false, "c64state", NULL, 0);
+                break;
+
+            case FRONTEND_DEBUGGER_INTENT_FILE_BROWSER_RESULT:
+                switch (intent.file_browser_purpose) {
+                    case FRONTEND_DEBUGGER_INTENT_PROGRAM_LOAD_PRG_DIALOG:
+                        if (path_has_extension(intent.file_browser_path, "crt")) {
+                            sent = runtime_client_load_crt(client, intent.file_browser_path);
+                            if (sent) {
+                                remember_loaded_content(options, intent.file_browser_path, "crt");
+                            }
+                        } else {
+                            sent = runtime_client_load_prg(client, intent.file_browser_path);
+                            if (sent) {
+                                remember_loaded_content(options, intent.file_browser_path, "prg");
+                            }
+                        }
+                        break;
+
+                    case FRONTEND_DEBUGGER_INTENT_DISK_MOUNT_DIALOG:
+                        sent = runtime_client_mount_d64_ex(
+                            client, intent.disk_device, intent.file_browser_path, false);
+                        if (sent) {
+                            app_disk_slot_set(&options->disk_slots[intent.disk_device], intent.file_browser_path);
+                            frontend_set_disk_queue(ui, intent.disk_device,
+                                &options->disk_slots[intent.disk_device]);
+                        }
+                        break;
+
+                    case FRONTEND_DEBUGGER_INTENT_DISK_ADD_DIALOG:
+                        {
+                            app_disk_slot *slot = &options->disk_slots[intent.disk_device];
+                            bool was_empty = slot->count == 0;
+                            if (app_disk_slot_add_after_current(slot, intent.file_browser_path)) {
+                                if (was_empty) {
+                                    sent = runtime_client_mount_d64_ex(
+                                        client,
+                                        intent.disk_device,
+                                        slot->paths[0],
+                                        app_disk_slot_current_writable(slot));
+                                } else {
+                                    sent = true;
+                                }
+                                frontend_set_disk_queue(ui, intent.disk_device, slot);
+                            }
+                        }
+                        break;
+
+                    case FRONTEND_DEBUGGER_INTENT_CONFIG_PICK_INI_DIALOG:
+                        {
+                            app_options selected;
+                            if (app_options_copy(&selected, options)) {
+                                app_options_set_string(&selected.ini_path, intent.file_browser_path);
+                                frontend_apply_selected_ini(ui, &selected);
+                                app_options_destroy(&selected);
+                            }
+                        }
+                        break;
+
+                    case FRONTEND_DEBUGGER_INTENT_CONFIG_PICK_PATH_DIALOG:
+                        frontend_set_picked_browse_dir(ui, intent.file_browser_path);
+                        break;
+
+                    case FRONTEND_DEBUGGER_INTENT_CONFIG_PICK_ROM_DIALOG:
+                        frontend_set_picked_rom_path(ui, intent.file_browser_path);
+                        break;
+
+                    case FRONTEND_DEBUGGER_INTENT_CONFIG_PICK_SYMBOL_DIALOG:
+                        frontend_append_symbol_file(ui, intent.file_browser_path);
+                        break;
+
+                    case FRONTEND_DEBUGGER_INTENT_ASSEMBLE_BROWSE:
+                        frontend_set_assembler_path(ui, intent.file_browser_path);
+                        break;
+
+                    case FRONTEND_DEBUGGER_INTENT_LOAD_BIN_BROWSE:
+                        {
+                            char rel_path[1024];
+                            make_relative_path(intent.file_browser_path, rel_path, sizeof(rel_path));
+                            frontend_set_load_bin_path(ui, rel_path);
+                        }
+                        break;
+
+                    case FRONTEND_DEBUGGER_INTENT_SAVE_BIN_BROWSE:
+                        {
+                            char rel_path[1024];
+                            make_relative_path(intent.file_browser_path, rel_path, sizeof(rel_path));
+                            frontend_set_save_bin_path(ui, rel_path);
+                        }
+                        break;
+
+                    case FRONTEND_DEBUGGER_INTENT_STATE_SAVE_AS_DIALOG:
+                        {
+                            char path[1024];
+                            snprintf(path, sizeof(path), "%s", intent.file_browser_path);
+                            if (append_state_extension(path, sizeof(path))) {
+                                sent = runtime_client_save_state(client, path);
+                            }
+                        }
+                        break;
+
+                    case FRONTEND_DEBUGGER_INTENT_STATE_LOAD_DIALOG:
+                        sent = runtime_client_load_state(client, intent.file_browser_path);
+                        break;
+
+                    default:
+                        break;
+                }
+                break;
+
+            case FRONTEND_DEBUGGER_INTENT_REQUEST_CALL_STACK:
+                sent = runtime_client_request_call_stack(client);
+                break;
+
+            case FRONTEND_DEBUGGER_INTENT_INSPECTOR_SET_ENABLED: {
+                uint64_t token = runtime_client_alloc_request_token(client);
+                sent = runtime_client_inspector_set_enabled(
+                    client, intent.enabled, token);
+                break;
+            }
+
+            case FRONTEND_DEBUGGER_INTENT_INSPECTOR_ENTER: {
+                uint64_t token = runtime_client_alloc_request_token(client);
+                sent = runtime_client_inspector_enter(client, token);
+                break;
+            }
+
+            case FRONTEND_DEBUGGER_INTENT_INSPECTOR_LEAVE: {
+                uint64_t token = runtime_client_alloc_request_token(client);
+                sent = runtime_client_inspector_leave(client, token);
+                break;
+            }
+
+            case FRONTEND_DEBUGGER_INTENT_INSPECTOR_LAND: {
+                uint64_t token = runtime_client_alloc_request_token(client);
+                sent = runtime_client_inspector_land(
+                    client, intent.inspector_cycle, token);
+                break;
+            }
+
+            case FRONTEND_DEBUGGER_INTENT_INSPECTOR_LAND_TO_CYCLE: {
+                uint64_t token = runtime_client_alloc_request_token(client);
+                sent = runtime_client_inspector_land_to_cycle(
+                    client, intent.inspector_cycle, token);
+                break;
+            }
+
+            case FRONTEND_DEBUGGER_INTENT_INSPECTOR_CHECKPOINT_STEP: {
+                uint64_t token = runtime_client_alloc_request_token(client);
+                sent = runtime_client_inspector_checkpoint_step(
+                    client, intent.enabled ? 1 : -1, token);
+                break;
+            }
+
+            case FRONTEND_DEBUGGER_INTENT_HISTORY_FIND: {
+                uint64_t token = 0u;
+                if (!forensics_history_begin_rpc(
+                        client, ui, FRONTEND_HISTORY_VERB_FIND, intent.history_label,
+                        &token)) {
+                    break;
+                }
+                if (!runtime_client_history_find(
+                        client,
+                        0u,
+                        &intent.history_query,
+                        intent.history_from_kind,
+                        intent.history_from_id,
+                        intent.history_limit != 0u ? intent.history_limit : 64u,
+                        token)) {
+                    forensics_history_rpc_clear();
+                    frontend_forensics_apply_rpc_error(
+                        ui, RUNTIME_HISTORY_RPC_BAD_ARGS);
+                }
+                break;
+            }
+
+            case FRONTEND_DEBUGGER_INTENT_HISTORY_NEXT: {
+                uint64_t token = 0u;
+                uint64_t cursor = frontend_forensics_last_cursor(ui);
+                if (cursor == 0u) {
+                    frontend_forensics_apply_rpc_error(
+                        ui, RUNTIME_HISTORY_RPC_BAD_ARGS);
+                    break;
+                }
+                if (!forensics_history_begin_rpc(
+                        client, ui, FRONTEND_HISTORY_VERB_NEXT, intent.history_label,
+                        &token)) {
+                    break;
+                }
+                if (!runtime_client_history_next(
+                        client,
+                        0u,
+                        cursor,
+                        intent.history_limit != 0u ? intent.history_limit : 64u,
+                        token)) {
+                    forensics_history_rpc_clear();
+                    frontend_forensics_apply_rpc_error(
+                        ui, RUNTIME_HISTORY_RPC_BAD_ARGS);
+                }
+                break;
+            }
+
+            case FRONTEND_DEBUGGER_INTENT_HISTORY_READ: {
+                uint64_t token = 0u;
+                if (!forensics_history_begin_rpc(
+                        client, ui, FRONTEND_HISTORY_VERB_READ, intent.history_label,
+                        &token)) {
+                    break;
+                }
+                if (!runtime_client_history_read(
+                        client,
+                        0u,
+                        intent.history_read_epoch,
+                        intent.history_read_id,
+                        intent.history_before,
+                        intent.history_after,
+                        token)) {
+                    forensics_history_rpc_clear();
+                    frontend_forensics_apply_rpc_error(
+                        ui, RUNTIME_HISTORY_RPC_BAD_ARGS);
+                }
+                break;
+            }
+
+            case FRONTEND_DEBUGGER_INTENT_HISTORY_INFO: {
+                uint64_t token = 0u;
+                if (!forensics_history_begin_rpc(
+                        client, ui, FRONTEND_HISTORY_VERB_INFO, intent.history_label,
+                        &token)) {
+                    break;
+                }
+                if (!runtime_client_history_info(client, token)) {
+                    forensics_history_rpc_clear();
+                    frontend_forensics_apply_rpc_error(
+                        ui, RUNTIME_HISTORY_RPC_BAD_ARGS);
+                }
+                break;
+            }
+
+            case FRONTEND_DEBUGGER_INTENT_HISTORY_CLOSE: {
+                uint64_t token = 0u;
+                uint64_t cursor = frontend_forensics_last_cursor(ui);
+                if (!forensics_history_begin_rpc(
+                        client, ui, FRONTEND_HISTORY_VERB_CLOSE, intent.history_label,
+                        &token)) {
+                    break;
+                }
+                if (!runtime_client_history_close(client, 0u, cursor, token)) {
+                    forensics_history_rpc_clear();
+                    frontend_forensics_apply_rpc_error(
+                        ui, RUNTIME_HISTORY_RPC_BAD_ARGS);
+                }
+                break;
+            }
+
+            case FRONTEND_DEBUGGER_INTENT_NONE:
+            default:
+                break;
+        }
+
+        if (sent) {
+            request_debug_state(client);
+        }
+        app_options_destroy(&intent.config);
+    }
+}
+
+static void handle_keyboard_input(
+    frontend_input_mapper *mapper,
+    runtime_client *client,
+    const SDL_KeyboardEvent *event) {
+    frontend_input_action actions[FRONTEND_INPUT_MAX_ACTIONS];
+    size_t count;
+
+    count = frontend_input_map_keyboard_event(mapper, event, actions, FRONTEND_INPUT_MAX_ACTIONS);
+    dispatch_input_actions(client, actions, count);
+}
+
+static void handle_drop_file(runtime_client *client, app_options *options, char *path) {
+    if (path_has_extension(path, "d64") || path_has_extension(path, "g64")) {
+        if (runtime_client_mount_d64_ex(client, 8, path, false) && options != NULL) {
+            app_disk_slot_set(&options->disk_slots[8], path);
+        }
+    } else if (path_has_extension(path, "c64state")) {
+        runtime_client_load_state(client, path);
+    } else if (path_has_extension(path, "crt")) {
+        if (runtime_client_load_crt(client, path)) {
+            remember_loaded_content(options, path, "crt");
+        }
+    } else if (path_has_extension(path, "bas")) {
+        if (runtime_client_load_bin(client, path, 0, true, true, true, false)) {
+            remember_loaded_content(options, path, "basic");
+        }
+    } else {
+        if (runtime_client_load_prg(client, path)) {
+            remember_loaded_content(options, path, "prg");
+        }
+    }
+
+    SDL_free(path);
+}
+
+static bool control_command_inspector_forbidden(control_command_type type)
+{
+    switch (type) {
+        case CONTROL_COMMAND_RESET:
+        case CONTROL_COMMAND_SET_MEMORY:
+        case CONTROL_COMMAND_KEY_DOWN:
+        case CONTROL_COMMAND_KEY_UP:
+        case CONTROL_COMMAND_RESTORE:
+        case CONTROL_COMMAND_JOYSTICK:
+        case CONTROL_COMMAND_PASTE_TEXT:
+        case CONTROL_COMMAND_PASTE_EVENTS:
+        case CONTROL_COMMAND_PASTE_TEXT_DATA:
+        case CONTROL_COMMAND_PASTE_EVENTS_DATA:
+        case CONTROL_COMMAND_LOAD_PRG:
+        case CONTROL_COMMAND_LOAD_BIN:
+        case CONTROL_COMMAND_LOAD_STATE:
+        case CONTROL_COMMAND_SAVE_STATE:
+        case CONTROL_COMMAND_MOUNT_D64:
+        case CONTROL_COMMAND_UNMOUNT_DISK:
+        case CONTROL_COMMAND_POWER_DRIVE:
+        case CONTROL_COMMAND_ASSEMBLE:
+        case CONTROL_COMMAND_HISTORY_CLEAR:
+        case CONTROL_COMMAND_HISTORY_RECORD:
+            return true;
+        default:
+            return false;
+    }
+}
+
+static bool control_command_mutates_machine(control_command_type type)
+{
+    switch (type) {
+        case CONTROL_COMMAND_RESET:
+        case CONTROL_COMMAND_RUN:
+        case CONTROL_COMMAND_PAUSE:
+        case CONTROL_COMMAND_STEP_CYCLE:
+        case CONTROL_COMMAND_STEP_INSTRUCTION:
+        case CONTROL_COMMAND_STEP_OVER:
+        case CONTROL_COMMAND_STEP_OUT:
+        case CONTROL_COMMAND_RUN_CYCLES:
+        case CONTROL_COMMAND_RUN_INSTRUCTIONS:
+        case CONTROL_COMMAND_RUN_TO:
+        case CONTROL_COMMAND_STEP_FRAME:
+        case CONTROL_COMMAND_RUN_TO_RASTER:
+        case CONTROL_COMMAND_SET_MEMORY:
+        case CONTROL_COMMAND_KEY_DOWN:
+        case CONTROL_COMMAND_KEY_UP:
+        case CONTROL_COMMAND_RESTORE:
+        case CONTROL_COMMAND_JOYSTICK:
+        case CONTROL_COMMAND_PASTE_TEXT:
+        case CONTROL_COMMAND_PASTE_EVENTS:
+        case CONTROL_COMMAND_PASTE_TEXT_DATA:
+        case CONTROL_COMMAND_PASTE_EVENTS_DATA:
+        case CONTROL_COMMAND_LOAD_PRG:
+        case CONTROL_COMMAND_LOAD_BIN:
+        case CONTROL_COMMAND_LOAD_STATE:
+        case CONTROL_COMMAND_MOUNT_D64:
+        case CONTROL_COMMAND_UNMOUNT_DISK:
+        case CONTROL_COMMAND_ASSEMBLE:
+        case CONTROL_COMMAND_SET_TURBO:
+            return true;
+        default:
+            return false;
+    }
+}
+
+/* Commands that change run/stop state and therefore produce a fresh running or
+   paused (and possibly breakpoints) event the caller may wait for. Dispatching
+   one must invalidate the still-latched execution-state events from a previous
+   stop, otherwise a `run` + `wait-event paused` issued back to back could
+   consume the PRIOR pause immediately, before the new stop's events even exist. */
+static bool control_command_is_execution_control(control_command_type type)
+{
+    switch (type) {
+        case CONTROL_COMMAND_RESET:
+        case CONTROL_COMMAND_RUN:
+        case CONTROL_COMMAND_PAUSE:
+        case CONTROL_COMMAND_STEP_CYCLE:
+        case CONTROL_COMMAND_STEP_INSTRUCTION:
+        case CONTROL_COMMAND_STEP_OVER:
+        case CONTROL_COMMAND_STEP_OUT:
+        case CONTROL_COMMAND_RUN_CYCLES:
+        case CONTROL_COMMAND_RUN_INSTRUCTIONS:
+        case CONTROL_COMMAND_RUN_TO:
+        case CONTROL_COMMAND_STEP_FRAME:
+        case CONTROL_COMMAND_RUN_TO_RASTER:
+            return true;
+        default:
+            return false;
+    }
+}
+
+static void dispatch_control_request(
+    control_server *control,
+    runtime_client *client,
+    frontend_debug_state *debug_state,
+    control_cached_state *control_cache,
+    deferred_control_table *deferred_table,
+    control_event_latch *event_latch,
+    control_session_bind *session_bind,
+    bool auto_adjust_segments,
+    const control_request *request)
+{
+    control_response response;
+    bool accepted = false;
+    deferred_control_response *deferred = NULL;
+    const char *deferred_busy_msg = "deferred-response-active";
+
+    if (control == NULL || client == NULL || request == NULL) {
+        return;
+    }
+
+    memset(&response, 0, sizeof(response));
+
+    /* Mutating commands invalidate hot cache until a paused runtime snapshot
+       re-seals the barrier (Phase 6). */
+    if (control_command_mutates_machine(request->type)) {
+        control_cache_invalidate_hot(control_cache);
+    }
+
+    if (debug_state != NULL &&
+        debug_state->inspector_mode == (uint8_t)RUNTIME_INSPECTOR_MODE_INSPECT &&
+        control_command_inspector_forbidden(request->type)) {
+        control_protocol_format_error(
+            &response,
+            request->id,
+            RUNTIME_ERROR_READ_ONLY_INSPECTOR,
+            "machine is read-only while Inspecting",
+            false);
+        (void)control_server_post_response(control, &response);
+        return;
+    }
+
+    /* Drop stale execution-state latches so a wait-event issued after this
+       command targets the stop it produces, not the previous one. Fresh
+       running/paused/breakpoints events (drained below or matched live) re-latch. */
+    if (event_latch != NULL &&
+        control_command_is_execution_control(request->type)) {
+        event_latch->has_paused = false;
+        event_latch->has_running = false;
+        event_latch->has_breakpoints = false;
+    }
+
+    switch (request->type) {
+        case CONTROL_COMMAND_HELLO:
+            control_protocol_format_ok(
+                &response,
+                request->id,
+                "name=c64m protocol=C64M/8",
+                false);
+            break;
+
+        case CONTROL_COMMAND_VERSION:
+            control_protocol_format_ok(
+                &response,
+                request->id,
+                "protocol=C64M/8 app=0.1.0",
+                false);
+            break;
+
+        case CONTROL_COMMAND_CAPABILITIES:
+            control_protocol_format_ok(
+                &response,
+                request->id,
+                "connection introspection execution state step turbo frame memory debug-memory call-stack input disk file snapshot breakpoints wait assemble symbols drive-cpu vic cia run-to-raster history power-drive frame-ring vic-ring sessions state-changed inspector",
+                false);
+            break;
+
+        case CONTROL_COMMAND_PING:
+            control_protocol_format_ok(&response, request->id, NULL, false);
+            break;
+
+        case CONTROL_COMMAND_QUIT_CLIENT:
+            control_protocol_format_ok(&response, request->id, NULL, true);
+            break;
+
+        case CONTROL_COMMAND_RESET:
+            accepted = runtime_client_reset(client);
+            break;
+
+        case CONTROL_COMMAND_RUN:
+            accepted = runtime_client_run(client);
+            break;
+
+        case CONTROL_COMMAND_PAUSE:
+            accepted = runtime_client_pause(client);
+            break;
+
+        case CONTROL_COMMAND_LEAVE_INSPECTOR: {
+            uint64_t token = runtime_client_alloc_request_token(client);
+            accepted = runtime_client_inspector_leave(client, token);
+            break;
+        }
+
+        case CONTROL_COMMAND_ENTER_INSPECTOR: {
+            uint64_t token = runtime_client_alloc_request_token(client);
+            accepted = runtime_client_inspector_enter(client, token);
+            break;
+        }
+
+        case CONTROL_COMMAND_STEP_CYCLE:
+            accepted = runtime_client_step_cycle(client);
+            break;
+
+        case CONTROL_COMMAND_STEP_INSTRUCTION:
+            accepted = runtime_client_step_instruction(client);
+            break;
+
+        case CONTROL_COMMAND_STEP_OVER:
+            accepted = runtime_client_step_over(client);
+            break;
+
+        case CONTROL_COMMAND_STEP_OUT:
+            accepted = runtime_client_step_out(client);
+            break;
+
+        case CONTROL_COMMAND_RUN_CYCLES:
+            if (request->args.count > (uint64_t)((size_t)-1)) {
+                control_protocol_format_error(
+                    &response,
+                    request->id,
+                    "bad-args",
+                    "count too large",
+                    false);
+            } else {
+                accepted = runtime_client_run_cycles(client, (size_t)request->args.count);
+            }
+            break;
+
+        case CONTROL_COMMAND_RUN_INSTRUCTIONS:
+            if (request->args.count > (uint64_t)((size_t)-1)) {
+                control_protocol_format_error(
+                    &response,
+                    request->id,
+                    "bad-args",
+                    "count too large",
+                    false);
+            } else {
+                accepted = runtime_client_run_instructions(client, (size_t)request->args.count);
+            }
+            break;
+
+        case CONTROL_COMMAND_RUN_TO:
+            accepted = runtime_client_run_to_cursor(client, request->args.address);
+            break;
+
+        case CONTROL_COMMAND_STEP_FRAME:
+            accepted = runtime_client_step_frame(client);
+            break;
+
+        case CONTROL_COMMAND_RUN_TO_RASTER:
+            accepted = runtime_client_run_to_raster(
+                client,
+                request->args.raster_line,
+                request->args.has_raster_cycle,
+                request->args.raster_cycle);
+            break;
+
+        case CONTROL_COMMAND_HISTORY_INFO:
+        case CONTROL_COMMAND_HISTORY_RECORD:
+        case CONTROL_COMMAND_HISTORY_CLEAR:
+        case CONTROL_COMMAND_HISTORY_FIND:
+        case CONTROL_COMMAND_HISTORY_NEXT:
+        case CONTROL_COMMAND_HISTORY_READ:
+        case CONTROL_COMMAND_HISTORY_CLOSE:
+            if ((deferred = deferred_begin(deferred_table, request->type, &deferred_busy_msg),
+                 deferred_table != NULL && deferred == NULL)) {
+                control_protocol_format_error(
+                    &response,
+                    request->id,
+                    "busy",
+                    deferred_busy_msg,
+                    false);
+            } else {
+                uint64_t token = runtime_client_alloc_request_token(client);
+                bool sent = false;
+                if (token != 0u) {
+                    if (request->type == CONTROL_COMMAND_HISTORY_INFO) {
+                        sent = runtime_client_history_info(client, token);
+                    } else if (request->type ==
+                               CONTROL_COMMAND_HISTORY_RECORD) {
+                        sent = runtime_client_history_record(
+                            client,
+                            request->args.history_record_enabled,
+                            token);
+                    } else if (request->type ==
+                               CONTROL_COMMAND_HISTORY_CLEAR) {
+                        sent = runtime_client_history_clear(client, token);
+                    } else if (request->type ==
+                               CONTROL_COMMAND_HISTORY_FIND) {
+                        runtime_history_query query;
+                        size_t pattern_index;
+                        memset(&query, 0, sizeof(query));
+                        query.has_epoch =
+                            request->args.history_query_has_epoch;
+                        query.epoch = request->args.history_query_epoch;
+                        query.has_timeline =
+                            request->args.history_query_has_timeline;
+                        query.timeline =
+                            request->args.history_query_timeline;
+                        query.has_cycle =
+                            request->args.history_query_has_cycle;
+                        query.cycle_first =
+                            request->args.history_cycle_first;
+                        query.cycle_last =
+                            request->args.history_cycle_last;
+                        query.has_pc = request->args.history_query_has_pc;
+                        query.pc_first = request->args.history_pc_first;
+                        query.pc_last = request->args.history_pc_last;
+                        query.has_address =
+                            request->args.history_query_has_address;
+                        query.address_first =
+                            request->args.history_address_first;
+                        query.address_last =
+                            request->args.history_address_last;
+                        query.has_access =
+                            request->args.history_query_has_access;
+                        query.access_mask =
+                            request->args.history_access_mask;
+                        query.has_value =
+                            request->args.history_query_has_value;
+                        query.value = request->args.history_value;
+                        query.value_mask =
+                            request->args.history_value_mask;
+                        query.opcode_pattern_length =
+                            request->args.history_opcode_pattern_length;
+                        for (pattern_index = 0u;
+                             pattern_index <
+                                 query.opcode_pattern_length;
+                             ++pattern_index) {
+                            query.opcode_pattern[pattern_index].value =
+                                request->args
+                                    .history_opcode_values[pattern_index];
+                            query.opcode_pattern[pattern_index].mask =
+                                request->args
+                                    .history_opcode_masks[pattern_index];
+                        }
+                        query.direction =
+                            request->args.history_direction != 0u ?
+                                RUNTIME_HISTORY_QUERY_FORWARD :
+                                RUNTIME_HISTORY_QUERY_BACKWARD;
+                        sent = runtime_client_history_find(
+                            client,
+                            control_session_history_id(
+                                control,
+                                client,
+                                deferred_table,
+                                debug_state,
+                                event_latch,
+                                session_bind),
+                            &query,
+                            (runtime_history_from_kind)
+                                request->args.history_from_kind,
+                            request->args.history_from_id,
+                            request->args.history_limit,
+                            token);
+                    } else if (request->type ==
+                               CONTROL_COMMAND_HISTORY_NEXT) {
+                        sent = runtime_client_history_next(
+                            client,
+                            control_session_history_id(
+                                control,
+                                client,
+                                deferred_table,
+                                debug_state,
+                                event_latch,
+                                session_bind),
+                            request->args.history_cursor,
+                            request->args.history_limit,
+                            token);
+                    } else if (request->type ==
+                               CONTROL_COMMAND_HISTORY_READ) {
+                        sent = runtime_client_history_read(
+                            client,
+                            control_session_history_id(
+                                control,
+                                client,
+                                deferred_table,
+                                debug_state,
+                                event_latch,
+                                session_bind),
+                            request->args.history_epoch,
+                            request->args.history_id,
+                            request->args.history_before,
+                            request->args.history_after,
+                            token);
+                    } else {
+                        sent = runtime_client_history_close(
+                            client,
+                            control_session_history_id(
+                                control,
+                                client,
+                                deferred_table,
+                                debug_state,
+                                event_latch,
+                                session_bind),
+                            request->args.history_cursor,
+                            token);
+                    }
+                }
+                if (sent && deferred != NULL) {
+                    deferred->active = true;
+                    deferred->request_id = request->id;
+                    deferred->command_type = request->type;
+                    deferred->request_token = token;
+                    deferred->connection_epoch =
+                        control_server_connection_epoch(control);
+                    deferred->deadline_ms = SDL_GetTicks64() +
+                        (request->type == CONTROL_COMMAND_HISTORY_FIND ?
+                            10000u : 2000u);
+                    return;
+                }
+                if (deferred != NULL) {
+                    control_deferred_clear_slot(deferred);
+                }
+                control_protocol_format_error(
+                    &response,
+                    request->id,
+                    "runtime",
+                    "command rejected",
+                    false);
+            }
+            break;
+
+        case CONTROL_COMMAND_SET_TURBO:
+            accepted = runtime_client_set_turbo_multiplier(
+                client,
+                request->args.turbo_multiplier);
+            break;
+
+        case CONTROL_COMMAND_GET_STATE: {
+            char text[CONTROL_RESPONSE_TEXT_MAX];
+            const bool has_state = debug_state != NULL;
+            const bool has_hw = has_state && debug_state->has_hardware;
+            if (has_hw) {
+                snprintf(
+                    text,
+                    sizeof(text),
+                    "state=%s has_cpu=%u frame=%llu cycle=%llu stop=%s turbo=%u "
+                    "raster=%u vic_cycle=%u mode=%s focus_cycle=%llu start=%s start_arg1=%u",
+                    control_runtime_state_name(debug_state->runtime_state),
+                    debug_state->has_cpu ? 1u : 0u,
+                    (unsigned long long)debug_state->frame_number,
+                    (unsigned long long)debug_state->machine_cycle,
+                    control_stop_reason_name(debug_state->stop_reason),
+                    debug_state->active_turbo_multiplier,
+                    debug_state->vicii_hardware.raster_line,
+                    debug_state->vicii_hardware.cycle_in_line,
+                    debug_state->inspector_mode ==
+                        (uint8_t)RUNTIME_INSPECTOR_MODE_INSPECT ? "inspector" : "live",
+                    (unsigned long long)debug_state->inspector_focus_cycle,
+                    runtime_inspector_window_start_name(
+                        (runtime_history_media_change_kind)debug_state->inspector_start_kind),
+                    (unsigned)debug_state->inspector_start_arg1);
+            } else {
+                snprintf(
+                    text,
+                    sizeof(text),
+                    "state=%s has_cpu=%u frame=%llu cycle=%llu stop=%s turbo=%u "
+                    "mode=%s focus_cycle=%llu start=%s start_arg1=%u",
+                    has_state ? control_runtime_state_name(debug_state->runtime_state) : "unknown",
+                    has_state && debug_state->has_cpu ? 1u : 0u,
+                    has_state ? (unsigned long long)debug_state->frame_number : 0ull,
+                    has_state ? (unsigned long long)debug_state->machine_cycle : 0ull,
+                    has_state ? control_stop_reason_name(debug_state->stop_reason) : "none",
+                    has_state ? debug_state->active_turbo_multiplier : 0u,
+                    has_state && debug_state->inspector_mode ==
+                        (uint8_t)RUNTIME_INSPECTOR_MODE_INSPECT ? "inspector" : "live",
+                    has_state ? (unsigned long long)debug_state->inspector_focus_cycle : 0ull,
+                    runtime_inspector_window_start_name(
+                        has_state ?
+                            (runtime_history_media_change_kind)debug_state->inspector_start_kind :
+                            RUNTIME_HISTORY_MEDIA_CHANGE_UNKNOWN),
+                    has_state ? (unsigned)debug_state->inspector_start_arg1 : 0u);
+            }
+            control_protocol_format_ok(&response, request->id, text, false);
+            break;
+        }
+
+        case CONTROL_COMMAND_GET_CPU:
+            /* Cache hit only when a paused barrier snapshot is present and no
+               mutating command has been accepted since (Phase 6). */
+            if (control_cache_hot_fresh(control_cache)) {
+                control_format_cpu_response(
+                    &response, request->id, &control_cache->hot_cpu);
+            } else if ((deferred = deferred_begin(deferred_table, request->type, &deferred_busy_msg),
+                 deferred_table != NULL && deferred == NULL)) {
+                control_protocol_format_error(
+                    &response,
+                    request->id,
+                    "busy",
+                    deferred_busy_msg,
+                    false);
+            } else {
+                uint64_t token = runtime_client_alloc_request_token(client);
+                if (token == 0u ||
+                    !runtime_client_request_cpu_state_token(client, token)) {
+                    control_protocol_format_error(
+                        &response,
+                        request->id,
+                        "runtime",
+                        "command rejected",
+                        false);
+                } else if (deferred != NULL) {
+                    deferred->active = true;
+                    deferred->request_id = request->id;
+                    deferred->command_type = request->type;
+                    deferred->request_token = token;
+                    deferred->connection_epoch =
+                        control_server_connection_epoch(control);
+                    deferred->deadline_ms = SDL_GetTicks64() + 2000u;
+                    return;
+                } else {
+                    control_protocol_format_error(
+                        &response,
+                        request->id,
+                        "internal",
+                        "deferred state unavailable",
+                        false);
+                }
+            }
+            break;
+
+        case CONTROL_COMMAND_GET_FRAME:
+            if (control_cache != NULL && control_cache->has_frame) {
+                control_format_frame_response(
+                    &response,
+                    request->id,
+                    &control_cache->frame,
+                    request->args.frame_format);
+            } else if ((deferred = deferred_begin(deferred_table, request->type, &deferred_busy_msg),
+                 deferred_table != NULL && deferred == NULL)) {
+                control_protocol_format_error(
+                    &response,
+                    request->id,
+                    "busy",
+                    deferred_busy_msg,
+                    false);
+            } else if (runtime_client_request_frame(client)) {
+                if (deferred != NULL) {
+                    deferred->active = true;
+                    deferred->request_id = request->id;
+                    deferred->command_type = request->type;
+                    deferred->deadline_ms = SDL_GetTicks64() + 2000u;
+                    deferred->frame_format = request->args.frame_format;
+                    return;
+                }
+                control_protocol_format_error(
+                    &response,
+                    request->id,
+                    "internal",
+                    "deferred state unavailable",
+                    false);
+            } else {
+                control_protocol_format_error(
+                    &response,
+                    request->id,
+                    "runtime",
+                    "command rejected",
+                    false);
+            }
+            break;
+
+        /* Frame-ring commands answer immediately: the ring carries its own
+           mutex, so no runtime round-trip is needed and a scrub does not
+           contend for the single-deferred slot. */
+        case CONTROL_COMMAND_FRAME_RING_INFO: {
+            runtime_frame_ring_info info;
+            char text[CONTROL_RESPONSE_TEXT_MAX];
+
+            runtime_client_get_frame_ring_info(client, &info);
+            snprintf(
+                text,
+                sizeof(text),
+                "capacity=%u count=%u dropped=%llu recording=%u bytes=%llu "
+                "oldest_frame=%llu newest_frame=%llu "
+                "oldest_cycle=%llu newest_cycle=%llu",
+                info.capacity,
+                info.count,
+                (unsigned long long)info.dropped,
+                info.recording ? 1u : 0u,
+                (unsigned long long)info.bytes,
+                (unsigned long long)info.oldest_frame,
+                (unsigned long long)info.newest_frame,
+                (unsigned long long)info.oldest_cycle,
+                (unsigned long long)info.newest_cycle);
+            control_protocol_format_ok(&response, request->id, text, false);
+            break;
+        }
+
+        case CONTROL_COMMAND_FRAME_RING_RECORD:
+            runtime_client_set_frame_ring_recording(
+                client, request->args.frame_ring_record_enabled);
+            control_protocol_format_ok(
+                &response,
+                request->id,
+                request->args.frame_ring_record_enabled ?
+                    "recording=1" : "recording=0",
+                false);
+            break;
+
+        case CONTROL_COMMAND_FRAME_RING_CLEAR:
+            runtime_client_clear_frame_ring(client);
+            control_protocol_format_ok(&response, request->id, "cleared=1", false);
+            break;
+
+        case CONTROL_COMMAND_GET_FRAME_AT: {
+            c64_frame *frame = (c64_frame *)malloc(sizeof(*frame));
+
+            if (frame == NULL) {
+                control_protocol_format_error(
+                    &response, request->id, "memory", "allocation failed", false);
+                break;
+            }
+            if (runtime_client_copy_frame_at(
+                    client,
+                    request->args.frame_ring_target,
+                    request->args.frame_ring_by_cycle,
+                    frame)) {
+                control_format_frame_at_response(
+                    &response,
+                    request->id,
+                    frame,
+                    request->args.frame_format,
+                    request->args.frame_ring_target,
+                    request->args.frame_ring_by_cycle);
+            } else {
+                /* Distinguish "never recorded" from "dropped off the back of
+                   the window" so a caller knows whether to widen the budget. */
+                runtime_frame_ring_info info;
+                runtime_client_get_frame_ring_info(client, &info);
+                control_protocol_format_error(
+                    &response,
+                    request->id,
+                    "not-found",
+                    info.capacity == 0u ? "frame ring is disabled" :
+                        (info.count == 0u ? "frame ring is empty" :
+                         "target precedes the retained window"),
+                    false);
+            }
+            free(frame);
+            break;
+        }
+
+        case CONTROL_COMMAND_VIC_RING_INFO: {
+            runtime_vic_ring_info info;
+            char text[CONTROL_RESPONSE_TEXT_MAX];
+
+            runtime_client_get_vic_ring_info(client, &info);
+            snprintf(
+                text,
+                sizeof(text),
+                "capacity=%u count=%u dropped=%llu recording=%u bytes=%llu "
+                "oldest_frame=%llu newest_frame=%llu "
+                "oldest_raster=%u newest_raster=%u "
+                "oldest_cycle=%llu newest_cycle=%llu",
+                info.capacity,
+                info.count,
+                (unsigned long long)info.dropped,
+                info.recording ? 1u : 0u,
+                (unsigned long long)info.bytes,
+                (unsigned long long)info.oldest_frame,
+                (unsigned long long)info.newest_frame,
+                (unsigned)info.oldest_raster,
+                (unsigned)info.newest_raster,
+                (unsigned long long)info.oldest_cycle,
+                (unsigned long long)info.newest_cycle);
+            control_protocol_format_ok(&response, request->id, text, false);
+            break;
+        }
+
+        case CONTROL_COMMAND_VIC_RING_RECORD:
+            runtime_client_set_vic_ring_recording(
+                client, request->args.vic_ring_record_enabled);
+            control_protocol_format_ok(
+                &response,
+                request->id,
+                request->args.vic_ring_record_enabled ?
+                    "recording=1" : "recording=0",
+                false);
+            break;
+
+        case CONTROL_COMMAND_VIC_RING_CLEAR:
+            runtime_client_clear_vic_ring(client);
+            control_protocol_format_ok(&response, request->id, "cleared=1", false);
+            break;
+
+        case CONTROL_COMMAND_VIC_RING_FIND: {
+            uint32_t limit = request->args.vic_ring_limit;
+            vicii_line_record *records =
+                (vicii_line_record *)malloc((size_t)limit * sizeof(*records));
+
+            if (records == NULL) {
+                control_protocol_format_error(
+                    &response, request->id, "memory", "allocation failed", false);
+                break;
+            }
+            {
+                uint32_t count = runtime_client_copy_vic_lines(
+                    client,
+                    request->args.vic_ring_has_frame,
+                    request->args.vic_ring_frame,
+                    request->args.vic_ring_raster_first,
+                    request->args.vic_ring_raster_last,
+                    limit,
+                    records);
+                control_format_vic_ring_response(
+                    &response, request->id, records, count);
+            }
+            free(records);
+            break;
+        }
+
+        case CONTROL_COMMAND_GET_VIC:
+            if (control_cache_hot_fresh(control_cache)) {
+                control_format_vic_response(
+                    &response, request->id, &control_cache->hot_vicii);
+            } else if ((deferred = deferred_begin(deferred_table, request->type, &deferred_busy_msg),
+                 deferred_table != NULL && deferred == NULL)) {
+                control_protocol_format_error(
+                    &response,
+                    request->id,
+                    "busy",
+                    deferred_busy_msg,
+                    false);
+            } else if (runtime_client_request_machine_state(client)) {
+                if (deferred != NULL) {
+                    deferred->active = true;
+                    deferred->request_id = request->id;
+                    deferred->command_type = request->type;
+                    deferred->deadline_ms = SDL_GetTicks64() + 2000u;
+                    return;
+                }
+                control_protocol_format_error(
+                    &response,
+                    request->id,
+                    "internal",
+                    "deferred state unavailable",
+                    false);
+            } else {
+                control_protocol_format_error(
+                    &response,
+                    request->id,
+                    "runtime",
+                    "command rejected",
+                    false);
+            }
+            break;
+
+        case CONTROL_COMMAND_GET_CIA:
+            if (request->args.cia_index != 1u && request->args.cia_index != 2u) {
+                control_protocol_format_error(
+                    &response,
+                    request->id,
+                    "bad-args",
+                    "expected CIA index 1 or 2",
+                    false);
+            } else if (control_cache_hot_fresh(control_cache)) {
+                control_format_cia_response(
+                    &response,
+                    request->id,
+                    request->args.cia_index,
+                    (request->args.cia_index == 2u) ?
+                        &control_cache->hot_cia2 :
+                        &control_cache->hot_cia1);
+            } else if ((deferred = deferred_begin(deferred_table, request->type, &deferred_busy_msg),
+                 deferred_table != NULL && deferred == NULL)) {
+                control_protocol_format_error(
+                    &response,
+                    request->id,
+                    "busy",
+                    deferred_busy_msg,
+                    false);
+            } else if (runtime_client_request_machine_state(client)) {
+                if (deferred != NULL) {
+                    deferred->active = true;
+                    deferred->request_id = request->id;
+                    deferred->command_type = request->type;
+                    deferred->deadline_ms = SDL_GetTicks64() + 2000u;
+                    deferred->cia_index = request->args.cia_index;
+                    return;
+                }
+                control_protocol_format_error(
+                    &response,
+                    request->id,
+                    "internal",
+                    "deferred state unavailable",
+                    false);
+            } else {
+                control_protocol_format_error(
+                    &response,
+                    request->id,
+                    "runtime",
+                    "command rejected",
+                    false);
+            }
+            break;
+
+        case CONTROL_COMMAND_GET_MEMORY:
+            if ((deferred = deferred_begin(deferred_table, request->type, &deferred_busy_msg),
+                 deferred_table != NULL && deferred == NULL)) {
+                control_protocol_format_error(
+                    &response,
+                    request->id,
+                    "busy",
+                    deferred_busy_msg,
+                    false);
+            } else {
+                uint64_t token = runtime_client_alloc_request_token(client);
+                if (token == 0u ||
+                    !runtime_client_request_memory_token(
+                        client,
+                        request->args.address,
+                        request->args.length,
+                        (runtime_memory_mode)request->args.memory_mode,
+                        token)) {
+                    control_protocol_format_error(
+                        &response,
+                        request->id,
+                        "runtime",
+                        "command rejected",
+                        false);
+                } else if (deferred != NULL) {
+                    deferred->active = true;
+                    deferred->request_id = request->id;
+                    deferred->command_type = request->type;
+                    deferred->request_token = token;
+                    deferred->connection_epoch =
+                        control_server_connection_epoch(control);
+                    deferred->deadline_ms = SDL_GetTicks64() + 2000u;
+                    deferred->memory_address = request->args.address;
+                    deferred->memory_length = request->args.length;
+                    deferred->memory_mode =
+                        (runtime_memory_mode)request->args.memory_mode;
+                    return;
+                } else {
+                    control_protocol_format_error(
+                        &response,
+                        request->id,
+                        "internal",
+                        "deferred state unavailable",
+                        false);
+                }
+            }
+            break;
+
+        case CONTROL_COMMAND_SET_MEMORY:
+            /* Auto-pause like assemble so pokes land in a defined state. The
+               runtime write also force-pauses if still running. */
+            if (request->payload == NULL ||
+                request->payload_size != (size_t)request->args.length) {
+                control_protocol_format_error(
+                    &response,
+                    request->id,
+                    "bad-payload",
+                    "set-memory payload length mismatch",
+                    false);
+            } else if (request->args.memory_mode != 0u &&
+                       request->args.memory_mode != 1u) {
+                control_protocol_format_error(
+                    &response,
+                    request->id,
+                    "bad-args",
+                    "expected writable memory mode map or ram",
+                    false);
+            } else if ((deferred = deferred_begin(deferred_table, request->type, &deferred_busy_msg),
+                 deferred_table != NULL && deferred == NULL)) {
+                control_protocol_format_error(
+                    &response,
+                    request->id,
+                    "busy",
+                    deferred_busy_msg,
+                    false);
+            } else {
+                runtime_client_pause(client);
+                if (runtime_client_write_memory(
+                        client,
+                        request->args.address,
+                        request->args.length,
+                        (runtime_memory_mode)request->args.memory_mode,
+                        request->payload)) {
+                    if (deferred != NULL) {
+                        deferred->active = true;
+                        deferred->request_id = request->id;
+                        deferred->command_type = request->type;
+                        deferred->deadline_ms = SDL_GetTicks64() + 2000u;
+                        deferred->memory_address = request->args.address;
+                        deferred->memory_length = request->args.length;
+                        deferred->memory_mode =
+                            (runtime_memory_mode)request->args.memory_mode;
+                        return;
+                    }
+                    control_protocol_format_error(
+                        &response,
+                        request->id,
+                        "internal",
+                        "deferred state unavailable",
+                        false);
+                } else {
+                    control_protocol_format_error(
+                        &response,
+                        request->id,
+                        "runtime",
+                        "command rejected",
+                        false);
+                }
+            }
+            break;
+
+        case CONTROL_COMMAND_GET_DEBUG_MEMORY:
+            /* Always request a fresh snapshot. Serving a cached generation
+               silently reported 0 bytes changed while RAM was moving. */
+            if ((deferred = deferred_begin(deferred_table, request->type, &deferred_busy_msg),
+                 deferred_table != NULL && deferred == NULL)) {
+                control_protocol_format_error(
+                    &response,
+                    request->id,
+                    "busy",
+                    deferred_busy_msg,
+                    false);
+            } else if (runtime_client_request_debug_memory(
+                           client,
+                           request->args.include_write_history)) {
+                if (deferred != NULL) {
+                    deferred->active = true;
+                    deferred->request_id = request->id;
+                    deferred->command_type = request->type;
+                    deferred->deadline_ms = SDL_GetTicks64() + 2000u;
+                    deferred->include_write_history = request->args.include_write_history;
+                    return;
+                }
+                control_protocol_format_error(
+                    &response,
+                    request->id,
+                    "internal",
+                    "deferred state unavailable",
+                    false);
+            } else {
+                control_protocol_format_error(
+                    &response,
+                    request->id,
+                    "runtime",
+                    "command rejected",
+                    false);
+            }
+            break;
+
+        case CONTROL_COMMAND_GET_CALL_STACK:
+            if ((deferred = deferred_begin(deferred_table, request->type, &deferred_busy_msg),
+                 deferred_table != NULL && deferred == NULL)) {
+                control_protocol_format_error(
+                    &response,
+                    request->id,
+                    "busy",
+                    deferred_busy_msg,
+                    false);
+            } else if (runtime_client_request_call_stack(client)) {
+                if (deferred != NULL) {
+                    deferred->active = true;
+                    deferred->request_id = request->id;
+                    deferred->command_type = request->type;
+                    deferred->deadline_ms = SDL_GetTicks64() + 2000u;
+                    return;
+                }
+                control_protocol_format_error(
+                    &response,
+                    request->id,
+                    "internal",
+                    "deferred state unavailable",
+                    false);
+            } else {
+                control_protocol_format_error(
+                    &response,
+                    request->id,
+                    "runtime",
+                    "command rejected",
+                    false);
+            }
+            break;
+
+        case CONTROL_COMMAND_KEY_DOWN:
+            accepted = runtime_client_keyboard_key(client, (c64_key)request->args.key, true);
+            break;
+
+        case CONTROL_COMMAND_KEY_UP:
+            accepted = runtime_client_keyboard_key(client, (c64_key)request->args.key, false);
+            break;
+
+        case CONTROL_COMMAND_RESTORE:
+            accepted = runtime_client_restore(client);
+            break;
+
+        case CONTROL_COMMAND_JOYSTICK:
+            accepted = runtime_client_set_joystick(
+                client,
+                request->args.port,
+                request->args.mask);
+            break;
+
+        case CONTROL_COMMAND_PASTE_TEXT:
+            accepted = runtime_client_paste_text_buffer(
+                client,
+                request->args.text,
+                strlen(request->args.text));
+            break;
+
+        case CONTROL_COMMAND_PASTE_EVENTS:
+            accepted = control_parse_and_send_paste_events(
+                client,
+                request->args.text,
+                strlen(request->args.text));
+            break;
+
+        case CONTROL_COMMAND_PASTE_TEXT_DATA:
+            accepted = request->payload != NULL &&
+                runtime_client_paste_text_buffer(
+                    client,
+                    (const char *)request->payload,
+                    request->payload_size);
+            break;
+
+        case CONTROL_COMMAND_PASTE_EVENTS_DATA:
+            accepted = request->payload != NULL &&
+                control_parse_and_send_paste_events(
+                    client,
+                    (const char *)request->payload,
+                    request->payload_size);
+            break;
+
+        case CONTROL_COMMAND_LOAD_PRG:
+            accepted = runtime_client_load_prg(client, request->args.text);
+            break;
+
+        case CONTROL_COMMAND_LOAD_BIN:
+            accepted = runtime_client_load_bin(
+                client,
+                request->args.text,
+                request->args.address,
+                request->args.use_file_address,
+                request->args.reset_first,
+                request->args.is_basic,
+                false);
+            break;
+
+        case CONTROL_COMMAND_SAVE_BIN:
+            accepted = runtime_client_save_bin(
+                client,
+                request->args.text,
+                request->args.start_address,
+                request->args.end_address,
+                request->args.write_file_address,
+                request->args.is_basic,
+                false);
+            break;
+
+        case CONTROL_COMMAND_LOAD_STATE:
+            accepted = runtime_client_load_state(client, request->args.text);
+            break;
+
+        case CONTROL_COMMAND_SAVE_STATE:
+            accepted = runtime_client_save_state(client, request->args.text);
+            break;
+
+        case CONTROL_COMMAND_MOUNT_D64:
+            accepted = runtime_client_mount_d64(client, request->args.device, request->args.text);
+            break;
+
+        case CONTROL_COMMAND_UNMOUNT_DISK:
+            accepted = runtime_client_unmount_disk(client, request->args.device);
+            break;
+
+        case CONTROL_COMMAND_POWER_DRIVE:
+            if (request->args.device != 8u && request->args.device != 9u) {
+                control_protocol_format_error(
+                    &response,
+                    request->id,
+                    "bad-args",
+                    "expected device 8 or 9",
+                    false);
+            } else if (request->args.power_drive_on) {
+                accepted = runtime_client_power_on_drive(client, request->args.device);
+            } else {
+                accepted = runtime_client_power_off_drive(client, request->args.device);
+            }
+            break;
+
+        case CONTROL_COMMAND_GET_DISK_STATUS:
+            if ((deferred = deferred_begin(deferred_table, request->type, &deferred_busy_msg),
+                 deferred_table != NULL && deferred == NULL)) {
+                control_protocol_format_error(
+                    &response,
+                    request->id,
+                    "busy",
+                    deferred_busy_msg,
+                    false);
+            } else if (runtime_client_request_disk_status(client, request->args.device)) {
+                if (deferred != NULL) {
+                    deferred->active = true;
+                    deferred->request_id = request->id;
+                    deferred->command_type = request->type;
+                    deferred->deadline_ms = SDL_GetTicks64() + 2000u;
+                    deferred->memory_address = request->args.device;
+                    return;
+                }
+                control_protocol_format_error(
+                    &response,
+                    request->id,
+                    "internal",
+                    "deferred state unavailable",
+                    false);
+            } else {
+                control_protocol_format_error(
+                    &response,
+                    request->id,
+                    "runtime",
+                    "command rejected",
+                    false);
+            }
+            break;
+
+        case CONTROL_COMMAND_GET_DRIVE_CPU:
+            if (request->args.device != 8u && request->args.device != 9u) {
+                control_protocol_format_error(
+                    &response,
+                    request->id,
+                    "bad-args",
+                    "expected device 8 or 9",
+                    false);
+            } else if ((deferred = deferred_begin(deferred_table, request->type, &deferred_busy_msg),
+                 deferred_table != NULL && deferred == NULL)) {
+                control_protocol_format_error(
+                    &response,
+                    request->id,
+                    "busy",
+                    deferred_busy_msg,
+                    false);
+            } else if (runtime_client_request_machine_state(client)) {
+                if (deferred != NULL) {
+                    deferred->active = true;
+                    deferred->request_id = request->id;
+                    deferred->command_type = request->type;
+                    deferred->deadline_ms = SDL_GetTicks64() + 2000u;
+                    deferred->memory_address = request->args.device;
+                    return;
+                }
+                control_protocol_format_error(
+                    &response,
+                    request->id,
+                    "internal",
+                    "deferred state unavailable",
+                    false);
+            } else {
+                control_protocol_format_error(
+                    &response,
+                    request->id,
+                    "runtime",
+                    "command rejected",
+                    false);
+            }
+            break;
+
+        case CONTROL_COMMAND_BREAK_EXEC:
+            if ((deferred = deferred_begin(deferred_table, request->type, &deferred_busy_msg),
+                 deferred_table != NULL && deferred == NULL)) {
+                control_protocol_format_error(
+                    &response,
+                    request->id,
+                    "busy",
+                    deferred_busy_msg,
+                    false);
+            } else if (runtime_client_set_execute_breakpoint(client, request->args.address)) {
+                if (deferred != NULL) {
+                    deferred->active = true;
+                    deferred->request_id = request->id;
+                    deferred->command_type = request->type;
+                    deferred->deadline_ms = SDL_GetTicks64() + 2000u;
+                    deferred->expected_breakpoint_count =
+                        debug_state != NULL && debug_state->has_breakpoints ?
+                        (uint16_t)(debug_state->breakpoints.count + 1u) :
+                        1u;
+                    deferred->has_expected_breakpoint_count = true;
+                    return;
+                }
+                control_protocol_format_error(&response, request->id, "internal", "deferred state unavailable", false);
+            } else {
+                control_protocol_format_error(&response, request->id, "runtime", "command rejected", false);
+            }
+            break;
+
+        case CONTROL_COMMAND_BREAK_CLEAR:
+            if ((deferred = deferred_begin(deferred_table, request->type, &deferred_busy_msg),
+                 deferred_table != NULL && deferred == NULL)) {
+                control_protocol_format_error(&response, request->id, "busy", deferred_busy_msg, false);
+            } else if (runtime_client_clear_breakpoint(client, request->args.id)) {
+                if (deferred != NULL) {
+                    deferred->active = true;
+                    deferred->request_id = request->id;
+                    deferred->command_type = request->type;
+                    deferred->deadline_ms = SDL_GetTicks64() + 2000u;
+                    deferred->expected_breakpoint_id = request->args.id;
+                    deferred->expect_breakpoint_absent = true;
+                    return;
+                }
+                control_protocol_format_error(&response, request->id, "internal", "deferred state unavailable", false);
+            } else {
+                control_protocol_format_error(&response, request->id, "runtime", "command rejected", false);
+            }
+            break;
+
+        case CONTROL_COMMAND_BREAK_ENABLE:
+            if ((deferred = deferred_begin(deferred_table, request->type, &deferred_busy_msg),
+                 deferred_table != NULL && deferred == NULL)) {
+                control_protocol_format_error(&response, request->id, "busy", deferred_busy_msg, false);
+            } else if (runtime_client_set_breakpoint_enabled(
+                           client,
+                           request->args.id,
+                           request->args.include_write_history)) {
+                if (deferred != NULL) {
+                    deferred->active = true;
+                    deferred->request_id = request->id;
+                    deferred->command_type = request->type;
+                    deferred->deadline_ms = SDL_GetTicks64() + 2000u;
+                    deferred->expected_breakpoint_id = request->args.id;
+                    deferred->expected_breakpoint_enabled = request->args.include_write_history;
+                    deferred->has_expected_breakpoint_enabled = true;
+                    return;
+                }
+                control_protocol_format_error(&response, request->id, "internal", "deferred state unavailable", false);
+            } else {
+                control_protocol_format_error(&response, request->id, "runtime", "command rejected", false);
+            }
+            break;
+
+        case CONTROL_COMMAND_BREAK_LIST:
+            if ((deferred = deferred_begin(deferred_table, request->type, &deferred_busy_msg),
+                 deferred_table != NULL && deferred == NULL)) {
+                control_protocol_format_error(&response, request->id, "busy", deferred_busy_msg, false);
+            } else if (runtime_client_request_breakpoints(client)) {
+                if (deferred != NULL) {
+                    deferred->active = true;
+                    deferred->request_id = request->id;
+                    deferred->command_type = request->type;
+                    deferred->deadline_ms = SDL_GetTicks64() + 2000u;
+                    return;
+                }
+                control_protocol_format_error(&response, request->id, "internal", "deferred state unavailable", false);
+            } else {
+                control_protocol_format_error(&response, request->id, "runtime", "command rejected", false);
+            }
+            break;
+
+        case CONTROL_COMMAND_BREAK_CLEAR_ALL:
+            if ((deferred = deferred_begin(deferred_table, request->type, &deferred_busy_msg),
+                 deferred_table != NULL && deferred == NULL)) {
+                control_protocol_format_error(&response, request->id, "busy", deferred_busy_msg, false);
+            } else if (runtime_client_clear_all_breakpoints(client)) {
+                if (deferred != NULL) {
+                    deferred->active = true;
+                    deferred->request_id = request->id;
+                    deferred->command_type = request->type;
+                    deferred->deadline_ms = SDL_GetTicks64() + 2000u;
+                    return;
+                }
+                control_protocol_format_error(&response, request->id, "internal", "deferred state unavailable", false);
+            } else {
+                control_protocol_format_error(&response, request->id, "runtime", "command rejected", false);
+            }
+            break;
+
+        case CONTROL_COMMAND_BREAK_CREATE: {
+            runtime_breakpoint_definition definition;
+            char definition_error[192];
+            if (!control_parse_breakpoint_definition(
+                    request->args.text, &definition,
+                    definition_error, sizeof(definition_error))) {
+                char message[CONTROL_RESPONSE_TEXT_MAX];
+                snprintf(message, sizeof(message), "invalid breakpoint definition%s%s",
+                         definition_error[0] != '\0' ? ": " : "", definition_error);
+                control_protocol_format_error(&response, request->id, "bad-args", message, false);
+            } else if ((deferred = deferred_begin(deferred_table, request->type, &deferred_busy_msg),
+                 deferred_table != NULL && deferred == NULL)) {
+                control_protocol_format_error(&response, request->id, "busy", deferred_busy_msg, false);
+            } else if (runtime_client_create_breakpoint(client, &definition)) {
+                if (deferred != NULL) {
+                    deferred->active = true;
+                    deferred->request_id = request->id;
+                    deferred->command_type = request->type;
+                    deferred->deadline_ms = SDL_GetTicks64() + 2000u;
+                    deferred->expected_breakpoint_count =
+                        debug_state != NULL && debug_state->has_breakpoints ?
+                        (uint16_t)(debug_state->breakpoints.count + 1u) :
+                        1u;
+                    deferred->has_expected_breakpoint_count = true;
+                    return;
+                }
+                control_protocol_format_error(&response, request->id, "internal", "deferred state unavailable", false);
+            } else {
+                control_protocol_format_error(&response, request->id, "runtime", "command rejected", false);
+            }
+            break;
+        }
+
+        case CONTROL_COMMAND_BREAK_UPDATE: {
+            runtime_breakpoint_definition definition;
+            char definition_error[192];
+            if (!control_parse_breakpoint_definition(
+                    request->args.text, &definition,
+                    definition_error, sizeof(definition_error))) {
+                char message[CONTROL_RESPONSE_TEXT_MAX];
+                snprintf(message, sizeof(message), "invalid breakpoint definition%s%s",
+                         definition_error[0] != '\0' ? ": " : "", definition_error);
+                control_protocol_format_error(&response, request->id, "bad-args", message, false);
+            } else if ((deferred = deferred_begin(deferred_table, request->type, &deferred_busy_msg),
+                 deferred_table != NULL && deferred == NULL)) {
+                control_protocol_format_error(&response, request->id, "busy", deferred_busy_msg, false);
+            } else if (runtime_client_update_breakpoint(client, request->args.id, &definition)) {
+                if (deferred != NULL) {
+                    deferred->active = true;
+                    deferred->request_id = request->id;
+                    deferred->command_type = request->type;
+                    deferred->deadline_ms = SDL_GetTicks64() + 2000u;
+                    deferred->expected_breakpoint_id = request->args.id;
+                    deferred->expected_breakpoint_start = definition.start_address;
+                    deferred->has_expected_breakpoint_start = true;
+                    return;
+                }
+                control_protocol_format_error(&response, request->id, "internal", "deferred state unavailable", false);
+            } else {
+                control_protocol_format_error(&response, request->id, "runtime", "command rejected", false);
+            }
+            break;
+        }
+
+        case CONTROL_COMMAND_REARM_ONESHOTS:
+            if ((deferred = deferred_begin(deferred_table, request->type, &deferred_busy_msg),
+                 deferred_table != NULL && deferred == NULL)) {
+                control_protocol_format_error(&response, request->id, "busy", deferred_busy_msg, false);
+            } else if (runtime_client_rearm_oneshot_breakpoints(client)) {
+                if (deferred != NULL) {
+                    deferred->active = true;
+                    deferred->request_id = request->id;
+                    deferred->command_type = request->type;
+                    deferred->deadline_ms = SDL_GetTicks64() + 2000u;
+                    return;
+                }
+                control_protocol_format_error(&response, request->id, "internal", "deferred state unavailable", false);
+            } else {
+                control_protocol_format_error(&response, request->id, "runtime", "command rejected", false);
+            }
+            break;
+
+        case CONTROL_COMMAND_WAIT_PAUSED:
+            if (debug_state != NULL &&
+                debug_state->runtime_state == FRONTEND_RUNTIME_STATE_PAUSED) {
+                char text[CONTROL_RESPONSE_TEXT_MAX];
+                snprintf(
+                    text,
+                    sizeof(text),
+                    "state=paused frame=%llu stop=%s",
+                    (unsigned long long)debug_state->frame_number,
+                    control_stop_reason_name(debug_state->stop_reason));
+                control_protocol_format_ok(&response, request->id, text, false);
+            } else if ((deferred = deferred_begin(deferred_table, request->type, &deferred_busy_msg),
+                 deferred_table != NULL && deferred == NULL)) {
+                control_protocol_format_error(&response, request->id, "busy", deferred_busy_msg, false);
+            } else if (deferred != NULL) {
+                deferred->active = true;
+                deferred->request_id = request->id;
+                deferred->command_type = request->type;
+                deferred->deadline_ms =
+                    SDL_GetTicks64() + control_timeout_or_default(request->args.timeout_ms);
+                return;
+            } else {
+                control_protocol_format_error(&response, request->id, "internal", "deferred state unavailable", false);
+            }
+            break;
+
+        case CONTROL_COMMAND_WAIT_RUNNING:
+            if (debug_state != NULL &&
+                debug_state->runtime_state == FRONTEND_RUNTIME_STATE_RUNNING) {
+                char text[CONTROL_RESPONSE_TEXT_MAX];
+                snprintf(
+                    text,
+                    sizeof(text),
+                    "state=running frame=%llu",
+                    (unsigned long long)debug_state->frame_number);
+                control_protocol_format_ok(&response, request->id, text, false);
+            } else if ((deferred = deferred_begin(deferred_table, request->type, &deferred_busy_msg),
+                 deferred_table != NULL && deferred == NULL)) {
+                control_protocol_format_error(&response, request->id, "busy", deferred_busy_msg, false);
+            } else if (deferred != NULL) {
+                deferred->active = true;
+                deferred->request_id = request->id;
+                deferred->command_type = request->type;
+                deferred->deadline_ms =
+                    SDL_GetTicks64() + control_timeout_or_default(request->args.timeout_ms);
+                return;
+            } else {
+                control_protocol_format_error(&response, request->id, "internal", "deferred state unavailable", false);
+            }
+            break;
+
+        case CONTROL_COMMAND_WAIT_FRAME:
+            if ((deferred = deferred_begin(deferred_table, request->type, &deferred_busy_msg),
+                 deferred_table != NULL && deferred == NULL)) {
+                control_protocol_format_error(&response, request->id, "busy", deferred_busy_msg, false);
+            } else if (deferred != NULL) {
+                deferred->active = true;
+                deferred->request_id = request->id;
+                deferred->command_type = request->type;
+                deferred->deadline_ms =
+                    SDL_GetTicks64() + control_timeout_or_default(request->args.timeout_ms);
+                deferred->start_frame_number =
+                    debug_state != NULL ? debug_state->frame_number : 0u;
+                deferred->frame_delta = request->args.count;
+                return;
+            } else {
+                control_protocol_format_error(&response, request->id, "internal", "deferred state unavailable", false);
+            }
+            break;
+
+        case CONTROL_COMMAND_WAIT_EVENT:
+            if ((deferred = deferred_begin(deferred_table, request->type, &deferred_busy_msg),
+                 deferred_table != NULL && deferred == NULL)) {
+                control_protocol_format_error(&response, request->id, "busy", deferred_busy_msg, false);
+            } else if (deferred != NULL) {
+                deferred->active = true;
+                deferred->request_id = request->id;
+                deferred->command_type = request->type;
+                deferred->deadline_ms =
+                    SDL_GetTicks64() + control_timeout_or_default(request->args.timeout_ms);
+                deferred->wait_after_seq =
+                    event_latch != NULL ? event_latch->seq : 0u;
+                /* wait_event_name only ever needs to hold short identifiers
+                 * like "step-complete" (see control_runtime_event_name());
+                 * an oversized client-supplied name is truncated and simply
+                 * won't match any real event, which is a safe fail-closed
+                 * outcome, not a bug. */
+#if defined(__GNUC__) || defined(__clang__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wformat-truncation"
+#endif
+                snprintf(
+                    deferred->wait_event_name,
+                    sizeof(deferred->wait_event_name),
+                    "%s",
+                    request->args.text);
+#if defined(__GNUC__) || defined(__clang__)
+#pragma GCC diagnostic pop
+#endif
+                /* Complete immediately if a sticky completion event already
+                   fired (load-state then wait-event race). */
+                check_deferred_event_wait(control, deferred, NULL, event_latch);
+                if (!deferred->active) {
+                    return;
+                }
+                return;
+            } else {
+                control_protocol_format_error(&response, request->id, "internal", "deferred state unavailable", false);
+            }
+            break;
+
+        case CONTROL_COMMAND_ASSEMBLE:
+            if ((deferred = deferred_begin(deferred_table, request->type, &deferred_busy_msg),
+                 deferred_table != NULL && deferred == NULL)) {
+                control_protocol_format_error(&response, request->id, "busy", deferred_busy_msg, false);
+            } else if (request->args.text[0] == '\0') {
+                control_protocol_format_error(&response, request->id, "bad-args", "expected source path", false);
+            } else {
+                /* Auto-pause so assembly lands in a defined machine state. The
+                   runtime's own reset/auto-run handling then applies. */
+                runtime_client_pause(client);
+                if (runtime_client_assemble_file_full(
+                        client,
+                        request->args.text,
+                        request->args.address,
+                        request->args.run_address,
+                        request->args.auto_run,
+                        request->args.basic_run,
+                        request->args.reset_first,
+                        auto_adjust_segments)) {
+                    if (deferred != NULL) {
+                        deferred->active = true;
+                        deferred->request_id = request->id;
+                        deferred->command_type = request->type;
+                        deferred->deadline_ms = SDL_GetTicks64() + 10000u;
+                        return;
+                    }
+                    control_protocol_format_error(&response, request->id, "internal", "deferred state unavailable", false);
+                } else {
+                    control_protocol_format_error(&response, request->id, "runtime", "command rejected", false);
+                }
+            }
+            break;
+
+        case CONTROL_COMMAND_FIND_SYMBOL:
+            if (control_cache == NULL || !control_cache->has_symbols) {
+                control_protocol_format_error(
+                    &response,
+                    request->id,
+                    "not-ready",
+                    "no symbols available; assemble or load symbols first",
+                    false);
+            } else {
+                const runtime_symbol_snapshot *syms = &control_cache->symbols;
+                bool found = false;
+                size_t i;
+                for (i = 0; i < syms->count; i++) {
+                    if (strncmp(syms->entries[i].name, request->args.text, RUNTIME_SYMBOL_NAME_MAX) == 0) {
+                        char text[CONTROL_RESPONSE_TEXT_MAX];
+                        snprintf(
+                            text,
+                            sizeof(text),
+                            "address=$%04X name=%s",
+                            (unsigned)syms->entries[i].address,
+                            syms->entries[i].name);
+                        control_protocol_format_ok(&response, request->id, text, false);
+                        found = true;
+                        break;
+                    }
+                }
+                if (!found) {
+                    control_protocol_format_error(&response, request->id, "not-found", "symbol not found", false);
+                }
+            }
+            break;
+
+        case CONTROL_COMMAND_NONE:
+        default:
+            control_protocol_format_error(
+                &response,
+                request->id,
+                "unknown-command",
+                "unknown command",
+                false);
+            break;
+    }
+
+    switch (request->type) {
+        case CONTROL_COMMAND_LEAVE_INSPECTOR:
+        case CONTROL_COMMAND_ENTER_INSPECTOR:
+        case CONTROL_COMMAND_RESET:
+        case CONTROL_COMMAND_RUN:
+        case CONTROL_COMMAND_PAUSE:
+        case CONTROL_COMMAND_STEP_CYCLE:
+        case CONTROL_COMMAND_STEP_INSTRUCTION:
+        case CONTROL_COMMAND_STEP_OVER:
+        case CONTROL_COMMAND_STEP_OUT:
+        case CONTROL_COMMAND_RUN_CYCLES:
+        case CONTROL_COMMAND_RUN_INSTRUCTIONS:
+        case CONTROL_COMMAND_RUN_TO:
+        case CONTROL_COMMAND_STEP_FRAME:
+        case CONTROL_COMMAND_RUN_TO_RASTER:
+        case CONTROL_COMMAND_KEY_DOWN:
+        case CONTROL_COMMAND_KEY_UP:
+        case CONTROL_COMMAND_RESTORE:
+        case CONTROL_COMMAND_JOYSTICK:
+        case CONTROL_COMMAND_PASTE_TEXT:
+        case CONTROL_COMMAND_PASTE_EVENTS:
+        case CONTROL_COMMAND_PASTE_TEXT_DATA:
+        case CONTROL_COMMAND_PASTE_EVENTS_DATA:
+        case CONTROL_COMMAND_LOAD_PRG:
+        case CONTROL_COMMAND_LOAD_BIN:
+        case CONTROL_COMMAND_SAVE_BIN:
+        case CONTROL_COMMAND_LOAD_STATE:
+        case CONTROL_COMMAND_SAVE_STATE:
+        case CONTROL_COMMAND_MOUNT_D64:
+        case CONTROL_COMMAND_UNMOUNT_DISK:
+        case CONTROL_COMMAND_POWER_DRIVE:
+            if (accepted) {
+                /* Optimistic RUNNING so a following wait-paused in the same
+                   round-trip cannot false-complete on the previous pause before
+                   RUNTIME_EVENT_RUNNING is polled (widened by state-changed). */
+                if (debug_state != NULL &&
+                    (request->type == CONTROL_COMMAND_RUN ||
+                     request->type == CONTROL_COMMAND_RUN_CYCLES ||
+                     request->type == CONTROL_COMMAND_RUN_INSTRUCTIONS ||
+                     request->type == CONTROL_COMMAND_RUN_TO ||
+                     request->type == CONTROL_COMMAND_RUN_TO_RASTER)) {
+                    debug_state->runtime_state = FRONTEND_RUNTIME_STATE_RUNNING;
+                    debug_state->stop_reason = RUNTIME_STOP_REASON_NONE;
+                }
+                control_protocol_format_ok(&response, request->id, "accepted=1", false);
+                request_debug_state(client);
+            } else if (response.text[0] == '\0') {
+                control_protocol_format_error(
+                    &response,
+                    request->id,
+                    "runtime",
+                    "command rejected",
+                    false);
+            }
+            break;
+        case CONTROL_COMMAND_SET_TURBO:
+            if (accepted) {
+                char text[CONTROL_RESPONSE_TEXT_MAX];
+                if (request->args.turbo_multiplier >= 3u) {
+                    snprintf(
+                        text,
+                        sizeof(text),
+                        "accepted=1 turbo=%u warning=warp-disables-live-framebuffer;get-frame-is-debug-only-until-turbo-is-1-or-2",
+                        (unsigned int)request->args.turbo_multiplier);
+                } else {
+                    snprintf(
+                        text,
+                        sizeof(text),
+                        "accepted=1 turbo=%u",
+                        (unsigned int)request->args.turbo_multiplier);
+                }
+                control_protocol_format_ok(&response, request->id, text, false);
+                request_debug_state(client);
+            } else if (response.text[0] == '\0') {
+                control_protocol_format_error(
+                    &response,
+                    request->id,
+                    "runtime",
+                    "command rejected",
+                    false);
+            }
+            break;
+        default:
+            break;
+    }
+
+    if (!control_server_post_response(control, &response)) {
+        control_response_release(&response);
+        log_warn("control: response queue full");
+    }
+}
+
+static void dispatch_control_requests(
+    control_server *control,
+    runtime_client *client,
+    frontend_debug_state *debug_state,
+    control_cached_state *control_cache,
+    deferred_control_table *deferred_table,
+    control_event_latch *event_latch,
+    control_session_bind *session_bind,
+    bool auto_adjust_segments)
+{
+    control_request request;
+
+    if (control == NULL) {
+        return;
+    }
+
+    while (control_server_poll_request(control, &request)) {
+        dispatch_control_request(
+            control,
+            client,
+            debug_state,
+            control_cache,
+            deferred_table,
+            event_latch,
+            session_bind,
+            auto_adjust_segments,
+            &request);
+        control_request_release(&request);
+    }
+}
+
+static void update_window_title(
+    platform_window *window,
+    const char *video_standard,
+    uint32_t turbo_multiplier,
+    frontend_runtime_state state,
+    runtime_stop_reason stop_reason,
+    bool inspecting) {
+    char title[96];
+
+    frontend_format_window_title_ex(
+        title,
+        sizeof(title),
+        video_standard,
+        turbo_multiplier,
+        state,
+        stop_reason,
+        inspecting);
+    platform_window_set_title(window, title);
+}
+
+static bool run_main_loop(
+    platform_window *window,
+    runtime_client *client,
+    frontend *ui,
+    app_options *options,
+    control_server *control) {
+    bool running = true;
+    bool ui_visible = false;
+    bool title_set = false;
+    /* Keep SDL text input off unless a UI text field is focused, so holding a
+       key for joystick/keyboard emulation never triggers the macOS
+       press-and-hold accent popup. Seed from SDL's current state so the first
+       frame only calls SDL when the desired state actually differs. */
+    bool text_input_active = SDL_IsTextInputActive() == SDL_TRUE;
+    /* Block TEXTINPUT after Opt+H / Opt+R until Option is released so the
+       chord letter does not type into Help/Forensics edit fields. */
+    bool suppress_text_after_option_chord = false;
+    frontend_runtime_state last_title_state = FRONTEND_RUNTIME_STATE_UNKNOWN;
+    runtime_stop_reason last_title_stop_reason = RUNTIME_STOP_REASON_NONE;
+    uint32_t last_title_turbo_multiplier = 0u;
+    bool last_title_inspecting = false;
+    char last_title_video_standard[8] = "";
+    frontend_input_mapper input_mapper;
+    sdl_c64_controller_state controller_state;
+    frontend_joystick_input kbd_joystick;
+    deferred_control_table deferred_control = {0};
+    control_cached_state control_cache = {0};
+    control_event_latch event_latch = {0};
+    control_session_bind session_bind = {0};
+    frontend_debug_state debug_state = {
+        .runtime_state = FRONTEND_RUNTIME_STATE_UNKNOWN,
+    };
+
+    frontend_input_mapper_reset(&input_mapper);
+    sdl_c64_controllers_reset(&controller_state);
+    frontend_joystick_reset(&kbd_joystick);
+    frontend_joystick_set_layout(
+        &kbd_joystick,
+        frontend_joystick_layout_from_string(options->keyboard_joystick_layout));
+    frontend_joystick_set_port(&kbd_joystick, (unsigned)options->keyboard_joystick_port);
+    controller_state.kbd_joystick = &kbd_joystick;
+    sdl_c64_controllers_open_existing(&controller_state, client);
+    sdl_c64_controller_send_ports(&controller_state, client);
+    request_debug_state(client);
+    runtime_client_request_frame(client);
+
+    while (running) {
+        SDL_Event event;
+
+        frontend_begin_input(ui);
+        while (SDL_PollEvent(&event)) {
+            bool send_event_to_frontend =
+                ui_visible || frontend_help_is_open(ui) ||
+                frontend_forensics_is_open(ui);
+
+            if (event.type == SDL_TEXTINPUT && suppress_text_after_option_chord) {
+                send_event_to_frontend = false;
+            } else if (event.type == SDL_KEYUP &&
+                       (SDL_GetModState() & KMOD_ALT) == 0) {
+                suppress_text_after_option_chord = false;
+            }
+
+            if (!debug_state.inspecting) {
+                sdl_c64_controller_handle_event(&controller_state, client, &event);
+            }
+
+            if (event.type == SDL_QUIT) {
+                running = false;
+            } else if (event.type == SDL_KEYDOWN && event.key.repeat != 0 &&
+                       frontend_handle_help_key(ui, &event.key, options->scroll_wheel_lines)) {
+                send_event_to_frontend = false;
+            } else if (event.type == SDL_KEYDOWN && event.key.repeat != 0 &&
+                       !frontend_help_is_open(ui) &&
+                       !frontend_forensics_is_open(ui) &&
+                       handle_step_key_event(client, &debug_state, &event.key, false)) {
+                send_event_to_frontend = false;
+            } else if (event.type == SDL_KEYDOWN && event.key.repeat == 0) {
+                if (frontend_input_is_host_quit_shortcut(&event.key)) {
+                    running = false;
+                } else if (event.key.keysym.sym == SDLK_h &&
+                           frontend_input_has_option_modifier(&event.key)) {
+                    if (frontend_help_is_open(ui)) {
+                        close_help(ui, client, &debug_state);
+                    } else {
+                        /* frontend_open_help closes Forensics and transfers latch. */
+                        open_help(ui, client, &debug_state);
+                    }
+                    suppress_text_after_option_chord = true;
+                    send_event_to_frontend = false;
+                } else if (
+                    event.key.keysym.sym == SDLK_r &&
+                    frontend_input_has_option_modifier(&event.key) &&
+                    !frontend_input_has_shift_modifier(&event.key)) {
+                    /* Opt+R: toggle Forensics; leave returns to entry surface. */
+                    if (frontend_forensics_is_open(ui)) {
+                        leave_forensics_mode(
+                            window, client, ui, &ui_visible, false);
+                    } else {
+                        bool from_debugger = ui_visible;
+                        bool was_running =
+                            debug_state.runtime_state == FRONTEND_RUNTIME_STATE_RUNNING;
+                        frontend_open_forensics(
+                            ui, from_debugger, was_running);
+                    }
+                    suppress_text_after_option_chord = true;
+                    send_event_to_frontend = false;
+                } else if (event.key.keysym.sym == SDLK_F9) {
+                    if (frontend_forensics_is_open(ui)) {
+                        /* F9 from Forensics -> debugger, always paused. */
+                        leave_forensics_mode(
+                            window, client, ui, &ui_visible, true);
+                    } else {
+                        ui_visible = !ui_visible;
+                        {
+                            int min_w = 0;
+                            int min_h = 0;
+                            if (ui_visible) {
+                                frontend_debug_min_window_size(ui, &min_w, &min_h);
+                            }
+                            platform_window_set_minimum_size(window, min_w, min_h);
+                        }
+                    }
+                    send_event_to_frontend = false;
+                } else if (event.key.keysym.sym == SDLK_ESCAPE && frontend_help_is_open(ui)) {
+                    /* Esc closes Help only; never leaves Forensics. */
+                    close_help(ui, client, &debug_state);
+                    send_event_to_frontend = false;
+                } else if (frontend_handle_forensics_key(ui, &event.key)) {
+                    send_event_to_frontend = false;
+                } else if (frontend_handle_help_key(ui, &event.key, options->scroll_wheel_lines)) {
+                    send_event_to_frontend = false;
+                } else if (handle_step_key_event(client, &debug_state, &event.key, true)) {
+                    /* F10/F11 work while Forensics is open (before catch-all). */
+                    send_event_to_frontend = false;
+                } else if (event.key.keysym.sym == SDLK_F10 &&
+                           frontend_input_has_shift_modifier(&event.key)) {
+                    debug_state.step_cycle_start = debug_state.machine_cycle;
+                    debug_state.step_cpu_cycle_start = debug_state.cpu.cycles;
+                    send_step_out_command(client);
+                    send_event_to_frontend = false;
+                } else if (event.key.keysym.sym == SDLK_F12 &&
+                           !frontend_input_has_shift_modifier(&event.key)) {
+                    debug_state.step_cycle_start = debug_state.machine_cycle;
+                    debug_state.step_cpu_cycle_start = debug_state.cpu.cycles;
+                    send_run_command(client);
+                    send_event_to_frontend = false;
+                } else if (event.key.keysym.sym == SDLK_F12 &&
+                           frontend_input_has_shift_modifier(&event.key)) {
+                    debug_state.step_cycle_start = debug_state.machine_cycle;
+                    debug_state.step_cpu_cycle_start = debug_state.cpu.cycles;
+                    send_run_to_cursor_command(client, ui, &debug_state);
+                    send_event_to_frontend = false;
+                } else if (frontend_help_is_open(ui) || frontend_forensics_is_open(ui)) {
+                    send_event_to_frontend = true;
+                } else if (event.key.keysym.sym == SDLK_a &&
+                           frontend_input_has_option_modifier(&event.key) &&
+                           frontend_input_has_shift_modifier(&event.key)) {
+                    if (!debug_state.inspecting) {
+                        frontend_trigger_assembler(ui);
+                    }
+                    send_event_to_frontend = false;
+                } else if (event.key.keysym.sym == SDLK_m &&
+                           frontend_input_has_option_modifier(&event.key) &&
+                           frontend_input_has_shift_modifier(&event.key)) {
+                    frontend_joystick_layout next_layout =
+                        kbd_joystick.layout == FRONTEND_JOYSTICK_LAYOUT_NUMPAD ?
+                            FRONTEND_JOYSTICK_LAYOUT_WASD :
+                            FRONTEND_JOYSTICK_LAYOUT_NUMPAD;
+                    frontend_joystick_set_layout(&kbd_joystick, next_layout);
+                    app_options_set_string(
+                        &options->keyboard_joystick_layout,
+                        frontend_joystick_layout_to_string(next_layout));
+                    sdl_c64_controller_send_ports(&controller_state, client);
+                    if (!frontend_config_dialog_is_open(ui)) {
+                        frontend_set_config_state(ui, options);
+                    }
+                    log_info("keyboard joystick layout: %s",
+                            frontend_joystick_layout_to_string(next_layout));
+                    send_event_to_frontend = false;
+                } else if (event.key.keysym.sym == SDLK_t &&
+                           frontend_input_has_option_modifier(&event.key)) {
+                    runtime_client_cycle_turbo_speed(client);
+                } else if (key_is_quicksave_shortcut(&event.key)) {
+                    if (!debug_state.inspecting) {
+                        send_quicksave(client, options, ui);
+                    }
+                    send_event_to_frontend = false;
+                } else if (key_is_quickload_shortcut(&event.key)) {
+                    if (!debug_state.inspecting) {
+                        send_quickload(client, options, ui);
+                    }
+                    send_event_to_frontend = false;
+                } else if ((event.key.keysym.sym == SDLK_0 ||
+                            event.key.keysym.sym == SDLK_1 ||
+                            event.key.keysym.sym == SDLK_2) &&
+                           frontend_input_has_option_modifier(&event.key) &&
+                           frontend_input_has_shift_modifier(&event.key)) {
+                    unsigned requested = event.key.keysym.sym == SDLK_1 ? 1u :
+                                         event.key.keysym.sym == SDLK_2 ? 2u : 0u;
+                    /* Port 0 explicitly disables; re-pressing the assigned port
+                       also toggles it back off. */
+                    unsigned next = kbd_joystick.port == requested ? 0u : requested;
+                    frontend_joystick_set_port(&kbd_joystick, next);
+                    options->keyboard_joystick_port = (int)next;
+                    sdl_c64_controller_send_ports(&controller_state, client);
+                    /* Keep the (closed) config dialog seed consistent with the
+                       live port so it does not later overwrite this choice. */
+                    if (!frontend_config_dialog_is_open(ui)) {
+                        frontend_set_config_state(ui, options);
+                    }
+                    if (next == 0u) {
+                        log_info("keyboard joystick disabled");
+                    } else {
+                        log_info("keyboard joystick assigned to port %u (%s)",
+                                next,
+                                frontend_joystick_layout_to_string(kbd_joystick.layout));
+                    }
+                } else if ((event.key.keysym.sym == SDLK_1 || event.key.keysym.sym == SDLK_2) &&
+                           frontend_input_has_option_modifier(&event.key)) {
+                    sdl_c64_controller_switch_mapping(
+                        &controller_state,
+                        client,
+                        event.key.keysym.sym == SDLK_1 ? 1u : 2u);
+                } else if (event.key.keysym.sym == SDLK_INSERT &&
+                           frontend_input_has_option_modifier(&event.key) &&
+                           frontend_input_has_shift_modifier(&event.key)) {
+                    if (!debug_state.inspecting) {
+                        char *text = SDL_GetClipboardText();
+                        if (text && text[0] != '\0') {
+                            paste_event_t       events[PASTE_EVENTS_MAX];
+                            size_t              count = 0;
+                            paste_parse_error_t perr  = { -1, NULL };
+                            if (paste_parse(text, events, PASTE_EVENTS_MAX, &count, &perr)
+                                    && count > 0) {
+                                runtime_client_paste_events(client, events, count);
+                            } else if (perr.offset >= 0) {
+                                log_warn("paste parse error at offset %d: %s",
+                                        perr.offset, perr.message ? perr.message : "");
+                            }
+                        }
+                        SDL_free(text);
+                    }
+                    send_event_to_frontend = false;
+                } else if (event.key.keysym.sym == SDLK_INSERT &&
+                           frontend_input_has_option_modifier(&event.key) &&
+                           !frontend_input_has_shift_modifier(&event.key)) {
+                    if (!debug_state.inspecting) {
+                        char *text = SDL_GetClipboardText();
+                        if (text && text[0] != '\0') {
+                            runtime_client_paste_text_buffer(client, text, strlen(text));
+                        }
+                        SDL_free(text);
+                    }
+                    send_event_to_frontend = false;
+                } else if (ui_visible && frontend_handle_view_cycle_key(ui, &event.key)) {
+                    send_event_to_frontend = false;
+                } else if (!debug_state.inspecting &&
+                           (!ui_visible || frontend_routes_keyboard_to_c64(ui))) {
+                    if (frontend_joystick_consumes(&kbd_joystick, event.key.keysym.sym)) {
+                        if (frontend_joystick_handle_key(&kbd_joystick, &event.key)) {
+                            sdl_c64_controller_send_ports(&controller_state, client);
+                        }
+                    } else {
+                        handle_keyboard_input(&input_mapper, client, &event.key);
+                    }
+                    send_event_to_frontend = false;
+                }
+            } else if (event.type == SDL_KEYUP &&
+                       !frontend_help_is_open(ui) &&
+                       !frontend_forensics_is_open(ui) &&
+                       !debug_state.inspecting &&
+                       (!ui_visible || frontend_routes_keyboard_to_c64(ui))) {
+                if (frontend_joystick_consumes(&kbd_joystick, event.key.keysym.sym)) {
+                    if (frontend_joystick_handle_key(&kbd_joystick, &event.key)) {
+                        sdl_c64_controller_send_ports(&controller_state, client);
+                    }
+                } else {
+                    handle_keyboard_input(&input_mapper, client, &event.key);
+                }
+                send_event_to_frontend = false;
+            } else if (event.type == SDL_DROPFILE) {
+                if (!debug_state.inspecting) {
+                    handle_drop_file(client, options, event.drop.file);
+                }
+                send_event_to_frontend = false;
+            }
+
+            if (send_event_to_frontend) {
+                frontend_handle_event(ui, &event);
+            }
+        }
+        frontend_end_input(ui);
+
+        poll_runtime_events(
+            client,
+            ui,
+            &debug_state,
+            options,
+            &controller_state,
+            &kbd_joystick,
+            control,
+            &deferred_control,
+            &control_cache,
+            &event_latch);
+        {
+            uint64_t preview_cycle = 0u;
+            if (frontend_inspector_preview(ui, &preview_cycle)) {
+                static c64_frame film;
+                bool at_live = debug_state.inspector_window_valid &&
+                    preview_cycle >= debug_state.inspector_newest_cycle;
+                /* Cell-film join only: never nearest-<= neighbour still. */
+                if (runtime_client_copy_inspector_cell_film(
+                        client, preview_cycle, &film)) {
+                    frontend_inspector_set_preview_film(ui, true);
+                    (void)frontend_submit_frame(ui, &film);
+                    debug_state.has_frame = true;
+                    debug_state.frame_number = film.frame_number;
+                    debug_state.frame_cycle = film.machine_cycle;
+                } else if (at_live) {
+                    /* LIVE/NOW is not "missing film => pink". */
+                    frontend_inspector_set_preview_film(ui, true);
+                } else {
+                    frontend_inspector_set_preview_film(ui, false);
+                }
+            } else {
+                frontend_inspector_set_preview_film(ui, false);
+            }
+        }
+        check_deferred_control_session(
+            control,
+            client,
+            &deferred_control,
+            &debug_state,
+            &event_latch,
+            &session_bind);
+        check_deferred_control_timeout(
+            control, client, &deferred_control);
+        dispatch_control_requests(
+            control,
+            client,
+            &debug_state,
+            &control_cache,
+            &deferred_control,
+            &event_latch,
+            &session_bind,
+            options->assembler_auto_adjust_segments);
+
+        if (!title_set ||
+            debug_state.runtime_state != last_title_state ||
+            debug_state.stop_reason != last_title_stop_reason ||
+            debug_state.active_turbo_multiplier != last_title_turbo_multiplier ||
+            debug_state.inspecting != last_title_inspecting ||
+            strcmp(last_title_video_standard,
+                options->video_standard != NULL ? options->video_standard : "") != 0) {
+            update_window_title(
+                window,
+                options->video_standard,
+                debug_state.active_turbo_multiplier,
+                debug_state.runtime_state,
+                debug_state.stop_reason,
+                debug_state.inspecting);
+            last_title_state = debug_state.runtime_state;
+            last_title_stop_reason = debug_state.stop_reason;
+            last_title_turbo_multiplier = debug_state.active_turbo_multiplier;
+            last_title_inspecting = debug_state.inspecting;
+            snprintf(last_title_video_standard, sizeof(last_title_video_standard), "%s",
+                options->video_standard != NULL ? options->video_standard : "");
+            title_set = true;
+        }
+
+        if (!platform_window_clear(window)) {
+            return false;
+        }
+        frontend_render(ui, ui_visible, &debug_state);
+        if (frontend_forensics_consume_pause_request(ui)) {
+            if (debug_state.runtime_state == FRONTEND_RUNTIME_STATE_RUNNING) {
+                send_pause_command(client);
+            }
+        }
+        if (frontend_forensics_consume_close_request(ui)) {
+            /* Close button == Opt+R (return to entry surface). */
+            leave_forensics_mode(window, client, ui, &ui_visible, false);
+        }
+        if (frontend_forensics_consume_leave_debugger_request(ui)) {
+            /* Successful Land before/exact -> debugger paused + Inspector tab. */
+            leave_forensics_mode(window, client, ui, &ui_visible, true);
+        }
+        {
+            /* frontend_render has just built this frame's UI, so the edit-focus
+               state is now current. Sync SDL text input to it. */
+            bool want_text_input = frontend_wants_text_input(ui);
+            if (want_text_input != text_input_active) {
+                if (want_text_input) {
+                    SDL_StartTextInput();
+                } else {
+                    SDL_StopTextInput();
+                }
+                text_input_active = want_text_input;
+            }
+        }
+        dispatch_debugger_intents(
+            window,
+            client,
+            ui,
+            &debug_state,
+            options,
+            &controller_state,
+            &kbd_joystick);
+        platform_window_present(window);
+    }
+    control_session_release(client, &session_bind);
+    sdl_c64_controllers_close(&controller_state, client);
+
+    return true;
+}
+
+enum {
+    /* SDL_USEREVENT code: control request queued (socket → main wake). */
+    C64M_SDL_WAKE_CONTROL = 1
+};
+
+static void headless_control_wake(void)
+{
+    SDL_Event event;
+
+    SDL_zero(event);
+    event.type = SDL_USEREVENT;
+    event.user.code = C64M_SDL_WAKE_CONTROL;
+    SDL_PushEvent(&event);
+}
+
+static bool run_headless_loop(
+    runtime_client *client,
+    app_options *options,
+    control_server *control)
+{
+    bool running = true;
+    deferred_control_table deferred_control = {0};
+    control_cached_state control_cache = {0};
+    control_event_latch event_latch = {0};
+    control_session_bind session_bind = {0};
+    frontend_debug_state debug_state = {
+        .runtime_state = FRONTEND_RUNTIME_STATE_UNKNOWN,
+    };
+
+    if (control != NULL) {
+        control_server_set_wake_hook(control, headless_control_wake);
+    }
+
+    request_debug_state(client);
+    runtime_client_request_frame(client);
+
+    while (running) {
+        SDL_Event event;
+        /* When deferred work is outstanding, poll aggressively (0 ms wait) so
+           completions are runtime-bound rather than 1 ms quantized. When idle,
+           wait up to 1 ms or until a control wake event arrives. */
+        uint32_t wait_ms = deferred_table_any_active(&deferred_control) ? 0u : 1u;
+
+        if (SDL_WaitEventTimeout(&event, (int)wait_ms)) {
+            do {
+                if (event.type == SDL_QUIT) {
+                    running = false;
+                }
+            } while (SDL_PollEvent(&event));
+        }
+
+        poll_runtime_events(
+            client,
+            NULL,
+            &debug_state,
+            options,
+            NULL,
+            NULL,
+            control,
+            &deferred_control,
+            &control_cache,
+            &event_latch);
+        check_deferred_control_session(
+            control,
+            client,
+            &deferred_control,
+            &debug_state,
+            &event_latch,
+            &session_bind);
+        check_deferred_control_timeout(
+            control, client, &deferred_control);
+        dispatch_control_requests(
+            control,
+            client,
+            &debug_state,
+            &control_cache,
+            &deferred_control,
+            &event_latch,
+            &session_bind,
+            options->assembler_auto_adjust_segments);
+    }
+
+    control_session_release(client, &session_bind);
+    if (control != NULL) {
+        control_server_set_wake_hook(control, NULL);
+    }
+
+    return true;
+}
+
+int main(int argc, char **argv) {
+    app_options options;
+    runtime *rt = NULL;
+    runtime_config runtime_cfg;
+    runtime_client *client = NULL;
+    frontend *ui = NULL;
+    platform_window *window = NULL;
+    control_server *control = NULL;
+    platform_window_config window_config;
+    frontend_layout_state layout_state;
+    audio_buffer *abuf = NULL;
+    platform_audio *paudio = NULL;
+    char runtime_symbol_files[1024];
+    int exit_code = 0;
+    bool platform_started = false;
+
+    c64m_log_init();
+
+    if (!app_options_load_startup(&options, argc, argv)) {
+        return 1;
+    }
+    /* INI/CLI may override the WARN default; apply before further host work. */
+    c64m_log_apply(options.log_level);
+    apply_sdl_log_policy(options.log_level);
+
+    if (options.headless) {
+        if (!platform_init_headless()) {
+            app_options_destroy(&options);
+            return 1;
+        }
+        platform_started = true;
+    }
+
+    /* Create the shared audio buffer and open the SDL audio device before
+       starting the runtime thread so the actual sample rate is known at
+       runtime_create time.  platform_audio_init initialises SDL_INIT_AUDIO
+       internally, so this may safely precede platform_init(). */
+    if (!options.headless) {
+        abuf = audio_buffer_create(8192);
+        if (abuf != NULL) {
+            platform_audio_desc audio_desc;
+            audio_desc.requested_rate             = 48000;
+            audio_desc.requested_channels         = 2;
+            audio_desc.requested_callback_samples = 512;
+            audio_desc.buffer                     = abuf;
+            paudio = platform_audio_create(&audio_desc);
+            if (paudio == NULL) {
+                log_warn("audio: failed to open device, running without audio");
+                audio_buffer_destroy(abuf);
+                abuf = NULL;
+            }
+        } else {
+            log_warn("audio: failed to allocate buffer, running without audio");
+        }
+    }
+
+    if (!runtime_init()) {
+        platform_audio_destroy(paudio);
+        audio_buffer_destroy(abuf);
+        if (platform_started) {
+            platform_shutdown();
+        }
+        app_options_destroy(&options);
+        return 1;
+    }
+
+    effective_rom_paths(
+        &options,
+        &runtime_cfg.system_rom_path,
+        &runtime_cfg.basic_rom_path,
+        &runtime_cfg.char_rom_path,
+        &runtime_cfg.kernal_rom_path,
+        &runtime_cfg.rom1541_path);
+    runtime_cfg.ini_path = options.ini_path;
+    if (app_options_symbol_files_absolute(&options, runtime_symbol_files, sizeof(runtime_symbol_files))) {
+        runtime_cfg.symbol_files = runtime_symbol_files;
+    } else {
+        runtime_cfg.symbol_files = options.symbol_files;
+    }
+    runtime_cfg.use_ini = options.use_ini;
+    runtime_cfg.save_ini = (options.save_ini || options.remember) && !options.no_save_ini;
+    runtime_cfg.machine_config = machine_config_from_options(&options);
+    runtime_cfg.audio_out         = abuf;
+    runtime_cfg.audio_sample_rate = platform_audio_actual_rate(paudio);
+    if (runtime_cfg.audio_sample_rate <= 0 && options.audio_record_path != NULL) {
+        runtime_cfg.audio_sample_rate = 48000;
+    }
+    runtime_cfg.audio_record_path = options.audio_record_path;
+    runtime_cfg.audio_record_start_seconds = options.audio_record_start_seconds;
+    runtime_cfg.audio_record_duration_seconds = options.audio_record_duration_seconds;
+    runtime_cfg.audio_smoke       = options.audio_smoke ? 1 : 0;
+    runtime_cfg.autorun           = options.autorun;
+    runtime_cfg.history_memory_mb = (uint32_t)options.history_memory_mb;
+    runtime_cfg.history_memory_mb_configured = true;
+    runtime_cfg.frame_ring_memory_mb = (uint32_t)options.frame_ring_memory_mb;
+    runtime_cfg.frame_ring_memory_mb_configured = true;
+    runtime_cfg.vic_ring_memory_mb = (uint32_t)options.vic_ring_memory_mb;
+    runtime_cfg.vic_ring_memory_mb_configured = true;
+    runtime_cfg.inspector = options.inspector;
+    runtime_cfg.inspector_memory_mb = (uint32_t)options.inspector_memory_mb;
+    runtime_cfg.inspector_memory_mb_configured = true;
+    runtime_cfg.inspector_off_on_max = options.inspector_off_on_max;
+    {
+        runtime_config turbo_cfg = runtime_config_from_options(&options);
+        memcpy(runtime_cfg.turbo_speeds, turbo_cfg.turbo_speeds, sizeof(runtime_cfg.turbo_speeds));
+        runtime_cfg.turbo_speed_count = turbo_cfg.turbo_speed_count;
+        runtime_cfg.active_turbo_multiplier = turbo_cfg.active_turbo_multiplier;
+    }
+
+    rt = runtime_create(&runtime_cfg);
+    if (rt == NULL) {
+        runtime_shutdown();
+        platform_audio_destroy(paudio);
+        audio_buffer_destroy(abuf);
+        if (platform_started) {
+            platform_shutdown();
+        }
+        app_options_destroy(&options);
+        return 1;
+    }
+
+    if (!runtime_start(rt)) {
+        runtime_destroy(rt);
+        runtime_shutdown();
+        platform_audio_destroy(paudio);
+        audio_buffer_destroy(abuf);
+        if (platform_started) {
+            platform_shutdown();
+        }
+        app_options_destroy(&options);
+        return 1;
+    }
+    client = runtime_get_client(rt);
+
+    {
+        int i;
+        for (i = 0; i < C64M_DRIVE_COUNT; ++i) {
+            if (options.disk_slots[i].count > 0) {
+                runtime_client_mount_d64_ex(
+                    client,
+                    (uint8_t)i,
+                    options.disk_slots[i].paths[0],
+                    app_disk_slot_current_writable(&options.disk_slots[i]));
+            } else if (options.disk_slots[i].power_on_only &&
+                       (i == 8 || i == 9)) {
+                runtime_client_power_on_drive(client, (uint8_t)i);
+            }
+        }
+    }
+
+    if (options.headless) {
+        if (options.control_port > 0) {
+            control = control_server_create((uint16_t)options.control_port);
+            if (control == NULL || !control_server_start(control)) {
+                log_error("control: failed to listen on 127.0.0.1:%d", options.control_port);
+                control_server_destroy(control);
+                runtime_destroy(rt);
+                runtime_shutdown();
+                audio_buffer_destroy(abuf);
+                platform_shutdown();
+                app_options_destroy(&options);
+                return 1;
+            }
+        }
+
+        send_run_command(client);
+
+        if (options.sna_path != NULL) {
+            runtime_client_load_state(client, options.sna_path);
+        } else if (options.crt_path != NULL) {
+            runtime_client_load_crt(client, options.crt_path);
+        } else if (options.prg_path != NULL) {
+            runtime_client_load_prg(client, options.prg_path);
+        } else if (options.basic_path != NULL) {
+            runtime_client_load_bin(client, options.basic_path, 0, true, true, true, false);
+        }
+
+        if (!run_headless_loop(client, &options, control)) {
+            exit_code = 1;
+        }
+
+        control_server_stop(control);
+        runtime_client_quit(client);
+        runtime_stop(rt);
+        poll_runtime_events(client, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL);
+        if (!runtime_save_debug_ini(rt)) {
+            log_error("failed to save debug ini data: %s", options.ini_path ? options.ini_path : "(null)");
+        }
+        control_server_destroy(control);
+        runtime_destroy(rt);
+        runtime_shutdown();
+        audio_buffer_destroy(abuf);
+        platform_shutdown();
+        app_options_destroy(&options);
+        return exit_code;
+    }
+
+    /* Start audio playback now that the runtime thread is producing samples. */
+    platform_audio_start(paudio);
+
+    if (!platform_init()) {
+        runtime_destroy(rt);
+        runtime_shutdown();
+        platform_audio_destroy(paudio);
+        audio_buffer_destroy(abuf);
+        if (platform_started) {
+            platform_shutdown();
+        }
+        app_options_destroy(&options);
+        return 1;
+    }
+    platform_started = true;
+
+    window_config.window_width = options.window_width;
+    window_config.window_height = options.window_height;
+
+    window = platform_window_create(&window_config);
+    if (window == NULL) {
+        platform_audio_destroy(paudio);
+        platform_shutdown();
+        runtime_destroy(rt);
+        runtime_shutdown();
+        audio_buffer_destroy(abuf);
+        app_options_destroy(&options);
+        return 1;
+    }
+
+    ui = frontend_create(window);
+    if (ui == NULL) {
+        platform_window_destroy(window);
+        platform_audio_destroy(paudio);
+        platform_shutdown();
+        runtime_destroy(rt);
+        runtime_shutdown();
+        audio_buffer_destroy(abuf);
+        app_options_destroy(&options);
+        return 1;
+    }
+    frontend_set_runtime_client(ui, client);
+
+    layout_state.split_display_right = options.layout_split_display_right;
+    layout_state.split_top_bottom = options.layout_split_top_bottom;
+    layout_state.split_memory_misc = options.layout_split_memory_misc;
+    frontend_set_layout_state(ui, &layout_state);
+    frontend_set_config_state(ui, &options);
+    frontend_set_disk_queue(ui, 8, &options.disk_slots[8]);
+    frontend_set_disk_queue(ui, 9, &options.disk_slots[9]);
+    /* Seed the file browser's remembered folders from the INI. The slot enum and
+       options.browse_dirs share the same order (see frontend_browse_slot). */
+    {
+        int slot;
+        for (slot = 0; slot < FRONTEND_BROWSE_SLOT_COUNT && slot < APP_BROWSE_DIR_COUNT; ++slot) {
+            frontend_set_browse_dir(ui, (frontend_browse_slot)slot, options.browse_dirs[slot]);
+        }
+    }
+    {
+        frontend_assembler_options asm_opts;
+        memset(&asm_opts, 0, sizeof(asm_opts));
+        if (options.assembler_file != NULL) {
+            snprintf(asm_opts.file, sizeof(asm_opts.file), "%s", options.assembler_file);
+        }
+        if (options.assembler_address != NULL) {
+            snprintf(asm_opts.address, sizeof(asm_opts.address), "%s", options.assembler_address);
+        }
+        if (options.assembler_run_address != NULL) {
+            snprintf(asm_opts.run_address, sizeof(asm_opts.run_address), "%s", options.assembler_run_address);
+        }
+        asm_opts.use_address = options.assembler_use_address;
+        asm_opts.auto_run = options.assembler_auto_run;
+        asm_opts.basic_run = options.assembler_basic_run;
+        asm_opts.reset_first = options.assembler_reset_first;
+        asm_opts.rearm_oneshots = options.assembler_rearm_oneshots;
+        frontend_set_assembler_options(ui, &asm_opts);
+    }
+
+    if (options.control_port > 0) {
+        control = control_server_create((uint16_t)options.control_port);
+        if (control == NULL || !control_server_start(control)) {
+            log_error("control: failed to listen on 127.0.0.1:%d", options.control_port);
+            control_server_destroy(control);
+            frontend_destroy(ui);
+            platform_window_destroy(window);
+            platform_audio_destroy(paudio);
+            platform_shutdown();
+            runtime_destroy(rt);
+            runtime_shutdown();
+            audio_buffer_destroy(abuf);
+            app_options_destroy(&options);
+            return 1;
+        }
+    }
+
+    send_run_command(client);
+
+    if (options.sna_path != NULL) {
+        runtime_client_load_state(client, options.sna_path);
+    } else if (options.crt_path != NULL) {
+        runtime_client_load_crt(client, options.crt_path);
+    } else if (options.prg_path != NULL) {
+        runtime_client_load_prg(client, options.prg_path);
+    } else if (options.basic_path != NULL) {
+        runtime_client_load_bin(client, options.basic_path, 0, true, true, true, false);
+    }
+
+    if (!run_main_loop(window, client, ui, &options, control)) {
+        exit_code = 1;
+    }
+
+    control_server_stop(control);
+    runtime_client_quit(client);
+    runtime_stop(rt);
+    poll_runtime_events(client, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL);
+    if (!runtime_save_debug_ini(rt)) {
+        log_error("failed to save debug ini data: %s", options.ini_path ? options.ini_path : "(null)");
+    }
+
+    platform_window_get_size(window, &options.window_width, &options.window_height);
+    frontend_get_layout_state(ui, &layout_state);
+    options.layout_split_display_right = layout_state.split_display_right;
+    options.layout_split_top_bottom = layout_state.split_top_bottom;
+    options.layout_split_memory_misc = layout_state.split_memory_misc;
+    {
+        frontend_assembler_options asm_opts;
+        char assembler_path[1024];
+        frontend_get_assembler_options(ui, &asm_opts);
+        if (asm_opts.file[0] != '\0' &&
+            app_options_path_absolute_from_ini(
+                &options, asm_opts.file, assembler_path, sizeof(assembler_path))) {
+            app_options_set_string(&options.assembler_file, assembler_path);
+        } else {
+            app_options_set_string(&options.assembler_file,
+                asm_opts.file[0] ? asm_opts.file : NULL);
+        }
+        app_options_set_string(&options.assembler_address,
+            asm_opts.address[0] ? asm_opts.address : NULL);
+        app_options_set_string(&options.assembler_run_address,
+            asm_opts.run_address[0] ? asm_opts.run_address : NULL);
+        options.assembler_use_address = asm_opts.use_address;
+        options.assembler_auto_run = asm_opts.auto_run;
+        options.assembler_basic_run = asm_opts.basic_run;
+        options.assembler_reset_first = asm_opts.reset_first;
+        options.assembler_rearm_oneshots = asm_opts.rearm_oneshots;
+    }
+    /* Pull the file browser's remembered folders back into options so they are
+       written to the INI (same slot order as frontend_browse_slot). */
+    {
+        int slot;
+        for (slot = 0; slot < FRONTEND_BROWSE_SLOT_COUNT && slot < APP_BROWSE_DIR_COUNT; ++slot) {
+            const char *dir = frontend_get_browse_dir(ui, (frontend_browse_slot)slot);
+            app_options_set_string(&options.browse_dirs[slot], dir[0] ? dir : NULL);
+        }
+    }
+    if ((options.save_ini || options.remember) && !app_options_save_shutdown(&options)) {
+        log_error("failed to save ini file: %s", options.ini_path ? options.ini_path : "(null)");
+    }
+
+    frontend_destroy(ui);
+    control_server_destroy(control);
+    platform_window_destroy(window);
+    /* Stop and destroy the audio device before SDL_Quit so the device handle
+       remains valid.  Runtime thread is already joined at this point. */
+    platform_audio_destroy(paudio);
+    platform_shutdown();
+    runtime_destroy(rt);
+    runtime_shutdown();
+    audio_buffer_destroy(abuf);
+    app_options_destroy(&options);
+    return exit_code;
+}

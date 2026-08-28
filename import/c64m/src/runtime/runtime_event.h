@@ -1,0 +1,424 @@
+#pragma once
+
+#include "c64.h"
+#include "runtime_breakpoint_condition.h"
+#include "runtime_history.h"
+#include "runtime_inspector.h"
+
+#include <stdint.h>
+
+typedef enum runtime_event_type {
+    RUNTIME_EVENT_NONE = 0,
+    RUNTIME_EVENT_PONG,
+    RUNTIME_EVENT_STARTED,
+    RUNTIME_EVENT_RUNNING,
+    RUNTIME_EVENT_PAUSED,
+    RUNTIME_EVENT_STOPPED,
+    RUNTIME_EVENT_ERROR,
+    RUNTIME_EVENT_RESET_COMPLETE,
+    RUNTIME_EVENT_STEP_COMPLETE,
+    RUNTIME_EVENT_RUN_COMPLETE,
+    RUNTIME_EVENT_CPU_STATE_RESPONSE,
+    RUNTIME_EVENT_MACHINE_STATE_RESPONSE,
+    RUNTIME_EVENT_MEMORY_RESPONSE,
+    /* Solicited bulk/control get-memory: meta only; payload in RPC pool by token. */
+    RUNTIME_EVENT_MEMORY_RPC_COMPLETE,
+    RUNTIME_EVENT_MEMORY_VIEW_RESPONSE,
+    RUNTIME_EVENT_BREAKPOINTS_RESPONSE,
+    RUNTIME_EVENT_DISK_STATUS_RESPONSE,
+    RUNTIME_EVENT_ASSEMBLE_COMPLETE,
+    RUNTIME_EVENT_ASSEMBLE_ERROR,
+    RUNTIME_EVENT_FRAME_READY,
+    RUNTIME_EVENT_CALL_STACK_RESPONSE,
+    RUNTIME_EVENT_DISK_SWAP,
+    RUNTIME_EVENT_DEBUG_MEMORY_READY,
+    RUNTIME_EVENT_SAVE_STATE_COMPLETE,
+    RUNTIME_EVENT_LOAD_STATE_COMPLETE,
+    RUNTIME_EVENT_HISTORY_STATUS_RESPONSE,
+    RUNTIME_EVENT_HISTORY_RESULT_RESPONSE,
+    RUNTIME_EVENT_SESSION_RESPONSE,
+    RUNTIME_EVENT_STATE_CHANGED,
+    RUNTIME_EVENT_INSPECTOR_MODE
+} runtime_event_type;
+
+#define RUNTIME_ERROR_READ_ONLY_INSPECTOR "read-only-inspector"
+
+typedef enum runtime_state_changed_reason {
+    RUNTIME_STATE_CHANGED_STEP = 0,
+    RUNTIME_STATE_CHANGED_RUN,
+    RUNTIME_STATE_CHANGED_PAUSE,
+    RUNTIME_STATE_CHANGED_POKE,
+    RUNTIME_STATE_CHANGED_RESET,
+    RUNTIME_STATE_CHANGED_LOAD_STATE,
+    RUNTIME_STATE_CHANGED_HISTORY_CLEAR,
+    RUNTIME_STATE_CHANGED_MEDIA,
+    RUNTIME_STATE_CHANGED_INSPECTOR_ENTER,
+    RUNTIME_STATE_CHANGED_INSPECTOR_LAND,
+    RUNTIME_STATE_CHANGED_INSPECTOR_LEAVE,
+    RUNTIME_STATE_CHANGED_OTHER
+} runtime_state_changed_reason;
+
+typedef enum runtime_session_kind {
+    RUNTIME_SESSION_KIND_NONE = 0,
+    RUNTIME_SESSION_KIND_UI,
+    RUNTIME_SESSION_KIND_CONTROL
+} runtime_session_kind;
+
+typedef enum runtime_session_status {
+    RUNTIME_SESSION_OK = 0,
+    RUNTIME_SESSION_FULL,
+    RUNTIME_SESSION_NOT_FOUND,
+    RUNTIME_SESSION_BAD_ARGS,
+    RUNTIME_SESSION_ERROR
+} runtime_session_status;
+
+typedef enum runtime_memory_mode {
+    RUNTIME_MEMORY_MODE_CPU_MAP = 0,
+    RUNTIME_MEMORY_MODE_RAM,
+    RUNTIME_MEMORY_MODE_ROM,
+    RUNTIME_MEMORY_MODE_DRIVE8_MAP,
+    RUNTIME_MEMORY_MODE_DRIVE9_MAP
+} runtime_memory_mode;
+
+typedef enum runtime_stop_reason {
+    RUNTIME_STOP_REASON_NONE = 0,
+    RUNTIME_STOP_REASON_RESET,
+    RUNTIME_STOP_REASON_PAUSE_COMMAND,
+    RUNTIME_STOP_REASON_STEP,
+    RUNTIME_STOP_REASON_RUN_COMPLETE,
+    RUNTIME_STOP_REASON_BREAKPOINT,
+    RUNTIME_STOP_REASON_BRK,
+    RUNTIME_STOP_REASON_ERROR
+} runtime_stop_reason;
+
+enum {
+    RUNTIME_MEMORY_SNAPSHOT_MAX = 1024,
+    /* Full 16-bit address space dump in one get-memory RPC. */
+    RUNTIME_MEMORY_RPC_MAX_LENGTH = 65536,
+    RUNTIME_RPC_PAYLOAD_POOL_CAPACITY = 16,
+    RUNTIME_RPC_MEMORY_POOL_CAPACITY =
+        RUNTIME_RPC_PAYLOAD_POOL_CAPACITY,
+    RUNTIME_BREAKPOINT_SNAPSHOT_MAX = 64,
+    RUNTIME_CALL_STACK_MAX = 16,
+    RUNTIME_BREAKPOINT_TRON_PATH_MAX = 256,
+    RUNTIME_BREAKPOINT_TYPE_TEXT_MAX = 256
+};
+
+typedef enum runtime_memory_rpc_status {
+    RUNTIME_MEMORY_RPC_OK = 0,
+    RUNTIME_MEMORY_RPC_BUSY = 1,
+    RUNTIME_MEMORY_RPC_BAD_ARGS = 2,
+    RUNTIME_MEMORY_RPC_ERROR = 3
+} runtime_memory_rpc_status;
+
+typedef enum runtime_history_rpc_status {
+    RUNTIME_HISTORY_RPC_OK = 0,
+    RUNTIME_HISTORY_RPC_UNAVAILABLE,
+    RUNTIME_HISTORY_RPC_MACHINE_RUNNING,
+    RUNTIME_HISTORY_RPC_REQUEST_ACTIVE,
+    RUNTIME_HISTORY_RPC_BAD_ARGS,
+    RUNTIME_HISTORY_RPC_CURSOR_STALE,
+    RUNTIME_HISTORY_RPC_EPOCH_MISMATCH,
+    RUNTIME_HISTORY_RPC_RECORD_NOT_RETAINED,
+    RUNTIME_HISTORY_RPC_ERROR
+} runtime_history_rpc_status;
+
+typedef struct runtime_history_rpc_meta {
+    runtime_history_rpc_status status;
+    uint32_t byte_length;
+    uint64_t epoch;
+    uint32_t count;
+    uint64_t cursor;
+    uint64_t oldest;
+    uint64_t newest;
+    uint8_t more;
+} runtime_history_rpc_meta;
+
+typedef enum runtime_breakpoint_access {
+    RUNTIME_BREAKPOINT_ACCESS_EXECUTE = 1u << 0,
+    RUNTIME_BREAKPOINT_ACCESS_READ = 1u << 1,
+    RUNTIME_BREAKPOINT_ACCESS_WRITE = 1u << 2
+} runtime_breakpoint_access;
+
+typedef enum runtime_breakpoint_mapping {
+    RUNTIME_BREAKPOINT_MAPPING_MAP = 0,
+    RUNTIME_BREAKPOINT_MAPPING_ROM,
+    RUNTIME_BREAKPOINT_MAPPING_RAM
+} runtime_breakpoint_mapping;
+
+typedef enum runtime_breakpoint_action {
+    RUNTIME_BREAKPOINT_ACTION_BREAK = 1u << 0,
+    RUNTIME_BREAKPOINT_ACTION_FAST = 1u << 1,
+    RUNTIME_BREAKPOINT_ACTION_SLOW = 1u << 2,
+    RUNTIME_BREAKPOINT_ACTION_TRON = 1u << 3,
+    RUNTIME_BREAKPOINT_ACTION_TROFF = 1u << 4,
+    RUNTIME_BREAKPOINT_ACTION_TYPE = 1u << 5,
+    RUNTIME_BREAKPOINT_ACTION_SWAP = 1u << 6
+} runtime_breakpoint_action;
+
+typedef struct runtime_breakpoint_definition {
+    uint8_t enabled;
+    uint16_t start_address;
+    uint16_t end_address;
+    uint8_t has_end_address;
+    uint32_t access;
+    runtime_breakpoint_mapping mapping;
+    uint32_t actions;
+    uint8_t use_counter;
+    uint32_t initial_count;
+    uint32_t reset_count;
+    int32_t swap_param;    /* disk queue target: negative=backward, positive+swap_relative=forward, positive+!swap_relative=absolute 1-based */
+    uint8_t swap_relative; /* 1 if +/- was explicit (relative movement), 0 if bare number (absolute index) */
+    char tron_path[RUNTIME_BREAKPOINT_TRON_PATH_MAX]; /* trace file path; empty = default "trace.log" */
+    char type_text[RUNTIME_BREAKPOINT_TYPE_TEXT_MAX]; /* text to inject via Type action */
+    /* Guard evaluated after address/access/mapping already matched. An empty
+       condition (term_count 0) is an unguarded breakpoint. */
+    runtime_bp_condition condition;
+} runtime_breakpoint_definition;
+
+typedef struct runtime_cpu_snapshot {
+    uint16_t pc;
+    uint8_t a;
+    uint8_t x;
+    uint8_t y;
+    uint8_t sp;
+    uint8_t p;
+    uint64_t cycles;
+} runtime_cpu_snapshot;
+
+typedef struct runtime_memory_banking_snapshot {
+    uint8_t cpu_port_direction;
+    uint8_t cpu_port_data;
+    uint8_t loram;
+    uint8_t hiram;
+    uint8_t charen;
+    c64_memory_visibility basic_visibility;
+    c64_memory_visibility io_visibility;
+    c64_memory_visibility kernal_visibility;
+    uint8_t cia2_port_a_pins;
+    uint8_t vic_bank_select;
+    uint16_t vic_bank_base;
+    uint8_t vic_memory_pointer;
+    uint16_t vic_screen_base;
+    uint16_t vic_character_base;
+    uint16_t vic_bitmap_base;
+} runtime_memory_banking_snapshot;
+
+typedef struct runtime_machine_snapshot {
+    /* Monotonic runtime publish sequence (telemetry coherence for cache/barriers). */
+    uint64_t runtime_seq;
+    uint64_t cycle;
+    uint64_t cpu_cycles;
+    uint64_t vic_cycles;
+    uint64_t cia_cycles;
+    uint16_t pc;
+    uint8_t a;
+    uint8_t x;
+    uint8_t y;
+    uint8_t sp;
+    uint8_t p;
+    uint8_t ready;
+    uint8_t running;
+    runtime_stop_reason stop_reason;
+    uint64_t frame_number;
+    uint64_t frame_cycle;
+    uint64_t dropped_frames;
+    uint64_t screen_ram_writes;
+    uint64_t color_ram_writes;
+    uint64_t vic_register_writes;
+    uint64_t cia1_register_writes;
+    uint64_t cia2_register_writes;
+    uint64_t sid_register_writes;
+    uint64_t keyboard_events;
+    uint64_t irq_entries;
+    uint64_t cia1_icr_reads;
+    uint64_t cia1_icr_writes;
+    uint64_t cia1_interrupt_assertions;
+    uint64_t nmi_entries;
+    uint64_t restore_requests;
+    uint32_t active_turbo_multiplier;
+    uint8_t turbo_speed_count;
+    uint8_t cia1_irq_pending;
+    uint8_t cia2_nmi_pending;
+    uint8_t cartridge_attached;
+    runtime_memory_banking_snapshot memory_banking;
+    c64_vicii_hardware_snapshot vicii_hardware;
+    c64_cia_hardware_snapshot cia1_hardware;
+    c64_cia_hardware_snapshot cia2_hardware;
+    c64_sid_hardware_snapshot sid_hardware;
+    c64_1541_hardware_snapshot drive8_hardware;
+    c64_1541_hardware_snapshot drive9_hardware;
+    uint8_t inspector_mode; /* runtime_inspector_mode */
+    uint8_t inspector_enabled;
+    uint64_t inspector_focus_cycle;
+    uint8_t inspector_start_kind;
+    uint32_t inspector_start_arg1;
+    uint8_t inspector_window_valid;
+    uint64_t inspector_oldest_cycle;
+    uint64_t inspector_newest_cycle; /* live end of oldest-snapshot -> live */
+    uint32_t inspector_clock_hz;
+    uint8_t inspector_stopped_for_max; /* Record locked: max/warp + policy on */
+} runtime_machine_snapshot;
+
+typedef struct runtime_memory_snapshot {
+    uint16_t address;
+    runtime_memory_mode mode;
+    uint16_t length;
+    uint8_t bytes[RUNTIME_MEMORY_SNAPSHOT_MAX];
+    uint64_t write_history[RUNTIME_MEMORY_SNAPSHOT_MAX];
+} runtime_memory_snapshot;
+
+/* Slim completion for bulk RPC memory; bytes live in the token-keyed pool. */
+typedef struct runtime_memory_rpc_meta {
+    uint16_t address;
+    uint32_t length;
+    runtime_memory_mode mode;
+    runtime_memory_rpc_status status;
+} runtime_memory_rpc_meta;
+
+typedef struct runtime_debug_memory_snapshot {
+    uint64_t generation;
+    uint8_t has_write_history;
+    uint8_t map[C64_RAM_SIZE];
+    uint8_t ram[C64_RAM_SIZE];
+    uint8_t rom[C64_RAM_SIZE];
+    uint8_t drive8_map[C64_RAM_SIZE];
+    uint8_t drive9_map[C64_RAM_SIZE];
+    uint8_t drive8_valid[C64_RAM_SIZE];
+    uint8_t drive9_valid[C64_RAM_SIZE];
+    uint64_t write_history[C64_RAM_SIZE];
+} runtime_debug_memory_snapshot;
+
+typedef struct runtime_breakpoint_snapshot_entry {
+    uint32_t id;
+    uint16_t start_address;
+    uint16_t end_address;
+    uint8_t has_end_address;
+    runtime_breakpoint_access access;
+    runtime_breakpoint_mapping mapping;
+    uint32_t actions;
+    uint8_t enabled;
+    uint8_t use_counter;
+    uint32_t current_hits;
+    uint32_t initial_count;
+    uint32_t reset_count;
+    uint32_t counter;
+    int32_t swap_param;
+    uint8_t swap_relative;
+    char tron_path[RUNTIME_BREAKPOINT_TRON_PATH_MAX];
+    char type_text[RUNTIME_BREAKPOINT_TYPE_TEXT_MAX];
+    runtime_bp_condition condition;
+
+    /* Phase 12 compatibility aliases. Prefer start_address and initial_count. */
+    uint16_t address;
+    uint32_t target_hits;
+} runtime_breakpoint_snapshot_entry;
+
+typedef struct runtime_breakpoint_snapshot {
+    uint16_t count;
+    runtime_breakpoint_snapshot_entry entries[RUNTIME_BREAKPOINT_SNAPSHOT_MAX];
+} runtime_breakpoint_snapshot;
+
+typedef struct runtime_call_stack_entry {
+    uint16_t jsr_address;
+    uint16_t dest_address;
+} runtime_call_stack_entry;
+
+typedef struct runtime_call_stack_snapshot {
+    uint8_t sp;
+    uint8_t count;
+    runtime_call_stack_entry entries[RUNTIME_CALL_STACK_MAX];
+} runtime_call_stack_snapshot;
+
+typedef struct runtime_disk_status_snapshot {
+    uint8_t device;
+    uint8_t mounted;
+    uint8_t powered;
+    uint8_t writable;
+    uint8_t dirty;
+    c64_drive_image_kind image_kind;
+    c64_drive_status_result last_result;
+    char display_name[C64_DRIVE_DISPLAY_NAME_MAX];
+    char disk_title[C64_DRIVE_DISK_TITLE_MAX];
+} runtime_disk_status_snapshot;
+
+typedef struct runtime_event {
+    runtime_event_type type;
+    /* Echo of runtime_command.request_token for solicited completions; 0 for
+       unsolicited notifications (frame ready, free-run pause/running, etc.). */
+    uint64_t request_token;
+
+    union {
+        struct {
+            int unused;
+        } pong;
+
+        struct {
+            char code[64];
+            char message[1024];
+        } error;
+
+        struct {
+            uint64_t frame_number;
+            uint64_t machine_cycle;
+            uint64_t dropped_frames;
+        } frame_ready;
+
+        runtime_cpu_snapshot cpu_state;
+        runtime_machine_snapshot machine_state;
+        runtime_memory_snapshot memory;
+        runtime_memory_rpc_meta memory_rpc;
+        /* Breakpoint table lives in breakpoint_slot; event carries meta only. */
+        struct {
+            uint16_t count;
+            uint64_t generation;
+        } breakpoints_ready;
+        runtime_disk_status_snapshot disk_status;
+        runtime_call_stack_snapshot call_stack;
+        struct {
+            uint16_t address;
+            char path[1024];
+            char notice[4096];
+        } assemble;
+
+        struct {
+            char path[1024];
+        } state_file;
+
+        struct {
+            int32_t swap_param;
+            uint8_t swap_relative;
+            uint8_t device;
+        } disk_swap;
+        struct {
+            uint64_t generation;
+            uint8_t has_write_history;
+        } debug_memory_ready;
+
+        runtime_history_status history_status;
+        runtime_history_rpc_meta history_rpc;
+
+        struct {
+            runtime_session_status status;
+            uint32_t session_id;
+            uint8_t kind; /* runtime_session_kind */
+        } session;
+
+        struct {
+            runtime_state_changed_reason reason;
+            uint32_t source_session_id;
+            uint64_t cycles;
+            uint64_t frame;
+            uint64_t history_epoch;
+        } state_changed;
+
+        struct {
+            uint8_t op; /* 0 = enter, 1 = leave */
+            uint8_t mode; /* runtime_inspector_mode */
+            uint8_t status; /* runtime_inspector_enter_status */
+            runtime_inspector_focus focus;
+            uint8_t start_kind;
+            uint32_t start_arg1;
+        } inspector_mode;
+    } data;
+} runtime_event;

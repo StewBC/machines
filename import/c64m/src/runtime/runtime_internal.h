@@ -1,0 +1,299 @@
+#pragma once
+
+#include "runtime.h"
+#include "runtime_client.h"
+#include "runtime_command.h"
+#include "runtime_frame_ring.h"
+#include "runtime_vic_ring.h"
+#include "runtime_history.h"
+#include "runtime_inspector.h"
+
+#include "audio_buffer.h"
+#include "c64.h"
+#include "c64_rom.h"
+#include "mutex.h"
+#include "symbol_table.h"
+
+#include <stdbool.h>
+#include <stdio.h>
+
+#define RUNTIME_COMMAND_QUEUE_CAPACITY 256
+#define RUNTIME_EVENT_QUEUE_CAPACITY 256
+#define RUNTIME_BREAKPOINT_CAPACITY 64
+
+typedef struct message_queue message_queue;
+typedef struct thread thread;
+
+typedef enum runtime_exec_state {
+    RUNTIME_EXEC_STOPPED = 0,
+    RUNTIME_EXEC_PAUSED,
+    RUNTIME_EXEC_RUNNING
+} runtime_exec_state;
+
+typedef enum runtime_speed_mode {
+    RUNTIME_SPEED_MODE_SLOW = 0,
+    RUNTIME_SPEED_MODE_FAST
+} runtime_speed_mode;
+
+struct runtime_client {
+    message_queue *command_queue;
+    message_queue *event_queue;
+    struct runtime_frame_slot *frame_slot;
+    struct runtime_debug_memory_slot *debug_memory_slot;
+    struct runtime_symbol_slot *symbol_slot;
+    struct runtime_breakpoint_slot *breakpoint_slot;
+    struct runtime_rpc_payload_pool *rpc_payload_pool;
+    struct runtime_frame_ring *frame_ring;
+    struct runtime_vic_ring *vic_ring;
+    struct runtime_inspector_cp_index *inspector_cp_index;
+    /* Monotonic allocator for request_token (starts at 1; 0 reserved). */
+    uint64_t next_request_token;
+    /* Stamped onto outgoing commands as source session (0 = unknown). */
+    uint32_t command_session_id;
+};
+
+typedef struct paste_state {
+    /* text-driven path (use_buffer, or legacy matrix-from-ASCII) */
+    char text[RUNTIME_PASTE_TEXT_MAX];
+    size_t length;
+    size_t position;
+    bool shift_needed;
+    bool use_buffer;
+
+    /* shared timing state */
+    uint64_t phase_end_cycle;
+    bool in_gap;
+
+    /* event-driven path (RUNTIME_COMMAND_PASTE_EVENTS) */
+    bool event_mode;
+    size_t event_cursor;
+    size_t event_count;
+    paste_event_t events[PASTE_EVENTS_MAX];
+    bool    asserted_keys[C64_KEY_COUNT]; /* tracks keys held via KEY_ASSERT */
+    bool    oneshot_keys[C64_KEY_COUNT];  /* tracks bare modifier tokens */
+    bool    temp_keys[C64_KEY_COUNT];     /* tracks keys asserted for the current timed event */
+    uint8_t asserted_joy[2];             /* port 1 = [0], port 2 = [1] */
+} paste_state;
+
+typedef struct runtime_frame_slot {
+    mutex *mutex;
+    /* Single copied handoff slot. The frontend consumes the latest complete frame. */
+    c64_frame frame;
+    bool has_frame;
+    uint64_t published_frames;
+    uint64_t consumed_frames;
+    uint64_t dropped_frames;
+} runtime_frame_slot;
+
+typedef struct runtime_debug_memory_slot {
+    mutex *mutex;
+    runtime_debug_memory_snapshot snapshot;
+    bool has_snapshot;
+    uint64_t generation;
+} runtime_debug_memory_slot;
+
+typedef struct runtime_symbol_slot {
+    mutex *mutex;
+    runtime_symbol_snapshot snapshot;
+    bool has_symbols;
+} runtime_symbol_slot;
+
+typedef struct runtime_breakpoint_slot {
+    mutex *mutex;
+    runtime_breakpoint_snapshot snapshot;
+    bool has_snapshot;
+    uint64_t generation;
+} runtime_breakpoint_slot;
+
+typedef enum runtime_rpc_payload_kind {
+    RUNTIME_RPC_PAYLOAD_NONE = 0,
+    RUNTIME_RPC_PAYLOAD_MEMORY,
+    RUNTIME_RPC_PAYLOAD_HISTORY
+} runtime_rpc_payload_kind;
+
+/* Token-keyed owned bulk results (never stored in event queue unions). */
+typedef struct runtime_rpc_payload_slot {
+    uint64_t request_token;
+    uint32_t length;
+    runtime_rpc_payload_kind kind;
+    union {
+        struct {
+            uint16_t address;
+            runtime_memory_mode mode;
+        } memory;
+        runtime_history_rpc_meta history;
+    } meta;
+    uint8_t in_use;
+    uint8_t *bytes; /* owned heap buffer of `length` when in_use */
+} runtime_rpc_payload_slot;
+
+typedef struct runtime_rpc_payload_pool {
+    mutex *mutex;
+    runtime_rpc_payload_slot slots[RUNTIME_RPC_PAYLOAD_POOL_CAPACITY];
+} runtime_rpc_payload_pool;
+
+typedef struct runtime_history_cursor {
+    runtime_history_query query;
+    uint64_t id;
+    uint64_t epoch;
+    uint64_t mutation_generation;
+    uint64_t next_id;
+    uint8_t active;
+    uint8_t stale;
+} runtime_history_cursor;
+
+enum {
+    RUNTIME_SESSION_CAPACITY = 4
+};
+
+/* Per-asker state: history cursor + endpoint binding. No live machine pointers. */
+typedef struct runtime_session {
+    uint32_t id; /* never 0 when active */
+    runtime_session_kind kind;
+    uint8_t active;
+    uint64_t endpoint_epoch; /* control connection_epoch; 0 if unused */
+    runtime_history_cursor history_cursor;
+} runtime_session;
+
+typedef struct runtime_breakpoint {
+    uint32_t id;
+    bool enabled;
+    uint16_t start_address;
+    uint16_t end_address;
+    bool has_end_address;
+    uint32_t access_mask;
+    runtime_breakpoint_mapping mapping;
+    uint32_t action_mask;
+    bool use_counter;
+    uint32_t initial_count;
+    uint32_t reset_count;
+    uint32_t counter;
+    uint32_t current_hits;
+    int32_t swap_param;
+    uint8_t swap_relative;
+    char tron_path[RUNTIME_BREAKPOINT_TRON_PATH_MAX];
+    char type_text[RUNTIME_BREAKPOINT_TYPE_TEXT_MAX];
+    /* Guard evaluated only after address/access/mapping matched, so an armed
+       condition costs nothing on accesses that miss the watched address. */
+    runtime_bp_condition condition;
+} runtime_breakpoint;
+
+struct runtime {
+    thread *thread;
+    message_queue *command_queue;
+    message_queue *event_queue;
+    runtime_client client;
+    runtime_frame_slot frame_slot;
+    runtime_debug_memory_slot debug_memory_slot;
+    runtime_breakpoint_slot breakpoint_slot;
+    runtime_rpc_payload_pool rpc_payload_pool;
+    c64_frame publish_frame;
+    runtime_symbol_slot symbol_slot;
+    symbol_table *symbols;
+    c64_t machine;
+    runtime_history *history;
+    uint32_t history_memory_mb;
+    runtime_frame_ring frame_ring;
+    uint32_t frame_ring_memory_mb;
+    runtime_vic_ring vic_ring;
+    uint32_t vic_ring_memory_mb;
+    /* Startup request from runtime_config.inspector; worker applies it via
+       runtime_inspector_set_enabled. */
+    bool inspector;
+    bool inspector_enabled;
+    uint32_t inspector_memory_mb;
+    bool inspector_off_on_max;
+    bool inspector_enabled_saved_for_max;
+    bool inspector_empty_tape_warned;
+    struct runtime_inspector_recorder *inspector_recorder;
+    runtime_inspector_cp_index inspector_cp_index;
+    bool inspecting;
+    uint8_t *inspector_now_blob;
+    size_t inspector_now_size;
+    uint64_t inspector_now_cycle;
+    runtime_inspector_focus inspector_focus;
+    uint64_t history_mutation_generation;
+    uint64_t next_history_cursor_id;
+    runtime_session sessions[RUNTIME_SESSION_CAPACITY];
+    uint32_t next_session_id;
+    uint32_t default_session_id; /* omit session_id=0 resolves here; never 0 after create */
+    uint8_t pending_history_trap;
+    c64_cpu_observer_trap pending_history_trap_data;
+    char mounted_disk_paths[C64_DRIVE_SLOT_COUNT][RUNTIME_COMMAND_PATH_MAX];
+    c64_rom_set roms;
+    char *basic_rom_path;
+    char *char_rom_path;
+    char *kernal_rom_path;
+    char *system_rom_path;
+    char *rom1541_path;
+    char *ini_path;
+    char *symbol_files;
+    bool use_ini;
+    bool save_ini;
+    c64_config machine_config;
+    uint32_t turbo_speeds[16];
+    uint8_t turbo_speed_count;
+    uint32_t active_turbo_multiplier;
+    runtime_exec_state exec_state;
+    runtime_stop_reason last_stop_reason;
+    runtime_speed_mode speed_mode;
+    bool trace_enabled;
+    FILE *trace_file;
+    runtime_breakpoint breakpoints[RUNTIME_BREAKPOINT_CAPACITY];
+    size_t breakpoint_count;
+    uint32_t next_breakpoint_id;
+    bool breakpoint_hit_pending;
+    bool suppress_execute_bp;
+    bool temp_bp_active;
+    uint16_t temp_bp_address;
+    bool temp_bp_skip_current;
+    uint64_t next_frame_cycle;
+    uint64_t next_frame_counter;
+    uint64_t frame_counter_step;
+    bool pace_initialized;
+    bool started;
+    /* Audio: shared buffer pointer (not owned). Null when audio is disabled. */
+    audio_buffer *audio_out;
+    int audio_sample_rate;
+    char *audio_record_path;
+    FILE *audio_record_file;
+    double audio_record_start_seconds;
+    double audio_record_duration_seconds;
+    uint64_t audio_record_seen_samples;
+    uint64_t audio_record_written_samples;
+    uint64_t audio_record_target_samples;
+    bool audio_record_failed;
+    bool audio_record_finished;
+    double audio_cycle_accum;   /* fractional cycle accumulator for sample timing */
+    double audio_sample_accum;  /* SID sample sum across the current host interval */
+    uint32_t audio_sample_count; /* SID samples accumulated for current host interval */
+    float audio_smoke_phase;    /* square-wave phase accumulator for smoke tone */
+    int audio_smoke;            /* non-zero: emit smoke tone instead of silence */
+    bool paste_active;
+    paste_state paste;
+    char *pending_prg_path;
+    bool pending_prg_resume_running;
+    char *pending_asm_path;
+    uint16_t pending_asm_address;
+    uint16_t pending_asm_run_address;
+    bool pending_asm_auto_run;
+    bool pending_asm_basic_run;
+    bool pending_asm_auto_adjust_segments;
+    char *pending_bin_path;
+    uint16_t pending_bin_address;
+    uint8_t pending_bin_use_file_address;
+    uint8_t pending_bin_is_basic;
+    uint8_t pending_bin_is_basic_text;
+    bool autorun;
+    /* True while the machine is known to be sitting at an undisturbed BASIC
+       READY prompt (set when PC reaches the $E38B warm-start; cleared by resets,
+       program loads, auto-run PC pokes, and pasted RUNs). Lets assemble's
+       BASIC-run mode skip a redundant reset on a freshly launched machine. */
+    bool basic_ready;
+    /* 0 = inactive; 1 = inject LOAD"*",8 on next $E38B; 2 = inject RUN on next $E38B */
+    int autorun_d64_phase;
+    /* Incremented on each machine-state telemetry publish (Phase 4 stamps). */
+    uint64_t runtime_seq;
+};
+
+int runtime_thread_main(void *userdata);

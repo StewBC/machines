@@ -1,0 +1,324 @@
+#pragma once
+
+#include "c64_frame.h"
+
+#include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
+
+#ifndef C64M_C64_BUS_TYPEDEF
+#define C64M_C64_BUS_TYPEDEF
+typedef struct c64_bus_t c64_bus_t;
+#endif
+
+#ifndef C64M_VICII_TYPEDEF
+#define C64M_VICII_TYPEDEF
+typedef struct vicii vicii;
+#endif
+
+enum {
+    VICII_REGISTER_COUNT = 0x40,
+    VICII_NTSC_CYCLES_PER_LINE = 65,
+    VICII_NTSC_LINES_PER_FRAME = 263,
+    VICII_PAL_CYCLES_PER_LINE = 63,
+    VICII_PAL_LINES_PER_FRAME = 312,
+};
+
+typedef enum vicii_video_standard {
+    VICII_VIDEO_STANDARD_NTSC = 0,
+    VICII_VIDEO_STANDARD_PAL
+} vicii_video_standard;
+
+/* The VIC-II bus operation scheduled for the current Phi2 cycle. */
+typedef enum vicii_bus_access_kind {
+    VICII_BUS_ACCESS_NONE = 0,
+    VICII_BUS_ACCESS_C,
+    VICII_BUS_ACCESS_G,
+    VICII_BUS_ACCESS_IDLE,
+    VICII_BUS_ACCESS_SPRITE_POINTER,
+    VICII_BUS_ACCESS_SPRITE_DATA,
+    /* Compatibility spelling for callers which only distinguished the old
+       coarse sprite fetch marker. Phi2 sprite work is sprite-data work. */
+    VICII_BUS_ACCESS_SPRITE = VICII_BUS_ACCESS_SPRITE_DATA
+} vicii_bus_access_kind;
+
+typedef struct vicii_timing {
+    uint32_t cycles_per_line;
+    uint32_t lines_per_frame;
+    uint32_t cycle_in_line;
+    uint32_t raster_line;
+    uint64_t frame_number;
+    bool     frame_complete;
+    vicii_video_standard standard;
+    vicii_bus_access_kind bus_access;      /* Phi2: CPU-visible VIC work. */
+    vicii_bus_access_kind bus_access_phi1; /* Phi1: VIC-private bus work. */
+    bool aec_active;                       /* AEC high: CPU owns Phi2 bus. */
+    bool rdy_active;                       /* RDY high: CPU reads may advance. */
+    /* VICE prefetch_cycles: BA must remain low for three complete lead cycles
+       before the VIC can lower AEC and perform a real Phi2 fetch. */
+    uint8_t prefetch_cycles;
+
+    /* Phase A additions */
+    uint16_t raster_compare;          /* 9-bit: 0-311 PAL, 0-262 NTSC */
+
+    /* BA is one schedule-derived absolute expiry. The legacy sprite field is
+       retained in the serialized layout but is no longer read by the live BA
+       predicate. */
+    uint64_t ba_low_until_abs;
+    uint64_t sprite_ba_low_until_abs;
+} vicii_timing;
+
+typedef struct c64_vicii_snapshot {
+    uint32_t raster_line;
+    uint32_t cycle_in_line;
+    uint64_t frame_number;
+    uint8_t border_color;
+    uint8_t background_color;
+} c64_vicii_snapshot;
+
+/* Per-raster-line snapshot of VIC-II *derived* state, emitted at end of line.
+ *
+ * The point of this record is the state that CPU writes cannot reveal. The
+ * clearest example is `sprite_x`: it is the X (including the $D010 MSB) that
+ * was actually latched for painting this line, which is not necessarily what
+ * $D000..$D010 hold now. A sprite that appears for one frame at the left edge
+ * is exactly that disagreement, and it is invisible to both the framebuffer
+ * ring and the CPU flight recorder.
+ *
+ * `machine_cycle` is the shared axis with the frame ring and the flight
+ * recorder, so a line found here can be correlated with both. */
+typedef struct vicii_line_record {
+    uint64_t machine_cycle;
+    uint64_t frame_number;
+    uint16_t raster_line;
+
+    uint16_t vc;
+    uint16_t vc_base;
+    uint8_t  rc;
+    uint8_t  vmli;
+
+    uint8_t  d011;
+    uint8_t  d016;
+    uint8_t  d018;
+    uint8_t  border_color;
+    uint8_t  background[4];
+
+    uint8_t  irq_status;
+    uint8_t  irq_enable;
+
+    uint8_t  bad_line;
+    uint8_t  allow_bad_lines;
+    uint8_t  display_state;
+    uint8_t  vertical_border;
+    uint8_t  main_border_ff;
+
+    /* Bitmasks, bit n = sprite n. */
+    uint8_t  sprite_enabled;   /* $D015 as latched for this line */
+    uint8_t  sprite_visible;   /* had fetched data, i.e. actually painted */
+    uint8_t  sprite_active;    /* sequencer still active for future lines */
+    uint8_t  sprite_priority;
+    uint8_t  sprite_multicolor;
+    uint8_t  sprite_x_expand;
+    uint8_t  sprite_y_expand_ff;
+
+    /* Per sprite, as latched for this line. */
+    uint16_t sprite_x[8];      /* includes the $D010 MSB actually used */
+    uint8_t  sprite_y[8];
+    uint8_t  sprite_pointer[8];
+    uint8_t  sprite_color[8];
+    uint8_t  sprite_mc[8];
+    uint8_t  sprite_mcbase[8];
+} vicii_line_record;
+
+typedef void (*vicii_line_observer_fn)(
+    void *user,
+    const vicii_line_record *record);
+
+struct vicii {
+    uint8_t registers[VICII_REGISTER_COUNT];
+    vicii_timing timing;
+    /* Double-buffered live indexed frames. paint_frame is the buffer being
+       painted; the other holds the last completed frame when ready. EOF
+       swaps the index instead of copying the completed frame. */
+    c64_frame frames[2];
+    uint8_t paint_frame; /* 0 or 1 */
+    bool completed_frame_ready;
+
+    /* Phase A additions */
+    uint16_t vc;               /* Video Counter, 10-bit, 0-1023 */
+    uint16_t vc_base;          /* VCBASE: latched copy of vc at Bad Line row start */
+    uint8_t  vmli;             /* video-matrix line index, 0-40 */
+    uint8_t  rc;               /* Row Counter, 3-bit, 0-7 */
+    bool     display_state;    /* true while a character row is in progress */
+    bool     bad_line;         /* true if the current raster line is a Bad Line */
+    /* Bauer/VICE: DEN is sampled on raster $30 to arm bad lines for the rest of
+       the $30–$F7 window (allow_bad_lines). Clearing DEN later does not disarm
+       them until after $F7. c64m previously required DEN every cycle. */
+    bool     allow_bad_lines;
+    uint8_t  video_matrix[40]; /* character codes fetched on Bad Lines */
+    uint8_t  color_line[40];   /* color nibbles fetched on Bad Lines */
+    /* g-access graphics bytes for the current line (column 0..39). Filled by
+       Phi1 g-fetch so paint uses the byte latched with that cycle's address
+       (D018 / mode), matching VICE gbuf rather than re-reading RAM live. */
+    uint8_t  g_line[40];
+    /* Previous-cycle $D011 (VICE reg11_delay). g-fetch address uses this so a
+       mid-line ECM/BMM write takes effect one cycle late. */
+    uint8_t  reg11_delay;
+
+    /* xscroll_pipe: after CPU store on g-access cycles 15..54 only, latch
+       $D016 XSCROLL for the next cycle. Excludes 0..14 (stale previous-line
+       $62 before first matrix cell) and 55+ (border-dodge $62). Either of
+       those reintroduced the solid x=24 EoD checker line. Snapshot: live $D016. */
+    uint8_t  xscroll_pipe;
+
+    uint8_t  irq_status;       /* live shadow of $D019 low nibble */
+    uint8_t  irq_enable;       /* live shadow of $D01A low nibble */
+
+    /* Phase D: per-sprite state */
+    uint8_t  sprite_mc[8];          /* next byte offset into 63-byte sprite block (0,3,6…60) */
+    bool     sprite_active[8];      /* sprite sequencer remains active for future lines */
+    /* Bitmask of sprite_active[] for O(1) BA / idle tests (bit n = sprite n). */
+    uint8_t  sprite_active_mask;
+    uint8_t  sprite_mcbase[8];      /* MCBASE latch used by the line sequencer */
+    bool     sprite_visible[8];     /* sprite has valid fetched data for the current line */
+    /* Bitmask of sprite_visible[] for O(1) paint any-sprite tests. */
+    uint8_t  sprite_visible_mask;
+    bool     sprite_y_exp_ff[8];    /* Y-expand flip-flop; governs when mc advances */
+    uint8_t  sprite_pointer[8];     /* pointer fetched in the sprite p-access */
+    uint8_t  sprite_data[8][3];     /* current row: 3 fetched data bytes (committed to renderer) */
+    bool     sprite_line_enabled[8]; /* $D015 latched at line start / DMA-on (DMA start only; paint uses sprite_visible) */
+    uint16_t sprite_line_x[8];
+    bool     sprite_line_x_expand[8];
+    bool     sprite_line_multicolor[8];
+    uint8_t  sprite_line_color[8];
+    uint8_t  sprite_line_mm0;
+    uint8_t  sprite_line_mm1;
+
+    /* Phase E: sprite priority and collision latches */
+    uint8_t  sprite_priority;              /* $D01B: 1 = sprite behind foreground graphics */
+    uint8_t  sprite_sprite_collision;      /* $D01E: sprite-sprite collision latch */
+    uint8_t  sprite_background_collision;  /* $D01F: sprite-background collision latch */
+    /* VICE: $D01E/$D01F reads return the latch but defer the clear until the
+       end of the current draw cycle. Two back-to-back LDA $D01F therefore see
+       the same mask — lft-nine's VIC-type detect depends on that. 0 = idle;
+       0x1E / 0x1F = clear that register after this cycle's pixels. */
+    uint8_t  clear_collisions;
+
+    /* Live vertical border-unit state (VICE vborder). Snapshot rendering keeps
+       using conventional geometry; completed live frames preserve mid-frame RSEL
+       timing effects. */
+    bool     vertical_border_active;
+
+    /* Latched vertical-border set request (VICE set_vborder). Bottom compare only
+       sets this; top+DEN clears both latch and vertical_border_active. The latch
+       is copied into vertical_border_active at cycle 0 and at the left border
+       compare — matching VICE so the classic RSEL lower-border open works when
+       the 24-row bottom is missed and the 25-row bottom is never armed. */
+    bool     set_vborder;
+
+    /* Live main (horizontal) border flip-flop. Set at the right compare column
+       and reset at the left compare column (Bauer 3.9 rules 1 & 6), evaluated per
+       dot in the live renderer with the CSEL live for that cycle. Persists across
+       cycles/lines/frames so a timed $D016 CSEL write can leave the side border
+       open. Snapshot rendering keeps geometric side borders. */
+    bool     main_border_ff;
+
+    /* When false, raster/BA/IRQ/sprite-DMA timing still advances, but pixel
+       fill, working-frame clears, and completed-frame copies are skipped. Used by
+       the runtime in warp turbo mode so free-run is not bound by display work.
+       Sprite collision latches only update while pixel output is enabled. */
+    bool     pixel_output_enabled;
+
+    /* 6569 color_latency: $D020/$D021 take effect one pixel late (VICE
+       draw_colors_6569 ring). lft-nine's six-write $D021 splits and the author's
+       "one pixel delay to line up with XSCROLL=1" depend on this. Advanced once
+       per VIC dot after the sample — including HBLANK dots that are not written
+       to the 384-px frame, so a write before the left edge drains before x=0. */
+    uint8_t  color_pipe_d020;
+    uint8_t  color_pipe_d021;
+
+    /* Horizontal-border pipeline (VICE viciisc check_hborder + draw_border8).
+       The main flip-flop is decided by cycle-based checks using the CSEL value
+       latched at the end of the previous cycle (pre-store). c64m folds the VIC's
+       ~2-cycle pixel pipeline into its paint anchor, so the flip-flop is applied
+       to pixels two render cycles late. CSEL=1 (40-col) applies one border state
+       to the whole 8-dot span. CSEL=0 (38-col) follows VICE draw_border8: the
+       first 7 dots keep the previous output state and only the last dot takes
+       the new flip-flop — that is the hardware 7-pixel inset (left 31 / right
+       335). Check cycles under this delay model: left always 17; right 57
+       (CSEL=1) or 55 (CSEL=0). Two CSEL samples are retained because c64m can
+       project VICE's cycle-56 CSEL store at cycle 56 (EoD) or 55 (lft-nine);
+       an in-flight 1→0 must not look like a stable 38-col close. */
+    bool     hborder_prev_csel;
+    bool     hborder_prev2_csel;
+    /* Output border state after the last flushed span (VICE border_state). */
+    bool     hborder_out_state;
+    /* Index of the span to flush next (oldest). Newest is 1 - hborder_oldest.
+       Avoids a full struct copy each cycle when rotating the 2-deep pipe. */
+    uint8_t  hborder_oldest;
+    struct {
+        uint8_t  n;
+        uint8_t  mode;               /* graphics mode used to paint this span */
+        uint8_t  reg11;              /* $D011 as sampled when this span was painted */
+        bool     csel;               /* CSEL used when this span was checked/painted */
+        /* bit0: content[0] applies to all n dots; bit1: border[0] applies to all.
+           idx is consecutive from idx[0] when n==8 (set by paint path). */
+        uint8_t  solid;
+        uint8_t  dot[8];             /* dot position 0..7 within the cycle */
+        uint32_t idx[8];
+        uint8_t  content[8];
+        bool     content_d021[8];
+        uint8_t  border[8];
+    } hborder_pipe[2];
+    /* Transient bus pointer stashed each begin_cycle so finish_cycle can resolve
+       a same-cycle Phi2 $D016 MCM write into the current span (see the mode
+       resolution in vicii_finish_cycle). Not snapshotted; re-set every cycle. */
+    const c64_bus_t *paint_bus;
+    /* Stashed alongside paint_bus so finish_cycle can stamp the per-line
+       observer record with the absolute machine cycle. Not snapshotted. */
+    uint64_t paint_abs_cycle;
+
+    /* Transient line class recomputed at cycle 0. Not snapshotted.
+       0 = full accuracy path; 1 = deep vertical-border idle (no sprites, away
+       from top/bottom compares, outside badline window). */
+    uint8_t line_class;
+
+    /* Host-side per-line observer. Not snapshotted; preserved across snapshot
+       load the same way as c64_t::memory_access. NULL disables the hook, which
+       is the only cost when nothing is recording. */
+    vicii_line_observer_fn line_observer;
+    void *line_observer_user;
+};
+
+enum {
+    VICII_LINE_CLASS_FULL         = 0,
+    VICII_LINE_CLASS_VBORDER_IDLE = 1
+};
+
+bool vicii_init(vicii *v, char *error, size_t error_size);
+void vicii_reset(vicii *v);
+void vicii_set_video_standard(vicii *v, vicii_video_standard standard);
+void vicii_set_pixel_output_enabled(vicii *v, bool enabled);
+bool vicii_pixel_output_enabled(const vicii *v);
+void vicii_step_cycle(vicii *v, const c64_bus_t *bus, uint64_t abs_cycle);
+/* Split-cycle interface used by the machine arbiter. begin_cycle performs the
+   VIC's Phi1/internal work and establishes BA/AEC for the current Phi2. The CPU
+   may then run its Phi2 bus phase before finish_cycle advances the raster. */
+void vicii_begin_cycle(vicii *v, const c64_bus_t *bus, uint64_t abs_cycle);
+void vicii_finish_cycle(vicii *v);
+bool vicii_ba_active(const vicii *v, uint64_t abs_cycle);
+bool vicii_aec_active(const vicii *v);
+bool vicii_rdy_active(const vicii *v, uint64_t abs_cycle);
+vicii_bus_access_kind vicii_bus_access(const vicii *v);
+vicii_bus_access_kind vicii_bus_access_phi1(const vicii *v);
+void vicii_destroy(vicii *v);
+
+uint8_t vicii_read_register(vicii *v, uint16_t addr);
+uint8_t vicii_debug_read_register(const vicii *v, uint16_t addr);
+void vicii_write_register(vicii *v, uint16_t addr, uint8_t value);
+bool vicii_consume_frame_complete(vicii *v);
+bool vicii_copy_completed_frame(vicii *v, c64_frame *out_frame, uint64_t machine_cycle);
+bool vicii_copy_paint_frame(vicii *v, c64_frame *out_frame, uint64_t machine_cycle);
+bool vicii_make_frame_snapshot(vicii *v, const c64_bus_t *bus, c64_frame *out_frame, uint64_t machine_cycle);
+bool vicii_make_current_frame_snapshot(vicii *v, const c64_bus_t *bus, c64_frame *out_frame, uint64_t machine_cycle);
+void vicii_copy_snapshot(const vicii *v, c64_vicii_snapshot *out);

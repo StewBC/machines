@@ -1,0 +1,3432 @@
+#include "c64.h"
+#include "d64.h"
+
+#include <assert.h>
+#include <stdarg.h>
+#include <stdlib.h>
+#include <stdio.h>
+#include <string.h>
+
+enum {
+    C64_VICII_REG_MEMORY_POINTER = 0x18,
+    C64_KERNAL_LOAD_ENTRY = 0xffd5,
+    C64_KERNAL_SAVE_ENTRY = 0xffd8,
+    C64_ZP_STATUS = 0x90,
+    C64_ZP_EAL = 0xae,
+    C64_ZP_FILENAME_LENGTH = 0xb7,
+    C64_ZP_SECONDARY_ADDRESS = 0xb9,
+    C64_ZP_DEVICE_NUMBER = 0xba,
+    C64_ZP_FILENAME_POINTER = 0xbb,
+    C64_BASIC_START_POINTER = 0x2b,
+    C64_BASIC_VARTAB_POINTER = 0x2d,
+    C64_BASIC_ARYTAB_POINTER = 0x2f,
+    C64_BASIC_STREND_POINTER = 0x31,
+    C64_CPU_BUS_MODE_IMMEDIATE = 0,
+    C64_CPU_BUS_MODE_TIMED_IMMEDIATE,
+    C64_CPU_BUS_MODE_DEFER_WRITES,
+    C64_CPU_BUS_MODE_ARBITER
+};
+
+static const uint8_t c64_d64_sectors_per_track[35] = {
+    21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21,
+    19, 19, 19, 19, 19, 19, 19,
+    18, 18, 18, 18, 18, 18,
+    17, 17, 17, 17, 17
+};
+
+static uint8_t c64_iec_line_mask(uint8_t lines) {
+    return (uint8_t)(lines & (C64_IEC_ATN | C64_IEC_CLK | C64_IEC_DATA));
+}
+
+static void c64_disk_activity_clear_all(c64_t *machine) {
+    size_t i;
+
+    if (machine == NULL) {
+        return;
+    }
+    for (i = 0; i < C64_DRIVE_SLOT_COUNT; ++i) {
+        machine->drives[i].led_read_seq = 0;
+        machine->drives[i].led_write_seq = 0;
+    }
+}
+
+/* Soft power: a unit only sits on the IEC bus once powered (first mount or
+   explicit power-on). An unpowered 1541 must not drive the bus: an idle 1541
+   still answers ATN by pulling DATA through the ATN acknowledge gate, which
+   corrupts loaders that use ATN as a transfer clock (Edge of Disgrace). This
+   matches leaving the drive's power switch off until the user engages that unit. */
+static uint8_t c64_drive_bus_pull(const c64_t *machine, int slot_index) {
+    if (slot_index < 0 || slot_index >= C64_DRIVE_SLOT_COUNT) {
+        return 0;
+    }
+    if (!machine->drives[slot_index].powered) {
+        return 0;
+    }
+    if (slot_index == 0) {
+        return machine->iec_external_pull_drive8;
+    }
+    return machine->iec_external_pull_drive9;
+}
+
+static void c64_refresh_iec_external_pull(c64_t *machine) {
+    machine->iec_external_pull = c64_iec_line_mask(
+        machine->iec_external_pull_other |
+        c64_drive_bus_pull(machine, 0) |
+        c64_drive_bus_pull(machine, 1));
+    c64_bus_refresh_vic_bank_base(&machine->bus);
+}
+
+uint32_t c64_config_clock_hz(const c64_config *config) {
+    if (config != NULL && config->video_standard == C64_VIDEO_STANDARD_NTSC) {
+        return 1022727u;
+    }
+    return 985248u;
+}
+
+uint32_t c64_config_cycles_per_frame(const c64_config *config) {
+    if (config != NULL && config->video_standard == C64_VIDEO_STANDARD_NTSC) {
+        return (uint32_t)VICII_NTSC_CYCLES_PER_LINE * VICII_NTSC_LINES_PER_FRAME;
+    }
+    return (uint32_t)VICII_PAL_CYCLES_PER_LINE * VICII_PAL_LINES_PER_FRAME;
+}
+
+static void c64_set_error(char *error, size_t error_size, const char *message) {
+    if (!error || error_size == 0) {
+        return;
+    }
+
+    snprintf(error, error_size, "%s", message);
+}
+
+static int c64_drive_slot_index(uint8_t device) {
+    if (device < C64_DRIVE_MIN_DEVICE || device > C64_DRIVE_MAX_DEVICE) {
+        return -1;
+    }
+    return (int)(device - C64_DRIVE_MIN_DEVICE);
+}
+
+static void c64_copy_text(char *target, size_t target_size, const char *source) {
+    if (target == NULL || target_size == 0) {
+        return;
+    }
+    if (source == NULL) {
+        target[0] = '\0';
+        return;
+    }
+    snprintf(target, target_size, "%s", source);
+}
+
+static c64_drive_status_result c64_drive_status_from_d64_result(d64_result result) {
+    switch (result) {
+    case D64_OK:
+        return C64_DRIVE_STATUS_OK;
+    case D64_OUT_OF_MEMORY:
+        return C64_DRIVE_STATUS_OUT_OF_MEMORY;
+    case D64_DISK_FULL:
+    case D64_DIRECTORY_FULL:
+        return C64_DRIVE_STATUS_DISK_FULL;
+    case D64_FILE_EXISTS:
+        return C64_DRIVE_STATUS_FILE_EXISTS;
+    case D64_UNSUPPORTED_IMAGE:
+        return C64_DRIVE_STATUS_UNSUPPORTED_IMAGE;
+    case D64_INVALID_ARGUMENT:
+    case D64_TRACK_OUT_OF_RANGE:
+    case D64_SECTOR_OUT_OF_RANGE:
+    case D64_DIRECTORY_CHAIN_LOOP:
+    case D64_FILE_CHAIN_LOOP:
+    case D64_MALFORMED_DIRECTORY:
+    case D64_MALFORMED_FILE:
+    case D64_UNSUPPORTED_FILE_TYPE:
+    case D64_FILE_NOT_FOUND:
+    case D64_PRG_TOO_SHORT:
+    default:
+        return C64_DRIVE_STATUS_PARSE_ERROR;
+    }
+}
+
+static bool c64_cpu_io_visible(const c64_t *machine) {
+    uint8_t port = machine->bus.cpu_port_data;
+    return (port & 0x03u) != 0 && (port & 0x04u) != 0;
+}
+
+static bool c64_cpu_address_is_io(const c64_t *machine, uint16_t address) {
+    return address >= 0xd000u && address <= 0xdfffu && c64_cpu_io_visible(machine);
+}
+
+static uint64_t c64_current_cycle(const c64_t *machine) {
+    return machine->clock.cycle;
+}
+
+static void c64_step_vic(c64_t *machine) {
+    vicii_begin_cycle(&machine->vic, &machine->bus, machine->clock.cycle);
+    machine->clock.vic_cycles++;
+}
+
+static void c64_step_cia1(c64_t *machine) {
+    cia_step_cycle(&machine->cia1);
+}
+
+static void c64_step_cia2(c64_t *machine) {
+    cia_step_cycle(&machine->cia2);
+    machine->clock.cia_cycles++;
+}
+
+static void c64_step_sid(c64_t *machine) {
+    sid_advance_cycles(&machine->sid, 1);
+}
+
+static void c64_configure_cia_tod(c64_t *machine) {
+    uint64_t pal_tenth = (uint64_t)VICII_PAL_CYCLES_PER_LINE * VICII_PAL_LINES_PER_FRAME * 5u;
+    uint64_t ntsc_tenth = (uint64_t)VICII_NTSC_CYCLES_PER_LINE * VICII_NTSC_LINES_PER_FRAME * 6u;
+
+    cia_set_tod_cycles(&machine->cia1, pal_tenth, ntsc_tenth);
+    cia_set_tod_cycles(&machine->cia2, pal_tenth, ntsc_tenth);
+}
+
+/* Advance both 1541s until their own clock has run `target_cycle` C64 cycles'
+   worth of time. The 1541 CPU is a fixed 1.000 MHz (16 MHz / 16), independent of
+   the C64's 985248 Hz PAL / 1022727 Hz NTSC Phi2, so the fixed-point accumulator
+   steps it slightly faster than PAL and slower than NTSC — the same true rate
+   VICE derives from its drivesync sync_factor. The drive is caught up to the
+   exact C64 access clock at each CIA2 IEC read/write (VICE's drive_catch_up_hook)
+   plus a per-cycle backstop, so IEC line transitions are sampled in the C64
+   clock domain. */
+static void c64_drive_sync_to(c64_t *machine, uint64_t target_cycle) {
+    uint64_t c64_hz;
+    uint64_t delta;
+
+    if (machine->clock.drive_synced_cycle >= target_cycle) {
+        return;
+    }
+
+    c64_hz = machine->clock.c64_hz;
+    if (c64_hz == 0u) {
+        c64_hz = c64_config_clock_hz(&machine->config);
+        machine->clock.c64_hz = (uint32_t)c64_hz;
+    }
+    delta = target_cycle - machine->clock.drive_synced_cycle;
+
+    /* Soft-power cold path: neither 1541 is clocked. Advance the phase
+       accumulator in closed form so a later power-on resumes at the correct
+       fractional drive-cycle offset without per-cycle work. */
+    if (!machine->drives[0].powered && !machine->drives[1].powered) {
+        uint64_t total = machine->clock.drive_accum + delta * 1000000ull;
+        machine->clock.drive_accum = total % c64_hz;
+        machine->clock.drive_synced_cycle = target_cycle;
+        return;
+    }
+
+    while (machine->clock.drive_synced_cycle < target_cycle) {
+        machine->clock.drive_synced_cycle++;
+        machine->clock.drive_accum += 1000000u;
+        while (machine->clock.drive_accum >= c64_hz) {
+            machine->clock.drive_accum -= c64_hz;
+            if (machine->drives[0].powered) {
+                c1541_advance_one_cycle(&machine->drive8);
+            }
+            if (machine->drives[1].powered) {
+                c1541_advance_one_cycle(&machine->drive9);
+            }
+        }
+    }
+}
+
+/* A CIA2 IEC read ($DD00) samples the drive's bus output at the current C64
+   clock. clock.cycle is not yet incremented for the in-progress cycle, matching
+   VICE read_ciapa's drive_catch_up_hook(maincpu_clk) ordering. */
+static void c64_drive_catch_up_at_iec_read(c64_t *machine) {
+    c64_drive_sync_to(machine, machine->clock.cycle);
+}
+
+/* A CIA2 IEC write ($DD00/$DD02) advances the drive one further cycle against the
+   OLD bus state before the new output is applied, so the drive sees the C64's new
+   IEC lines a cycle later — the one-cycle propagation delay VICE models via the
+   CIA write_offset. Without it the drive reacts to per-byte fast-loader
+   handshakes a cycle early and drifts ahead of the C64's timed samples. */
+static void c64_drive_catch_up_at_iec_write(c64_t *machine) {
+    c64_drive_sync_to(machine, machine->clock.cycle + 1u);
+}
+
+/* DEBUG oracle harness (compile-gated behind C64M_VIC_TRACE; inert in normal
+   builds). Per-raster CPU-exec vs BA-stall cycle budget trace for the lft-nine
+   oracle work. C64M_BALOG=<path> enables at runtime; reuses C64M_VICLOG_F0/F1/EXIT
+   for the frame window. Emits "F<frame> R<raster> exec=<n> stall=<n>" per line.
+   See md-files/lft-nine.md for the capture recipe. */
+#ifdef C64M_VIC_TRACE
+static uint64_t g_balog_exec = 0, g_balog_stall = 0;
+static void c64_balog_mark(int stall) { if (stall) g_balog_stall++; else g_balog_exec++; }
+static void c64_balog_maybe_emit(c64_t *machine) {
+    static FILE *balog = NULL;
+    static int   init = 0;
+    static unsigned long f0 = 0, f1 = 0xffffffffUL;
+    static int   do_exit = 0;
+    static int   prev_raster = -1;
+    if (!init) {
+        const char *p = getenv("C64M_BALOG");
+        const char *a = getenv("C64M_VICLOG_F0");
+        const char *b = getenv("C64M_VICLOG_F1");
+        if (p) { balog = fopen(p, "wb"); }
+        if (a) { f0 = strtoul(a, NULL, 10); }
+        if (b) { f1 = strtoul(b, NULL, 10); }
+        if (getenv("C64M_VICLOG_EXIT")) { do_exit = 1; }
+        init = 1;
+    }
+    if (!balog) return;
+    {
+        int rl = (int)machine->vic.timing.raster_line;
+        if (rl != prev_raster) {
+            unsigned long fr = (unsigned long)machine->vic.timing.frame_number;
+            if (prev_raster >= 0 && fr >= f0 && fr <= f1) {
+                fprintf(balog, "F%lu R%d exec=%llu stall=%llu\n", fr, prev_raster,
+                        (unsigned long long)g_balog_exec, (unsigned long long)g_balog_stall);
+            } else if (fr > f1) {
+                fflush(balog);
+                if (do_exit) { exit(0); }
+            }
+            g_balog_exec = 0; g_balog_stall = 0;
+            prev_raster = rl;
+        }
+    }
+}
+
+static void c64_cyclelog_emit(const c64_t *machine) {
+    static FILE *cyclelog = NULL;
+    static int init = 0;
+    static unsigned long f0 = 0, f1 = 0xffffffffUL;
+    static unsigned r0 = 0, r1 = 0xffffffffU;
+    unsigned active = 0;
+    int n;
+
+    if (!init) {
+        const char *p = getenv("C64M_CYCLELOG");
+        const char *a = getenv("C64M_VICLOG_F0");
+        const char *b = getenv("C64M_VICLOG_F1");
+        const char *ra = getenv("C64M_CYCLELOG_R0");
+        const char *rb = getenv("C64M_CYCLELOG_R1");
+        if (p) cyclelog = fopen(p, "wb");
+        if (a) f0 = strtoul(a, NULL, 10);
+        if (b) f1 = strtoul(b, NULL, 10);
+        if (ra) r0 = (unsigned)strtoul(ra, NULL, 10);
+        if (rb) r1 = (unsigned)strtoul(rb, NULL, 10);
+        init = 1;
+    }
+    if (!cyclelog || machine->vic.timing.frame_number < f0 ||
+        machine->vic.timing.frame_number > f1 ||
+        machine->vic.timing.raster_line < r0 ||
+        machine->vic.timing.raster_line > r1) {
+        return;
+    }
+    for (n = 0; n < 8; ++n) {
+        if (machine->vic.sprite_active[n]) active |= 1u << n;
+    }
+    fprintf(cyclelog,
+        "F%llu R%u C%u pc=%04X op=%02X ph=%u kind=%u micro=%u "
+        "rdy=%u aec=%u pf=%u bad=%u spr=%02X\n",
+        (unsigned long long)machine->vic.timing.frame_number,
+        machine->vic.timing.raster_line, machine->vic.timing.cycle_in_line,
+        machine->cpu.cpu.pc, machine->cpu.micro_opcode,
+        (unsigned)machine->cpu.micro_phase,
+        machine->cpu.micro_active ?
+            (unsigned)c6510_micro_access_kind(&machine->cpu) : 0xffu,
+        (unsigned)machine->cpu.micro_active,
+        vicii_rdy_active(&machine->vic, machine->clock.cycle) ? 1u : 0u,
+        vicii_aec_active(&machine->vic) ? 1u : 0u,
+        (unsigned)machine->vic.timing.prefetch_cycles,
+        machine->vic.bad_line ? 1u : 0u, active);
+}
+#else
+#define c64_balog_mark(stall)        ((void)0)
+#define c64_balog_maybe_emit(machine) ((void)0)
+#define c64_cyclelog_emit(machine)    ((void)0)
+#endif /* C64M_VIC_TRACE */
+
+/* Advance the CPU-visible VIC IRQ delay line. Raw pending comes from
+   irq_status & irq_enable (already reflected in $D019 bit 7). VICE does not
+   let the 6510 act on that line until INTERRUPT_DELAY (2) cycles later. */
+static void c64_update_vic_irq_delay(c64_t *machine) {
+    bool raw = (machine->vic.irq_status & machine->vic.irq_enable) != 0;
+
+    if (!raw) {
+        machine->vic_irq_delay = 0;
+        return;
+    }
+    if (machine->vic_irq_delay < 2u) {
+        machine->vic_irq_delay++;
+    }
+}
+
+/* Begin the VIC's current cycle first so BA/AEC describe this cycle before the
+   6510 makes its bus decision. */
+static void c64_begin_vic_for_current_cycle(c64_t *machine) {
+    /* VICE open-bus cbuf during BA lead uses ram[PC]. Snapshot the 6510 PC as
+       it stands after the previous cycle's Phi2 (before this cycle's CPU work). */
+    machine->bus.cpu_open_bus_pc = machine->cpu.cpu.pc;
+    c64_balog_maybe_emit(machine);
+    c64_step_vic(machine);
+}
+
+/* The 6510 polls interrupt pins at an instruction boundary before these chips
+   advance into the new cycle. Their bus-visible work still precedes the CPU's
+   Phi2 bus event below. */
+static void c64_step_nonvic_devices_for_current_cycle(c64_t *machine) {
+    c64_step_cia1(machine);
+    c64_step_cia2(machine);
+    c64_step_sid(machine);
+    c64_update_vic_irq_delay(machine);
+}
+
+static void c64_step_devices_for_current_cycle(c64_t *machine) {
+    c64_begin_vic_for_current_cycle(machine);
+    c64_step_nonvic_devices_for_current_cycle(machine);
+    c64_cyclelog_emit(machine);
+}
+
+static void c64_finish_cycle(c64_t *machine) {
+    vicii_finish_cycle(&machine->vic);
+    machine->clock.cycle++;
+    /* Per-cycle backstop: keep the drive current when no IEC access catches it
+       up. IEC accesses advance it precisely ahead of this point. */
+    c64_drive_sync_to(machine, machine->clock.cycle);
+}
+
+static void c64_advance_one_cycle(c64_t *machine) {
+    c64_step_devices_for_current_cycle(machine);
+    c64_finish_cycle(machine);
+}
+
+static void c64_advance_devices_to(c64_t *machine, uint64_t target_cycle) {
+    assert(machine);
+    assert(target_cycle >= machine->clock.cycle);
+
+    while (machine->clock.cycle < target_cycle) {
+        c64_advance_one_cycle(machine);
+    }
+}
+
+static void c64_trace_reset(c64_cpu_instruction_trace *trace) {
+    trace->opcode_pc = 0;
+    trace->event_count = 0;
+    trace->total_cycles = 0;
+}
+
+static bool c64_d64_track_sector_offset(uint8_t track, uint8_t sector, size_t *out_offset) {
+    size_t offset = 0;
+    uint8_t current_track;
+
+    if (out_offset == NULL || track < 1 || track > 35) {
+        return false;
+    }
+    if (sector >= c64_d64_sectors_per_track[track - 1]) {
+        return false;
+    }
+    for (current_track = 1; current_track < track; ++current_track) {
+        offset += (size_t)c64_d64_sectors_per_track[current_track - 1] * 256u;
+    }
+    offset += (size_t)sector * 256u;
+    if (offset + 256u > C64_DRIVE_D64_STANDARD_SIZE) {
+        return false;
+    }
+    *out_offset = offset;
+    return true;
+}
+
+static uint8_t c64_ascii_upper(uint8_t value) {
+    if (value >= 'a' && value <= 'z') {
+        return (uint8_t)(value - ('a' - 'A'));
+    }
+    return value;
+}
+
+static bool c64_drive_filename_matches(
+    const c64_drive_directory_entry *entry,
+    const uint8_t *name,
+    size_t name_length) {
+    size_t i;
+
+    while (name_length >= 2 && name[0] == '"' && name[name_length - 1] == '"') {
+        name++;
+        name_length -= 2;
+    }
+
+    if (entry->filename_length != name_length) {
+        return false;
+    }
+    for (i = 0; i < name_length; ++i) {
+        if (c64_ascii_upper(entry->filename[i]) != c64_ascii_upper(name[i])) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static bool c64_drive_pattern_has_wildcard(const uint8_t *name, size_t name_length) {
+    size_t i;
+
+    for (i = 0; i < name_length; ++i) {
+        if (name[i] == '*' || name[i] == '?') {
+            return true;
+        }
+    }
+    return false;
+}
+
+static bool c64_drive_filename_pattern_matches(
+    const c64_drive_directory_entry *entry,
+    const uint8_t *pattern,
+    size_t pattern_length) {
+    size_t name_index = 0;
+    size_t pattern_index = 0;
+
+    while (pattern_length >= 2 && pattern[0] == '"' && pattern[pattern_length - 1] == '"') {
+        pattern++;
+        pattern_length -= 2;
+    }
+
+    while (pattern_index < pattern_length) {
+        uint8_t pattern_char = pattern[pattern_index++];
+
+        if (pattern_char == '*') {
+            return true;
+        }
+        if (name_index >= entry->filename_length) {
+            return false;
+        }
+        if (pattern_char != '?' &&
+            c64_ascii_upper(entry->filename[name_index]) != c64_ascii_upper(pattern_char)) {
+            return false;
+        }
+        name_index++;
+    }
+
+    return name_index == entry->filename_length;
+}
+
+static const c64_drive_directory_entry *c64_drive_find_entry(
+    const c64_drive_slot *slot,
+    const uint8_t *name,
+    size_t name_length) {
+    size_t i;
+    bool wildcard = c64_drive_pattern_has_wildcard(name, name_length);
+
+    for (i = 0; i < slot->entry_count; ++i) {
+        if (wildcard && slot->entries[i].type != C64_DRIVE_FILE_PRG) {
+            continue;
+        }
+        if (wildcard ?
+            c64_drive_filename_pattern_matches(&slot->entries[i], name, name_length) :
+            c64_drive_filename_matches(&slot->entries[i], name, name_length)) {
+            return &slot->entries[i];
+        }
+    }
+    return NULL;
+}
+
+static uint16_t c64_read_zp16(const c64_t *machine, uint16_t address) {
+    return (uint16_t)machine->bus.ram[address] |
+        ((uint16_t)machine->bus.ram[(uint16_t)(address + 1u)] << 8);
+}
+
+static void c64_write_zp16(c64_t *machine, uint16_t address, uint16_t value) {
+    machine->bus.ram[address] = (uint8_t)(value & 0xffu);
+    machine->bus.ram[(uint16_t)(address + 1u)] = (uint8_t)(value >> 8);
+}
+
+static void c64_kernal_load_return(
+    c64_t *machine,
+    bool success,
+    uint8_t a,
+    uint16_t end_address) {
+    uint8_t lo;
+    uint8_t hi;
+    uint16_t return_address;
+
+    machine->cpu.cpu.A = a;
+    machine->cpu.cpu.X = (uint8_t)(end_address & 0xffu);
+    machine->cpu.cpu.Y = (uint8_t)(end_address >> 8);
+    if (success) {
+        machine->cpu.cpu.flags &= (uint8_t)~0x01u;
+        machine->bus.ram[C64_ZP_STATUS] = 0;
+    } else {
+        machine->cpu.cpu.flags |= 0x01u;
+        machine->bus.ram[C64_ZP_STATUS] = 0x40;
+    }
+
+    machine->cpu.cpu.sp++;
+    if (machine->cpu.cpu.sp >= 0x200) {
+        machine->cpu.cpu.sp = 0x100;
+    }
+    lo = machine->bus.ram[machine->cpu.cpu.sp];
+    machine->cpu.cpu.sp++;
+    if (machine->cpu.cpu.sp >= 0x200) {
+        machine->cpu.cpu.sp = 0x100;
+    }
+    hi = machine->bus.ram[machine->cpu.cpu.sp];
+    return_address = (uint16_t)lo | ((uint16_t)hi << 8);
+    machine->cpu.cpu.pc = (uint16_t)(return_address + 1u);
+}
+
+static void c64_kernal_save_return(c64_t *machine, bool success, uint8_t a) {
+    uint8_t lo;
+    uint8_t hi;
+    uint16_t return_address;
+
+    machine->cpu.cpu.A = a;
+    if (success) {
+        machine->cpu.cpu.flags &= (uint8_t)~0x01u;
+        machine->bus.ram[C64_ZP_STATUS] = 0;
+    } else {
+        machine->cpu.cpu.flags |= 0x01u;
+        machine->bus.ram[C64_ZP_STATUS] = a == 0 ? 0x40 : a;
+    }
+
+    machine->cpu.cpu.sp++;
+    if (machine->cpu.cpu.sp >= 0x200) {
+        machine->cpu.cpu.sp = 0x100;
+    }
+    lo = machine->bus.ram[machine->cpu.cpu.sp];
+    machine->cpu.cpu.sp++;
+    if (machine->cpu.cpu.sp >= 0x200) {
+        machine->cpu.cpu.sp = 0x100;
+    }
+    hi = machine->bus.ram[machine->cpu.cpu.sp];
+    return_address = (uint16_t)lo | ((uint16_t)hi << 8);
+    machine->cpu.cpu.pc = (uint16_t)(return_address + 1u);
+}
+
+static void c64_report_host_trap(
+    c64_t *machine,
+    c64_cpu_observer_trap_kind kind,
+    uint16_t start_address,
+    uint32_t byte_count) {
+    if (machine->cpu_observer.host_trap) {
+        c64_cpu_observer_trap trap = {
+            .kind = kind,
+            .start_address = start_address,
+            .byte_count = byte_count,
+        };
+        machine->cpu_observer.host_trap(
+            machine->cpu_observer_user, &trap);
+    }
+}
+
+static bool c64_drive_load_prg_to_memory(
+    c64_t *machine,
+    const c64_drive_slot *slot,
+    const c64_drive_directory_entry *entry,
+    bool use_prg_address,
+    uint16_t *out_start_address,
+    uint16_t *out_end_address) {
+    bool visited[683];
+    uint8_t track;
+    uint8_t sector_id;
+    uint16_t load_address = 0;
+    uint16_t target_address = 0;
+    uint32_t written = 0;
+    bool have_load_address = false;
+    bool have_target_address = false;
+    size_t offset;
+    size_t visited_index;
+
+    memset(visited, 0, sizeof(visited));
+    track = entry->first_track;
+    sector_id = entry->first_sector;
+
+    while (track != 0) {
+        const uint8_t *sector;
+        size_t data_size;
+        size_t data_index;
+
+        if (!c64_d64_track_sector_offset(track, sector_id, &offset)) {
+            return false;
+        }
+        visited_index = offset / 256u;
+        if (visited_index >= sizeof(visited) / sizeof(visited[0]) || visited[visited_index]) {
+            return false;
+        }
+        visited[visited_index] = true;
+
+        sector = &slot->image_bytes[offset];
+        data_size = sector[0] == 0 ? (sector[1] <= 1 ? 0 : (size_t)sector[1] - 1u) : 254u;
+        if (data_size > 254u) {
+            data_size = 254u;
+        }
+
+        for (data_index = 0; data_index < data_size; ++data_index) {
+            uint8_t value = sector[2u + data_index];
+
+            if (!have_load_address) {
+                load_address = value;
+                have_load_address = true;
+                continue;
+            }
+            if (!have_target_address) {
+                load_address |= (uint16_t)value << 8;
+                target_address = use_prg_address ?
+                    load_address :
+                    c64_read_zp16(machine, C64_BASIC_START_POINTER);
+                have_target_address = true;
+                continue;
+            }
+
+            if ((uint32_t)target_address + written > 0xffffu) {
+                return false;
+            }
+            c64_bus_write(&machine->bus, (uint16_t)(target_address + written), value);
+            written++;
+        }
+
+        if (sector[0] == 0) {
+            break;
+        }
+        track = sector[0];
+        sector_id = sector[1];
+    }
+
+    if (!have_target_address) {
+        return false;
+    }
+    if ((uint32_t)target_address + written > 0x10000u) {
+        return false;
+    }
+
+    *out_start_address = target_address;
+    *out_end_address = (uint16_t)(target_address + written);
+    if (!use_prg_address) {
+        c64_write_zp16(machine, C64_BASIC_VARTAB_POINTER, *out_end_address);
+        c64_write_zp16(machine, C64_BASIC_ARYTAB_POINTER, *out_end_address);
+        c64_write_zp16(machine, C64_BASIC_STREND_POINTER, *out_end_address);
+    }
+    c64_write_zp16(machine, C64_ZP_EAL, *out_end_address);
+    return true;
+}
+
+static const char *c64_drive_file_type_text(c64_drive_file_type type) {
+    switch (type) {
+    case C64_DRIVE_FILE_DEL:
+        return "DEL";
+    case C64_DRIVE_FILE_SEQ:
+        return "SEQ";
+    case C64_DRIVE_FILE_PRG:
+        return "PRG";
+    case C64_DRIVE_FILE_USR:
+        return "USR";
+    case C64_DRIVE_FILE_REL:
+        return "REL";
+    case C64_DRIVE_FILE_UNKNOWN:
+    default:
+        return "???";
+    }
+}
+
+static char c64_directory_name_char(uint8_t value) {
+    if (value >= 0x20 && value <= 0x7e) {
+        return (char)value;
+    }
+    if (value >= 0xc1 && value <= 0xda) {
+        return (char)('A' + (value - 0xc1));
+    }
+    return '?';
+}
+
+static void c64_directory_entry_name_ascii(
+    const c64_drive_directory_entry *entry,
+    char *out,
+    size_t out_size) {
+    size_t i;
+    size_t count;
+
+    if (out == NULL || out_size == 0) {
+        return;
+    }
+    count = entry->filename_length;
+    if (count + 1u > out_size) {
+        count = out_size - 1u;
+    }
+    for (i = 0; i < count; ++i) {
+        out[i] = c64_directory_name_char(entry->filename[i]);
+    }
+    out[count] = '\0';
+}
+
+static bool c64_basic_append_line(
+    uint8_t *program,
+    size_t capacity,
+    size_t *offset,
+    uint16_t base_address,
+    uint16_t line_number,
+    const char *format,
+    ...) {
+    char text[96];
+    va_list args;
+    int length;
+    size_t start;
+    size_t next;
+
+    va_start(args, format);
+    length = vsnprintf(text, sizeof(text), format, args);
+    va_end(args);
+    if (length < 0 || (size_t)length >= sizeof(text)) {
+        return false;
+    }
+
+    start = *offset;
+    next = start + 4u + (size_t)length + 1u;
+    if (next + 2u > capacity || next > 0xffffu) {
+        return false;
+    }
+
+    program[start + 0u] = (uint8_t)((base_address + next) & 0xffu);
+    program[start + 1u] = (uint8_t)((base_address + next) >> 8);
+    program[start + 2u] = (uint8_t)(line_number & 0xffu);
+    program[start + 3u] = (uint8_t)(line_number >> 8);
+    memcpy(&program[start + 4u], text, (size_t)length);
+    program[start + 4u + (size_t)length] = 0;
+    *offset = next;
+    return true;
+}
+
+static bool c64_drive_load_directory_to_memory(
+    c64_t *machine,
+    const c64_drive_slot *slot,
+    uint16_t *out_end_address) {
+    uint8_t *program;
+    size_t offset = 0;
+    size_t i;
+    uint16_t start_address;
+    uint16_t line_number = 10;
+    char title[C64_DRIVE_DISK_TITLE_MAX];
+    char id[3];
+    char dos[3];
+    bool ok = true;
+
+    program = (uint8_t *)malloc(32768u);
+    if (program == NULL) {
+        return false;
+    }
+
+    c64_copy_text(title, sizeof(title), slot->disk_title[0] != '\0' ? slot->disk_title : "                ");
+    c64_copy_text(id, sizeof(id), slot->disk_id);
+    c64_copy_text(dos, sizeof(dos), slot->dos_type);
+    if (id[0] == '\0') {
+        c64_copy_text(id, sizeof(id), "  ");
+    }
+    if (dos[0] == '\0') {
+        c64_copy_text(dos, sizeof(dos), "  ");
+    }
+
+    start_address = c64_read_zp16(machine, C64_BASIC_START_POINTER);
+
+    ok = c64_basic_append_line(program, 32768u, &offset, start_address, 0, "\"%s\" %s %s", title, id, dos);
+    for (i = 0; ok && i < slot->entry_count; ++i) {
+        char name[17];
+        c64_directory_entry_name_ascii(&slot->entries[i], name, sizeof(name));
+        ok = c64_basic_append_line(
+            program,
+            32768u,
+            &offset,
+            start_address,
+            line_number,
+            "%u \"%s\" %s",
+            slot->entries[i].block_count,
+            name,
+            c64_drive_file_type_text(slot->entries[i].type));
+        line_number = (uint16_t)(line_number + 10u);
+    }
+    if (ok) {
+        ok = c64_basic_append_line(
+            program,
+            32768u,
+            &offset,
+            start_address,
+            line_number,
+            "%u BLOCKS FREE.",
+            slot->free_blocks);
+    }
+    if (ok && offset + 2u <= 32768u) {
+        program[offset++] = 0;
+        program[offset++] = 0;
+    } else {
+        ok = false;
+    }
+
+    if (ok && (uint32_t)start_address + offset <= 0x10000u) {
+        for (i = 0; i < offset; ++i) {
+            c64_bus_write(&machine->bus, (uint16_t)(start_address + i), program[i]);
+        }
+        *out_end_address = (uint16_t)(start_address + offset);
+        c64_write_zp16(machine, C64_BASIC_VARTAB_POINTER, *out_end_address);
+        c64_write_zp16(machine, C64_BASIC_ARYTAB_POINTER, *out_end_address);
+        c64_write_zp16(machine, C64_BASIC_STREND_POINTER, *out_end_address);
+        c64_write_zp16(machine, C64_ZP_EAL, *out_end_address);
+    } else {
+        ok = false;
+    }
+
+    free(program);
+    return ok;
+}
+
+static bool c64_drive_refresh_from_d64_image(c64_drive_slot *slot, const d64_image *image) {
+    const d64_disk_info *info;
+    d64_directory_entry title_entry;
+    d64_directory_entry d64_entry;
+    c64_drive_directory_entry *entries = NULL;
+    size_t entry_count;
+    size_t i;
+
+    if (slot == NULL || image == NULL) {
+        return false;
+    }
+
+    entry_count = d64_image_directory_count(image);
+    if (entry_count > 0) {
+        entries = (c64_drive_directory_entry *)calloc(entry_count, sizeof(*entries));
+        if (entries == NULL) {
+            return false;
+        }
+    }
+    for (i = 0; i < entry_count; ++i) {
+        if (d64_image_directory_entry(image, i, &d64_entry) != D64_OK) {
+            free(entries);
+            return false;
+        }
+        entries[i].raw_type = d64_entry.raw_type;
+        entries[i].type = (c64_drive_file_type)d64_entry.type;
+        entries[i].first_track = d64_entry.first_track;
+        entries[i].first_sector = d64_entry.first_sector;
+        memcpy(entries[i].filename, d64_entry.filename, sizeof(entries[i].filename));
+        entries[i].filename_length = d64_entry.filename_length;
+        entries[i].block_count = d64_entry.block_count;
+    }
+
+    info = d64_image_disk_info(image);
+    if (info != NULL) {
+        char disk_title[C64_DRIVE_DISK_TITLE_MAX];
+
+        memset(&title_entry, 0, sizeof(title_entry));
+        memcpy(title_entry.filename, info->title, D64_DIRECTORY_NAME_SIZE);
+        title_entry.filename_length = info->title_length;
+        if (d64_entry_name_ascii(&title_entry, disk_title, sizeof(disk_title)) == D64_OK) {
+            c64_copy_text(slot->disk_title, sizeof(slot->disk_title), disk_title);
+        }
+        slot->disk_id[0] = (char)info->disk_id[0];
+        slot->disk_id[1] = (char)info->disk_id[1];
+        slot->disk_id[2] = '\0';
+        slot->dos_type[0] = (char)info->dos_type[0];
+        slot->dos_type[1] = (char)info->dos_type[1];
+        slot->dos_type[2] = '\0';
+        slot->free_blocks = info->free_blocks;
+    }
+
+    free(slot->entries);
+    slot->entries = entries;
+    slot->entry_count = entry_count;
+    return true;
+}
+
+static bool c64_try_kernal_load_trap(c64_t *machine) {
+    uint8_t device;
+    uint8_t secondary_address;
+    uint8_t filename_length;
+    uint16_t filename_pointer;
+    uint8_t filename[16];
+    c64_drive_slot *slot;
+    const c64_drive_directory_entry *entry;
+    uint16_t start_address = 0;
+    uint16_t end_address = 0;
+    size_t i;
+
+    if (machine->cpu.cpu.pc != C64_KERNAL_LOAD_ENTRY) {
+        return false;
+    }
+
+    device = machine->bus.ram[C64_ZP_DEVICE_NUMBER];
+    if (!c64_drive_device_supported(device)) {
+        return false;
+    }
+
+    /* If the 1541 ROM is loaded and enabled for this device, let the real ROM
+       handle the load via IEC — do not intercept. */
+    if (device == 8 && machine->drive8.rom_loaded && machine->config.emulate_1541) {
+        return false;
+    }
+    if (device == 9 && machine->drive9.rom_loaded && machine->config.emulate_1541) {
+        return false;
+    }
+
+    filename_length = machine->bus.ram[C64_ZP_FILENAME_LENGTH];
+    filename_pointer = c64_read_zp16(machine, C64_ZP_FILENAME_POINTER);
+    secondary_address = machine->bus.ram[C64_ZP_SECONDARY_ADDRESS];
+    if (machine->cpu.cpu.A != 0 || (secondary_address != 0 && secondary_address != 1)) {
+        c64_kernal_load_return(machine, false, 0x05, 0);
+        return true;
+    }
+    if (filename_length == 0 || filename_length > sizeof(filename)) {
+        c64_kernal_load_return(machine, false, 0x04, 0);
+        return true;
+    }
+    for (i = 0; i < filename_length; ++i) {
+        filename[i] = c64_debug_read_cpu_map(machine, (uint16_t)(filename_pointer + i));
+    }
+
+    slot = &machine->drives[device - C64_DRIVE_MIN_DEVICE];
+    if (!slot->mounted || slot->image_kind != C64_DRIVE_IMAGE_D64 || slot->image_bytes == NULL) {
+        c64_kernal_load_return(machine, false, 0x05, 0);
+        return true;
+    }
+
+    if (filename_length == 1 && filename[0] == '$') {
+        start_address = c64_read_zp16(machine, C64_BASIC_START_POINTER);
+        if (!c64_drive_load_directory_to_memory(machine, slot, &end_address)) {
+            c64_kernal_load_return(machine, false, 0x05, 0);
+            return true;
+        }
+        c64_disk_activity_read(machine, (int)device);
+        c64_kernal_load_return(machine, true, 0, end_address);
+        c64_report_host_trap(
+            machine,
+            C64_CPU_OBSERVER_TRAP_KERNAL_LOAD,
+            start_address,
+            (uint32_t)(end_address - start_address));
+        return true;
+    }
+
+    entry = c64_drive_find_entry(slot, filename, filename_length);
+    if (entry == NULL || entry->type != C64_DRIVE_FILE_PRG) {
+        c64_kernal_load_return(machine, false, 0x04, 0);
+        return true;
+    }
+
+    if (!c64_drive_load_prg_to_memory(
+            machine,
+            slot,
+            entry,
+            secondary_address == 1,
+            &start_address,
+            &end_address)) {
+        c64_kernal_load_return(machine, false, 0x05, 0);
+        return true;
+    }
+
+    c64_disk_activity_read(machine, (int)device);
+    c64_kernal_load_return(machine, true, 0, end_address);
+    c64_report_host_trap(
+        machine,
+        C64_CPU_OBSERVER_TRAP_KERNAL_LOAD,
+        start_address,
+        (uint32_t)(end_address - start_address));
+    return true;
+}
+
+static bool c64_try_kernal_save_trap(c64_t *machine) {
+    uint8_t device;
+    uint8_t filename_length;
+    uint16_t filename_pointer;
+    uint8_t filename[32];
+    uint8_t start_pointer_zp;
+    uint16_t start_address;
+    uint16_t end_address;
+    size_t data_len;
+    uint8_t *data;
+    c64_drive_slot *slot;
+    d64_image *image;
+    d64_result result;
+    const uint8_t *written_bytes;
+    size_t written_size;
+    size_t i;
+
+    if (machine->cpu.cpu.pc != C64_KERNAL_SAVE_ENTRY) {
+        return false;
+    }
+
+    device = machine->bus.ram[C64_ZP_DEVICE_NUMBER];
+    if (!c64_drive_device_supported(device)) {
+        return false;
+    }
+
+    if (device == 8 && machine->drive8.rom_loaded && machine->config.emulate_1541) {
+        return false;
+    }
+    if (device == 9 && machine->drive9.rom_loaded && machine->config.emulate_1541) {
+        return false;
+    }
+
+    filename_length = machine->bus.ram[C64_ZP_FILENAME_LENGTH];
+    filename_pointer = c64_read_zp16(machine, C64_ZP_FILENAME_POINTER);
+    if (filename_length == 0 || filename_length > sizeof(filename)) {
+        c64_kernal_save_return(machine, false, 0x08);
+        return true;
+    }
+    for (i = 0; i < filename_length; ++i) {
+        filename[i] = c64_debug_read_cpu_map(machine, (uint16_t)(filename_pointer + i));
+    }
+
+    slot = &machine->drives[device - C64_DRIVE_MIN_DEVICE];
+    if (!slot->mounted || slot->image_kind != C64_DRIVE_IMAGE_D64 || slot->image_bytes == NULL) {
+        c64_kernal_save_return(machine, false, 0x05);
+        return true;
+    }
+    if (!slot->writable) {
+        slot->last_result = C64_DRIVE_STATUS_WRITE_PROTECTED;
+        c64_kernal_save_return(machine, false, 0x05);
+        return true;
+    }
+    if (machine->replay_sealed) {
+        c64_kernal_save_return(machine, true, 0);
+        return true;
+    }
+
+    start_pointer_zp = machine->cpu.cpu.A;
+    machine->bus.ram[C64_ZP_EAL] = machine->cpu.cpu.X;
+    machine->bus.ram[(uint16_t)(C64_ZP_EAL + 1u)] = machine->cpu.cpu.Y;
+    start_address = (uint16_t)machine->bus.ram[start_pointer_zp] |
+        ((uint16_t)machine->bus.ram[(uint8_t)(start_pointer_zp + 1u)] << 8);
+    end_address = (uint16_t)machine->cpu.cpu.X | ((uint16_t)machine->cpu.cpu.Y << 8);
+    if (end_address < start_address) {
+        c64_kernal_save_return(machine, false, 0x05);
+        return true;
+    }
+
+    data_len = 2u + (size_t)(end_address - start_address);
+    data = (uint8_t *)malloc(data_len);
+    if (data == NULL) {
+        slot->last_result = C64_DRIVE_STATUS_OUT_OF_MEMORY;
+        c64_kernal_save_return(machine, false, 0x05);
+        return true;
+    }
+    data[0] = (uint8_t)(start_address & 0xffu);
+    data[1] = (uint8_t)(start_address >> 8);
+    for (i = 0; i < data_len - 2u; ++i) {
+        data[2u + i] = c64_debug_read_cpu_map(machine, (uint16_t)(start_address + i));
+    }
+
+    image = d64_image_create(slot->image_bytes, slot->image_size, &result);
+    if (image == NULL) {
+        free(data);
+        slot->last_result = c64_drive_status_from_d64_result(result);
+        c64_kernal_save_return(machine, false, 0x05);
+        return true;
+    }
+
+    result = d64_image_write_prg(image, filename, filename_length, data, data_len, false);
+    free(data);
+    if (result != D64_OK) {
+        d64_image_destroy(image);
+        slot->last_result = c64_drive_status_from_d64_result(result);
+        c64_kernal_save_return(machine, false, 0x05);
+        return true;
+    }
+
+    written_bytes = d64_image_bytes(image, &written_size);
+    if (written_bytes == NULL || written_size != slot->image_size ||
+        !c64_drive_refresh_from_d64_image(slot, image)) {
+        d64_image_destroy(image);
+        slot->last_result = C64_DRIVE_STATUS_OUT_OF_MEMORY;
+        c64_kernal_save_return(machine, false, 0x05);
+        return true;
+    }
+    memcpy(slot->image_bytes, written_bytes, written_size);
+    slot->dirty = true;
+    slot->image_content_seq++;
+    slot->last_result = C64_DRIVE_STATUS_OK;
+    d64_image_destroy(image);
+    c64_notify_guest_media_write(machine, (int)device);
+
+    /* KERNAL trap may run with media caches still present from an earlier
+       media_1541 session; force rebuild when media is re-enabled. */
+    if (device == 8) {
+        c1541_media_invalidate(&machine->drive8.media);
+    } else if (device == 9) {
+        c1541_media_invalidate(&machine->drive9.media);
+    }
+
+    c64_disk_activity_write(machine, (int)device);
+    c64_kernal_save_return(machine, true, 0);
+    c64_report_host_trap(
+        machine,
+        C64_CPU_OBSERVER_TRAP_KERNAL_SAVE,
+        start_address,
+        (uint32_t)(end_address - start_address));
+    return true;
+}
+
+static c64_cpu_bus_event *c64_trace_append_event(
+    c64_t *machine,
+    c64_cpu_bus_event_kind kind,
+    uint16_t address,
+    uint8_t value) {
+    c64_cpu_instruction_trace *trace = NULL;
+    c64_cpu_bus_event *event;
+    uint64_t offset64;
+
+    if (machine->cpu_bus_mode == C64_CPU_BUS_MODE_DEFER_WRITES) {
+        trace = &machine->pending_cpu_trace;
+    } else if (machine->cpu_trace_enabled) {
+        trace = &machine->last_cpu_trace;
+    }
+
+    if (trace == NULL) {
+        return NULL;
+    }
+
+    if (trace->event_count >= C64_CPU_TRACE_MAX_EVENTS) {
+        return NULL;
+    }
+
+    event = &trace->events[trace->event_count++];
+    offset64 = machine->cpu.cpu.cycles - machine->cpu_trace_start_cpu_cycle;
+    event->cycle_offset = offset64 > 0xffu ? 0xffu : (uint8_t)offset64;
+    event->kind = kind;
+    event->access_kind = machine->cpu.bus_access_kind;
+    event->address = address;
+    event->value = value;
+    event->is_io = c64_cpu_address_is_io(machine, address) ? 1u : 0u;
+    event->record_write_history =
+        kind == C64_CPU_BUS_EVENT_WRITE && machine->cpu.cpu.opcode_active ? 1u : 0u;
+    event->absolute_cycle = c64_current_cycle(machine);
+    return event;
+}
+
+static void c64_report_cpu_access(
+    c64_t *machine,
+    c64_memory_access_type access,
+    c6510_bus_access_kind kind,
+    uint16_t address,
+    uint8_t value) {
+    if (machine->cpu_observer.access) {
+        machine->cpu_observer.access(
+            machine->cpu_observer_user,
+            c64_current_cycle(machine),
+            address,
+            value,
+            kind);
+    }
+    if (machine->memory_access) {
+        machine->memory_access(machine->memory_access_user, access, address, value);
+    }
+}
+
+static void c64_observer_begin(
+    c64_t *machine,
+    c64_cpu_observer_record_kind kind) {
+    if (machine->cpu_observer.begin) {
+        c64_cpu_observer_begin begin = {
+            .kind = kind,
+            .machine_cycle = c64_current_cycle(machine),
+            .pc = machine->cpu.cpu.pc,
+            .a = machine->cpu.cpu.A,
+            .x = machine->cpu.cpu.X,
+            .y = machine->cpu.cpu.Y,
+            .sp = (uint8_t)machine->cpu.cpu.sp,
+            .p = machine->cpu.cpu.flags,
+        };
+        machine->cpu_observer.begin(machine->cpu_observer_user, &begin);
+    }
+}
+
+static void c64_observer_complete(c64_t *machine) {
+    if (machine->cpu_observer.complete) {
+        machine->cpu_observer.complete(machine->cpu_observer_user);
+    }
+}
+
+static void c64_record_cpu_write(c64_t *machine, uint16_t address, uint16_t opcode_pc) {
+    assert(machine);
+
+    machine->write_history[address] =
+        (machine->write_history[address] << 16) | (uint64_t)opcode_pc;
+}
+
+static void c64_apply_cpu_bus_event(c64_t *machine, c64_cpu_bus_event *event) {
+    assert(machine);
+    assert(event);
+
+    event->absolute_cycle = c64_current_cycle(machine);
+
+    switch (event->kind) {
+    case C64_CPU_BUS_EVENT_READ:
+        event->value = c64_bus_read(&machine->bus, event->address);
+        c64_report_cpu_access(
+            machine,
+            C64_MEMORY_ACCESS_READ,
+            event->access_kind,
+            event->address,
+            event->value);
+        break;
+
+    case C64_CPU_BUS_EVENT_WRITE:
+        c64_bus_write(&machine->bus, event->address, event->value);
+        if (event->record_write_history) {
+            c64_record_cpu_write(machine, event->address, machine->pending_cpu_trace.opcode_pc);
+        }
+        c64_report_cpu_access(
+            machine,
+            C64_MEMORY_ACCESS_WRITE,
+            event->access_kind,
+            event->address,
+            event->value);
+        break;
+
+    case C64_CPU_BUS_EVENT_INTERNAL:
+    default:
+        break;
+    }
+}
+
+static void c64_apply_pending_cpu_events_at_elapsed(c64_t *machine) {
+    while (machine->pending_cpu_event_index < machine->pending_cpu_trace.event_count) {
+        c64_cpu_bus_event *event = &machine->pending_cpu_trace.events[machine->pending_cpu_event_index];
+
+        if (event->cycle_offset != machine->pending_cpu_elapsed) {
+            break;
+        }
+
+        c64_apply_cpu_bus_event(machine, event);
+        machine->pending_cpu_event_index++;
+    }
+}
+
+static bool c64_pending_cpu_elapsed_has_read_event(const c64_t *machine) {
+    size_t i;
+
+    for (i = machine->pending_cpu_event_index; i < machine->pending_cpu_trace.event_count; i++) {
+        const c64_cpu_bus_event *event = &machine->pending_cpu_trace.events[i];
+
+        if (event->cycle_offset != machine->pending_cpu_elapsed) {
+            break;
+        }
+        if (event->kind == C64_CPU_BUS_EVENT_READ) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+static bool c64_pending_cpu_elapsed_has_write_event(const c64_t *machine) {
+    size_t i;
+
+    for (i = machine->pending_cpu_event_index; i < machine->pending_cpu_trace.event_count; i++) {
+        const c64_cpu_bus_event *event = &machine->pending_cpu_trace.events[i];
+
+        if (event->cycle_offset != machine->pending_cpu_elapsed) {
+            break;
+        }
+        if (event->kind == C64_CPU_BUS_EVENT_WRITE) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+static bool c64_cpu_cycle_stalled_by_vic_pins(const c64_t *machine) {
+    /* AEC low means the VIC owns the actual Phi2 bus slot: no CPU access,
+       including writes, may occur. RDY is BA's early warning and freezes CPU
+       read cycles; a 6510 write may still finish while AEC remains high. */
+    if (!vicii_aec_active(&machine->vic)) {
+        return true;
+    }
+    if (vicii_rdy_active(&machine->vic, machine->clock.cycle)) {
+        return false;
+    }
+
+    if (!machine->pending_cpu_trace_active) {
+        return true;
+    }
+
+    if (c64_pending_cpu_elapsed_has_read_event(machine)) {
+        return true;
+    }
+
+    if (c64_pending_cpu_elapsed_has_write_event(machine)) {
+        return false;
+    }
+
+    return true;
+}
+
+static void c64_prepare_deferred_cpu_trace(c64_t *machine) {
+    c64_trace_reset(&machine->pending_cpu_trace);
+    machine->cpu_trace_start_cycle = machine->clock.cycle;
+    machine->cpu_trace_start_cpu_cycle = machine->cpu.cpu.cycles;
+    c64_observer_begin(machine, C64_CPU_OBSERVER_INSTRUCTION);
+    machine->cpu_bus_mode = C64_CPU_BUS_MODE_DEFER_WRITES;
+
+    machine->pending_cpu_trace.total_cycles = c6510_step(&machine->cpu);
+    machine->pending_cpu_trace.opcode_pc = machine->cpu.cpu.opcode_pc;
+    if (machine->pending_cpu_trace.total_cycles == 0) {
+        machine->pending_cpu_trace.total_cycles = 1;
+    }
+
+    machine->cpu_bus_mode = C64_CPU_BUS_MODE_IMMEDIATE;
+    machine->pending_cpu_event_index = 0;
+    machine->pending_cpu_elapsed = 0;
+    machine->pending_cpu_trace_active = true;
+}
+
+static void c64_begin_interrupt_now(c64_t *machine, c6510_interrupt_kind kind) {
+    if (machine->cpu_trace_enabled) {
+        c64_trace_reset(&machine->last_cpu_trace);
+    }
+    machine->cpu_trace_start_cycle = machine->clock.cycle;
+    machine->cpu_trace_start_cpu_cycle = machine->cpu.cpu.cycles;
+    c64_observer_begin(
+        machine,
+        kind == C6510_INTERRUPT_NMI ?
+            C64_CPU_OBSERVER_NMI : C64_CPU_OBSERVER_IRQ);
+    c6510_micro_begin_interrupt(&machine->cpu, kind);
+}
+
+static bool c64_prepare_micro_instruction(c64_t *machine, bool ba_stall_resume) {
+    c6510_interrupt_kind interrupt_kind;
+    uint8_t opcode;
+
+    assert(machine);
+
+    interrupt_kind = c6510_micro_poll_interrupt(&machine->cpu);
+    if (interrupt_kind != C6510_INTERRUPT_NONE) {
+        /* When resuming from a between-instructions BA stall, this cycle is the
+           interrupt's opcode (dummy) fetch; begin the sequence next cycle so the
+           handler is entered one cycle later, matching VICE and the mid-
+           instruction-stall path. Burn this cycle as the fetch. */
+        if (ba_stall_resume) {
+            machine->cpu_deferred_interrupt = interrupt_kind;
+            machine->clock.cpu_cycles++;
+            return true;
+        }
+        c64_begin_interrupt_now(machine, interrupt_kind);
+        return true;
+    }
+
+    opcode = c64_debug_peek_cpu_byte(machine, machine->cpu.cpu.pc);
+    if (!c6510_micro_can_begin(&machine->cpu, opcode)) {
+        return false;
+    }
+
+    if (machine->cpu_trace_enabled) {
+        c64_trace_reset(&machine->last_cpu_trace);
+    }
+    machine->cpu_trace_start_cycle = machine->clock.cycle;
+    machine->cpu_trace_start_cpu_cycle = machine->cpu.cpu.cycles;
+    c64_observer_begin(machine, C64_CPU_OBSERVER_INSTRUCTION);
+    c6510_micro_begin(&machine->cpu);
+    return true;
+}
+
+static bool c64_micro_cycle_stalled_by_vic_pins(const c64_t *machine) {
+    c6510_bus_access_kind kind;
+
+    assert(machine);
+
+    if (!vicii_aec_active(&machine->vic)) {
+        return true;
+    }
+    if (vicii_rdy_active(&machine->vic, machine->clock.cycle)) {
+        return false;
+    }
+
+    kind = c6510_micro_access_kind(&machine->cpu);
+    return kind != C6510_BUS_ACCESS_DATA_WRITE &&
+           kind != C6510_BUS_ACCESS_RMW_DUMMY_WRITE &&
+           kind != C6510_BUS_ACCESS_STACK_WRITE;
+}
+
+static void c64_step_micro_cycle(c64_t *machine) {
+    bool completed;
+
+    assert(machine);
+    assert(machine->cpu.micro_active);
+
+    c64_balog_mark(0);
+    machine->cpu_bus_mode = C64_CPU_BUS_MODE_ARBITER;
+    completed = c6510_micro_step(&machine->cpu);
+    machine->cpu_bus_mode = C64_CPU_BUS_MODE_IMMEDIATE;
+    machine->clock.cpu_cycles++;
+    c64_finish_cycle(machine);
+
+    if (completed) {
+        if (machine->cpu_trace_enabled) {
+            machine->last_cpu_trace.opcode_pc = machine->cpu.cpu.opcode_pc;
+            machine->last_cpu_trace.total_cycles =
+                (size_t)(machine->cpu.cpu.cycles - machine->cpu_trace_start_cpu_cycle);
+        }
+        machine->instruction_complete = true;
+        c64_observer_complete(machine);
+    }
+}
+
+/*
+ * Host BA/AEC stall handling for the 1541.
+ *
+ * The 6510 is held by BA/AEC, but the drive is a fully independent machine and
+ * keeps running (its media, CPU and VIAs advance via the normal per-cycle
+ * backstop / IEC catch-up). Real hardware never freezes the drive for C64 BA;
+ * dual-bit ILOAD receivers avoid sampling across BA with their own $D012 waits.
+ */
+static void c64_step_host_ba_stall(c64_t *machine) {
+    /* 6510 held; 1541 continues (media + drive CPU + VIAs). */
+    c64_balog_mark(1);
+    c64_finish_cycle(machine);
+}
+
+static bool c64_step_cycle_internal(c64_t *machine) {
+    bool between_instructions_stalled = false;
+
+    if (machine->cpu_deferred_interrupt == C6510_INTERRUPT_NONE &&
+        !machine->pending_cpu_trace_active && !machine->cpu.micro_active) {
+        uint16_t pc = machine->cpu.cpu.pc;
+        /* LOAD/SAVE traps are rare; gate the heavy handlers on PC first. */
+        if ((pc == (uint16_t)C64_KERNAL_LOAD_ENTRY ||
+             pc == (uint16_t)C64_KERNAL_SAVE_ENTRY) &&
+            (c64_try_kernal_load_trap(machine) ||
+             c64_try_kernal_save_trap(machine))) {
+            machine->instruction_complete = true;
+            machine->clock.cpu_cycles++;
+            machine->cpu_prev_between_stall = false;
+            c64_advance_one_cycle(machine);
+            return true;
+        }
+    }
+
+    /* Establish this cycle's VIC Phi1 state and current BA/AEC pins before the
+       6510 decides whether its Phi2 phase can run. VIC raster advancement is
+       deferred to c64_finish_cycle, after any CPU bus event. */
+    c64_begin_vic_for_current_cycle(machine);
+
+    if (!machine->pending_cpu_trace_active && !machine->cpu.micro_active) {
+        bool resuming = machine->cpu_prev_between_stall;
+        if (!vicii_aec_active(&machine->vic) ||
+            !vicii_rdy_active(&machine->vic, machine->clock.cycle)) {
+            /* Between instructions BA/AEC holds the 6510 only. A pending
+               interrupt deferred to its opcode dummy fetch also waits here for
+               the bus to free. */
+            between_instructions_stalled = true;
+        } else if (machine->cpu_deferred_interrupt != C6510_INTERRUPT_NONE) {
+            /* Last cycle was the BA-stall resume (the interrupt's opcode dummy
+               fetch); begin the interrupt sequence now, one cycle later than a
+               same-cycle begin would. */
+            c64_begin_interrupt_now(machine, machine->cpu_deferred_interrupt);
+            machine->cpu_deferred_interrupt = C6510_INTERRUPT_NONE;
+        } else if (!c64_prepare_micro_instruction(machine, resuming)) {
+            c64_prepare_deferred_cpu_trace(machine);
+        }
+    }
+
+    machine->cpu_prev_between_stall = between_instructions_stalled;
+
+    c64_step_nonvic_devices_for_current_cycle(machine);
+    c64_cyclelog_emit(machine);
+
+    if (between_instructions_stalled) {
+        c64_step_host_ba_stall(machine);
+        return true;
+    }
+
+    if (machine->cpu.micro_active) {
+        if (!c64_micro_cycle_stalled_by_vic_pins(machine)) {
+            c64_step_micro_cycle(machine);
+        } else {
+            c64_step_host_ba_stall(machine);
+        }
+        return true;
+    }
+
+    if (machine->pending_cpu_trace_active) {
+        if (c64_cpu_cycle_stalled_by_vic_pins(machine)) {
+            c64_step_host_ba_stall(machine);
+            return true;
+        }
+        c64_balog_mark(0);
+        c64_apply_pending_cpu_events_at_elapsed(machine);
+        machine->pending_cpu_elapsed++;
+        machine->clock.cpu_cycles++;
+        c64_finish_cycle(machine);
+
+        if (machine->pending_cpu_elapsed >= machine->pending_cpu_trace.total_cycles) {
+            c64_apply_pending_cpu_events_at_elapsed(machine);
+            if (machine->cpu_trace_enabled) {
+                machine->last_cpu_trace = machine->pending_cpu_trace;
+            }
+            machine->pending_cpu_trace_active = false;
+            machine->instruction_complete = true;
+            c64_observer_complete(machine);
+            machine->pending_cpu_event_index = 0;
+            machine->pending_cpu_elapsed = 0;
+        }
+        return true;
+    }
+
+    c64_finish_cycle(machine);
+    return true;
+}
+
+static void c64_finish_pending_cpu_trace(c64_t *machine) {
+    while (machine->pending_cpu_trace_active || machine->cpu.micro_active) {
+        c64_step_cycle_internal(machine);
+    }
+}
+
+/*
+ * DEFER_WRITES runs the whole instruction against a frozen device world, then
+ * plays bus events back with BA stalls. VIC raster ($D011/$D012) is projected to
+ * the access cycle_offset so boundary reads see the correct line. CIA timers are
+ * intentionally NOT projected: with this core's cycle accounting the frozen
+ * counter already matches VICE's bus-read value for the stable-raster $DD04
+ * sample (projecting by offset made A = $40-timer too small/large).
+ */
+static uint8_t c64_deferred_io_read(const c64_t *machine, uint16_t address, uint64_t offset_cycles) {
+    uint8_t reg;
+
+    if (address >= 0xd000u && address <= 0xd3ffu) {
+        reg = (uint8_t)(address & 0x3fu);
+        if (reg == 0x12u || reg == 0x11u) {
+            uint32_t cpl = machine->vic.timing.cycles_per_line;
+            uint32_t lpf = machine->vic.timing.lines_per_frame;
+            uint64_t abs_cycle;
+            uint32_t raster;
+
+            if (cpl == 0) {
+                return c64_debug_read_cpu_map(machine, address);
+            }
+
+            abs_cycle = (uint64_t)machine->vic.timing.cycle_in_line + offset_cycles;
+            raster = machine->vic.timing.raster_line + (uint32_t)(abs_cycle / cpl);
+            if (lpf != 0) {
+                raster %= lpf;
+            }
+
+            if (reg == 0x12u) {
+                return (uint8_t)(raster & 0xffu);
+            }
+
+            {
+                uint8_t value = (uint8_t)(machine->vic.registers[0x11u] & 0x7fu);
+                if ((raster & 0x100u) != 0) {
+                    value |= 0x80u;
+                }
+                return value;
+            }
+        }
+
+        /* $D01E/$D01F: mid-line sprite collisions change as the beam paints.
+           A frozen DEFER_WRITES snapshot at instruction start misses collisions
+           that latch later in the same instruction (lft-nine VIC-type detect
+           double-reads $D01F after sprites have covered the ghost byte). Return
+           the live latch; clear still runs when the read is played back. */
+        if (reg == 0x1eu) {
+            return machine->vic.sprite_sprite_collision;
+        }
+        if (reg == 0x1fu) {
+            return machine->vic.sprite_background_collision;
+        }
+    }
+
+    return c64_debug_read_cpu_map(machine, address);
+}
+
+static uint8_t c64_cpu_read(void *user, uint16_t address) {
+    c64_t *machine = user;
+    uint8_t value;
+
+    if (machine->cpu_bus_mode == C64_CPU_BUS_MODE_DEFER_WRITES) {
+        if (c64_cpu_address_is_io(machine, address)) {
+            uint64_t offset = machine->cpu.cpu.cycles - machine->cpu_trace_start_cpu_cycle;
+            value = c64_deferred_io_read(machine, address, offset);
+        } else {
+            value = c64_debug_read_cpu_map(machine, address);
+        }
+        c64_trace_append_event(machine, C64_CPU_BUS_EVENT_READ, address, value);
+        return value;
+    }
+
+    if (machine->cpu_bus_mode == C64_CPU_BUS_MODE_TIMED_IMMEDIATE) {
+        uint64_t offset = machine->cpu.cpu.cycles - machine->cpu_trace_start_cpu_cycle;
+        c64_advance_devices_to(machine, machine->cpu_trace_start_cycle + offset);
+    }
+
+    /* CIA2 Port A carries the IEC input lines: catch the drive up to this cycle
+       so the read samples its bus output at the current C64 clock. */
+    if (address == 0xDD00u) {
+        c64_drive_catch_up_at_iec_read(machine);
+    }
+
+    value = c64_bus_read(&machine->bus, address);
+
+    if (machine->cpu_bus_mode != C64_CPU_BUS_MODE_IMMEDIATE) {
+        c64_trace_append_event(machine, C64_CPU_BUS_EVENT_READ, address, value);
+    }
+
+    c64_report_cpu_access(
+        machine,
+        C64_MEMORY_ACCESS_READ,
+        machine->cpu.bus_access_kind,
+        address,
+        value);
+    return value;
+}
+
+static void c64_cpu_write(void *user, uint16_t address, uint8_t value) {
+    c64_t *machine = user;
+
+    if (machine->cpu_bus_mode == C64_CPU_BUS_MODE_TIMED_IMMEDIATE) {
+        uint64_t offset = machine->cpu.cpu.cycles - machine->cpu_trace_start_cpu_cycle;
+        c64_advance_devices_to(machine, machine->cpu_trace_start_cycle + offset);
+        c64_bus_write(&machine->bus, address, value);
+        if (machine->cpu.cpu.opcode_active) {
+            c64_record_cpu_write(machine, address, machine->cpu.cpu.opcode_pc);
+        }
+        c64_trace_append_event(machine, C64_CPU_BUS_EVENT_WRITE, address, value);
+        c64_report_cpu_access(
+            machine,
+            C64_MEMORY_ACCESS_WRITE,
+            machine->cpu.bus_access_kind,
+            address,
+            value);
+        return;
+    }
+
+    if (machine->cpu_bus_mode == C64_CPU_BUS_MODE_DEFER_WRITES) {
+        c64_trace_append_event(machine, C64_CPU_BUS_EVENT_WRITE, address, value);
+        return;
+    }
+
+    if (address == 0xDD00u || address == 0xDD02u) {
+        c64_drive_catch_up_at_iec_write(machine);
+    }
+
+    c64_bus_write(&machine->bus, address, value);
+    if (machine->cpu.cpu.opcode_active) {
+        c64_record_cpu_write(machine, address, machine->cpu.cpu.opcode_pc);
+    }
+    if (machine->cpu_bus_mode == C64_CPU_BUS_MODE_ARBITER) {
+        c64_trace_append_event(machine, C64_CPU_BUS_EVENT_WRITE, address, value);
+    }
+    c64_report_cpu_access(
+        machine,
+        C64_MEMORY_ACCESS_WRITE,
+        machine->cpu.bus_access_kind,
+        address,
+        value);
+}
+
+static uint8_t c64_cpu_irq_pending(void *user) {
+    c64_t *machine = user;
+    /* CPU-visible CIA #1 IRQ uses the delayed interrupt pin (6526 one-cycle
+     * delay), not the immediate ICR latched state. See C64MFULL_CIA Phase 4
+     * Option 2 and md-files/corpus/cia-timing/. */
+    bool cia_irq = cia_interrupt_line(&machine->cia1);
+    /* VIC IRQ uses VICE's INTERRUPT_DELAY (2 Phi2 clocks) so the 6510 cannot
+     * enter the interrupt sequence on the same cycle the VIC sets the flag. */
+    bool vic_irq = machine->vic_irq_delay >= 2u;
+    return (cia_irq || vic_irq) ? 1u : 0u;
+}
+
+static uint8_t c64_cpu_nmi_pending(void *user) {
+    c64_t *machine = user;
+    /* CIA #2 NMI edge is taken from the delayed pin so NMI timing matches the
+     * same one-cycle interrupt delay as CIA #1 IRQ. */
+    bool cia2_line = cia_interrupt_line(&machine->cia2);
+    bool cia2_edge = cia2_line && !machine->cia2_nmi_line;
+    bool pending = machine->restore_pending || cia2_edge;
+    machine->cia2_nmi_line = cia2_line;
+    machine->restore_pending = false;
+    return pending ? 1u : 0u;
+}
+
+static void c64_cia1_port_inputs(
+    void *user,
+    uint8_t port_a_pins,
+    uint8_t port_b_pins,
+    cia_port_inputs *out) {
+    c64_t *machine = user;
+    uint8_t selected_rows;
+    uint8_t selected_columns;
+
+    assert(machine);
+    assert(out);
+
+    selected_rows = (uint8_t)~port_a_pins;
+    selected_columns = (uint8_t)~port_b_pins;
+
+    out->port_b_pull_down |= (uint8_t)~c64_keyboard_read_columns(&machine->keyboard, selected_rows);
+    out->port_a_pull_down |= (uint8_t)~c64_keyboard_read_rows(&machine->keyboard, selected_columns);
+    out->port_b_pull_down |= (uint8_t)(machine->joystick1 & 0x1fu);
+    out->port_a_pull_down |= (uint8_t)(machine->joystick2 & 0x1fu);
+}
+
+static uint8_t c64_cia2_iec_output_pull(const c64_t *machine) {
+    uint8_t ora = machine->cia2.registers[0x00];
+    uint8_t ddra = machine->cia2.registers[0x02];
+    uint8_t pull = 0;
+
+    if ((ddra & 0x08u) && (ora & 0x08u)) pull |= C64_IEC_ATN;
+    if ((ddra & 0x10u) && (ora & 0x10u)) pull |= C64_IEC_CLK;
+    if ((ddra & 0x20u) && (ora & 0x20u)) pull |= C64_IEC_DATA;
+    return pull;
+}
+
+static void c64_cia2_port_inputs(
+    void *user,
+    uint8_t port_a_pins,
+    uint8_t port_b_pins,
+    cia_port_inputs *out) {
+    c64_t *machine = user;
+    uint8_t pull;
+    uint8_t ddra;
+
+    (void)port_a_pins;
+    (void)port_b_pins;
+    assert(machine);
+    assert(out);
+
+    pull = c64_cia2_iec_output_pull(machine);
+    pull |= (uint8_t)(machine->iec_external_pull & (C64_IEC_ATN | C64_IEC_CLK | C64_IEC_DATA));
+    ddra = machine->cia2.registers[0x02];
+
+    if ((pull & C64_IEC_CLK) != 0 && (ddra & 0x40u) == 0) {
+        out->port_a_pull_down |= 0x40u;
+    }
+    if ((pull & C64_IEC_DATA) != 0 && (ddra & 0x80u) == 0) {
+        out->port_a_pull_down |= 0x80u;
+    }
+}
+
+void c64_init(c64_t *machine) {
+    char error[256];
+    uint8_t device;
+
+    assert(machine);
+
+    memset(machine, 0, sizeof(*machine));
+    for (device = C64_DRIVE_MIN_DEVICE; device <= C64_DRIVE_MAX_DEVICE; ++device) {
+        machine->drives[device - C64_DRIVE_MIN_DEVICE].last_result = C64_DRIVE_STATUS_NOT_MOUNTED;
+    }
+    machine->config.video_standard = C64_VIDEO_STANDARD_NTSC;
+    c64_bus_init(&machine->bus);
+    (void)vicii_init(&machine->vic, error, sizeof(error));
+    (void)cia_init(&machine->cia1, error, sizeof(error));
+    (void)cia_init(&machine->cia2, error, sizeof(error));
+    c64_configure_cia_tod(machine);
+    c64_keyboard_reset(&machine->keyboard);
+    cia_attach_port_input(&machine->cia1, c64_cia1_port_inputs, machine);
+    cia_attach_port_input(&machine->cia2, c64_cia2_port_inputs, machine);
+    sid_init(&machine->sid, c64_config_clock_hz(&machine->config));
+    c64_bus_attach_vicii(&machine->bus, &machine->vic);
+    c64_bus_attach_cias(&machine->bus, &machine->cia1, &machine->cia2);
+    c64_bus_attach_sid(&machine->bus, &machine->sid);
+    c6510_init(&machine->cpu, machine, c64_cpu_read, c64_cpu_write);
+    c6510_set_irq_pending_callback(&machine->cpu, c64_cpu_irq_pending);
+    c6510_set_nmi_pending_callback(&machine->cpu, c64_cpu_nmi_pending);
+    c1541_init(&machine->drive8, machine, 8);
+    c1541_init(&machine->drive9, machine, 9);
+    machine->clock.c64_hz = c64_config_clock_hz(&machine->config);
+}
+
+void c64_set_config(c64_t *machine, const c64_config *config) {
+    int prev_media;
+    int next_media;
+
+    assert(machine);
+
+    if (config == NULL) {
+        return;
+    }
+
+    /* Media GCR is only active when both flags are on. Toggling either live can
+       leave a stale track cache that no longer matches the D64 (e.g. SAVEs done
+       with media off). Sync flux dirt out when leaving media, then drop tracks. */
+    prev_media = (machine->config.emulate_1541 != 0 && machine->config.media_1541 != 0) ? 1 : 0;
+    next_media = (config->emulate_1541 != 0 && config->media_1541 != 0) ? 1 : 0;
+
+    machine->config = *config;
+    machine->clock.c64_hz = c64_config_clock_hz(&machine->config);
+
+    if (prev_media != next_media) {
+        if (prev_media && !next_media) {
+            (void)c1541_media_sync_dirty(&machine->drive8);
+            (void)c1541_media_sync_dirty(&machine->drive9);
+        }
+        c1541_media_invalidate(&machine->drive8.media);
+        c1541_media_invalidate(&machine->drive9.media);
+    }
+}
+
+bool c64_install_roms(c64_t *machine, const c64_rom_set *roms, char *error, size_t error_size) {
+    assert(machine);
+    assert(roms);
+
+    if (!roms->has_basic) {
+        c64_set_error(error, error_size, "BASIC ROM missing");
+        machine->ready = false;
+        return false;
+    }
+
+    if (!roms->has_kernal) {
+        c64_set_error(error, error_size, "KERNAL ROM missing");
+        machine->ready = false;
+        return false;
+    }
+
+    if (!roms->has_character) {
+        c64_set_error(error, error_size, "character ROM missing");
+        machine->ready = false;
+        return false;
+    }
+
+    if (!c64_bus_set_basic_rom(&machine->bus, roms->basic, sizeof(roms->basic)) ||
+        !c64_bus_set_kernal_rom(&machine->bus, roms->kernal, sizeof(roms->kernal)) ||
+        !c64_bus_set_char_rom(&machine->bus, roms->character, sizeof(roms->character))) {
+        c64_set_error(error, error_size, "failed to install ROM data");
+        machine->ready = false;
+        return false;
+    }
+
+    machine->has_basic_rom = true;
+    machine->has_kernal_rom = true;
+    machine->has_character_rom = true;
+    machine->ready = true;
+    c64_set_error(error, error_size, "");
+    return true;
+}
+
+bool c64_reset(c64_t *machine, char *error, size_t error_size) {
+    uint16_t vector;
+
+    assert(machine);
+
+    if (!machine->ready ||
+        !machine->has_basic_rom ||
+        !machine->has_kernal_rom ||
+        !machine->has_character_rom) {
+        c64_set_error(error, error_size, "machine cannot reset without BASIC, KERNAL, and character ROMs");
+        return false;
+    }
+
+    c64_bus_reset(&machine->bus);
+    /* Re-select the SID clock from the current config so a video-standard change
+       (applied via config + reset) switches the envelope/filter rate tables,
+       mirroring vicii_set_video_standard below. */
+    vicii_set_video_standard(
+        &machine->vic,
+        machine->config.video_standard == C64_VIDEO_STANDARD_PAL ?
+            VICII_VIDEO_STANDARD_PAL :
+            VICII_VIDEO_STANDARD_NTSC);
+    sid_init(&machine->sid, c64_config_clock_hz(&machine->config));
+    vicii_reset(&machine->vic);
+    vicii_write_register(&machine->vic, C64_VICII_REG_MEMORY_POINTER, 0x15);
+    cia_reset(&machine->cia1);
+    cia_reset(&machine->cia2);
+    c64_bus_refresh_vic_bank_base(&machine->bus);
+    c64_configure_cia_tod(machine);
+    c64_keyboard_reset(&machine->keyboard);
+    machine->joystick1 = 0;
+    machine->joystick2 = 0;
+    machine->iec_external_pull = 0;
+    machine->iec_external_pull_other = 0;
+    machine->iec_external_pull_drive8 = 0;
+    machine->iec_external_pull_drive9 = 0;
+
+    c6510_reset(&machine->cpu);
+    /* Only reset powered 1541s; unpowered units stay cold until power-on. */
+    if (machine->drives[0].powered) {
+        c1541_reset(&machine->drive8);
+    }
+    if (machine->drives[1].powered) {
+        c1541_reset(&machine->drive9);
+    }
+    c64_disk_activity_clear_all(machine);
+    memset(&machine->clock, 0, sizeof(machine->clock));
+    machine->clock.c64_hz = c64_config_clock_hz(&machine->config);
+    memset(&machine->working_frame, 0, sizeof(machine->working_frame));
+    c64_trace_reset(&machine->last_cpu_trace);
+    c64_trace_reset(&machine->pending_cpu_trace);
+    memset(machine->write_history, 0, sizeof(machine->write_history));
+    machine->keyboard_events = 0;
+    machine->restore_requests = 0;
+    machine->restore_pending = false;
+    machine->cia2_nmi_line = false;
+    machine->cpu_prev_between_stall = false;
+    machine->cpu_deferred_interrupt = C6510_INTERRUPT_NONE;
+    machine->cpu_cycles_remaining = 0;
+    machine->cpu_trace_start_cycle = 0;
+    machine->cpu_trace_start_cpu_cycle = 0;
+    machine->pending_cpu_event_index = 0;
+    machine->pending_cpu_elapsed = 0;
+    machine->cpu_bus_mode = C64_CPU_BUS_MODE_IMMEDIATE;
+    machine->pending_cpu_trace_active = false;
+    machine->cpu_trace_enabled = false;
+    machine->instruction_complete = false;
+    vector = (uint16_t)c64_bus_read(&machine->bus, 0xfffc) |
+        ((uint16_t)c64_bus_read(&machine->bus, 0xfffd) << 8);
+
+    if (machine->cpu.cpu.pc != vector) {
+        c64_set_error(error, error_size, "CPU reset vector mismatch");
+        return false;
+    }
+
+    c64_set_error(error, error_size, "");
+    return true;
+}
+
+bool c64_step_instruction(c64_t *machine, char *error, size_t error_size) {
+    assert(machine);
+
+    if (!machine->ready) {
+        c64_set_error(error, error_size, "machine is not ready");
+        return false;
+    }
+
+    c64_finish_pending_cpu_trace(machine);
+
+    /* Instruction stepping must use the same Phi2 arbiter as cycle stepping.
+       The old timed-immediate path advanced devices to callback offsets but
+       bypassed BA stalls entirely, so the two public stepping APIs could reach
+       different raster positions for the same instruction. */
+    machine->instruction_complete = false;
+    while (!machine->instruction_complete) {
+        c64_step_cycle_internal(machine);
+    }
+    machine->cpu_cycles_remaining = 0;
+    c64_set_error(error, error_size, "");
+    return true;
+}
+
+bool c64_step_cycle(c64_t *machine, char *error, size_t error_size) {
+    return c64_step_cycles(machine, 1u, error, error_size);
+}
+
+/* Mid-instruction Phi2: VIC + CIA/SID + one micro cycle (or BA stall). Skips
+   KERNAL trap PC gate and instruction-begin prepare — those only matter between
+   instructions. Observables match c64_step_cycle_internal for micro_active.
+
+   Fast path: when AEC and RDY are both high after begin_vic, the 6510 cannot
+   be stalled — skip the access-kind walk. When RDY is low, fall through to the
+   full helper so Phi2 writes still complete under BA. */
+static void c64_step_cycle_micro_hot(c64_t *machine) {
+    c64_begin_vic_for_current_cycle(machine);
+    c64_step_nonvic_devices_for_current_cycle(machine);
+    c64_cyclelog_emit(machine);
+    if (machine->vic.timing.aec_active && machine->vic.timing.rdy_active) {
+        c64_step_micro_cycle(machine);
+    } else if (!c64_micro_cycle_stalled_by_vic_pins(machine)) {
+        c64_step_micro_cycle(machine);
+    } else {
+        c64_step_host_ba_stall(machine);
+    }
+}
+
+/* Drain up to `limit` mid-instruction Phi2 cycles. */
+static uint32_t c64_step_micro_strip(c64_t *machine, uint32_t limit) {
+    uint32_t n = 0u;
+    while (n < limit && machine->cpu.micro_active &&
+           machine->cpu_deferred_interrupt == C6510_INTERRUPT_NONE &&
+           !machine->pending_cpu_trace_active) {
+        c64_step_cycle_micro_hot(machine);
+        n++;
+    }
+    return n;
+}
+
+/* Between-instruction free-run strip: same observables as step_cycle_internal
+   when there is no deferred CPU-trace playback. Skips the pending-trace branch
+   and is used to chain into micro_hot without re-entering the full switch. */
+static void c64_step_cycle_between_hot(c64_t *machine) {
+    bool between_instructions_stalled = false;
+
+    if (machine->cpu_deferred_interrupt == C6510_INTERRUPT_NONE) {
+        uint16_t pc = machine->cpu.cpu.pc;
+        if ((pc == (uint16_t)C64_KERNAL_LOAD_ENTRY ||
+             pc == (uint16_t)C64_KERNAL_SAVE_ENTRY) &&
+            (c64_try_kernal_load_trap(machine) ||
+             c64_try_kernal_save_trap(machine))) {
+            machine->instruction_complete = true;
+            machine->clock.cpu_cycles++;
+            machine->cpu_prev_between_stall = false;
+            c64_advance_one_cycle(machine);
+            return;
+        }
+    }
+
+    c64_begin_vic_for_current_cycle(machine);
+
+    {
+        bool resuming = machine->cpu_prev_between_stall;
+        if (!vicii_aec_active(&machine->vic) ||
+            !vicii_rdy_active(&machine->vic, machine->clock.cycle)) {
+            between_instructions_stalled = true;
+        } else if (machine->cpu_deferred_interrupt != C6510_INTERRUPT_NONE) {
+            c64_begin_interrupt_now(machine, machine->cpu_deferred_interrupt);
+            machine->cpu_deferred_interrupt = C6510_INTERRUPT_NONE;
+        } else if (!c64_prepare_micro_instruction(machine, resuming)) {
+            /* Rare unsupported opcode → deferred bulk path. */
+            c64_prepare_deferred_cpu_trace(machine);
+        }
+    }
+
+    machine->cpu_prev_between_stall = between_instructions_stalled;
+    c64_step_nonvic_devices_for_current_cycle(machine);
+    c64_cyclelog_emit(machine);
+
+    if (between_instructions_stalled) {
+        c64_step_host_ba_stall(machine);
+        return;
+    }
+    if (machine->cpu.micro_active) {
+        if (!c64_micro_cycle_stalled_by_vic_pins(machine)) {
+            c64_step_micro_cycle(machine);
+        } else {
+            c64_step_host_ba_stall(machine);
+        }
+        return;
+    }
+    if (machine->pending_cpu_trace_active) {
+        /* Fall through to the shared deferred-trace handling via one internal
+           step would double-begin VIC. Finish this cycle as a no-op host if
+           deferred was just armed: prepare_deferred leaves micro inactive and
+           pending true — run the pending path once inline. */
+        if (c64_cpu_cycle_stalled_by_vic_pins(machine)) {
+            c64_step_host_ba_stall(machine);
+            return;
+        }
+        c64_balog_mark(0);
+        c64_apply_pending_cpu_events_at_elapsed(machine);
+        machine->pending_cpu_elapsed++;
+        machine->clock.cpu_cycles++;
+        c64_finish_cycle(machine);
+        if (machine->pending_cpu_elapsed >= machine->pending_cpu_trace.total_cycles) {
+            c64_apply_pending_cpu_events_at_elapsed(machine);
+            if (machine->cpu_trace_enabled) {
+                machine->last_cpu_trace = machine->pending_cpu_trace;
+            }
+            machine->pending_cpu_trace_active = false;
+            machine->instruction_complete = true;
+            c64_observer_complete(machine);
+            machine->pending_cpu_event_index = 0;
+            machine->pending_cpu_elapsed = 0;
+        }
+        return;
+    }
+    c64_finish_cycle(machine);
+}
+
+bool c64_step_cycles_ex(c64_t *machine, uint32_t count, uint32_t *out_ran,
+                        unsigned flags, char *error, size_t error_size) {
+    uint32_t i;
+    bool stop_before_brk = (flags & C64_STEP_STOP_BEFORE_BRK) != 0u;
+
+    assert(machine);
+
+    if (!machine->ready) {
+        c64_set_error(error, error_size, "machine is not ready");
+        if (out_ran != NULL) {
+            *out_ran = 0u;
+        }
+        return false;
+    }
+    if (count == 0u) {
+        if (out_ran != NULL) {
+            *out_ran = 0u;
+        }
+        return true;
+    }
+
+    for (i = 0u; i < count; ) {
+        /* Mid-instruction strip (optional no-BA thin path under vborder idle). */
+        if (machine->cpu.micro_active &&
+            machine->cpu_deferred_interrupt == C6510_INTERRUPT_NONE &&
+            !machine->pending_cpu_trace_active) {
+            i += c64_step_micro_strip(machine, count - i);
+            continue;
+        }
+        /* Between instructions. Optional free-run stop before BRK.
+           Fuse: begin one instruction then drain its remaining micro cycles
+           so the outer loop does not re-enter per Phi2 mid-instruction. */
+        if (!machine->pending_cpu_trace_active) {
+            if (stop_before_brk &&
+                c64_debug_peek_cpu_byte(machine, machine->cpu.cpu.pc) == 0x00u) {
+                break;
+            }
+            c64_step_cycle_between_hot(machine);
+            i++;
+            if (i < count && machine->cpu.micro_active &&
+                machine->cpu_deferred_interrupt == C6510_INTERRUPT_NONE &&
+                !machine->pending_cpu_trace_active) {
+                i += c64_step_micro_strip(machine, count - i);
+            }
+            continue;
+        }
+        c64_step_cycle_internal(machine);
+        i++;
+    }
+
+    if (machine->cpu.micro_active) {
+        machine->cpu_cycles_remaining = c6510_micro_cycles_remaining(&machine->cpu);
+    } else if (machine->pending_cpu_trace_active) {
+        machine->cpu_cycles_remaining =
+            machine->pending_cpu_trace.total_cycles - machine->pending_cpu_elapsed;
+    } else {
+        machine->cpu_cycles_remaining = 0;
+    }
+    if (out_ran != NULL) {
+        *out_ran = i;
+    }
+    return true;
+}
+
+bool c64_step_cycles(c64_t *machine, uint32_t count, char *error, size_t error_size) {
+    return c64_step_cycles_ex(machine, count, NULL, 0u, error, error_size);
+}
+
+bool c64_generate_test_frame(c64_t *machine, c64_frame *out_frame) {
+    return c64_make_frame_snapshot(machine, out_frame);
+}
+
+bool c64_make_frame_snapshot(c64_t *machine, c64_frame *out_frame) {
+    assert(machine);
+    assert(out_frame);
+
+    return vicii_make_frame_snapshot(&machine->vic, &machine->bus, out_frame, machine->clock.cycle);
+}
+
+bool c64_make_current_frame_snapshot(c64_t *machine, c64_frame *out_frame) {
+    assert(machine);
+    assert(out_frame);
+
+    return vicii_make_current_frame_snapshot(&machine->vic, &machine->bus, out_frame, machine->clock.cycle);
+}
+
+bool c64_copy_completed_frame(c64_t *machine, c64_frame *out_frame) {
+    assert(machine);
+    assert(out_frame);
+
+    return vicii_copy_completed_frame(&machine->vic, out_frame, machine->clock.cycle);
+}
+
+bool c64_copy_paint_frame(c64_t *machine, c64_frame *out_frame) {
+    assert(machine);
+    assert(out_frame);
+
+    return vicii_copy_paint_frame(&machine->vic, out_frame, machine->clock.cycle);
+}
+
+bool c64_consume_frame_complete(c64_t *machine) {
+    assert(machine);
+
+    return vicii_consume_frame_complete(&machine->vic);
+}
+
+bool c64_consume_instruction_complete(c64_t *machine) {
+    assert(machine);
+
+    if (!machine->instruction_complete) {
+        return false;
+    }
+    machine->instruction_complete = false;
+    return true;
+}
+
+void c64_set_key(c64_t *machine, c64_key key, bool pressed) {
+    assert(machine);
+
+    c64_keyboard_set_key(&machine->keyboard, key, pressed);
+    machine->keyboard_events++;
+    if (!machine->replay_sealed && machine->input_event != NULL) {
+        machine->input_event(
+            machine->input_event_user,
+            machine->clock.cycle,
+            C64_INPUT_EVENT_KEY,
+            (uint32_t)key,
+            pressed ? 1u : 0u,
+            0u);
+    }
+}
+
+void c64_set_matrix(c64_t *machine, uint8_t row, uint8_t col, bool pressed) {
+    assert(machine);
+
+    c64_keyboard_set_matrix(&machine->keyboard, row, col, pressed);
+    machine->keyboard_events++;
+}
+
+void c64_set_joystick(c64_t *machine, unsigned port, uint8_t inputs) {
+    assert(machine);
+
+    if (port == 1u) {
+        machine->joystick1 = (uint8_t)(inputs & 0x1fu);
+    } else if (port == 2u) {
+        machine->joystick2 = (uint8_t)(inputs & 0x1fu);
+    } else {
+        return;
+    }
+    if (!machine->replay_sealed && machine->input_event != NULL) {
+        machine->input_event(
+            machine->input_event_user,
+            machine->clock.cycle,
+            C64_INPUT_EVENT_JOYSTICK,
+            (uint32_t)port,
+            (uint32_t)(inputs & 0x1fu),
+            0u);
+    }
+}
+
+void c64_set_iec_external_pull(c64_t *machine, uint8_t lines) {
+    assert(machine);
+
+    machine->iec_external_pull_other = c64_iec_line_mask(lines);
+    c64_refresh_iec_external_pull(machine);
+}
+
+void c64_set_iec_drive_pull(c64_t *machine, int device_number, uint8_t lines) {
+    uint8_t pull;
+
+    assert(machine);
+    pull = c64_iec_line_mask(lines);
+    if (device_number == 8) {
+        machine->iec_external_pull_drive8 = pull;
+    } else if (device_number == 9) {
+        machine->iec_external_pull_drive9 = pull;
+    } else {
+        return;
+    }
+    c64_refresh_iec_external_pull(machine);
+}
+
+uint8_t c64_get_iec_external_pull(c64_t *machine) {
+    assert(machine);
+    return machine->iec_external_pull;
+}
+
+uint8_t c64_get_iec_pull_excluding_drive(c64_t *machine, int device_number) {
+    uint8_t pull;
+
+    assert(machine);
+    pull = machine->iec_external_pull_other;
+    if (device_number != 8) {
+        pull = (uint8_t)(pull | c64_drive_bus_pull(machine, 0));
+    }
+    if (device_number != 9) {
+        pull = (uint8_t)(pull | c64_drive_bus_pull(machine, 1));
+    }
+    return c64_iec_line_mask(pull);
+}
+
+uint8_t c64_get_iec_c64_pull(c64_t *machine) {
+    assert(machine);
+    /* CIA #2 Port A IEC assignments (from c64_cia2_port_inputs):
+       bit 3 (0x08) = ATN out: output high → C64 asserts ATN
+       bit 4 (0x10) = CLK out: output high → C64 asserts CLK
+       bit 5 (0x20) = DATA out: output high → C64 asserts DATA.
+       These outputs feed open-collector inverters. PA6/PA7 sense the
+       combined CLK/DATA bus level directly: released high reads as 1,
+       pulled low reads as 0. */
+    return c64_cia2_iec_output_pull(machine);
+}
+
+const c64_drive_slot *c64_get_drive_slot(c64_t *machine, int device_number) {
+    return c64_get_drive_slot_mut(machine, device_number);
+}
+
+c64_drive_slot *c64_get_drive_slot_mut(c64_t *machine, int device_number) {
+    int idx;
+
+    if (!machine) return NULL;
+    idx = c64_drive_slot_index((uint8_t)device_number);
+    if (idx < 0) return NULL;
+    return &machine->drives[idx];
+}
+
+void c64_disk_activity_read(c64_t *machine, int device_number) {
+    c64_drive_slot *slot = c64_get_drive_slot_mut(machine, device_number);
+
+    if (slot == NULL) {
+        return;
+    }
+    slot->led_read_seq++;
+}
+
+void c64_disk_activity_write(c64_t *machine, int device_number) {
+    c64_drive_slot *slot = c64_get_drive_slot_mut(machine, device_number);
+
+    if (slot == NULL) {
+        return;
+    }
+    slot->led_write_seq++;
+}
+
+void c64_set_audio_output_enabled(c64_t *machine, bool enabled) {
+    assert(machine);
+
+    sid_set_sample_output_enabled(&machine->sid, enabled);
+}
+
+void c64_set_video_output_enabled(c64_t *machine, bool enabled) {
+    assert(machine);
+
+    vicii_set_pixel_output_enabled(&machine->vic, enabled);
+}
+
+bool c64_video_output_enabled(const c64_t *machine) {
+    assert(machine);
+
+    return vicii_pixel_output_enabled(&machine->vic);
+}
+
+void c64_restore(c64_t *machine) {
+    assert(machine);
+
+    machine->restore_requests++;
+    machine->restore_pending = true;
+}
+
+void c64_set_memory_access_callback(c64_t *machine, c64_memory_access_fn callback, void *user) {
+    assert(machine);
+
+    machine->memory_access = callback;
+    machine->memory_access_user = user;
+}
+
+void c64_set_replay_sealed(c64_t *machine, bool sealed) {
+    assert(machine);
+
+    machine->replay_sealed = sealed;
+}
+
+void c64_set_input_event_callback(c64_t *machine, c64_input_event_fn fn, void *user) {
+    assert(machine);
+
+    machine->input_event = fn;
+    machine->input_event_user = user;
+}
+
+void c64_set_media_event_callback(c64_t *machine, c64_media_event_fn fn, void *user) {
+    assert(machine);
+
+    machine->media_event = fn;
+    machine->media_event_user = user;
+}
+
+void c64_notify_guest_media_write(c64_t *machine, int device) {
+    if (machine == NULL || machine->replay_sealed || machine->media_event == NULL) {
+        return;
+    }
+    machine->media_event(machine->media_event_user, machine->clock.cycle, device);
+}
+
+void c64_set_vicii_line_observer(
+    c64_t *machine,
+    vicii_line_observer_fn observer,
+    void *user) {
+    assert(machine);
+
+    machine->vic.line_observer = observer;
+    machine->vic.line_observer_user = user;
+}
+
+void c64_set_cpu_observer(
+    c64_t *machine,
+    const c64_cpu_observer *observer,
+    void *user) {
+    assert(machine);
+
+    if (observer != NULL) {
+        machine->cpu_observer = *observer;
+        machine->cpu_observer_user = user;
+    } else {
+        memset(&machine->cpu_observer, 0, sizeof(machine->cpu_observer));
+        machine->cpu_observer_user = NULL;
+    }
+}
+
+void c64_set_cpu_trace_enabled(c64_t *machine, bool enabled) {
+    assert(machine);
+
+    machine->cpu_trace_enabled = enabled;
+    if (!enabled) {
+        c64_trace_reset(&machine->last_cpu_trace);
+    }
+}
+
+bool c64_attach_generic_cartridge(
+    c64_t *machine,
+    const uint8_t *roml,
+    size_t roml_size,
+    const uint8_t *romh,
+    size_t romh_size,
+    uint8_t exrom,
+    uint8_t game,
+    char *error,
+    size_t error_size)
+{
+    assert(machine);
+
+    if (!c64_bus_attach_generic_cartridge(
+            &machine->bus, roml, roml_size, romh, romh_size, exrom, game)) {
+        c64_set_error(error, error_size, "unsupported generic cartridge layout");
+        return false;
+    }
+
+    c64_set_error(error, error_size, "");
+    return true;
+}
+
+bool c64_attach_magic_desk_cartridge(
+    c64_t *machine,
+    const uint8_t *banks,
+    size_t bank_count,
+    uint8_t exrom,
+    uint8_t game,
+    char *error,
+    size_t error_size)
+{
+    assert(machine);
+
+    if (!c64_bus_attach_magic_desk_cartridge(
+            &machine->bus, banks, bank_count, exrom, game)) {
+        c64_set_error(error, error_size, "unsupported Magic Desk cartridge layout");
+        return false;
+    }
+
+    c64_set_error(error, error_size, "");
+    return true;
+}
+
+bool c64_attach_ocean_cartridge(
+    c64_t *machine,
+    const uint8_t *banks,
+    size_t bank_count,
+    uint8_t exrom,
+    uint8_t game,
+    char *error,
+    size_t error_size)
+{
+    assert(machine);
+
+    if (!c64_bus_attach_ocean_cartridge(
+            &machine->bus, banks, bank_count, exrom, game)) {
+        c64_set_error(error, error_size, "unsupported Ocean cartridge layout");
+        return false;
+    }
+
+    c64_set_error(error, error_size, "");
+    return true;
+}
+
+bool c64_attach_c64gs_cartridge(
+    c64_t *machine,
+    const uint8_t *banks,
+    size_t bank_count,
+    uint8_t exrom,
+    uint8_t game,
+    char *error,
+    size_t error_size)
+{
+    assert(machine);
+
+    if (!c64_bus_attach_c64gs_cartridge(
+            &machine->bus, banks, bank_count, exrom, game)) {
+        c64_set_error(error, error_size, "unsupported C64GS cartridge layout");
+        return false;
+    }
+
+    c64_set_error(error, error_size, "");
+    return true;
+}
+
+bool c64_attach_funplay_cartridge(
+    c64_t *machine,
+    const uint8_t *banks,
+    size_t bank_count,
+    uint8_t exrom,
+    uint8_t game,
+    char *error,
+    size_t error_size)
+{
+    assert(machine);
+
+    if (!c64_bus_attach_funplay_cartridge(
+            &machine->bus, banks, bank_count, exrom, game)) {
+        c64_set_error(error, error_size, "unsupported Fun Play cartridge layout");
+        return false;
+    }
+
+    c64_set_error(error, error_size, "");
+    return true;
+}
+
+bool c64_attach_super_games_cartridge(
+    c64_t *machine,
+    const uint8_t *slots,
+    size_t slot_count,
+    uint8_t exrom,
+    uint8_t game,
+    char *error,
+    size_t error_size)
+{
+    assert(machine);
+
+    if (!c64_bus_attach_super_games_cartridge(
+            &machine->bus, slots, slot_count, exrom, game)) {
+        c64_set_error(error, error_size, "unsupported Super Games cartridge layout");
+        return false;
+    }
+
+    c64_set_error(error, error_size, "");
+    return true;
+}
+
+bool c64_attach_dinamic_cartridge(
+    c64_t *machine,
+    const uint8_t *banks,
+    size_t bank_count,
+    uint8_t exrom,
+    uint8_t game,
+    char *error,
+    size_t error_size)
+{
+    assert(machine);
+
+    if (!c64_bus_attach_dinamic_cartridge(
+            &machine->bus, banks, bank_count, exrom, game)) {
+        c64_set_error(error, error_size, "unsupported Dinamic cartridge layout");
+        return false;
+    }
+
+    c64_set_error(error, error_size, "");
+    return true;
+}
+
+void c64_detach_cartridge(c64_t *machine) {
+    assert(machine);
+
+    c64_bus_detach_cartridge(&machine->bus);
+}
+
+bool c64_cartridge_attached(const c64_t *machine) {
+    assert(machine);
+
+    return machine->bus.cartridge_mounted;
+}
+
+bool c64_drive_device_supported(uint8_t device) {
+    return c64_drive_slot_index(device) >= 0;
+}
+
+/* Defined later; mounts call this after attaching media. */
+bool c64_power_on_drive(c64_t *machine, uint8_t device);
+
+c64_drive_status_result c64_mount_d64(
+    c64_t *machine,
+    uint8_t device,
+    const uint8_t *standard_image_bytes,
+    size_t standard_image_size,
+    const c64_drive_directory_entry *entries,
+    size_t entry_count,
+    const char *display_name,
+    const char *disk_title,
+    const char *disk_id,
+    const char *dos_type,
+    uint16_t free_blocks) {
+    return c64_mount_d64_ex(
+        machine,
+        device,
+        standard_image_bytes,
+        standard_image_size,
+        entries,
+        entry_count,
+        display_name,
+        disk_title,
+        disk_id,
+        dos_type,
+        free_blocks,
+        false);
+}
+
+c64_drive_status_result c64_mount_d64_ex(
+    c64_t *machine,
+    uint8_t device,
+    const uint8_t *standard_image_bytes,
+    size_t standard_image_size,
+    const c64_drive_directory_entry *entries,
+    size_t entry_count,
+    const char *display_name,
+    const char *disk_title,
+    const char *disk_id,
+    const char *dos_type,
+    uint16_t free_blocks,
+    bool writable) {
+    int slot_index;
+    c64_drive_slot *slot;
+    uint8_t *copy;
+    c64_drive_directory_entry *entry_copy = NULL;
+
+    assert(machine);
+
+    slot_index = c64_drive_slot_index(device);
+    if (slot_index < 0) {
+        return C64_DRIVE_STATUS_INVALID_DEVICE;
+    }
+    if (standard_image_bytes == NULL || standard_image_size != C64_DRIVE_D64_STANDARD_SIZE) {
+        machine->drives[slot_index].last_result = C64_DRIVE_STATUS_UNSUPPORTED_IMAGE;
+        return C64_DRIVE_STATUS_UNSUPPORTED_IMAGE;
+    }
+
+    copy = (uint8_t *)malloc(standard_image_size);
+    if (copy == NULL) {
+        machine->drives[slot_index].last_result = C64_DRIVE_STATUS_OUT_OF_MEMORY;
+        return C64_DRIVE_STATUS_OUT_OF_MEMORY;
+    }
+    if (entry_count > 0) {
+        entry_copy = (c64_drive_directory_entry *)malloc(entry_count * sizeof(*entry_copy));
+        if (entry_copy == NULL) {
+            free(copy);
+            machine->drives[slot_index].last_result = C64_DRIVE_STATUS_OUT_OF_MEMORY;
+            return C64_DRIVE_STATUS_OUT_OF_MEMORY;
+        }
+        memcpy(entry_copy, entries, entry_count * sizeof(*entry_copy));
+    }
+    memcpy(copy, standard_image_bytes, standard_image_size);
+
+    slot = &machine->drives[slot_index];
+    {
+        bool was_powered = slot->powered;
+        free(slot->image_bytes);
+        free(slot->entries);
+        memset(slot, 0, sizeof(*slot));
+        slot->powered = was_powered; /* remount must not cold-reset a live unit */
+    }
+    slot->mounted = true;
+    slot->writable = writable;
+    slot->dirty = false;
+    slot->image_kind = C64_DRIVE_IMAGE_D64;
+    slot->last_result = C64_DRIVE_STATUS_OK;
+    slot->image_bytes = copy;
+    slot->image_size = standard_image_size;
+    slot->entries = entry_copy;
+    slot->entry_count = entry_count;
+    c64_copy_text(slot->display_name, sizeof(slot->display_name), display_name);
+    c64_copy_text(slot->disk_title, sizeof(slot->disk_title), disk_title);
+    c64_copy_text(slot->disk_id, sizeof(slot->disk_id), disk_id);
+    c64_copy_text(slot->dos_type, sizeof(slot->dos_type), dos_type);
+    slot->free_blocks = free_blocks;
+    /* Force media rebuild for this device on next cycle. */
+    if (device == 8) {
+        c1541_media_invalidate(&machine->drive8.media);
+    } else if (device == 9) {
+        c1541_media_invalidate(&machine->drive9.media);
+    }
+    (void)c64_power_on_drive(machine, device);
+    return C64_DRIVE_STATUS_OK;
+}
+
+c64_drive_status_result c64_mount_g64(
+    c64_t *machine,
+    uint8_t device,
+    const uint8_t *image_bytes,
+    size_t image_size,
+    const char *display_name) {
+    int slot_index;
+    c64_drive_slot *slot;
+    uint8_t *copy;
+
+    assert(machine);
+
+    slot_index = c64_drive_slot_index(device);
+    if (slot_index < 0) {
+        return C64_DRIVE_STATUS_INVALID_DEVICE;
+    }
+    if (image_bytes == NULL || image_size < 12u ||
+        image_bytes[0] != 'G' || image_bytes[1] != 'C' || image_bytes[2] != 'R' ||
+        image_bytes[3] != '-' || image_bytes[4] != '1' || image_bytes[5] != '5' ||
+        image_bytes[6] != '4' || image_bytes[7] != '1') {
+        machine->drives[slot_index].last_result = C64_DRIVE_STATUS_UNSUPPORTED_IMAGE;
+        return C64_DRIVE_STATUS_UNSUPPORTED_IMAGE;
+    }
+
+    copy = (uint8_t *)malloc(image_size);
+    if (copy == NULL) {
+        machine->drives[slot_index].last_result = C64_DRIVE_STATUS_OUT_OF_MEMORY;
+        return C64_DRIVE_STATUS_OUT_OF_MEMORY;
+    }
+    memcpy(copy, image_bytes, image_size);
+
+    slot = &machine->drives[slot_index];
+    {
+        bool was_powered = slot->powered;
+        free(slot->image_bytes);
+        free(slot->entries);
+        memset(slot, 0, sizeof(*slot));
+        slot->powered = was_powered;
+    }
+    slot->mounted = true;
+    slot->writable = false; /* RO by default; c64_set_drive_writable enables flux write-back */
+    slot->dirty = false;
+    slot->image_kind = C64_DRIVE_IMAGE_G64;
+    slot->last_result = C64_DRIVE_STATUS_OK;
+    slot->image_bytes = copy;
+    slot->image_size = image_size;
+    slot->entries = NULL;
+    slot->entry_count = 0;
+    c64_copy_text(slot->display_name, sizeof(slot->display_name), display_name);
+    c64_copy_text(slot->disk_title, sizeof(slot->disk_title), "");
+    c64_copy_text(slot->disk_id, sizeof(slot->disk_id), "");
+    c64_copy_text(slot->dos_type, sizeof(slot->dos_type), "");
+    slot->free_blocks = 0;
+
+    if (device == 8) {
+        c1541_media_invalidate(&machine->drive8.media);
+    } else if (device == 9) {
+        c1541_media_invalidate(&machine->drive9.media);
+    }
+    (void)c64_power_on_drive(machine, device);
+    return C64_DRIVE_STATUS_OK;
+}
+
+bool c64_set_drive_writable(c64_t *machine, uint8_t device, bool writable) {
+    int slot_index;
+
+    assert(machine);
+
+    slot_index = c64_drive_slot_index(device);
+    if (slot_index < 0 || !machine->drives[slot_index].mounted) {
+        return false;
+    }
+    /* D64 and G64 both support the writable flag. G64 writes require media_1541
+       (physical Port-A path); without media, WPS still follows the flag. */
+    machine->drives[slot_index].writable = writable;
+    return true;
+}
+
+void c64_unmount_drive(c64_t *machine, uint8_t device) {
+    int slot_index;
+    c64_drive_slot *slot;
+    bool keep_powered;
+
+    assert(machine);
+
+    slot_index = c64_drive_slot_index(device);
+    if (slot_index < 0) {
+        return;
+    }
+
+    /* Push dirty GCR back to the host image (D64 sectors or G64 tracks), then drop. */
+    if (device == 8) {
+        (void)c1541_media_sync_dirty(&machine->drive8);
+        c1541_media_invalidate(&machine->drive8.media);
+    } else if (device == 9) {
+        (void)c1541_media_sync_dirty(&machine->drive9);
+        c1541_media_invalidate(&machine->drive9.media);
+    }
+
+    slot = &machine->drives[slot_index];
+    keep_powered = slot->powered;
+    free(slot->image_bytes);
+    free(slot->entries);
+    memset(slot, 0, sizeof(*slot));
+    slot->last_result = C64_DRIVE_STATUS_NOT_MOUNTED;
+    slot->powered = keep_powered; /* eject is not power-off */
+}
+
+bool c64_power_on_drive(c64_t *machine, uint8_t device) {
+    int slot_index;
+
+    assert(machine);
+
+    slot_index = c64_drive_slot_index(device);
+    if (slot_index < 0) {
+        return false;
+    }
+    if (machine->drives[slot_index].powered) {
+        return true;
+    }
+
+    machine->drives[slot_index].powered = true;
+    if (device == 8) {
+        if (machine->drive8.rom_loaded) {
+            c1541_reset(&machine->drive8);
+        }
+        machine->iec_external_pull_drive8 = 0;
+    } else if (device == 9) {
+        if (machine->drive9.rom_loaded) {
+            c1541_reset(&machine->drive9);
+        }
+        machine->iec_external_pull_drive9 = 0;
+    }
+    c64_refresh_iec_external_pull(machine);
+    return true;
+}
+
+bool c64_power_off_drive(c64_t *machine, uint8_t device) {
+    int slot_index;
+
+    assert(machine);
+
+    slot_index = c64_drive_slot_index(device);
+    if (slot_index < 0) {
+        return false;
+    }
+
+    /* Eject media first (power-off with a disk in is allowed; media leaves). */
+    if (machine->drives[slot_index].mounted) {
+        c64_unmount_drive(machine, device);
+    }
+
+    if (!machine->drives[slot_index].powered) {
+        return true;
+    }
+
+    machine->drives[slot_index].powered = false;
+    if (device == 8) {
+        machine->iec_external_pull_drive8 = 0;
+    } else if (device == 9) {
+        machine->iec_external_pull_drive9 = 0;
+    }
+    c64_refresh_iec_external_pull(machine);
+    return true;
+}
+
+bool c64_drive_is_powered(const c64_t *machine, uint8_t device) {
+    int slot_index;
+
+    if (machine == NULL) {
+        return false;
+    }
+    slot_index = c64_drive_slot_index(device);
+    if (slot_index < 0) {
+        return false;
+    }
+    return machine->drives[slot_index].powered;
+}
+
+void c64_unmount_all_drives(c64_t *machine) {
+    uint8_t device;
+
+    assert(machine);
+
+    for (device = C64_DRIVE_MIN_DEVICE; device <= C64_DRIVE_MAX_DEVICE; ++device) {
+        c64_unmount_drive(machine, device);
+    }
+}
+
+bool c64_copy_drive_status(const c64_t *machine, uint8_t device, c64_drive_status *out_status) {
+    int slot_index;
+    const c64_drive_slot *slot;
+
+    assert(machine);
+
+    if (out_status == NULL) {
+        return false;
+    }
+
+    memset(out_status, 0, sizeof(*out_status));
+    out_status->device = device;
+    slot_index = c64_drive_slot_index(device);
+    if (slot_index < 0) {
+        out_status->last_result = C64_DRIVE_STATUS_INVALID_DEVICE;
+        return false;
+    }
+
+    slot = &machine->drives[slot_index];
+    out_status->mounted = slot->mounted;
+    out_status->powered = slot->powered;
+    out_status->writable = slot->writable;
+    out_status->dirty = slot->dirty;
+    out_status->image_kind = slot->image_kind;
+    out_status->last_result = slot->last_result;
+    c64_copy_text(out_status->display_name, sizeof(out_status->display_name), slot->display_name);
+    c64_copy_text(out_status->disk_title, sizeof(out_status->disk_title), slot->disk_title);
+    return true;
+}
+
+void c64_copy_cpu_snapshot(const c64_t *machine, c64_cpu_snapshot *out) {
+    assert(machine);
+    assert(out);
+
+    out->pc = machine->cpu.cpu.pc;
+    out->a = machine->cpu.cpu.A;
+    out->x = machine->cpu.cpu.X;
+    out->y = machine->cpu.cpu.Y;
+    out->sp = (uint8_t)(machine->cpu.cpu.sp & 0xff);
+    out->p = machine->cpu.cpu.flags;
+    out->cycles = machine->cpu.cpu.cycles;
+}
+
+void c64_copy_machine_snapshot(const c64_t *machine, c64_machine_snapshot *out) {
+    assert(machine);
+    assert(out);
+
+    out->cycle = machine->clock.cycle;
+    out->cpu_cycles = machine->clock.cpu_cycles;
+    out->vic_cycles = machine->clock.vic_cycles;
+    out->cia_cycles = machine->clock.cia_cycles;
+    out->pc = machine->cpu.cpu.pc;
+    out->a = machine->cpu.cpu.A;
+    out->x = machine->cpu.cpu.X;
+    out->y = machine->cpu.cpu.Y;
+    out->sp = (uint8_t)(machine->cpu.cpu.sp & 0xff);
+    out->p = machine->cpu.cpu.flags;
+    out->ready = machine->ready;
+    out->screen_ram_writes = machine->bus.screen_ram_writes;
+    out->color_ram_writes = machine->bus.color_ram_writes;
+    out->vic_register_writes = machine->bus.vic_register_writes;
+    out->cia1_register_writes = machine->bus.cia1_register_writes;
+    out->cia2_register_writes = machine->bus.cia2_register_writes;
+    out->sid_register_writes = machine->bus.sid_register_writes;
+    out->keyboard_events = machine->keyboard_events;
+    out->irq_entries = machine->cpu.cpu.irq_entries;
+    out->cia1_icr_reads = machine->cia1.icr_reads;
+    out->cia1_icr_writes = machine->cia1.icr_writes;
+    out->cia1_interrupt_assertions = machine->cia1.interrupt_assertions;
+    out->nmi_entries = machine->cpu.cpu.nmi_entries;
+    out->restore_requests = machine->restore_requests;
+    out->cia1_irq_pending = cia_irq_pending(&machine->cia1);
+    out->cia2_nmi_pending = cia_irq_pending(&machine->cia2);
+}
+
+void c64_copy_vicii_snapshot(const c64_t *machine, c64_vicii_snapshot *out) {
+    assert(machine);
+    assert(out);
+
+    vicii_copy_snapshot(&machine->vic, out);
+}
+
+static bool c64_debug_basic_visible(const c64_t *machine) {
+    return (machine->bus.cpu_port_data & 0x03u) == 0x03u;
+}
+
+static bool c64_debug_kernal_visible(const c64_t *machine) {
+    return (machine->bus.cpu_port_data & 0x02u) != 0;
+}
+
+static bool c64_debug_io_or_char_visible(const c64_t *machine) {
+    return (machine->bus.cpu_port_data & 0x03u) != 0;
+}
+
+static bool c64_debug_io_visible(const c64_t *machine) {
+    return c64_debug_io_or_char_visible(machine) && (machine->bus.cpu_port_data & 0x04u) != 0;
+}
+
+static bool c64_debug_char_visible(const c64_t *machine) {
+    return c64_debug_io_or_char_visible(machine) && (machine->bus.cpu_port_data & 0x04u) == 0;
+}
+
+static uint8_t c64_debug_peek_io(const c64_t *machine, uint16_t address) {
+    if (address >= 0xd000 && address <= 0xd3ff) {
+        return vicii_debug_read_register(&machine->vic, address);
+    }
+
+    if (address >= 0xd400 && address <= 0xd41f) {
+        return sid_debug_read(&machine->sid, address);
+    }
+
+    if (address >= 0xd800 && address <= 0xdbff) {
+        return (uint8_t)(machine->bus.color_ram[address - 0xd800u] & 0x0fu);
+    }
+
+    if (address >= 0xdc00 && address <= 0xdcff) {
+        return cia_debug_read_register(&machine->cia1, address);
+    }
+
+    if (address >= 0xdd00 && address <= 0xddff) {
+        return cia_debug_read_register(&machine->cia2, address);
+    }
+
+    return 0xff;
+}
+
+c64_memory_visibility c64_memory_visibility_at(const c64_t *machine, uint16_t address) {
+    uint8_t cartridge_value;
+
+    assert(machine);
+
+    if (c64_bus_cartridge_read(&machine->bus, address, &cartridge_value)) {
+        return C64_MEMORY_VISIBILITY_ROM;
+    }
+
+    if (address >= 0xa000 && address <= 0xbfff && c64_debug_basic_visible(machine)) {
+        return C64_MEMORY_VISIBILITY_ROM;
+    }
+
+    if (address >= 0xd000 && address <= 0xdfff) {
+        if (c64_debug_io_visible(machine)) {
+            return C64_MEMORY_VISIBILITY_IO;
+        }
+
+        if (c64_debug_char_visible(machine)) {
+            return C64_MEMORY_VISIBILITY_ROM;
+        }
+    }
+
+    if (address >= 0xe000 && c64_debug_kernal_visible(machine)) {
+        return C64_MEMORY_VISIBILITY_ROM;
+    }
+
+    return C64_MEMORY_VISIBILITY_RAM;
+}
+
+void c64_copy_memory_banking_snapshot(const c64_t *machine, c64_memory_banking_snapshot *out) {
+    uint8_t d018;
+
+    assert(machine);
+    assert(out);
+
+    d018 = machine->vic.registers[0x18];
+
+    out->cpu_port_direction = machine->bus.cpu_port_direction;
+    out->cpu_port_data = machine->bus.cpu_port_data;
+    out->loram = (machine->bus.cpu_port_data & 0x01u) != 0;
+    out->hiram = (machine->bus.cpu_port_data & 0x02u) != 0;
+    out->charen = (machine->bus.cpu_port_data & 0x04u) != 0;
+    out->basic_visibility = c64_memory_visibility_at(machine, 0xa000);
+    out->io_visibility = c64_memory_visibility_at(machine, 0xd000);
+    out->kernal_visibility = c64_memory_visibility_at(machine, 0xe000);
+    out->cia2_port_a_pins = cia_read_port_a_pins(&machine->cia2);
+    out->vic_bank_select = (uint8_t)((~out->cia2_port_a_pins) & 0x03u);
+    out->vic_bank_base = c64_bus_vic_bank_base(&machine->bus);
+    out->vic_memory_pointer = d018;
+    out->vic_screen_base = (uint16_t)(out->vic_bank_base + (uint16_t)((d018 >> 4) & 0x0fu) * 0x0400u);
+    out->vic_character_base = (uint16_t)(out->vic_bank_base + (uint16_t)((d018 >> 1) & 0x07u) * 0x0800u);
+    out->vic_bitmap_base = (uint16_t)(out->vic_bank_base + (uint16_t)((d018 >> 3) & 0x01u) * 0x2000u);
+}
+
+void c64_copy_vicii_hardware_snapshot(const c64_t *machine, c64_vicii_hardware_snapshot *out) {
+    const vicii *v;
+
+    assert(machine);
+    assert(out);
+
+    v = &machine->vic;
+    out->standard = v->timing.standard == VICII_VIDEO_STANDARD_PAL ?
+        C64_VIDEO_STANDARD_PAL :
+        C64_VIDEO_STANDARD_NTSC;
+    out->raster_line = v->timing.raster_line;
+    out->cycle_in_line = v->timing.cycle_in_line;
+    out->cycles_per_line = v->timing.cycles_per_line;
+    out->lines_per_frame = v->timing.lines_per_frame;
+    out->frame_number = v->timing.frame_number;
+    out->raster_compare = v->timing.raster_compare;
+    out->control_1 = vicii_debug_read_register(v, 0xd011);
+    out->control_2 = vicii_debug_read_register(v, 0xd016);
+    out->memory_pointer = v->registers[0x18];
+    out->irq_status = v->irq_status;
+    out->irq_enable = v->irq_enable;
+    out->irq_pending = (v->irq_status & v->irq_enable) != 0;
+    out->border_color = (uint8_t)(v->registers[0x20] & 0x0fu);
+    out->background_color[0] = (uint8_t)(v->registers[0x21] & 0x0fu);
+    out->background_color[1] = (uint8_t)(v->registers[0x22] & 0x0fu);
+    out->background_color[2] = (uint8_t)(v->registers[0x23] & 0x0fu);
+    out->background_color[3] = (uint8_t)(v->registers[0x24] & 0x0fu);
+    out->display_state = v->display_state;
+    out->bad_line = v->bad_line;
+    out->ba_active = vicii_ba_active(v, machine->clock.cycle);
+    out->aec_active = vicii_aec_active(v);
+    out->rdy_active = vicii_rdy_active(v, machine->clock.cycle);
+    out->vc = v->vc;
+    out->vc_base = v->vc_base;
+    out->rc = v->rc;
+    out->sprite_enable = v->registers[0x15];
+    out->sprite_x_expand = v->registers[0x1d];
+    out->sprite_y_expand = v->registers[0x17];
+    out->sprite_multicolor = v->registers[0x1c];
+    out->sprite_priority = v->sprite_priority;
+    out->sprite_sprite_collision = v->sprite_sprite_collision;
+    out->sprite_background_collision = v->sprite_background_collision;
+}
+
+void c64_copy_cia_hardware_snapshot(const c64_t *machine, unsigned cia_index, c64_cia_hardware_snapshot *out) {
+    const cia *c;
+
+    assert(machine);
+    assert(out);
+
+    c = cia_index == 2u ? &machine->cia2 : &machine->cia1;
+    out->port_a = cia_debug_read_register(c, 0x00);
+    out->port_b = cia_debug_read_register(c, 0x01);
+    out->ddra = c->registers[0x02];
+    out->ddrb = c->registers[0x03];
+    out->timer_a_counter = c->timer_a.counter;
+    out->timer_a_latch = c->timer_a.latch;
+    out->timer_a_control = c->registers[0x0e];
+    out->timer_a_underflow = c->timer_a.underflow;
+    out->timer_b_counter = c->timer_b.counter;
+    out->timer_b_latch = c->timer_b.latch;
+    out->timer_b_control = c->registers[0x0f];
+    out->timer_b_underflow = c->timer_b.underflow;
+    out->interrupt_flags = c->interrupt_flags;
+    out->interrupt_mask = c->interrupt_mask;
+    out->interrupt_pending = cia_irq_pending(c);
+    out->tod_tenths = c->tod.tenth;
+    out->tod_seconds = c->tod.seconds;
+    out->tod_minutes = c->tod.minutes;
+    out->tod_hours = c->tod.hours;
+    out->alarm_tenths = c->tod_alarm.tenth;
+    out->alarm_seconds = c->tod_alarm.seconds;
+    out->alarm_minutes = c->tod_alarm.minutes;
+    out->alarm_hours = c->tod_alarm.hours;
+}
+
+void c64_copy_sid_hardware_snapshot(const c64_t *machine, c64_sid_hardware_snapshot *out) {
+    const sid *s;
+    size_t i;
+
+    assert(machine);
+    assert(out);
+
+    s = &machine->sid;
+    for (i = 0; i < 3; ++i) {
+        const sid_voice *voice = &s->voices[i];
+        out->voices[i].frequency = voice->freq;
+        out->voices[i].pulse_width = voice->pulse_width;
+        out->voices[i].control = voice->control;
+        out->voices[i].attack_decay = voice->attack_decay;
+        out->voices[i].sustain_release = voice->sustain_release;
+        out->voices[i].envelope = voice->envelope;
+        out->voices[i].envelope_state = voice->env_state;
+        out->voices[i].phase_hi = (uint8_t)(voice->phase >> 16);
+        out->voices[i].waveform_mask = (uint8_t)(voice->control & 0xf0u);
+        out->voices[i].gate = (voice->control & 0x01u) != 0;
+        out->voices[i].sync = (voice->control & 0x02u) != 0;
+        out->voices[i].ring = (voice->control & 0x04u) != 0;
+        out->voices[i].test = (voice->control & 0x08u) != 0;
+    }
+
+    out->filter_cutoff = s->filter_cutoff;
+    out->filter_res_route = s->filter_res_route;
+    out->mode_volume = s->mode_volume;
+    out->volume = (uint8_t)(s->mode_volume & 0x0fu);
+    out->filter_mode = (uint8_t)((s->mode_volume >> 4) & 0x07u);
+    out->voice3_osc_read = s->voice3_osc_read;
+    out->voice3_env_read = s->voice3_env_read;
+    out->last_sample = s->last_sample;
+    out->sample_output_enabled = s->sample_output_enabled;
+}
+
+void c64_copy_1541_hardware_snapshot(
+    const c64_t *machine,
+    int device_number,
+    c64_1541_hardware_snapshot *out) {
+    const c1541 *drive;
+
+    assert(machine);
+    assert(out);
+    memset(out, 0, sizeof(*out));
+
+    if (device_number == 8) {
+        drive = &machine->drive8;
+    } else if (device_number == 9) {
+        drive = &machine->drive9;
+    } else {
+        return;
+    }
+
+    out->device_number = device_number;
+    out->rom_loaded = drive->rom_loaded;
+    {
+        const c64_drive_slot *power_slot =
+            (device_number == 8 || device_number == 9) ?
+            &machine->drives[device_number - C64_DRIVE_MIN_DEVICE] :
+            NULL;
+        out->powered = (power_slot != NULL && power_slot->powered) ? 1 : 0;
+    }
+    out->media_enabled = drive->media.enabled;
+    out->tracks_valid = drive->media.tracks_valid;
+    out->from_g64 = drive->media.from_g64;
+    /* Mechanics: media latches when enabled; otherwise sample VIA2 (PB2 motor,
+       DDRA=$FF + PCR CB2 $C0 write gate) for the Hardware tab. */
+    {
+        uint8_t orb = drive->via2.orb;
+        uint8_t ddrb = drive->via2.ddrb;
+        uint8_t ddra = drive->via2.ddra;
+        int motor = ((ddrb & 0x04u) != 0u && (orb & 0x04u) != 0u) ? 1 : 0;
+        int writing = (ddra == 0xFFu && (drive->via2.pcr & 0xE0u) == 0xC0u) ? 1 : 0;
+        const c64_drive_slot *slot =
+            (device_number == 8 || device_number == 9) ?
+            &machine->drives[device_number - C64_DRIVE_MIN_DEVICE] :
+            NULL;
+
+        out->motor_on = drive->media.enabled ? drive->media.motor_on : motor;
+        out->motor_ready = drive->media.enabled ? drive->media.motor_ready : motor;
+        out->writing = drive->media.enabled ? drive->media.writing : writing;
+        out->activity_read_seq = (slot != NULL) ? slot->led_read_seq : 0u;
+        out->activity_write_seq = (slot != NULL) ? slot->led_write_seq : 0u;
+    }
+    out->in_sync = drive->media.in_sync;
+    out->density = drive->media.density;
+    out->half_track = drive->media.half_track;
+    out->pc = drive->cpu.cpu.pc;
+}
+
+size_t c64_debug_copy_last_cpu_trace(const c64_t *machine, c64_cpu_instruction_trace *out) {
+    assert(machine);
+    assert(out);
+
+    *out = machine->last_cpu_trace;
+    return out->event_count;
+}
+
+uint8_t c64_debug_read_cpu_map(const c64_t *machine, uint16_t address) {
+    uint8_t cartridge_value;
+
+    assert(machine);
+
+    if (address == 0x0000u) {
+        return machine->bus.cpu_port_direction;
+    }
+
+    if (address == 0x0001u) {
+        return machine->bus.cpu_port_data;
+    }
+
+    if (c64_bus_cartridge_read(&machine->bus, address, &cartridge_value)) {
+        return cartridge_value;
+    }
+
+    if (address >= 0xa000 && address <= 0xbfff && c64_debug_basic_visible(machine)) {
+        return machine->bus.basic_rom[address - 0xa000u];
+    }
+
+    if (address >= 0xd000 && address <= 0xdfff) {
+        if (c64_debug_io_visible(machine)) {
+            return c64_debug_peek_io(machine, address);
+        }
+
+        if (c64_debug_char_visible(machine)) {
+            return machine->bus.char_rom[address - 0xd000u];
+        }
+    }
+
+    if (address >= 0xe000 && c64_debug_kernal_visible(machine)) {
+        return machine->bus.kernal_rom[address - 0xe000u];
+    }
+
+    return machine->bus.ram[address];
+}
+
+uint8_t c64_debug_peek_cpu_byte(const c64_t *machine, uint16_t address) {
+    uint8_t cartridge_value;
+    uint8_t port;
+
+    assert(machine);
+
+    /* Free-run BRK / hot peeks: order for common PC regions first. */
+    if (address >= 0x0002u && address < 0x8000u) {
+        return machine->bus.ram[address];
+    }
+
+    port = machine->bus.cpu_port_data;
+
+    if (address >= 0xe000u) {
+        if (c64_bus_cartridge_read(&machine->bus, address, &cartridge_value)) {
+            return cartridge_value;
+        }
+        if ((port & 0x02u) != 0u && machine->has_kernal_rom) {
+            return machine->bus.kernal_rom[address - 0xe000u];
+        }
+        return machine->bus.ram[address];
+    }
+
+    if (address >= 0xa000u && address <= 0xbfffu) {
+        if (c64_bus_cartridge_read(&machine->bus, address, &cartridge_value)) {
+            return cartridge_value;
+        }
+        if ((port & 0x03u) == 0x03u && machine->has_basic_rom) {
+            return machine->bus.basic_rom[address - 0xa000u];
+        }
+        return machine->bus.ram[address];
+    }
+
+    if (address >= 0x8000u && address <= 0x9fffu) {
+        if (c64_bus_cartridge_read(&machine->bus, address, &cartridge_value)) {
+            return cartridge_value;
+        }
+        return machine->bus.ram[address];
+    }
+
+    /* $0000/$0001, I/O, char ROM — rare for opcode fetches; full map. */
+    return c64_debug_read_cpu_map(machine, address);
+}
+
+uint8_t c64_debug_read_ram(const c64_t *machine, uint16_t address) {
+    assert(machine);
+
+    return machine->bus.ram[address];
+}
+
+uint8_t c64_debug_read_rom(const c64_t *machine, uint16_t address) {
+    assert(machine);
+
+    if (address >= 0xa000u && address <= 0xbfffu && machine->has_basic_rom) {
+        return machine->bus.basic_rom[address - 0xa000u];
+    }
+    if (address >= 0xd000u && address <= 0xdfffu && machine->has_character_rom) {
+        return machine->bus.char_rom[address - 0xd000u];
+    }
+    if (address >= 0xe000u && machine->has_kernal_rom) {
+        return machine->bus.kernal_rom[address - 0xe000u];
+    }
+    return machine->bus.ram[address];
+}
+
+bool c64_debug_read_drive_map(const c64_t *machine, uint8_t device, uint16_t address, uint8_t *out_value) {
+    const c1541 *drive;
+
+    assert(machine);
+    assert(out_value);
+
+    if (device == 8u) {
+        drive = &machine->drive8;
+    } else if (device == 9u) {
+        drive = &machine->drive9;
+    } else {
+        *out_value = 0;
+        return false;
+    }
+
+    return c1541_debug_read_map(drive, address, out_value) != 0;
+}
+
+uint64_t c64_debug_read_write_history(const c64_t *machine, uint16_t address) {
+    assert(machine);
+
+    return machine->write_history[address];
+}
+
+void c64_debug_write_cpu_map(c64_t *machine, uint16_t address, uint8_t value) {
+    assert(machine);
+
+    c64_bus_write(&machine->bus, address, value);
+}
+
+void c64_debug_write_ram(c64_t *machine, uint16_t address, uint8_t value) {
+    assert(machine);
+
+    machine->bus.ram[address] = value;
+    if (address >= 0x0400u && address < 0x0400u + 1000u) {
+        machine->bus.screen_ram_writes++;
+    }
+}
+
+void c64_set_debugcart_enabled(c64_t *machine, bool enabled) {
+    assert(machine);
+    machine->bus.debugcart_enabled = enabled;
+    if (!enabled) {
+        machine->bus.debugcart_hit = false;
+        machine->bus.debugcart_value = 0;
+    }
+}
+
+void c64_clear_debugcart(c64_t *machine) {
+    assert(machine);
+    machine->bus.debugcart_hit = false;
+    machine->bus.debugcart_value = 0;
+}
+
+bool c64_debugcart_hit(const c64_t *machine) {
+    assert(machine);
+    return machine->bus.debugcart_hit;
+}
+
+uint8_t c64_debugcart_value(const c64_t *machine) {
+    assert(machine);
+    return machine->bus.debugcart_value;
+}

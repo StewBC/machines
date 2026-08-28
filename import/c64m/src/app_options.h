@@ -1,0 +1,175 @@
+#pragma once
+
+#include "c64m_log.h"
+
+#include <stdbool.h>
+#include <stddef.h>
+
+#define C64M_DRIVE_COUNT 16
+
+/* Remembered file-browser default folders, one per browse slot. The order and
+   count must match frontend_browse_slot in frontend/frontend.h. */
+#define APP_BROWSE_DIR_COUNT 6
+
+/* Ordered list of disk image paths for one drive slot. */
+typedef struct {
+    char **paths;
+    bool  *writable;
+    int    count;
+    int    current; /* index of the disk currently (or last) mounted; 0 by default */
+    /* CLI `-d N=` (empty path): power the unit on without mounting an image. */
+    bool   power_on_only;
+} app_disk_slot;
+
+typedef struct app_options {
+    bool use_ini;
+    bool save_ini;
+    bool remember;
+    bool defaults;
+    bool no_save_ini;
+    /* Host log policy: all|warn|error|none (default warn). CLI --log-level /
+       INI [config] log_level. Does not mute argparse / startup fprintf errors. */
+    c64m_log_level log_level;
+    int scroll_wheel_lines;
+    char *ini_path;
+    app_disk_slot disk_slots[C64M_DRIVE_COUNT];
+    char *breakpoint;
+    char *turbo_multipliers;
+    char *symbol_files;
+    char *video_standard;
+    /* Optional frontend-only CRT presentation. Strength/amount are 1..100. */
+    bool true_aspect;
+    /* Filter the display instead of showing hard pixel edges. Scanlines and
+       curvature both force this on: they are presented through a filtered
+       texture and cannot be drawn without it. */
+    bool crt_smoothing;
+    bool crt_scanlines;
+    int crt_scanline_strength;
+    bool crt_curvature;
+    int crt_curvature_amount;
+    int window_width;
+    int window_height;
+    float layout_split_display_right;
+    float layout_split_top_bottom;
+    float layout_split_memory_misc;
+    char *basic_rom_path;
+    char *char_rom_path;
+    char *kernal_rom_path;
+    char *system_rom_path;
+    char *rom1541_path;
+    /* When true, the combined 16 KB system ROM (system_rom_path) supplies both
+       BASIC and KERNAL; when false, the separate basic_rom_path + kernal_rom_path
+       are used instead. character_rom and rom1541 are always independent. */
+    bool rom_single_system;
+    char *crt_path;
+    char *prg_path;
+    char *basic_path;
+    /* Startup machine snapshot (.c64state). Loaded after mount/setup when set. */
+    char *sna_path;
+    /* Remembered file-browser folders, indexed by frontend_browse_slot. */
+    char *browse_dirs[APP_BROWSE_DIR_COUNT];
+    /* When true, runtime emits a 440 Hz square wave via the audio path to
+       verify that samples reach the host audio device without needing SID. */
+    bool audio_smoke;
+    char *audio_record_path;
+    float audio_record_start_seconds;
+    float audio_record_duration_seconds;
+    /* When true, automatically run after a PRG/BASIC/D64 load. */
+    bool autorun;
+    /* When true, disk I/O is routed through the genuine 1541 ROM (requires
+       rom1541_path to be set); when false, KERNAL LOAD traps handle disk I/O. */
+    bool emulate_1541;
+    /* When true (and emulate_1541), use GCR track rotation / disk-controller VIA
+       media path for physical reads instead of job-level sector intercept. */
+    bool media_1541;
+    /* When true, draw shared disk activity LEDs in the UI window corner. */
+    bool show_disk_leds;
+    /* When true, free-run auto-pauses when the next opcode is BRK ($00) — a
+       debugging aid. When false (default), BRK executes like hardware so carts
+       that hit a KERNAL-handled BRK during boot (e.g. Ocean's Wonderboy) run. */
+    bool pause_on_brk;
+    /* Assembler tab persistent state */
+    char *assembler_file;
+    char *assembler_address;
+    char *assembler_run_address;
+    bool assembler_use_address;
+    bool assembler_auto_run;
+    bool assembler_basic_run;
+    bool assembler_reset_first;
+    bool assembler_rearm_oneshots;
+    bool assembler_auto_adjust_segments;
+    int control_port;
+    bool headless;
+    /* Always-on CPU flight-recorder startup budget in MiB: 0 or 16..4096. */
+    int history_memory_mb;
+    int frame_ring_memory_mb;
+    int vic_ring_memory_mb;
+    /* Inspector recording master switch (default off) and checkpoint budget
+       in MiB: 0 or 16..4096. 0 is an empty tape, not a refuse. */
+    bool inspector;
+    int inspector_memory_mb;
+    /* Wipe Inspector Record on turbo max/warp. Default true. Does not
+       pause the CPU flight recorder. */
+    bool inspector_off_on_max;
+    /* Host-keyboard joystick: layout name ("numpad" or "wasd") and the C64 port
+       it drives (0 = disabled, 1 or 2 = active). */
+    char *keyboard_joystick_layout;
+    int keyboard_joystick_port;
+} app_options;
+
+void app_options_init(app_options *options);
+bool app_options_load_startup(app_options *options, int argc, char **argv);
+bool app_options_save_shutdown(const app_options *options);
+/* Re-reads the named INI from disk and rewrites only the [browse] path keys from
+   options->browse_dirs, leaving every other setting intact. Silent no-op (returns
+   true) when there is no writable INI target. */
+bool app_options_save_paths_only(const app_options *options);
+bool app_options_copy(app_options *dest, const app_options *src);
+bool app_options_apply_ini_file(app_options *options, const char *path);
+bool app_options_set_string(char **target, const char *value);
+bool app_options_path_relative_to_ini(
+    const app_options *options,
+    const char *path,
+    char *out,
+    size_t out_size);
+/* Inverse of app_options_path_relative_to_ini: resolves a (possibly relative)
+   path against the INI file's directory into an absolute path. */
+bool app_options_path_absolute_from_ini(
+    const app_options *options,
+    const char *path,
+    char *out,
+    size_t out_size);
+bool app_options_symbol_files_absolute(
+    const app_options *options,
+    char *out,
+    size_t out_size);
+void app_options_destroy(app_options *options);
+
+/* Disk slot helpers used by callers that manage live mount state. */
+bool app_disk_slot_set(app_disk_slot *slot, const char *path);
+void app_disk_slot_clear(app_disk_slot *slot);
+bool app_disk_slot_copy(app_disk_slot *dest, const app_disk_slot *src);
+
+/*
+ * Remove the current disk from the queue and advance to the next one
+ * (round-robin).  Returns the path that should now be mounted, or NULL if the
+ * queue is now empty.  The returned pointer is into slot->paths and is only
+ * valid until the next mutation of slot.
+ */
+const char *app_disk_slot_eject_current(app_disk_slot *slot);
+
+/*
+ * Insert path into the queue immediately after the current disk.  If the queue
+ * was empty the disk becomes the only entry (current=0).  Returns false on
+ * allocation failure.
+ */
+bool app_disk_slot_add_after_current(app_disk_slot *slot, const char *path);
+
+/*
+ * Set current to index without modifying the queue.  Returns the path at that
+ * index, or NULL if index is out of range.  The returned pointer is into
+ * slot->paths.
+ */
+const char *app_disk_slot_select(app_disk_slot *slot, int index);
+bool app_disk_slot_current_writable(const app_disk_slot *slot);
+bool app_disk_slot_set_current_writable(app_disk_slot *slot, bool writable);

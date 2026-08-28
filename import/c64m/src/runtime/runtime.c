@@ -1,0 +1,356 @@
+#include "runtime.h"
+
+#include "message_queue.h"
+#include "mutex.h"
+#include "runtime_breakpoint_ini.h"
+#include "runtime_command.h"
+#include "runtime_internal.h"
+#include "runtime_inspector.h"
+#include "thread.h"
+
+#include <stdlib.h>
+#include <string.h>
+#include <ctype.h>
+
+enum {
+    RUNTIME_TURBO_DEFAULT_MODE = RUNTIME_TURBO_MODE_NORMAL,
+};
+
+static char *runtime_copy_string(const char *value) {
+    char *copy;
+    size_t length;
+
+    if (!value) {
+        return NULL;
+    }
+
+    length = strlen(value);
+    copy = malloc(length + 1);
+    if (!copy) {
+        return NULL;
+    }
+
+    memcpy(copy, value, length + 1);
+    return copy;
+}
+
+bool runtime_init() {
+    return true;
+}
+
+void runtime_shutdown() {
+}
+
+void runtime_config_set_turbo_defaults(runtime_config *config) {
+    if (config == NULL) {
+        return;
+    }
+
+    config->turbo_speeds[0] = RUNTIME_TURBO_DEFAULT_MODE;
+    config->turbo_speed_count = 1;
+    config->active_turbo_multiplier = RUNTIME_TURBO_DEFAULT_MODE;
+}
+
+bool runtime_config_set_turbo_csv(runtime_config *config, const char *csv) {
+    const char *cursor;
+    uint8_t count = 0;
+
+    if (config == NULL) {
+        return false;
+    }
+
+    runtime_config_set_turbo_defaults(config);
+    if (csv == NULL || csv[0] == '\0') {
+        return true;
+    }
+
+    cursor = csv;
+    while (*cursor != '\0') {
+        char *end;
+        unsigned long value;
+
+        while (isspace((unsigned char)*cursor)) {
+            cursor++;
+        }
+        if (*cursor == '\0') {
+            break;
+        }
+
+        value = strtoul(cursor, &end, 10);
+        if (end == cursor ||
+            value < (unsigned long)RUNTIME_TURBO_MODE_NORMAL ||
+            value > (unsigned long)RUNTIME_TURBO_MODE_LAST) {
+            runtime_config_set_turbo_defaults(config);
+            return false;
+        }
+        while (isspace((unsigned char)*end)) {
+            end++;
+        }
+        if (*end != '\0' && *end != ',') {
+            runtime_config_set_turbo_defaults(config);
+            return false;
+        }
+        if (count < (uint8_t)(sizeof(config->turbo_speeds) / sizeof(config->turbo_speeds[0]))) {
+            config->turbo_speeds[count++] = (uint32_t)value;
+        }
+        cursor = *end == ',' ? end + 1 : end;
+    }
+
+    if (count == 0) {
+        runtime_config_set_turbo_defaults(config);
+        return false;
+    }
+
+    config->turbo_speed_count = count;
+    config->active_turbo_multiplier = config->turbo_speeds[0];
+    return true;
+}
+
+runtime *runtime_create(const runtime_config *config) {
+    runtime *rt = calloc(1, sizeof(*rt));
+    if (!rt) {
+        return NULL;
+    }
+
+    rt->command_queue = message_queue_create(
+        sizeof(runtime_command),
+        RUNTIME_COMMAND_QUEUE_CAPACITY);
+    rt->event_queue = message_queue_create(
+        sizeof(runtime_event),
+        RUNTIME_EVENT_QUEUE_CAPACITY);
+
+    rt->frame_slot.mutex = mutex_create();
+    rt->debug_memory_slot.mutex = mutex_create();
+    rt->breakpoint_slot.mutex = mutex_create();
+    rt->symbol_slot.mutex = mutex_create();
+    rt->rpc_payload_pool.mutex = mutex_create();
+
+    if (!rt->command_queue ||
+        !rt->event_queue ||
+        !rt->frame_slot.mutex ||
+        !rt->debug_memory_slot.mutex ||
+        !rt->breakpoint_slot.mutex ||
+        !rt->symbol_slot.mutex ||
+        !rt->rpc_payload_pool.mutex) {
+        runtime_destroy(rt);
+        return NULL;
+    }
+
+    rt->client.command_queue = rt->command_queue;
+    rt->client.event_queue = rt->event_queue;
+    rt->client.frame_slot = &rt->frame_slot;
+    rt->client.debug_memory_slot = &rt->debug_memory_slot;
+    rt->client.breakpoint_slot = &rt->breakpoint_slot;
+    rt->client.symbol_slot = &rt->symbol_slot;
+    rt->client.rpc_payload_pool = &rt->rpc_payload_pool;
+    rt->client.frame_ring = &rt->frame_ring;
+    rt->client.vic_ring = &rt->vic_ring;
+    rt->client.inspector_cp_index = &rt->inspector_cp_index;
+
+    /* Default session for omit-session_id commands (compat / single asker). */
+    rt->next_session_id = 1u;
+    rt->sessions[0].id = 1u;
+    rt->sessions[0].kind = RUNTIME_SESSION_KIND_UI;
+    rt->sessions[0].active = 1u;
+    rt->sessions[0].endpoint_epoch = 0u;
+    rt->default_session_id = 1u;
+    rt->next_session_id = 2u;
+
+    if (config) {
+        rt->basic_rom_path = runtime_copy_string(config->basic_rom_path);
+        rt->char_rom_path = runtime_copy_string(config->char_rom_path);
+        rt->kernal_rom_path = runtime_copy_string(config->kernal_rom_path);
+        rt->system_rom_path = runtime_copy_string(config->system_rom_path);
+        rt->rom1541_path = runtime_copy_string(config->rom1541_path);
+        rt->ini_path = runtime_copy_string(config->ini_path);
+        rt->symbol_files = runtime_copy_string(config->symbol_files);
+        rt->use_ini = config->use_ini;
+        rt->save_ini = config->save_ini;
+        rt->machine_config = config->machine_config;
+        memcpy(rt->turbo_speeds, config->turbo_speeds, sizeof(rt->turbo_speeds));
+        rt->turbo_speed_count = config->turbo_speed_count;
+        rt->active_turbo_multiplier = config->active_turbo_multiplier;
+        if (rt->turbo_speed_count == 0 || rt->active_turbo_multiplier == 0) {
+            runtime_config defaults = {0};
+            runtime_config_set_turbo_defaults(&defaults);
+            memcpy(rt->turbo_speeds, defaults.turbo_speeds, sizeof(rt->turbo_speeds));
+            rt->turbo_speed_count = defaults.turbo_speed_count;
+            rt->active_turbo_multiplier = defaults.active_turbo_multiplier;
+        }
+
+        rt->audio_out         = config->audio_out;
+        rt->audio_sample_rate = config->audio_sample_rate;
+        rt->audio_record_path = runtime_copy_string(config->audio_record_path);
+        rt->audio_record_start_seconds = config->audio_record_start_seconds;
+        rt->audio_record_duration_seconds = config->audio_record_duration_seconds;
+        rt->audio_smoke       = config->audio_smoke;
+        rt->autorun           = config->autorun;
+        rt->history_memory_mb = config->history_memory_mb_configured ?
+            config->history_memory_mb :
+            RUNTIME_HISTORY_DEFAULT_MEMORY_MB;
+        rt->frame_ring_memory_mb = config->frame_ring_memory_mb_configured ?
+            config->frame_ring_memory_mb :
+            RUNTIME_FRAME_RING_DEFAULT_MEMORY_MB;
+        rt->vic_ring_memory_mb = config->vic_ring_memory_mb_configured ?
+            config->vic_ring_memory_mb :
+            RUNTIME_VIC_RING_DEFAULT_MEMORY_MB;
+        rt->inspector = config->inspector;
+        rt->inspector_memory_mb = config->inspector_memory_mb_configured ?
+            config->inspector_memory_mb :
+            RUNTIME_INSPECTOR_DEFAULT_MEMORY_MB;
+        rt->inspector_off_on_max = config->inspector_off_on_max;
+        rt->inspector_enabled_saved_for_max = false;
+
+        if ((config->basic_rom_path && !rt->basic_rom_path) ||
+            (config->char_rom_path && !rt->char_rom_path) ||
+            (config->kernal_rom_path && !rt->kernal_rom_path) ||
+            (config->system_rom_path && !rt->system_rom_path) ||
+            (config->ini_path && !rt->ini_path) ||
+            (config->symbol_files && !rt->symbol_files) ||
+            (config->audio_record_path && !rt->audio_record_path)) {
+            runtime_destroy(rt);
+            return NULL;
+        }
+    }
+
+    if (!config) {
+        rt->history_memory_mb = RUNTIME_HISTORY_DEFAULT_MEMORY_MB;
+        rt->frame_ring_memory_mb = RUNTIME_FRAME_RING_DEFAULT_MEMORY_MB;
+        rt->vic_ring_memory_mb = RUNTIME_VIC_RING_DEFAULT_MEMORY_MB;
+        rt->inspector = false;
+        rt->inspector_memory_mb = RUNTIME_INSPECTOR_DEFAULT_MEMORY_MB;
+        rt->inspector_off_on_max = true;
+        rt->inspector_enabled_saved_for_max = false;
+    }
+
+    /* A frame ring that fails to allocate is not fatal: the emulator runs
+       without a pixel black box, and frame-ring-info reports capacity 0. */
+    if (rt->frame_ring_memory_mb != 0u &&
+        rt->frame_ring_memory_mb <= RUNTIME_FRAME_RING_MAX_MEMORY_MB) {
+        (void)runtime_frame_ring_init(
+            &rt->frame_ring,
+            (uint64_t)rt->frame_ring_memory_mb * 1024u * 1024u);
+    }
+    if (rt->vic_ring_memory_mb != 0u &&
+        rt->vic_ring_memory_mb <= RUNTIME_VIC_RING_MAX_MEMORY_MB) {
+        (void)runtime_vic_ring_init(
+            &rt->vic_ring,
+            (uint64_t)rt->vic_ring_memory_mb * 1024u * 1024u);
+    }
+    {
+        uint32_t cp_slots = 0u;
+        if (rt->inspector_memory_mb != 0u &&
+            rt->inspector_memory_mb <= RUNTIME_INSPECTOR_MAX_MEMORY_MB) {
+            cp_slots = runtime_inspector_slot_count_for_budget(
+                rt->inspector_memory_mb);
+        }
+        if (!runtime_inspector_cp_index_init(&rt->inspector_cp_index, cp_slots)) {
+            runtime_destroy(rt);
+            return NULL;
+        }
+    }
+
+    if (rt->history_memory_mb > 4096u ||
+        (rt->history_memory_mb != 0u && rt->history_memory_mb < 16u) ||
+        (uint64_t)rt->history_memory_mb * 1024u * 1024u > SIZE_MAX) {
+        rt->history = runtime_history_create_ex(1u, 1u, NULL);
+    } else {
+        rt->history = runtime_history_create(
+            (size_t)rt->history_memory_mb * 1024u * 1024u);
+    }
+    if (rt->history == NULL) {
+        runtime_destroy(rt);
+        return NULL;
+    }
+
+    return rt;
+}
+
+void runtime_destroy(runtime *rt) {
+    if (!rt) {
+        return;
+    }
+
+    runtime_stop(rt);
+    c64_unmount_all_drives(&rt->machine);
+    free(rt->basic_rom_path);
+    free(rt->char_rom_path);
+    free(rt->kernal_rom_path);
+    free(rt->system_rom_path);
+    free(rt->rom1541_path);
+    free(rt->ini_path);
+    free(rt->symbol_files);
+    free(rt->audio_record_path);
+    runtime_history_destroy(rt->history);
+    rt->history = NULL;
+    runtime_inspector_destroy(rt);
+    runtime_inspector_recorder_destroy(rt);
+    runtime_inspector_cp_index_destroy(&rt->inspector_cp_index);
+    runtime_frame_ring_destroy(&rt->frame_ring);
+    runtime_vic_ring_destroy(&rt->vic_ring);
+    if (rt->rpc_payload_pool.mutex != NULL) {
+        size_t i;
+        mutex_lock(rt->rpc_payload_pool.mutex);
+        for (i = 0; i < RUNTIME_RPC_PAYLOAD_POOL_CAPACITY; ++i) {
+            free(rt->rpc_payload_pool.slots[i].bytes);
+            rt->rpc_payload_pool.slots[i].bytes = NULL;
+            rt->rpc_payload_pool.slots[i].in_use = 0;
+        }
+        mutex_unlock(rt->rpc_payload_pool.mutex);
+    }
+    mutex_destroy(rt->frame_slot.mutex);
+    mutex_destroy(rt->debug_memory_slot.mutex);
+    mutex_destroy(rt->breakpoint_slot.mutex);
+    mutex_destroy(rt->symbol_slot.mutex);
+    mutex_destroy(rt->rpc_payload_pool.mutex);
+    message_queue_destroy(rt->event_queue);
+    message_queue_destroy(rt->command_queue);
+    free(rt);
+}
+
+bool runtime_start(runtime *rt) {
+    if (!rt) {
+        return false;
+    }
+
+    if (rt->started) {
+        return true;
+    }
+
+    rt->thread = thread_create("c64m-runtime", runtime_thread_main, rt);
+    if (!rt->thread) {
+        return false;
+    }
+
+    rt->started = true;
+    return true;
+}
+
+void runtime_stop(runtime *rt) {
+    if (!rt || !rt->started) {
+        return;
+    }
+
+    runtime_command command = {
+        .type = RUNTIME_COMMAND_QUIT,
+    };
+
+    message_queue_push(rt->command_queue, &command);
+    message_queue_wake_all(rt->command_queue);
+    thread_join(rt->thread);
+    thread_destroy(rt->thread);
+    rt->thread = NULL;
+    rt->started = false;
+}
+
+bool runtime_save_debug_ini(runtime *rt) {
+    return runtime_save_breakpoints_to_ini(rt);
+}
+
+runtime_client *runtime_get_client(runtime *rt) {
+    if (!rt) {
+        return NULL;
+    }
+
+    return &rt->client;
+}
