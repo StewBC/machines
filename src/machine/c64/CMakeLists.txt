@@ -67,7 +67,7 @@ target_include_directories(c64m PRIVATE
 )
 
 add_executable(test_audio_buffer
-    ${MACHINES_ROOT}/src/shell/tests/util/test_audio_buffer.c
+    ${MACHINES_ROOT}/tests/shell/util/test_audio_buffer.c
 )
 
 target_compile_features(test_audio_buffer PRIVATE c_std_99)
@@ -79,7 +79,7 @@ target_link_libraries(test_audio_buffer PRIVATE
 add_test(NAME audio_buffer COMMAND test_audio_buffer)
 
 add_executable(test_paste_parser
-    tests/util/test_paste_parser.c
+    ${MACHINES_ROOT}/tests/c64/util/test_paste_parser.c
 )
 
 target_compile_features(test_paste_parser PRIVATE c_std_99)
@@ -91,7 +91,7 @@ target_link_libraries(test_paste_parser PRIVATE
 add_test(NAME paste_parser COMMAND test_paste_parser)
 
 add_executable(test_basic_v2
-    tests/util/test_basic_v2.c
+    ${MACHINES_ROOT}/tests/c64/util/test_basic_v2.c
 )
 
 target_compile_features(test_basic_v2 PRIVATE c_std_99)
@@ -103,7 +103,7 @@ target_link_libraries(test_basic_v2 PRIVATE
 add_test(NAME basic_v2 COMMAND test_basic_v2)
 
 add_executable(test_c64_bus
-    tests/machine/test_c64_bus.c
+    ${MACHINES_ROOT}/tests/c64/machine/test_c64_bus.c
 )
 
 target_compile_features(test_c64_bus PRIVATE c_std_99)
@@ -115,13 +115,14 @@ target_link_libraries(test_c64_bus PRIVATE
 add_test(NAME c64_bus COMMAND test_c64_bus)
 
 add_executable(test_c64_snapshot
-    tests/machine/test_c64_snapshot.c
+    ${MACHINES_ROOT}/tests/c64/machine/test_c64_snapshot.c
 )
 
 target_compile_features(test_c64_snapshot PRIVATE c_std_99)
 
 target_compile_definitions(test_c64_snapshot PRIVATE
     C64M_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
+    C64M_TEST_DIR="${MACHINES_ROOT}/tests/c64"
 )
 
 target_link_libraries(test_c64_snapshot PRIVATE
@@ -131,7 +132,7 @@ target_link_libraries(test_c64_snapshot PRIVATE
 add_test(NAME c64_snapshot COMMAND test_c64_snapshot)
 
 add_executable(test_c64_snapshot_1541_midload
-    tests/machine/test_c64_snapshot_1541_midload.c
+    ${MACHINES_ROOT}/tests/c64/machine/test_c64_snapshot_1541_midload.c
 )
 
 target_compile_features(test_c64_snapshot_1541_midload PRIVATE c_std_99)
@@ -148,7 +149,7 @@ add_test(NAME c64_snapshot_1541_midload COMMAND test_c64_snapshot_1541_midload)
 set_tests_properties(c64_snapshot_1541_midload PROPERTIES SKIP_RETURN_CODE 77)
 
 add_executable(test_sid
-    tests/machine/test_sid.c
+    ${MACHINES_ROOT}/tests/c64/machine/test_sid.c
 )
 
 target_compile_features(test_sid PRIVATE c_std_99)
@@ -165,7 +166,7 @@ endif()
 add_test(NAME sid COMMAND test_sid)
 
 add_executable(test_via6522
-    tests/machine/test_via6522.c
+    ${MACHINES_ROOT}/tests/c64/machine/test_via6522.c
 )
 
 target_compile_features(test_via6522 PRIVATE c_std_99)
@@ -177,7 +178,7 @@ target_link_libraries(test_via6522 PRIVATE
 add_test(NAME via6522 COMMAND test_via6522)
 
 add_executable(test_c1541
-    tests/machine/test_c1541.c
+    ${MACHINES_ROOT}/tests/c64/machine/test_c1541.c
 )
 
 target_compile_features(test_c1541 PRIVATE c_std_99)
@@ -189,7 +190,7 @@ target_link_libraries(test_c1541 PRIVATE
 add_test(NAME c1541 COMMAND test_c1541)
 
 add_executable(test_c1541_gcr
-    tests/machine/test_c1541_gcr.c
+    ${MACHINES_ROOT}/tests/c64/machine/test_c1541_gcr.c
 )
 
 target_compile_features(test_c1541_gcr PRIVATE c_std_99)
@@ -201,7 +202,7 @@ target_link_libraries(test_c1541_gcr PRIVATE
 add_test(NAME c1541_gcr COMMAND test_c1541_gcr)
 
 add_executable(test_g64
-    tests/tools/test_g64.c
+    ${MACHINES_ROOT}/tests/c64/tools/test_g64.c
 )
 
 target_compile_features(test_g64 PRIVATE c_std_99)
@@ -213,7 +214,7 @@ target_link_libraries(test_g64 PRIVATE
 add_test(NAME g64 COMMAND test_g64)
 
 add_executable(test_c1541_media
-    tests/machine/test_c1541_media.c
+    ${MACHINES_ROOT}/tests/c64/machine/test_c1541_media.c
 )
 
 target_compile_features(test_c1541_media PRIVATE c_std_99)
@@ -225,7 +226,7 @@ target_link_libraries(test_c1541_media PRIVATE
 add_test(NAME c1541_media COMMAND test_c1541_media)
 
 add_executable(test_c64_rom
-    tests/machine/test_c64_rom.c
+    ${MACHINES_ROOT}/tests/c64/machine/test_c64_rom.c
 )
 
 target_compile_features(test_c64_rom PRIVATE c_std_99)
@@ -237,7 +238,7 @@ target_link_libraries(test_c64_rom PRIVATE
 add_test(NAME c64_rom COMMAND test_c64_rom)
 
 add_executable(test_c64_frame
-    tests/machine/test_c64_frame.c
+    ${MACHINES_ROOT}/tests/c64/machine/test_c64_frame.c
 )
 
 target_compile_features(test_c64_frame PRIVATE c_std_99)
@@ -249,7 +250,7 @@ target_link_libraries(test_c64_frame PRIVATE
 add_test(NAME c64_frame COMMAND test_c64_frame)
 
 add_executable(test_c64_vicii
-    tests/machine/test_c64_vicii.c
+    ${MACHINES_ROOT}/tests/c64/machine/test_c64_vicii.c
 )
 
 target_compile_features(test_c64_vicii PRIVATE c_std_99)
@@ -261,7 +262,7 @@ target_link_libraries(test_c64_vicii PRIVATE
 add_test(NAME c64_vicii COMMAND test_c64_vicii)
 
 add_executable(test_c64_cia
-    tests/machine/test_c64_cia.c
+    ${MACHINES_ROOT}/tests/c64/machine/test_c64_cia.c
 )
 
 target_compile_features(test_c64_cia PRIVATE c_std_99)
@@ -273,7 +274,7 @@ target_link_libraries(test_c64_cia PRIVATE
 add_test(NAME c64_cia COMMAND test_c64_cia)
 
 add_executable(test_c64_boot_progression
-    tests/machine/test_c64_boot_progression.c
+    ${MACHINES_ROOT}/tests/c64/machine/test_c64_boot_progression.c
 )
 
 target_compile_features(test_c64_boot_progression PRIVATE c_std_99)
@@ -289,7 +290,7 @@ target_link_libraries(test_c64_boot_progression PRIVATE
 add_test(NAME c64_boot_progression COMMAND test_c64_boot_progression)
 
 add_executable(test_c64_keyboard
-    tests/machine/test_c64_keyboard.c
+    ${MACHINES_ROOT}/tests/c64/machine/test_c64_keyboard.c
 )
 
 target_compile_features(test_c64_keyboard PRIVATE c_std_99)
@@ -301,7 +302,7 @@ target_link_libraries(test_c64_keyboard PRIVATE
 add_test(NAME c64_keyboard COMMAND test_c64_keyboard)
 
 add_executable(test_c64_disk_load
-    tests/machine/test_c64_disk_load.c
+    ${MACHINES_ROOT}/tests/c64/machine/test_c64_disk_load.c
 )
 
 target_compile_features(test_c64_disk_load PRIVATE c_std_99)
@@ -319,7 +320,7 @@ add_test(NAME c64_disk_load COMMAND test_c64_disk_load)
 set_tests_properties(c64_disk_load PROPERTIES SKIP_RETURN_CODE 77)
 
 add_executable(test_c64_real_1541_load
-    tests/machine/test_c64_real_1541_load.c
+    ${MACHINES_ROOT}/tests/c64/machine/test_c64_real_1541_load.c
 )
 
 target_compile_features(test_c64_real_1541_load PRIVATE c_std_99)
@@ -336,7 +337,7 @@ add_test(NAME c64_real_1541_load COMMAND test_c64_real_1541_load)
 set_tests_properties(c64_real_1541_load PROPERTIES SKIP_RETURN_CODE 77)
 
 add_executable(test_c64_robocop_g64
-    tests/machine/test_c64_robocop_g64.c
+    ${MACHINES_ROOT}/tests/c64/machine/test_c64_robocop_g64.c
 )
 
 target_compile_features(test_c64_robocop_g64 PRIVATE c_std_99)
@@ -353,7 +354,7 @@ add_test(NAME c64_robocop_g64 COMMAND test_c64_robocop_g64)
 set_tests_properties(c64_robocop_g64 PROPERTIES SKIP_RETURN_CODE 77)
 
 add_executable(probe_c64_arkanoid_g64
-    tests/machine/probe_c64_arkanoid_g64.c
+    ${MACHINES_ROOT}/tests/c64/machine/probe_c64_arkanoid_g64.c
 )
 
 target_compile_features(probe_c64_arkanoid_g64 PRIVATE c_std_99)
@@ -371,7 +372,7 @@ add_test(NAME c64_arkanoid_alt_g64 COMMAND probe_c64_arkanoid_g64 alt)
 set_tests_properties(c64_arkanoid_g64 c64_arkanoid_alt_g64 PROPERTIES SKIP_RETURN_CODE 77)
 
 add_executable(test_frontend_input
-    tests/frontend/test_frontend_input.c
+    ${MACHINES_ROOT}/tests/c64/frontend/test_frontend_input.c
 )
 
 target_compile_features(test_frontend_input PRIVATE c_std_99)
@@ -390,7 +391,7 @@ target_link_libraries(test_frontend_input PRIVATE
 add_test(NAME frontend_input COMMAND test_frontend_input)
 
 add_executable(test_help_view
-    ${MACHINES_ROOT}/src/shell/tests/frontend/test_help_view.c
+    ${MACHINES_ROOT}/tests/shell/frontend/test_help_view.c
 )
 
 target_compile_features(test_help_view PRIVATE c_std_99)
@@ -409,7 +410,7 @@ target_link_libraries(test_help_view PRIVATE
 add_test(NAME help_view COMMAND test_help_view)
 
 add_executable(test_forensics_view
-    ${MACHINES_ROOT}/src/shell/tests/frontend/test_forensics_view.c
+    ${MACHINES_ROOT}/tests/shell/frontend/test_forensics_view.c
 )
 
 target_compile_features(test_forensics_view PRIVATE c_std_99)
@@ -423,7 +424,7 @@ target_link_libraries(test_forensics_view PRIVATE
 add_test(NAME forensics_view COMMAND test_forensics_view)
 
 add_executable(test_frontend_joystick
-    tests/frontend/test_frontend_joystick.c
+    ${MACHINES_ROOT}/tests/c64/frontend/test_frontend_joystick.c
 )
 
 target_compile_features(test_frontend_joystick PRIVATE c_std_99)
@@ -443,7 +444,7 @@ add_test(NAME frontend_joystick COMMAND test_frontend_joystick)
 add_executable(test_window_title
     src/frontend/window_title.c
     ${MACHINES_ROOT}/src/shell/frontend/window_title.c
-    tests/frontend/test_window_title.c
+    ${MACHINES_ROOT}/tests/c64/frontend/test_window_title.c
 )
 
 target_compile_features(test_window_title PRIVATE c_std_99)
@@ -459,7 +460,7 @@ target_include_directories(test_window_title PRIVATE
 add_test(NAME window_title COMMAND test_window_title)
 
 add_executable(test_window_title_shell
-    ${MACHINES_ROOT}/src/shell/tests/frontend/test_window_title.c
+    ${MACHINES_ROOT}/tests/shell/frontend/test_window_title.c
     ${MACHINES_ROOT}/src/shell/frontend/window_title.c
 )
 target_include_directories(test_window_title_shell PRIVATE
@@ -469,7 +470,7 @@ target_compile_features(test_window_title_shell PRIVATE c_std_99)
 add_test(NAME window_title_shell COMMAND test_window_title_shell)
 
 add_executable(test_memory_search
-    ${MACHINES_ROOT}/src/shell/tests/frontend/test_memory_search.c
+    ${MACHINES_ROOT}/tests/shell/frontend/test_memory_search.c
     ${MACHINES_ROOT}/src/shell/frontend/memory_search.c
 )
 target_include_directories(test_memory_search PRIVATE
@@ -479,14 +480,14 @@ target_compile_features(test_memory_search PRIVATE c_std_99)
 add_test(NAME memory_search COMMAND test_memory_search)
 
 add_executable(test_memory_source_cycle
-    ${MACHINES_ROOT}/src/shell/tests/frontend/test_memory_source_cycle.c
+    ${MACHINES_ROOT}/tests/shell/frontend/test_memory_source_cycle.c
 )
 target_compile_features(test_memory_source_cycle PRIVATE c_std_99)
 target_link_libraries(test_memory_source_cycle PRIVATE shell)
 add_test(NAME memory_source_cycle COMMAND test_memory_source_cycle)
 
 add_executable(test_cpu_pane_6502
-    ${MACHINES_ROOT}/src/shell/tests/frontend/test_cpu_pane_6502.c
+    ${MACHINES_ROOT}/tests/shell/frontend/test_cpu_pane_6502.c
 )
 target_compile_features(test_cpu_pane_6502 PRIVATE c_std_99)
 target_compile_definitions(test_cpu_pane_6502 PRIVATE SDL_MAIN_HANDLED)
@@ -494,7 +495,7 @@ target_link_libraries(test_cpu_pane_6502 PRIVATE shell)
 add_test(NAME cpu_pane_6502 COMMAND test_cpu_pane_6502)
 
 add_executable(test_inspector_tab
-    ${MACHINES_ROOT}/src/shell/tests/frontend/test_inspector_tab.c
+    ${MACHINES_ROOT}/tests/shell/frontend/test_inspector_tab.c
 )
 target_compile_features(test_inspector_tab PRIVATE c_std_99)
 target_compile_definitions(test_inspector_tab PRIVATE SDL_MAIN_HANDLED)
@@ -502,7 +503,7 @@ target_link_libraries(test_inspector_tab PRIVATE shell)
 add_test(NAME inspector_tab COMMAND test_inspector_tab)
 
 add_executable(test_c64_memview_sources
-    tests/frontend/test_c64_memview_sources.c
+    ${MACHINES_ROOT}/tests/c64/frontend/test_c64_memview_sources.c
 )
 target_compile_features(test_c64_memview_sources PRIVATE c_std_99)
 target_link_libraries(test_c64_memview_sources PRIVATE control shell)
@@ -510,7 +511,7 @@ add_test(NAME c64_memview_sources COMMAND test_c64_memview_sources)
 
 add_executable(test_crt_renderer
     src/frontend/crt_renderer.c
-    tests/frontend/test_crt_renderer.c
+    ${MACHINES_ROOT}/tests/c64/frontend/test_crt_renderer.c
 )
 
 target_compile_features(test_crt_renderer PRIVATE c_std_99)
@@ -522,7 +523,7 @@ target_include_directories(test_crt_renderer PRIVATE
 add_test(NAME crt_renderer COMMAND test_crt_renderer)
 
 add_executable(test_platform_fs
-    ${MACHINES_ROOT}/src/shell/tests/platform/test_platform_fs.c
+    ${MACHINES_ROOT}/tests/shell/platform/test_platform_fs.c
 )
 
 target_compile_features(test_platform_fs PRIVATE c_std_99)
@@ -538,7 +539,7 @@ target_link_libraries(test_platform_fs PRIVATE
 add_test(NAME platform_fs COMMAND test_platform_fs)
 
 add_executable(test_c64_cpu_validation
-    tests/machine/test_c64_cpu_validation.c
+    ${MACHINES_ROOT}/tests/c64/machine/test_c64_cpu_validation.c
 )
 
 target_compile_features(test_c64_cpu_validation PRIVATE c_std_99)
@@ -550,7 +551,7 @@ target_link_libraries(test_c64_cpu_validation PRIVATE
 add_test(NAME c64_cpu_validation COMMAND test_c64_cpu_validation)
 
 add_executable(test_c64_cpu_observer
-    tests/machine/test_c64_cpu_observer.c
+    ${MACHINES_ROOT}/tests/c64/machine/test_c64_cpu_observer.c
 )
 
 target_compile_features(test_c64_cpu_observer PRIVATE c_std_99)
@@ -563,7 +564,7 @@ add_test(NAME c64_cpu_observer COMMAND test_c64_cpu_observer)
 
 add_executable(test_app_options
     src/app_options.c
-    tests/test_app_options.c
+    ${MACHINES_ROOT}/tests/c64/test_app_options.c
 )
 
 target_compile_features(test_app_options PRIVATE c_std_99)
@@ -580,7 +581,7 @@ target_link_libraries(test_app_options PRIVATE
 add_test(NAME app_options COMMAND test_app_options)
 
 add_executable(test_control_protocol
-    tests/control/test_control_protocol.c
+    ${MACHINES_ROOT}/tests/c64/control/test_control_protocol.c
 )
 
 target_compile_features(test_control_protocol PRIVATE c_std_99)
@@ -592,21 +593,21 @@ target_link_libraries(test_control_protocol PRIVATE
 add_test(NAME control_protocol COMMAND test_control_protocol)
 
 add_executable(test_control_command_table
-    ${MACHINES_ROOT}/src/shell/tests/control/test_control_command_table.c
+    ${MACHINES_ROOT}/tests/shell/control/test_control_command_table.c
 )
 target_compile_features(test_control_command_table PRIVATE c_std_99)
 target_link_libraries(test_control_command_table PRIVATE shell)
 add_test(NAME control_command_table COMMAND test_control_command_table)
 
 add_executable(test_memory_source
-    ${MACHINES_ROOT}/src/shell/tests/control/test_memory_source.c
+    ${MACHINES_ROOT}/tests/shell/control/test_memory_source.c
 )
 target_compile_features(test_memory_source PRIVATE c_std_99)
 target_link_libraries(test_memory_source PRIVATE shell)
 add_test(NAME memory_source COMMAND test_memory_source)
 
 add_executable(test_runtime_client
-    ${MACHINES_ROOT}/src/shell/tests/runtime/test_runtime_client.c
+    ${MACHINES_ROOT}/tests/shell/runtime/test_runtime_client.c
 )
 target_compile_features(test_runtime_client PRIVATE c_std_99)
 target_link_libraries(test_runtime_client PRIVATE shell)
@@ -616,7 +617,7 @@ add_test(
     NAME history_control_integration
     COMMAND
         ${Python3_EXECUTABLE}
-        ${CMAKE_CURRENT_SOURCE_DIR}/tests/control/test_history_control.py
+        ${MACHINES_ROOT}/tests/c64/control/test_history_control.py
         $<TARGET_FILE:c64m>
         ${CMAKE_CURRENT_SOURCE_DIR}
 )
@@ -629,7 +630,7 @@ add_test(
     NAME run_to_raster_control_integration
     COMMAND
         ${Python3_EXECUTABLE}
-        ${CMAKE_CURRENT_SOURCE_DIR}/tests/control/test_run_to_raster_control.py
+        ${MACHINES_ROOT}/tests/c64/control/test_run_to_raster_control.py
         $<TARGET_FILE:c64m>
         ${CMAKE_CURRENT_SOURCE_DIR}
 )
@@ -642,7 +643,7 @@ add_test(
     NAME guarded_breakpoint_control_integration
     COMMAND
         ${Python3_EXECUTABLE}
-        ${CMAKE_CURRENT_SOURCE_DIR}/tests/control/test_guarded_breakpoint_control.py
+        ${MACHINES_ROOT}/tests/c64/control/test_guarded_breakpoint_control.py
         $<TARGET_FILE:c64m>
         ${CMAKE_CURRENT_SOURCE_DIR}
 )
@@ -655,7 +656,7 @@ add_test(
     NAME frame_ring_control_integration
     COMMAND
         ${Python3_EXECUTABLE}
-        ${CMAKE_CURRENT_SOURCE_DIR}/tests/control/test_frame_ring_control.py
+        ${MACHINES_ROOT}/tests/c64/control/test_frame_ring_control.py
         $<TARGET_FILE:c64m>
         ${CMAKE_CURRENT_SOURCE_DIR}
 )
@@ -668,7 +669,7 @@ add_test(
     NAME vic_ring_control_integration
     COMMAND
         ${Python3_EXECUTABLE}
-        ${CMAKE_CURRENT_SOURCE_DIR}/tests/control/test_vic_ring_control.py
+        ${MACHINES_ROOT}/tests/c64/control/test_vic_ring_control.py
         $<TARGET_FILE:c64m>
         ${CMAKE_CURRENT_SOURCE_DIR}
 )
@@ -681,7 +682,7 @@ add_test(
     NAME inspector_control_integration
     COMMAND
         ${Python3_EXECUTABLE}
-        ${CMAKE_CURRENT_SOURCE_DIR}/tests/control/test_inspector_control.py
+        ${MACHINES_ROOT}/tests/c64/control/test_inspector_control.py
         $<TARGET_FILE:c64m>
         ${CMAKE_CURRENT_SOURCE_DIR}
 )
@@ -691,7 +692,7 @@ set_tests_properties(inspector_control_integration PROPERTIES
 )
 
 add_executable(test_disasm_pc_lock
-    ${MACHINES_ROOT}/src/shell/tests/frontend/test_disasm_pc_lock.c
+    ${MACHINES_ROOT}/tests/shell/frontend/test_disasm_pc_lock.c
     ${MACHINES_ROOT}/src/shell/frontend/disasm_pc_lock.c
 )
 
@@ -708,7 +709,7 @@ target_link_libraries(test_disasm_pc_lock PRIVATE
 add_test(NAME disasm_pc_lock COMMAND test_disasm_pc_lock)
 
 add_executable(test_disasm_6502
-    ${MACHINES_ROOT}/src/shell/tests/tools/test_disasm_6502.c
+    ${MACHINES_ROOT}/tests/shell/tools/test_disasm_6502.c
 )
 
 target_compile_features(test_disasm_6502 PRIVATE c_std_99)
@@ -720,7 +721,7 @@ target_link_libraries(test_disasm_6502 PRIVATE
 add_test(NAME disasm_6502 COMMAND test_disasm_6502)
 
 add_executable(test_symbol_table
-    tests/tools/test_symbol_table.c
+    ${MACHINES_ROOT}/tests/c64/tools/test_symbol_table.c
 )
 
 target_compile_features(test_symbol_table PRIVATE c_std_99)
@@ -732,7 +733,7 @@ target_link_libraries(test_symbol_table PRIVATE
 add_test(NAME symbol_table COMMAND test_symbol_table)
 
 add_executable(test_d64
-    tests/tools/test_d64.c
+    ${MACHINES_ROOT}/tests/c64/tools/test_d64.c
 )
 
 target_compile_features(test_d64 PRIVATE c_std_99)
@@ -749,7 +750,7 @@ add_test(NAME d64 COMMAND test_d64)
 set_tests_properties(d64 PROPERTIES SKIP_RETURN_CODE 77)
 
 add_executable(test_t64
-    tests/tools/test_t64.c
+    ${MACHINES_ROOT}/tests/c64/tools/test_t64.c
 )
 
 target_compile_features(test_t64 PRIVATE c_std_99)
@@ -766,7 +767,7 @@ add_test(NAME t64 COMMAND test_t64)
 set_tests_properties(t64 PROPERTIES SKIP_RETURN_CODE 77)
 
 add_executable(test_crt
-    tests/tools/test_crt.c
+    ${MACHINES_ROOT}/tests/c64/tools/test_crt.c
 )
 
 target_compile_features(test_crt PRIVATE c_std_99)
@@ -836,7 +837,7 @@ target_link_libraries(eod_regression_capture PRIVATE
 )
 
 add_executable(test_assembler_conditionals
-    tests/tools/test_assembler_conditionals.c
+    ${MACHINES_ROOT}/tests/c64/tools/test_assembler_conditionals.c
 )
 
 target_compile_features(test_assembler_conditionals PRIVATE c_std_99)
@@ -848,7 +849,7 @@ target_link_libraries(test_assembler_conditionals PRIVATE
 add_test(NAME assembler_conditionals COMMAND test_assembler_conditionals)
 
 add_executable(test_assembler_expressions
-    tests/tools/test_assembler_expressions.c
+    ${MACHINES_ROOT}/tests/c64/tools/test_assembler_expressions.c
 )
 
 target_compile_features(test_assembler_expressions PRIVATE c_std_99)
@@ -864,7 +865,7 @@ add_test(NAME assembler_expressions COMMAND test_assembler_expressions)
 # manual tool for assembler work, not a CI gate. To promote it to a gate, add:
 #   add_test(NAME assembler_opcode_matrix COMMAND test_assembler_opcode_matrix)
 add_executable(test_assembler_opcode_matrix
-    tests/tools/test_assembler_opcode_matrix.c
+    ${MACHINES_ROOT}/tests/c64/tools/test_assembler_opcode_matrix.c
 )
 
 target_compile_features(test_assembler_opcode_matrix PRIVATE c_std_99)
@@ -875,7 +876,7 @@ target_link_libraries(test_assembler_opcode_matrix PRIVATE
 )
 
 add_executable(test_assembler_targets
-    tests/tools/test_assembler_targets.c
+    ${MACHINES_ROOT}/tests/c64/tools/test_assembler_targets.c
 )
 
 target_compile_features(test_assembler_targets PRIVATE c_std_99)
@@ -887,7 +888,7 @@ target_link_libraries(test_assembler_targets PRIVATE
 add_test(NAME assembler_targets COMMAND test_assembler_targets)
 
 add_executable(test_assembler_loops
-    tests/tools/test_assembler_loops.c
+    ${MACHINES_ROOT}/tests/c64/tools/test_assembler_loops.c
 )
 
 target_compile_features(test_assembler_loops PRIVATE c_std_99)
@@ -899,7 +900,7 @@ target_link_libraries(test_assembler_loops PRIVATE
 add_test(NAME assembler_loops COMMAND test_assembler_loops)
 
 add_executable(test_assembler_macros
-    tests/tools/test_assembler_macros.c
+    ${MACHINES_ROOT}/tests/c64/tools/test_assembler_macros.c
 )
 
 target_compile_features(test_assembler_macros PRIVATE c_std_99)
@@ -911,7 +912,7 @@ target_link_libraries(test_assembler_macros PRIVATE
 add_test(NAME assembler_macros COMMAND test_assembler_macros)
 
 add_executable(test_assembler_scopes_segments
-    tests/tools/test_assembler_scopes_segments.c
+    ${MACHINES_ROOT}/tests/c64/tools/test_assembler_scopes_segments.c
 )
 
 target_compile_features(test_assembler_scopes_segments PRIVATE c_std_99)
@@ -923,7 +924,7 @@ target_link_libraries(test_assembler_scopes_segments PRIVATE
 add_test(NAME assembler_scopes_segments COMMAND test_assembler_scopes_segments)
 
 add_executable(test_runtime_romboot
-    tests/runtime/test_runtime_romboot.c
+    ${MACHINES_ROOT}/tests/c64/runtime/test_runtime_romboot.c
 )
 
 target_compile_features(test_runtime_romboot PRIVATE c_std_99)
@@ -935,7 +936,7 @@ target_link_libraries(test_runtime_romboot PRIVATE
 add_test(NAME runtime_romboot COMMAND test_runtime_romboot)
 
 add_executable(test_runtime_scheduler
-    tests/runtime/test_runtime_scheduler.c
+    ${MACHINES_ROOT}/tests/c64/runtime/test_runtime_scheduler.c
 )
 
 target_compile_features(test_runtime_scheduler PRIVATE c_std_99)
@@ -947,7 +948,7 @@ target_link_libraries(test_runtime_scheduler PRIVATE
 add_test(NAME runtime_scheduler COMMAND test_runtime_scheduler)
 
 add_executable(test_runtime_frame
-    tests/runtime/test_runtime_frame.c
+    ${MACHINES_ROOT}/tests/c64/runtime/test_runtime_frame.c
 )
 
 target_compile_features(test_runtime_frame PRIVATE c_std_99)
@@ -959,7 +960,7 @@ target_link_libraries(test_runtime_frame PRIVATE
 add_test(NAME runtime_frame COMMAND test_runtime_frame)
 
 add_executable(test_runtime_disk
-    tests/runtime/test_runtime_disk.c
+    ${MACHINES_ROOT}/tests/c64/runtime/test_runtime_disk.c
 )
 
 target_compile_features(test_runtime_disk PRIVATE c_std_99)
@@ -976,7 +977,7 @@ add_test(NAME runtime_disk COMMAND test_runtime_disk)
 set_tests_properties(runtime_disk PROPERTIES SKIP_RETURN_CODE 77)
 
 add_executable(test_runtime_crt
-    tests/runtime/test_runtime_crt.c
+    ${MACHINES_ROOT}/tests/c64/runtime/test_runtime_crt.c
 )
 
 target_compile_features(test_runtime_crt PRIVATE c_std_99)
@@ -988,7 +989,7 @@ target_link_libraries(test_runtime_crt PRIVATE
 add_test(NAME runtime_crt COMMAND test_runtime_crt)
 
 add_executable(test_runtime_real_1541_autorun
-    tests/runtime/test_runtime_real_1541_autorun.c
+    ${MACHINES_ROOT}/tests/c64/runtime/test_runtime_real_1541_autorun.c
 )
 
 target_compile_features(test_runtime_real_1541_autorun PRIVATE c_std_99)
@@ -1005,7 +1006,7 @@ add_test(NAME runtime_real_1541_autorun COMMAND test_runtime_real_1541_autorun)
 set_tests_properties(runtime_real_1541_autorun PROPERTIES SKIP_RETURN_CODE 77)
 
 add_executable(test_runtime_basic_run
-    tests/runtime/test_runtime_basic_run.c
+    ${MACHINES_ROOT}/tests/c64/runtime/test_runtime_basic_run.c
 )
 
 target_compile_features(test_runtime_basic_run PRIVATE c_std_99)
@@ -1021,7 +1022,7 @@ target_link_libraries(test_runtime_basic_run PRIVATE
 add_test(NAME runtime_basic_run COMMAND test_runtime_basic_run)
 
 add_executable(test_runtime_assembler
-    tests/runtime/test_runtime_assembler.c
+    ${MACHINES_ROOT}/tests/c64/runtime/test_runtime_assembler.c
 )
 
 target_compile_features(test_runtime_assembler PRIVATE c_std_99)
@@ -1033,7 +1034,7 @@ target_link_libraries(test_runtime_assembler PRIVATE
 add_test(NAME runtime_assembler COMMAND test_runtime_assembler)
 
 add_executable(test_runtime_fileio
-    tests/runtime/test_runtime_fileio.c
+    ${MACHINES_ROOT}/tests/c64/runtime/test_runtime_fileio.c
 )
 
 target_compile_features(test_runtime_fileio PRIVATE c_std_99)
@@ -1045,7 +1046,7 @@ target_link_libraries(test_runtime_fileio PRIVATE
 add_test(NAME runtime_fileio COMMAND test_runtime_fileio)
 
 add_executable(test_runtime_savestate
-    tests/runtime/test_runtime_savestate.c
+    ${MACHINES_ROOT}/tests/c64/runtime/test_runtime_savestate.c
 )
 
 target_compile_features(test_runtime_savestate PRIVATE c_std_99)
@@ -1057,7 +1058,7 @@ target_link_libraries(test_runtime_savestate PRIVATE
 add_test(NAME runtime_savestate COMMAND test_runtime_savestate)
 
 add_executable(test_runtime_stepping
-    tests/runtime/test_runtime_stepping.c
+    ${MACHINES_ROOT}/tests/c64/runtime/test_runtime_stepping.c
 )
 
 target_compile_features(test_runtime_stepping PRIVATE c_std_99)
@@ -1069,7 +1070,7 @@ target_link_libraries(test_runtime_stepping PRIVATE
 add_test(NAME runtime_stepping COMMAND test_runtime_stepping)
 
 add_executable(test_runtime_request_token
-    tests/runtime/test_runtime_request_token.c
+    ${MACHINES_ROOT}/tests/c64/runtime/test_runtime_request_token.c
 )
 
 target_compile_features(test_runtime_request_token PRIVATE c_std_99)
@@ -1081,7 +1082,7 @@ target_link_libraries(test_runtime_request_token PRIVATE
 add_test(NAME runtime_request_token COMMAND test_runtime_request_token)
 
 add_executable(test_runtime_memory_rpc
-    tests/runtime/test_runtime_memory_rpc.c
+    ${MACHINES_ROOT}/tests/c64/runtime/test_runtime_memory_rpc.c
 )
 
 target_compile_features(test_runtime_memory_rpc PRIVATE c_std_99)
@@ -1093,7 +1094,7 @@ target_link_libraries(test_runtime_memory_rpc PRIVATE
 add_test(NAME runtime_memory_rpc COMMAND test_runtime_memory_rpc)
 
 add_executable(test_runtime_run_to_raster
-    tests/runtime/test_runtime_run_to_raster.c
+    ${MACHINES_ROOT}/tests/c64/runtime/test_runtime_run_to_raster.c
 )
 
 target_compile_features(test_runtime_run_to_raster PRIVATE c_std_99)
@@ -1105,7 +1106,7 @@ target_link_libraries(test_runtime_run_to_raster PRIVATE
 add_test(NAME runtime_run_to_raster COMMAND test_runtime_run_to_raster)
 
 add_executable(test_runtime_flight_recorder
-    tests/runtime/test_runtime_flight_recorder.c
+    ${MACHINES_ROOT}/tests/c64/runtime/test_runtime_flight_recorder.c
 )
 
 target_compile_features(test_runtime_flight_recorder PRIVATE c_std_99)
@@ -1117,7 +1118,7 @@ target_link_libraries(test_runtime_flight_recorder PRIVATE
 add_test(NAME runtime_flight_recorder COMMAND test_runtime_flight_recorder)
 
 add_executable(test_runtime_breakpoint_condition
-    ${MACHINES_ROOT}/src/shell/tests/runtime/test_runtime_breakpoint_condition.c
+    ${MACHINES_ROOT}/tests/shell/runtime/test_runtime_breakpoint_condition.c
 )
 
 target_compile_features(test_runtime_breakpoint_condition PRIVATE c_std_99)
@@ -1129,7 +1130,7 @@ target_link_libraries(test_runtime_breakpoint_condition PRIVATE
 add_test(NAME runtime_breakpoint_condition COMMAND test_runtime_breakpoint_condition)
 
 add_executable(test_runtime_breakpoint_ini
-    tests/runtime/test_runtime_breakpoint_ini.c
+    ${MACHINES_ROOT}/tests/c64/runtime/test_runtime_breakpoint_ini.c
 )
 
 target_compile_features(test_runtime_breakpoint_ini PRIVATE c_std_99)
@@ -1141,7 +1142,7 @@ target_link_libraries(test_runtime_breakpoint_ini PRIVATE
 add_test(NAME runtime_breakpoint_ini COMMAND test_runtime_breakpoint_ini)
 
 add_executable(test_runtime_frame_ring
-    tests/runtime/test_runtime_frame_ring.c
+    ${MACHINES_ROOT}/tests/c64/runtime/test_runtime_frame_ring.c
 )
 
 target_compile_features(test_runtime_frame_ring PRIVATE c_std_99)
@@ -1153,7 +1154,7 @@ target_link_libraries(test_runtime_frame_ring PRIVATE
 add_test(NAME runtime_frame_ring COMMAND test_runtime_frame_ring)
 
 add_executable(test_runtime_inspector
-    tests/runtime/test_runtime_inspector.c
+    ${MACHINES_ROOT}/tests/c64/runtime/test_runtime_inspector.c
 )
 
 target_compile_features(test_runtime_inspector PRIVATE c_std_99)
@@ -1165,7 +1166,7 @@ target_link_libraries(test_runtime_inspector PRIVATE
 add_test(NAME runtime_inspector COMMAND test_runtime_inspector)
 
 add_executable(test_runtime_inspector_replay
-    tests/runtime/test_runtime_inspector_replay.c
+    ${MACHINES_ROOT}/tests/c64/runtime/test_runtime_inspector_replay.c
 )
 
 target_compile_features(test_runtime_inspector_replay PRIVATE c_std_99)
@@ -1177,7 +1178,7 @@ target_link_libraries(test_runtime_inspector_replay PRIVATE
 add_test(NAME runtime_inspector_replay COMMAND test_runtime_inspector_replay)
 
 add_executable(test_runtime_inspector_mode
-    tests/runtime/test_runtime_inspector_mode.c
+    ${MACHINES_ROOT}/tests/c64/runtime/test_runtime_inspector_mode.c
 )
 
 target_compile_features(test_runtime_inspector_mode PRIVATE c_std_99)
@@ -1189,7 +1190,7 @@ target_link_libraries(test_runtime_inspector_mode PRIVATE
 add_test(NAME runtime_inspector_mode COMMAND test_runtime_inspector_mode)
 
 add_executable(test_runtime_vic_ring
-    tests/runtime/test_runtime_vic_ring.c
+    ${MACHINES_ROOT}/tests/c64/runtime/test_runtime_vic_ring.c
 )
 
 target_compile_features(test_runtime_vic_ring PRIVATE c_std_99)
@@ -1201,7 +1202,7 @@ target_link_libraries(test_runtime_vic_ring PRIVATE
 add_test(NAME runtime_vic_ring COMMAND test_runtime_vic_ring)
 
 add_executable(test_runtime_history
-    ${MACHINES_ROOT}/src/shell/tests/runtime/test_runtime_history.c
+    ${MACHINES_ROOT}/tests/shell/runtime/test_runtime_history.c
 )
 
 target_compile_features(test_runtime_history PRIVATE c_std_99)
@@ -1213,7 +1214,7 @@ target_link_libraries(test_runtime_history PRIVATE
 add_test(NAME runtime_history COMMAND test_runtime_history)
 
 add_executable(test_runtime_history_wire
-    ${MACHINES_ROOT}/src/shell/tests/runtime/test_runtime_history_wire.c
+    ${MACHINES_ROOT}/tests/shell/runtime/test_runtime_history_wire.c
 )
 
 target_compile_features(test_runtime_history_wire PRIVATE c_std_99)
@@ -1225,13 +1226,13 @@ target_link_libraries(test_runtime_history_wire PRIVATE
 add_test(NAME runtime_history_wire COMMAND test_runtime_history_wire)
 
 add_executable(test_runtime_history_wire_decode
-    ${MACHINES_ROOT}/src/shell/tests/runtime/test_runtime_history_wire_decode.c
+    ${MACHINES_ROOT}/tests/shell/runtime/test_runtime_history_wire_decode.c
 )
 
 target_compile_features(test_runtime_history_wire_decode PRIVATE c_std_99)
 
 target_compile_definitions(test_runtime_history_wire_decode PRIVATE
-    HISTORY_WIRE_GOLDEN_PY="${CMAKE_CURRENT_SOURCE_DIR}/tests/runtime/check_hst1_decode_golden.py"
+    HISTORY_WIRE_GOLDEN_PY="${MACHINES_ROOT}/tests/c64/runtime/check_hst1_decode_golden.py"
 )
 
 target_link_libraries(test_runtime_history_wire_decode PRIVATE
@@ -1241,7 +1242,7 @@ target_link_libraries(test_runtime_history_wire_decode PRIVATE
 add_test(NAME runtime_history_wire_decode COMMAND test_runtime_history_wire_decode)
 
 add_executable(test_runtime_history_query_parse
-    ${MACHINES_ROOT}/src/shell/tests/runtime/test_runtime_history_query_parse.c
+    ${MACHINES_ROOT}/tests/shell/runtime/test_runtime_history_query_parse.c
 )
 
 target_compile_features(test_runtime_history_query_parse PRIVATE c_std_99)
@@ -1253,7 +1254,7 @@ target_link_libraries(test_runtime_history_query_parse PRIVATE
 add_test(NAME runtime_history_query_parse COMMAND test_runtime_history_query_parse)
 
 add_executable(test_runtime_history_sessions
-    tests/runtime/test_runtime_history_sessions.c
+    ${MACHINES_ROOT}/tests/c64/runtime/test_runtime_history_sessions.c
 )
 
 target_compile_features(test_runtime_history_sessions PRIVATE c_std_99)
@@ -1265,7 +1266,7 @@ target_link_libraries(test_runtime_history_sessions PRIVATE
 add_test(NAME runtime_history_sessions COMMAND test_runtime_history_sessions)
 
 add_executable(test_runtime_state_changed
-    tests/runtime/test_runtime_state_changed.c
+    ${MACHINES_ROOT}/tests/c64/runtime/test_runtime_state_changed.c
 )
 
 target_compile_features(test_runtime_state_changed PRIVATE c_std_99)

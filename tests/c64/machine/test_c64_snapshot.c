@@ -10,6 +10,9 @@
 #ifndef C64M_SOURCE_DIR
 #define C64M_SOURCE_DIR "."
 #endif
+#ifndef C64M_TEST_DIR
+#define C64M_TEST_DIR "."
+#endif
 
 enum {
     TEST_RESET_VECTOR = 0xe000
@@ -946,7 +949,7 @@ static void test_legacy_versions_rejected(void) {
     char path[512];
     uint32_t version;
 
-    snprintf(path, sizeof(path), "%s/tests/fixtures/legacy_v8.c64state", C64M_SOURCE_DIR);
+    snprintf(path, sizeof(path), "%s/fixtures/legacy_v8.c64state", C64M_TEST_DIR);
     fixture = read_entire_file(path, &fixture_size);
     expect_true("read legacy v8 fixture", fixture != NULL);
     version = (uint32_t)fixture[4] | ((uint32_t)fixture[5] << 8) | ((uint32_t)fixture[6] << 16) |

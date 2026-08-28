@@ -8,10 +8,10 @@ add_custom_command(
     COMMAND Python3::Interpreter
         "${MACHINES_ROOT}/src/shell/tools/gen_help.py"
         --level "${A2M_HELP_SECTION_LEVEL}"
-        "${CMAKE_SOURCE_DIR}/manual/manual.md"
+        "${MACHINES_ROOT}/manual/a2m/manual.md"
         "${A2M_HELP_CONTENT}"
     DEPENDS
-        "${CMAKE_SOURCE_DIR}/manual/manual.md"
+        "${MACHINES_ROOT}/manual/a2m/manual.md"
         "${MACHINES_ROOT}/src/shell/tools/gen_help.py"
     VERBATIM
 )
