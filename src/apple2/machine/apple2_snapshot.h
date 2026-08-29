@@ -8,7 +8,7 @@
 
 /* LE fourcc 'A2ST' */
 #define A2_SNAPSHOT_MAGIC 0x41325354u
-#define A2_SNAPSHOT_VERSION 2u
+#define A2_SNAPSHOT_VERSION 3u
 #define A2_SNAPSHOT_VERSION_MIN 1u
 
 typedef enum a2_snapshot_content_mode {
@@ -28,7 +28,9 @@ enum {
  * Media (Disk II / SmartPort) is path-referenced. Missing media on load is a
  * hard failure. Dirty Disk II images are flushed to their files before save.
  *
- * Always stores full main 128K + LC 32K (][+ unused half is zeros).
+ * RAM_: //e always full 128K + 32K LC. ][+ (v3) stores only main 64K + main
+ * LC 16K — there is no aux. Load still accepts sparse or full layouts;
+ * omitted aux restores the cold-reset baseline. v1/v2 are always full.
  */
 size_t apple2_snapshot_size(const apple2_t *m);
 size_t apple2_snapshot_save(const apple2_t *m, uint8_t *out, size_t out_cap);

@@ -19,9 +19,12 @@
 #define APPLE2_NUM_PAGES 256u
 #define APPLE2_ADDR_SPACE (APPLE2_PAGE_SIZE * APPLE2_NUM_PAGES)
 /* Main + aux (//e); ][+ only uses first 64K. */
-#define APPLE2_RAM_MAIN_SIZE (128u * 1024u)
-/* 16K LC × 2 (main/aux) = 32K as in a2m. */
-#define APPLE2_RAM_LC_SIZE (32u * 1024u)
+#define APPLE2_RAM_BANK_SIZE (64u * 1024u)
+#define APPLE2_RAM_MAIN_SIZE (APPLE2_RAM_BANK_SIZE * 2u)
+/* 16K LC × 2 (main/aux) = 32K as in a2m. Aux LC starts at +0x4000. */
+#define APPLE2_RAM_LC_BANK_SIZE (16u * 1024u)
+#define APPLE2_RAM_LC_SIZE (APPLE2_RAM_LC_BANK_SIZE * 2u)
+#define APPLE2_RAM_LC_AUX_OFFSET APPLE2_RAM_LC_BANK_SIZE
 
 typedef enum {
     APPLE2_MODEL_II_PLUS = 0,

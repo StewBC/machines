@@ -438,11 +438,23 @@ static void write_cpu(snapshot_writer *w, const apple2_t *m)
 static void write_ram(snapshot_writer *w, const apple2_t *m)
 {
     size_t chunk;
+    uint32_t main_bytes;
+    uint32_t lc_bytes;
+
+    /* ][+ has no aux: store main 64K + main LC 16K only. //e is always full. */
+    if (m->model == APPLE2_MODEL_II_PLUS) {
+        main_bytes = (uint32_t)APPLE2_RAM_BANK_SIZE;
+        lc_bytes = (uint32_t)APPLE2_RAM_LC_BANK_SIZE;
+    } else {
+        main_bytes = (uint32_t)APPLE2_RAM_MAIN_SIZE;
+        lc_bytes = (uint32_t)APPLE2_RAM_LC_SIZE;
+    }
+
     begin_chunk(w, TAG_RAM_, &chunk);
-    w_u32(w, (uint32_t)APPLE2_RAM_MAIN_SIZE);
-    w_u32(w, (uint32_t)APPLE2_RAM_LC_SIZE);
-    w_bytes(w, m->ram_main, APPLE2_RAM_MAIN_SIZE);
-    w_bytes(w, m->ram_lc, APPLE2_RAM_LC_SIZE);
+    w_u32(w, main_bytes);
+    w_u32(w, lc_bytes);
+    w_bytes(w, m->ram_main, main_bytes);
+    w_bytes(w, m->ram_lc, lc_bytes);
     end_chunk(w, chunk);
 }
 
@@ -893,11 +905,25 @@ static bool apply_cpu(apple2_t *m, const uint8_t *p, size_t len)
     return r.ok;
 }
 
+static void fill_omitted_aux_bank(apple2_t *m)
+{
+    memset(m->ram_main + APPLE2_RAM_BANK_SIZE, 0, APPLE2_RAM_BANK_SIZE);
+    /* Same floating-IO underlay cold reset / init apply in aux. */
+    memset(m->ram_main + APPLE2_RAM_BANK_SIZE + 0xC001, 0xA0, 0x0FFE);
+}
+
+static void fill_omitted_aux_lc(apple2_t *m)
+{
+    memset(m->ram_lc + APPLE2_RAM_LC_AUX_OFFSET, 0, APPLE2_RAM_LC_BANK_SIZE);
+}
+
 static bool apply_ram(apple2_t *m, const uint8_t *p, size_t len)
 {
     snapshot_reader r;
     uint32_t main_size;
     uint32_t lc_size;
+    bool have_aux_bank;
+    bool have_aux_lc;
 
     memset(&r, 0, sizeof(r));
     r.data = p;
@@ -905,12 +931,36 @@ static bool apply_ram(apple2_t *m, const uint8_t *p, size_t len)
     r.ok = true;
     main_size = r_u32(&r);
     lc_size = r_u32(&r);
-    if (!r.ok || main_size != APPLE2_RAM_MAIN_SIZE || lc_size != APPLE2_RAM_LC_SIZE) {
+    if (!r.ok) {
         return false;
     }
-    r_bytes(&r, m->ram_main, APPLE2_RAM_MAIN_SIZE);
-    r_bytes(&r, m->ram_lc, APPLE2_RAM_LC_SIZE);
-    return r.ok;
+
+    /* Accepted layouts: full or either aux half omitted (v3). v1/v2 are full. */
+    if (main_size != (uint32_t)APPLE2_RAM_MAIN_SIZE &&
+        main_size != (uint32_t)APPLE2_RAM_BANK_SIZE) {
+        return false;
+    }
+    if (lc_size != (uint32_t)APPLE2_RAM_LC_SIZE &&
+        lc_size != (uint32_t)APPLE2_RAM_LC_BANK_SIZE) {
+        return false;
+    }
+
+    have_aux_bank = (main_size == (uint32_t)APPLE2_RAM_MAIN_SIZE);
+    have_aux_lc = (lc_size == (uint32_t)APPLE2_RAM_LC_SIZE);
+
+    r_bytes(&r, m->ram_main, main_size);
+    r_bytes(&r, m->ram_lc, lc_size);
+    if (!r.ok) {
+        return false;
+    }
+
+    if (!have_aux_bank) {
+        fill_omitted_aux_bank(m);
+    }
+    if (!have_aux_lc) {
+        fill_omitted_aux_lc(m);
+    }
+    return true;
 }
 
 static bool apply_soft(apple2_t *m, const uint8_t *p, size_t len)

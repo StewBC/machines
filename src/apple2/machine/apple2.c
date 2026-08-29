@@ -15,6 +15,16 @@
 static uint8_t apple2_bus_read(void *user, uint16_t address);
 static void apple2_bus_write(void *user, uint16_t address, uint8_t value);
 
+/* Floating-IO underlay in both main and aux $C001-$CFFF (a2m-style). */
+static void apple2_fill_floating_io_underlay(apple2_t *m)
+{
+    if (m == NULL || m->ram_main == NULL) {
+        return;
+    }
+    memset(m->ram_main + 0xC001, 0xA0, 0x0FFE);
+    memset(m->ram_main + APPLE2_RAM_BANK_SIZE + 0xC001, 0xA0, 0x0FFE);
+}
+
 void apple2_pages_map_ram(apple2_t *m, bool for_write, uint32_t host_offset, uint32_t length)
 {
     uint32_t page = (host_offset & 0xFFFFu) / APPLE2_PAGE_SIZE;
@@ -341,8 +351,7 @@ bool apple2_init(apple2_t *machine)
     machine->last_io_select_slot = 0;
 
     /* Pattern underlay like a2m floating IO area. */
-    memset(machine->ram_main + 0xC001, 0xA0, 0x0FFE);
-    memset(machine->ram_main + 0x10000 + 0xC001, 0xA0, 0x0FFE);
+    apple2_fill_floating_io_underlay(machine);
 
     for (i = 0; i < APPLE2_NUM_PAGES; i++) {
         machine->pages.read_pages[i] = machine->ram_main + (i * APPLE2_PAGE_SIZE);
@@ -704,8 +713,7 @@ static void apple2_reset_common(apple2_t *machine, bool cold)
         if (machine->ram_lc != NULL) {
             memset(machine->ram_lc, 0, APPLE2_RAM_LC_SIZE);
         }
-        memset(machine->ram_main + 0xC001, 0xA0, 0x0FFE);
-        memset(machine->ram_main + 0x10000 + 0xC001, 0xA0, 0x0FFE);
+        apple2_fill_floating_io_underlay(machine);
         machine->state_flags |= A2S_OPEN_APPLE;
         machine->state_flags &= ~A2S_CLOSED_APPLE;
     } else {
@@ -933,7 +941,7 @@ void apple2_write_in_view(apple2_t *m, view_flags_t vf, uint16_t address, uint8_
         case A2SELD000_LC_B1:
         case A2SELD000_LC_B2: {
             uint32_t bank_base = (vf_get_d000(vf) == A2SELD000_LC_B2) ? 0x1000u : 0u;
-            uint32_t lc_base = (ram == A2SEL48K_AUX) ? 0x4000u : 0u;
+            uint32_t lc_base = (ram == A2SEL48K_AUX) ? APPLE2_RAM_LC_AUX_OFFSET : 0u;
             if (address < 0xE000) {
                 m->ram_lc[lc_base + bank_base + (uint32_t)(address - 0xD000u)] = value;
                 return;
@@ -955,7 +963,7 @@ void apple2_write_in_view(apple2_t *m, view_flags_t vf, uint16_t address, uint8_
         m->ram_main[address] = value;
         return;
     }
-    m->ram_main[(uint32_t)address + 0x10000u] = value;
+    m->ram_main[(uint32_t)address + APPLE2_RAM_BANK_SIZE] = value;
 }
 
 void apple2_load(apple2_t *machine, uint16_t address, const uint8_t *bytes, size_t length)

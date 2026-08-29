@@ -35,7 +35,7 @@ is the gate; do not configure `-S src/apple2`.
 | `hostfs` | HostFS NAPS, nested dirs, write-through, rescan, `hostfs.order` |
 | `cxxx_map` | CXXX / SETC3ROM / INTCXROM / MB hide / C800 latch |
 | `memview` | VIEW_FLAGS memory windows |
-| `apple2_snapshot` | Machine `.a2state` serialize round-trip |
+| `apple2_snapshot` | Machine `.a2state` round-trip; ][+ omits aux; //e full; v2 full load |
 | `a2m_help` / `a2m_version` / `a2m_headless` | CLI smoke |
 | `app_options_mounts` | Disk II / SmartPort / model CLI |
 | `runtime_stepping` | step + run_cycles |

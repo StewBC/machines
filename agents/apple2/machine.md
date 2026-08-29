@@ -14,7 +14,8 @@ live `apple2_t`.
 (microcycle beam path; atomic `cpu65_step` on the max path).
 
 Always allocated: `ram_main` 128K (][+ uses the first 64K), `ram_lc` 32K
-(16K LC × main/aux).
+(16K LC × main/aux). Snapshots for ][+ omit the unused aux halves; //e always
+stores the full banks.
 
 ## Public API
 

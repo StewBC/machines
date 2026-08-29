@@ -27,7 +27,9 @@ checkbox. Default **off** (play Total Replay with no tape cost). On -> one
 navigable snapshot per finite completed beam frame or max block presentation,
 an ordered input/mode-barrier log, and exact pictures in the frame ring.
 Record does **not** arm or stop HST1. Snapshot budget: `inspector_memory_mb`
-(default 128).
+(default 128). Ring **slot** capacity is planned from the ][+ minimum
+checkpoint (~96KiB), not the full //e ~180KiB case, so ][+ can use the memory
+budget (~23s at default). //e checkpoints stay full-RAM (~12s).
 
 Finite samples pair picture cycle `F` with the first instruction-boundary
 snapshot `S >= F`. Max samples pair each approximately 60 Hz block picture
@@ -108,7 +110,8 @@ scrubbing, deterministic reconstruction after landing.
 
 ## Do not re-open
 
-- A **write-delta** stream instead of snapshots. A blob is ~160K; frame cadence
+- A **write-delta** stream instead of snapshots. A blob is still a full
+  checkpoint (~180K on //e; ~80K+ on ][+ with no aux in `RAM_`); frame cadence
   plus the hidden anchor bounds deterministic replay and reproduces beam,
   Disk II mechanics, and VIA/AY for free.
 - Reverse-execution of the 6502.

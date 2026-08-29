@@ -333,7 +333,13 @@ static struct runtime_inspector_recorder *inspector_recorder_ensure(runtime *rt)
     }
     budget = (uint64_t)rt->inspector_memory_mb * 1024ull * 1024ull;
     rec->memory_budget = (size_t)budget;
-    approx_sample = 180u * 1024u;
+    /* Slot capacity assumes the *smallest* checkpoint (][+ main+main-LC).
+       Planning from full //e ~180KiB capped the ring at ~12s even for ][+;
+       eviction hit slot_count before memory_budget. //e still evicts on
+       memory_budget first. */
+    approx_sample =
+        (size_t)APPLE2_RAM_BANK_SIZE + (size_t)APPLE2_RAM_LC_BANK_SIZE +
+        (16u * 1024u);
     slots = (uint32_t)(budget / approx_sample);
     if (slots < 2u) {
         slots = 2u;

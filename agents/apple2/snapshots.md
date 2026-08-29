@@ -18,13 +18,13 @@ Serialize on the **runtime thread**. Host never touches `apple2_t`.
 ## Machine blob
 
 `src/apple2_snapshot.c`: little-endian magic **`A2ST`** (`0x41325354`),
-**version 2** (loads v1+). Chunked; not `memcpy` of `apple2_t`.
+**version 3** (loads v1+). Chunked; not `memcpy` of `apple2_t`.
 
 | Tag | Contents |
 |-----|----------|
 | `META` | flags, content mode, model, `mb_slot` |
-| `CPU_` | CPU + micro state; **v2** trailing `uint32_t prng` (v1 load keeps seed `0xA2A2A2A2`) |
-| `RAM_` | Full **128K main + 32K LC** (][+ unused half is zeros) |
+| `CPU_` | CPU + micro state; **v2+** trailing `uint32_t prng` (v1 load keeps seed `0xA2A2A2A2`) |
+| `RAM_` | **//e**: full **128K + 32K LC**. **][+ (v3)**: **main 64K + main LC 16K** only (no aux). Payload sizes `(64K\|128K)` × `(16K\|32K)`. Load accepts either; omitted aux restores the cold-reset baseline (zeros + floating-IO underlay). v1/v2 loads are always full. |
 | `SOFT` | `state_flags`, key, strobed_slot, speaker, gameport |
 | `VID_` | Beam H/V, frame_number/gen, last_video_byte, paint_enabled — **not** framebuffer / mono / phosphor |
 | `SLOT` | per-slot type + diskii_present + mb_slot |
