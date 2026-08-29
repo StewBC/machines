@@ -1,6 +1,6 @@
 # Design documents
 
-This directory holds **design docs** for a2m: proposed or in-flight architecture
+This directory holds **design docs** for machines: proposed or in-flight architecture
 writeups that are not yet (or no longer) part of the agent handoff surface.
 
 ## Why not `agents/`?
