@@ -18,30 +18,32 @@ Common flags (see `--help` for the full list):
 
 | Flag | Effect |
 |------|--------|
+| `--help` / `-h` | Show command-line help |
+| `--version` / `-V` | Print version and exit |
 | `--inifile <file>` / `-i` | Load a specific INI file at startup |
 | `--noini` / `-n` | Skip INI file loading entirely |
 | `--nosaveini` | Disable INI save on quit, regardless of other flags |
 | `--saveini` / `-v` | Save INI on quit (one-time override) |
 | `--remember` / `-r` | Force save-on-quit into the INI file |
 | `--defaults` / `-f` | Start from built-in defaults |
+| `--log-level <level>` | Host log policy: `all`, `warn` (default), `error`, or `none` |
+| `--control-port N` | Listen on localhost TCP for A2M/14 remote control (`0`=off) |
+| `--headless` | No window; short smoke exit unless `--control-port` is set |
 | `--model enh\|plus` / `-m` | `enh` is Apple //e Enhanced (default); `plus` is Apple ][+ |
 | `--disk <spec>` / `-d` | Mount a Disk II image; `path` or `s6d0=path` (repeatable) |
 | `--hd <spec>` / `--smart` | Mount SmartPort media; image file or host folder; `path` or `s7d0=path` (repeatable) |
 | `--mb-slot N` | Mockingboard slot `1..7`; `0` disables (default slot 4) |
-| `--turbo <list>` / `-t` | Turbo ladder, e.g. `1,max` or `1,4,8,max` |
 | `--sna <file>` | Load a machine snapshot (`.a2state`) at startup |
-| `--kbdjoy <0\|1\|2>` | Keyboard joystick on gameport stick `1` or `2` (`0` disables) |
-| `--kbdjoy-layout <numpad\|wasd>` | Keyboard joystick layout |
 | `--break <addr>` / `-b` | Install an execute breakpoint at a hex address |
 | `--symbols <file>` | Load a simple symbol file (`NAME` hex per line) |
-| `--headless` | No window; short smoke exit unless `--control-port` is set |
-| `--control-port N` | Listen on localhost TCP for A2M/14 remote control (`0`=off) |
 | `--inspector` / `--no-inspector` | Enable Inspector recording (default off) |
 | `--history-off-on-max` / `--no-history-off-on-max` | Pause only the CPU flight recorder at turbo `max` (default on) |
 | `--inspector-off-on-max` / `--no-inspector-off-on-max` | Wipe Inspector Record on turbo `max` (default off) |
-| `--log-level <level>` | Host log policy: `all`, `warn` (default), `error`, or `none` |
-| `--audio-smoke` | Emit a 440 Hz test tone to verify audio output |
 | `--video-display <mode>` | Display decoder: `colour`/`color`, `white`, `green`, `amber`, or `colour,<mono>` |
+| `--kbdjoy <0\|1\|2>` | Keyboard joystick on gameport stick `1` or `2` (`0` disables) |
+| `--kbdjoy-layout <numpad\|wasd>` | Keyboard joystick layout |
+| `--turbo <list>` / `-t` | Turbo ladder, e.g. `1,max` or `1,4,8,max` |
+| `--audio-smoke` | Emit a 440 Hz test tone to verify audio output |
 
 By default, a2m loads `a2m.ini` from the current directory. The INI file stores
 configuration, window size, debugger layout, media mounts, and breakpoints.

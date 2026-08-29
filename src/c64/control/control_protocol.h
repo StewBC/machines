@@ -15,7 +15,6 @@ enum {
 /* Product wire identity. Bump when scripts must learn new behaviour. */
 #define CONTROL_PROTOCOL_VERSION "C64M/8"
 #define CONTROL_PROTOCOL_APP_NAME "c64m"
-#define CONTROL_PROTOCOL_APP_LABEL "0.1.0"
 
 typedef enum control_command_type {
     CONTROL_COMMAND_NONE = 0,

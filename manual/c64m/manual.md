@@ -26,26 +26,30 @@ Useful flags:
 
 | Flag                   | Effect                                              |
 |------------------------|-----------------------------------------------------|
+| `--help` / `-h`        | Show command-line help                              |
+| `--version` / `-V`     | Print version and exit                              |
 | `--inifile <file>`     | Load a specific INI file at startup                 |
 | `--noini` / `-n`       | Skip INI file loading entirely                      |
 | `--nosaveini`          | Disable INI save on quit, regardless of other flags |
 | `--saveini` / `-v`     | Save INI on quit (one-time override)                |
 | `--remember` / `-r`    | Force save-on-quit into the INI file                |
-| `--turbo <list>` / `-t`| Turbo mode list for Opt+T, e.g. `1,max` (1=normal, 2/`max`=max; `3` rejected) |
-| `--video PAL|NTSC`, `-P`, `-N` | Override the configured video standard for this run |
+| `--log-level <level>`  | Host log policy: `all`, `warn` (default), `error`, or `none` |
+| `--control-port N`     | Listen on localhost TCP for C64M/8 remote control (`0`=off) |
+| `--headless`           | No window; requires `--control-port`                |
 | `--disk <drive>=<image[,image...]>` | Mount a D64/G64 image at startup, e.g. `--disk 8=game.d64`; comma-separated to pre-load a queue. Empty path (`--disk 8=`) soft-powers that unit without media |
 | `--prg <file>` / `-p`  | Load a file as PRG at startup                       |
 | `--basic <file>` / `-B`| Load a file as BASIC program at startup             |
 | `--crt <file>`         | Attach a CRT cartridge at startup (types 0, 5, 19)  |
 | `--sna <file>`         | Load a machine snapshot (`.c64state`) at startup    |
 | `--autorun` / `-a`     | Run automatically after load (combine with `--prg`, `--basic`, or `--disk`) |
-| `--kbdjoy <0|1|2>`     | Drive the keyboard joystick on the given C64 port (`0` disables) |
-| `--kbdjoy-layout <numpad|wasd>` | Select the keyboard joystick key layout        |
-| `--audio-smoke`        | Emit a 440 Hz test tone to verify audio output      |
 | `--inspector` / `--no-inspector` | Enable Inspector recording (checkpoints; default off). `--inspector-memory=<MiB>` sets the budget (0 or 16..4096) |
 | `--history-off-on-max` / `--no-history-off-on-max` | Pause the CPU flight recorder (HST1) on max (default on). Keeps retained records; resumes on leave max |
 | `--inspector-off-on-max` / `--no-inspector-off-on-max` | Wipe Inspector Record on max (default on). Does not pause the CPU flight recorder |
-| `--log-level <level>`  | Host log policy: `all`, `warn` (default), `error`, or `none` |
+| `--video PAL|NTSC`, `-P`, `-N` | Override the configured video standard for this run |
+| `--kbdjoy <0|1|2>`     | Drive the keyboard joystick on the given C64 port (`0` disables) |
+| `--kbdjoy-layout <numpad|wasd>` | Select the keyboard joystick key layout        |
+| `--turbo <list>` / `-t`| Turbo mode list for Opt+T, e.g. `1,max` (1=normal, 2/`max`=max; `3` rejected) |
+| `--audio-smoke`        | Emit a 440 Hz test tone to verify audio output      |
 
 By default, c64m loads `c64m.ini` from the current directory. The INI file stores
 configuration, window size, debugger layout, and breakpoints.
@@ -2090,7 +2094,7 @@ is still paced by present/vsync (~16 ms class).
 | Command | Response |
 |---------|----------|
 | `hello` | `ok name=c64m protocol=C64M/8` |
-| `version` | `ok protocol=C64M/8 app=0.1.0` |
+| `version` | `ok protocol=C64M/8 app=c64m` |
 | `capabilities` | Space-separated capability names |
 | `ping` | `ok` |
 | `quit-client` | `ok`, then the server closes the client connection |

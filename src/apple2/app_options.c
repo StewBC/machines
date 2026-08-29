@@ -2218,20 +2218,43 @@ static bool parse_command_line_overrides(app_options *options, int argc, char **
         "a2m [options]",
         NULL,
     };
+    /*
+     * Help order (shared across products): help/version → lifecycle/INI →
+     * media → debug/recording → display/input → turbo/audio.
+     */
     struct argparse_option parse_options[] = {
         OPT_HELP(),
         OPT_BOOLEAN('V', "version", &show_version, "print version and exit", NULL, 0, 0),
-        OPT_BOOLEAN('A', "audio-smoke", &audio_smoke, "emit 440 Hz tone to verify audio path", NULL, 0, OPT_NONEG),
-        OPT_STRING('\0', "audio-record", &audio_record_path, "record runtime mono audio to WAV", NULL, 0, 0),
-        OPT_FLOAT('\0', "audio-record-start", &audio_record_start, "recording start time in seconds", NULL, 0, 0),
-        OPT_FLOAT('\0', "audio-record-duration", &audio_record_duration, "recording duration in seconds", NULL, 0, 0),
-        OPT_STRING('b', "break", &breakpoint, "install execute breakpoint at hex address", NULL, 0, 0),
+
+        OPT_STRING('i', "inifile", &ini_path, "path to an .ini file (default a2m.ini)", NULL, 0, 0),
+        OPT_BOOLEAN('n', "noini", &noini, "do not use an ini file", NULL, 0, OPT_NONEG),
+        OPT_BOOLEAN('!', "nosaveini", &no_save_ini, "do not save the ini no matter what", NULL, 0, OPT_NONEG),
+        OPT_BOOLEAN('v', "saveini", &save_ini, "save to ini file at quit", NULL, 0, OPT_NONEG),
+        OPT_BOOLEAN('r', "remember", &remember, "add save at quit to ini file", NULL, 0, OPT_NONEG),
+        OPT_BOOLEAN('f', "defaults", &defaults, "use default settings", NULL, 0, OPT_NONEG),
+        OPT_STRING('\0', "log-level", &log_level_s,
+                   "host log policy: all|warn|error|none (default warn)", NULL, 0, 0),
         OPT_INTEGER('\0', "control-port", &control_port,
                     "listen on localhost TCP for A2M/14 remote control (0=off)", NULL, 0, 0),
         OPT_BOOLEAN('\0', "headless", &headless,
                     "no window; short smoke exit unless --control-port is set (long-lived)",
                     NULL, 0, OPT_NONEG),
-        OPT_STRING('\0', "history-memory", &history_memory, "CPU flight-recorder memory budget in MiB (0 or 16..4096)", NULL, 0, 0),
+
+        OPT_STRING('d', "disk", &disk_help,
+                   "Disk II mount: path or s6d0=path (repeatable)",
+                   NULL, 0, 0),
+        OPT_STRING('\0', "hd", &hd_help,
+                   "SmartPort mount: path or s7d0=path (repeatable; default s7d0)",
+                   NULL, 0, 0),
+        OPT_STRING('\0', "smart", &hd_help, "alias for --hd", NULL, 0, 0),
+        OPT_STRING('\0', "sna", &sna_path, "load machine snapshot at startup", NULL, 0, 0),
+        OPT_STRING('m', "model", &model_s, "machine model: enh (//e Enhanced) or plus (][+)", NULL, 0, 0),
+        OPT_INTEGER('\0', "mb-slot", &mb_slot, "Mockingboard slot 1..7 (default 4; 0=disable)", NULL, 0, 0),
+
+        OPT_STRING('b', "break", &breakpoint, "install execute breakpoint at hex address", NULL, 0, 0),
+        OPT_STRING('\0', "symbols", &symbols_s, "load simple symbol file (NAME hex per line)", NULL, 0, 0),
+        OPT_STRING('\0', "history-memory", &history_memory,
+                   "CPU flight-recorder memory budget in MiB (0 or 16..4096)", NULL, 0, 0),
         OPT_BOOLEAN('\0', "history-off-on-max", &history_off_on_max_flag,
                     "pause CPU flight recorder on max (default on; --no-history-off-on-max)",
                     NULL, 0, 0),
@@ -2244,24 +2267,7 @@ static bool parse_command_line_overrides(app_options *options, int argc, char **
         OPT_BOOLEAN('\0', "inspector-off-on-max", &inspector_off_on_max_flag,
                     "wipe Inspector Record on max (default off; --no-inspector-off-on-max)",
                     NULL, 0, 0),
-        OPT_BOOLEAN('f', "defaults", &defaults, "use default settings", NULL, 0, OPT_NONEG),
-        OPT_STRING('d', "disk", &disk_help,
-                   "Disk II mount: path or s6d0=path (repeatable; same drive appends queue)",
-                   NULL, 0, 0),
-        OPT_STRING('\0', "hd", &hd_help, "SmartPort mount: path or s7d0=path (repeatable; default s7d0)", NULL, 0, 0),
-        OPT_STRING('\0', "smart", &hd_help, "alias for --hd", NULL, 0, 0),
-        OPT_STRING('i', "inifile", &ini_path, "path to an .ini file (default a2m.ini)", NULL, 0, 0),
-        OPT_STRING('\0', "log-level", &log_level_s,
-                   "host log policy: all|warn|error|none (default warn)", NULL, 0, 0),
-        OPT_BOOLEAN('n', "noini", &noini, "do not use an ini file", NULL, 0, OPT_NONEG),
-        OPT_BOOLEAN('!', "nosaveini", &no_save_ini, "do not save the ini no matter what", NULL, 0, OPT_NONEG),
-        OPT_STRING('\0', "sna", &sna_path, "load machine snapshot at startup", NULL, 0, 0),
-        OPT_STRING('m', "model", &model_s, "machine model: enh (//e Enhanced) or plus (][+)", NULL, 0, 0),
-        OPT_INTEGER('\0', "mb-slot", &mb_slot, "Mockingboard slot 1..7 (default 4; 0=disable)", NULL, 0, 0),
-        OPT_STRING('\0', "symbols", &symbols_s, "load simple symbol file (NAME hex per line)", NULL, 0, 0),
-        OPT_BOOLEAN('r', "remember", &remember, "add save at quit to ini file", NULL, 0, OPT_NONEG),
-        OPT_BOOLEAN('v', "saveini", &save_ini, "save to ini file at quit", NULL, 0, OPT_NONEG),
-        OPT_STRING('t', "turbo", &turbo, "turbo ladder CSV: MHz and/or max (e.g. 1,max or 1,4,8,max)", NULL, 0, 0),
+
         OPT_STRING('\0', "video-display", &video_display_s,
                    "display decoder: colour|color|white|green|amber or colour,<mono>",
                    NULL, 0, 0),
@@ -2269,6 +2275,17 @@ static bool parse_command_line_overrides(app_options *options, int argc, char **
                     "keyboard joystick on gameport stick: 0 off, 1 or 2", NULL, 0, 0),
         OPT_STRING('\0', "kbdjoy-layout", &kbdjoy_layout,
                    "keyboard joystick layout: numpad or wasd", NULL, 0, 0),
+
+        OPT_STRING('t', "turbo", &turbo,
+                   "turbo ladder CSV: MHz and/or max (e.g. 1,max or 1,4,8,max)", NULL, 0, 0),
+        OPT_BOOLEAN('A', "audio-smoke", &audio_smoke,
+                    "emit 440 Hz tone to verify audio path", NULL, 0, OPT_NONEG),
+        OPT_STRING('\0', "audio-record", &audio_record_path,
+                   "record runtime mono audio to WAV", NULL, 0, 0),
+        OPT_FLOAT('\0', "audio-record-start", &audio_record_start,
+                  "recording start time in seconds", NULL, 0, 0),
+        OPT_FLOAT('\0', "audio-record-duration", &audio_record_duration,
+                  "recording duration in seconds", NULL, 0, 0),
         OPT_END(),
     };
 
@@ -2276,12 +2293,8 @@ static bool parse_command_line_overrides(app_options *options, int argc, char **
     argparse_describe(
         &argparse,
         "\na2m — Apple ][+ / //e Enhanced emulator with integrated debugger.",
-        "\nDisk/HD: repeat -d/--disk and --hd/--smart; form s6d0=path.\n"
-        "  Same drive twice (e.g. -d s6d0=a.nib -d s6d0=b.nib) builds a multi-image queue.\n"
-        "Keyboard stick: --kbdjoy 0|1|2 and --kbdjoy-layout numpad|wasd.\n"
-        "Display: --video-display colour|white|green|amber or colour,<mono>.\n"
-        "Logging: --log-level all|warn|error|none (default warn).\n"
-        "INI: --noini / --saveini / --remember / --defaults.\n");
+        "\nDisk/HD: form s6d0=path / s7d0=path; repeat -d/--disk and --hd/--smart.\n"
+        "  Same drive twice (e.g. -d s6d0=a.nib -d s6d0=b.nib) builds a multi-image queue.\n");
     argparse_parse(&argparse, argc, (const char **)argv);
     (void)disk_help;
     (void)hd_help;

@@ -268,7 +268,7 @@ Current fixed responses:
 
 ```text
 hello        -> ok name=c64m protocol=C64M/8
-version      -> ok protocol=C64M/8 app=0.1.0
+version      -> ok protocol=C64M/8 app=c64m
 capabilities -> ok connection introspection execution state step turbo frame memory debug-memory call-stack input disk file snapshot breakpoints wait assemble symbols drive-cpu vic cia run-to-raster history power-drive frame-ring vic-ring sessions state-changed inspector
 (generated from the leftover verb table)
 ping         -> ok

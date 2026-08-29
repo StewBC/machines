@@ -2,7 +2,7 @@
 
 /* Set by CMake from project(VERSION ...). Fallback for non-CMake tooling. */
 #ifndef A2M_VERSION
-#define A2M_VERSION "3.0.0"
+#define A2M_VERSION "3.1.0"
 #endif
 
 /* Product display name (user-facing). Repo/binary may still use a2m. */

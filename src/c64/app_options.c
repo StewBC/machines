@@ -1786,18 +1786,40 @@ static bool parse_command_line_overrides(app_options *options, int argc, char **
         "c64m [options]",
         NULL,
     };
+    int show_version = 0;
+    /*
+     * Help order (shared across products): help/version → lifecycle/INI →
+     * media → debug/recording → display/input → turbo/audio.
+     */
     struct argparse_option parse_options[] = {
-        OPT_BOOLEAN('A', "audio-smoke", &audio_smoke, "emit 440 Hz tone to verify audio path", NULL, 0, OPT_NONEG),
-        OPT_STRING('\0', "audio-record", &audio_record_path, "record runtime mono audio to WAV", NULL, 0, 0),
-        OPT_FLOAT('\0', "audio-record-start", &audio_record_start, "recording start time in seconds", NULL, 0, 0),
-        OPT_FLOAT('\0', "audio-record-duration", &audio_record_duration, "recording duration in seconds", NULL, 0, 0),
-        OPT_BOOLEAN('a', "autorun", &autorun, "run automatically after load", NULL, 0, OPT_NONEG),
+        OPT_HELP(),
+        OPT_BOOLEAN('V', "version", &show_version, "print version and exit", NULL, 0, 0),
+
+        OPT_STRING('i', "inifile", &ini_path, "path to an .ini file (default c64m.ini)", NULL, 0, 0),
+        OPT_BOOLEAN('n', "noini", &noini, "do not use an ini file", NULL, 0, OPT_NONEG),
+        OPT_BOOLEAN('!', "nosaveini", &no_save_ini, "do not save the ini no matter what", NULL, 0, OPT_NONEG),
+        OPT_BOOLEAN('v', "saveini", &save_ini, "save to ini file at quit", NULL, 0, OPT_NONEG),
+        OPT_BOOLEAN('r', "remember", &remember, "add save at quit to ini file", NULL, 0, OPT_NONEG),
+        OPT_BOOLEAN('f', "defaults", &defaults, "use default settings", NULL, 0, OPT_NONEG),
+        OPT_STRING('\0', "log-level", &log_level_s,
+                   "host log policy: all|warn|error|none (default warn)", NULL, 0, 0),
+        OPT_INTEGER('\0', "control-port", &control_port,
+                    "listen on localhost TCP for C64M/8 remote control (0=off)", NULL, 0, 0),
+        OPT_BOOLEAN('\0', "headless", &headless,
+                    "no window; requires --control-port", NULL, 0, OPT_NONEG),
+
+        OPT_STRING('d', "disk", &disk,
+                   "1541 mount: <drive>=<image[,image...]> (e.g. 8=game.d64)",
+                   NULL, 0, 0),
+        OPT_STRING('p', "prg", &prg_path, "load file as PRG at startup", NULL, 0, 0),
         OPT_STRING('B', "basic", &basic_path, "load file as BASIC program at startup", NULL, 0, 0),
-        OPT_STRING('b', "break", &breakpoint, "install a breakpoint", NULL, 0, 0),
         OPT_STRING('\0', "crt", &crt_path, "load CRT cartridge at startup", NULL, 0, 0),
-        OPT_INTEGER('\0', "control-port", &control_port, "enable localhost control server on port", NULL, 0, 0),
-        OPT_BOOLEAN('\0', "headless", &headless, "run without creating a window; requires --control-port", NULL, 0, OPT_NONEG),
-        OPT_STRING('\0', "history-memory", &history_memory, "CPU flight-recorder memory budget in MiB (0 or 16..4096)", NULL, 0, 0),
+        OPT_STRING('\0', "sna", &sna_path, "load machine snapshot (.c64state) at startup", NULL, 0, 0),
+        OPT_BOOLEAN('a', "autorun", &autorun, "run automatically after load", NULL, 0, OPT_NONEG),
+
+        OPT_STRING('b', "break", &breakpoint, "install execute breakpoint at hex address", NULL, 0, 0),
+        OPT_STRING('\0', "history-memory", &history_memory,
+                   "CPU flight-recorder memory budget in MiB (0 or 16..4096)", NULL, 0, 0),
         OPT_BOOLEAN('\0', "history-off-on-max", &history_off_on_max_flag,
                     "pause CPU flight recorder on max (default on; --no-history-off-on-max)",
                     NULL, 0, 0),
@@ -1810,24 +1832,25 @@ static bool parse_command_line_overrides(app_options *options, int argc, char **
         OPT_BOOLEAN('\0', "inspector-off-on-max", &inspector_off_on_max_flag,
                     "wipe Inspector Record on max (default on; --no-inspector-off-on-max)",
                     NULL, 0, 0),
-        OPT_BOOLEAN('f', "defaults", &defaults, "use default settings", NULL, 0, OPT_NONEG),
-        OPT_STRING('d', "disk", &disk, "1541 drive image; format <drive>=<image>", NULL, 0, 0),
-        OPT_STRING('i', "inifile", &ini_path, "path to an .ini file", NULL, 0, 0),
-        OPT_STRING('\0', "log-level", &log_level_s,
-                   "host log policy: all|warn|error|none (default warn)", NULL, 0, 0),
-        OPT_BOOLEAN('n', "noini", &noini, "do not use an ini file", NULL, 0, OPT_NONEG),
-        OPT_BOOLEAN('!', "nosaveini", &no_save_ini, "do not save the ini no matter what", NULL, 0, OPT_NONEG),
-        OPT_STRING('p', "prg", &prg_path, "load file as PRG at startup", NULL, 0, 0),
-        OPT_STRING('\0', "sna", &sna_path, "load machine snapshot (.c64state) at startup", NULL, 0, 0),
+
+        OPT_STRING('\0', "video", &video_standard, "video standard: PAL or NTSC", NULL, 0, 0),
         OPT_BOOLEAN('P', "pal", &video_pal, "use PAL video timing", NULL, 0, OPT_NONEG),
         OPT_BOOLEAN('N', "ntsc", &video_ntsc, "use NTSC video timing", NULL, 0, OPT_NONEG),
-        OPT_STRING('\0', "video", &video_standard, "video standard: PAL or NTSC", NULL, 0, 0),
-        OPT_INTEGER('\0', "kbdjoy", &kbdjoy_port, "drive keyboard joystick on C64 port: 0 off, 1 or 2", NULL, 0, 0),
-        OPT_STRING('\0', "kbdjoy-layout", &kbdjoy_layout, "keyboard joystick layout: numpad or wasd", NULL, 0, 0),
-        OPT_BOOLEAN('r', "remember", &remember, "add save at quit to ini file", NULL, 0, OPT_NONEG),
-        OPT_BOOLEAN('v', "saveini", &save_ini, "save to ini file at quit", NULL, 0, OPT_NONEG),
-        OPT_STRING('t', "turbo", &turbo, "comma separated turbo modes (1=normal,2|max)", NULL, 0, 0),
-        OPT_HELP(),
+        OPT_INTEGER('\0', "kbdjoy", &kbdjoy_port,
+                    "keyboard joystick on C64 port: 0 off, 1 or 2", NULL, 0, 0),
+        OPT_STRING('\0', "kbdjoy-layout", &kbdjoy_layout,
+                   "keyboard joystick layout: numpad or wasd", NULL, 0, 0),
+
+        OPT_STRING('t', "turbo", &turbo,
+                   "turbo modes CSV: 1=normal, 2|max (e.g. 1,max)", NULL, 0, 0),
+        OPT_BOOLEAN('A', "audio-smoke", &audio_smoke,
+                    "emit 440 Hz tone to verify audio path", NULL, 0, OPT_NONEG),
+        OPT_STRING('\0', "audio-record", &audio_record_path,
+                   "record runtime mono audio to WAV", NULL, 0, 0),
+        OPT_FLOAT('\0', "audio-record-start", &audio_record_start,
+                  "recording start time in seconds", NULL, 0, 0),
+        OPT_FLOAT('\0', "audio-record-duration", &audio_record_duration,
+                  "recording duration in seconds", NULL, 0, 0),
         OPT_END(),
     };
 
@@ -1856,11 +1879,22 @@ static bool parse_command_line_overrides(app_options *options, int argc, char **
     }
 
     argparse_init(&argparse, parse_options, usages, 0);
-    argparse_describe(&argparse, "A Commodore 64 emulator written by Codex, Claude Code and Grok, produced by Stefan Wessels, 2026.", NULL);
+    argparse_describe(
+        &argparse,
+        "\nc64m — Commodore 64 emulator with integrated debugger.",
+        "\nDisk: form <drive>=<image>; use -d/--disk per drive.\n"
+        "  Comma-separated images (e.g. -d 8=a.d64,b.d64) pre-load a multi-image queue.\n"
+        "  Empty path (-d 8=) soft-powers that unit without media.\n");
     argparse_parse(&argparse, argc, (const char **)argv);
     (void)inspector; /* consumed so --inspector is a known flag; CLI value comes from inspector_cli */
     (void)history_off_on_max_flag;
     (void)inspector_off_on_max_flag;
+    (void)disk; /* help placeholder; mounts come from apply_disk_args */
+
+    if (show_version) {
+        options->show_version = true;
+        return true;
+    }
 
     if (defaults) {
         options->defaults = true;
@@ -2151,6 +2185,7 @@ bool app_options_copy(app_options *dest, const app_options *src)
         src->assembler_auto_adjust_segments;
     dest->control_port = src->control_port;
     dest->headless = src->headless;
+    dest->show_version = src->show_version;
     dest->keyboard_joystick_port = src->keyboard_joystick_port;
     dest->history_memory_mb = src->history_memory_mb;
     dest->frame_ring_memory_mb = src->frame_ring_memory_mb;

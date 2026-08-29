@@ -14,6 +14,7 @@
 #include "runtime_client.h"
 #include "runtime_history_wire.h"
 #include "runtime_inspector.h"
+#include "version.h"
 
 #include <SDL2/SDL.h>
 #include <stdbool.h>
@@ -5340,7 +5341,7 @@ static void dispatch_control_request(
                 &response,
                 request->id,
                 CONTROL_PROTOCOL_VERSION,
-                CONTROL_PROTOCOL_APP_LABEL);
+                CONTROL_PROTOCOL_APP_NAME);
             break;
 
         case CONTROL_COMMAND_CAPABILITIES: {
@@ -7389,6 +7390,11 @@ int main(int argc, char **argv) {
     /* INI/CLI may override the WARN default; apply before further host work. */
     host_log_apply(options.log_level);
     apply_sdl_log_policy(options.log_level);
+    if (options.show_version) {
+        printf("%s %s\n", C64M_NAME, C64M_VERSION);
+        app_options_destroy(&options);
+        return EXIT_SUCCESS;
+    }
 
     if (options.headless) {
         if (!platform_init_headless()) {

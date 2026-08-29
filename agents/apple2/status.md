@@ -1,6 +1,6 @@
 # Status
 
-**Version:** 3.0.0
+**Version:** 3.1.0
 
 What the product is **now**. Source of truth is `src/`. User-facing catalog:
 [`manual/a2m/manual.md`](../../manual/a2m/manual.md). Rules: [`rules.md`](rules.md).

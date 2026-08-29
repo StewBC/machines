@@ -18,7 +18,10 @@ add_executable(c64m
 
 target_compile_features(c64m PRIVATE c_std_99)
 
-target_compile_definitions(c64m PRIVATE SDL_MAIN_HANDLED)
+target_compile_definitions(c64m PRIVATE
+    SDL_MAIN_HANDLED
+    C64M_VERSION="1.1.0"
+)
 
 target_link_libraries(c64m PRIVATE
     argparse

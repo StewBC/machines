@@ -27,6 +27,7 @@ typedef struct app_options {
     bool remember;
     bool defaults;
     bool no_save_ini;
+    bool show_version;
     /* Host log policy: all|warn|error|none (default warn). CLI --log-level /
        INI [config] log_level. Does not mute argparse / startup fprintf errors. */
     host_log_level log_level;

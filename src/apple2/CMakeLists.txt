@@ -19,7 +19,7 @@ add_executable(a2m
 target_compile_features(a2m PRIVATE c_std_99)
 target_compile_definitions(a2m PRIVATE
     SDL_MAIN_HANDLED
-    A2M_VERSION="3.0.0"
+    A2M_VERSION="3.1.0"
     A2M_SOURCE_DIR="${LEFTOVER_ROOT}"
 )
 

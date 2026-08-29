@@ -12,7 +12,7 @@ Monorepo index: [`../README.md`](../README.md). Shared debugger shape:
 
 ## Product
 
-C99 **Apple ][+ / //e Enhanced** emulator (version **3.0.0**, protocol
+C99 **Apple ][+ / //e Enhanced** emulator (version **3.1.0**, protocol
 **A2M/14**).
 
 User book: [`manual/a2m/`](../../manual/a2m/manual.md).
