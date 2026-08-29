@@ -198,7 +198,6 @@ Control: `get-state` reports `mode=live|inspector` and `focus_cycle`.
 `enter-inspector` / `leave-inspector`. Tests: `runtime_inspector`,
 `runtime_inspector_replay`, `runtime_inspector_mode`,
 `inspector_control_integration`. UI: `frontend-debugger.md`.
-Design history: `design/inspector-frame-synced-record.md`.
 
 ## Save-state
 
