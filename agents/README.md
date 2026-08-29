@@ -44,6 +44,7 @@ targets so names do not collide).
 | `assets/` | Personal playground; **not** git-tracked. |
 | `manual/a2m/` | Apple user book (`manual.md` + `HELP_MARKDOWN.md`). |
 | `manual/c64m/` | C64 user book (`manual.md` + `HELP_MARKDOWN.md`). |
+| `a2m.ini.example` / `c64m.ini.example` | Commented INI templates at the **repo root** (not generated). Copy to `a2m.ini` / `c64m.ini` or pass `--inifile`. |
 | `tests/shell/` | Tests for shared shell TUs. Registered under both `a2m.*` and `c64m.*` ctest names where they already were. |
 | `tests/apple2/` | a2m tests + fixtures. |
 | `tests/c64/` | c64m tests + fixtures. Asset SKIP 77 still uses gitignored `assets/`. |
@@ -92,6 +93,15 @@ NMOS vs 65C02 on `disasm_6502_decode_line`; C64 call sites always pass NMOS.
 Help overlay: one `src/shell/tools/gen_help.py`, two books
 (`manual/a2m/manual.md`, `manual/c64m/manual.md`). ASCII-only
 (`HELP_MARKDOWN.md` beside each book).
+
+## INI example templates
+
+`a2m.ini.example` and `c64m.ini.example` at the repo root are **hand-maintained**
+commented templates for users. They are not emitted by save-ini / `--saveini`.
+
+When INI keys or value vocabularies are added, removed, or renamed in
+`src/apple2/app_options.c` or `src/c64/app_options.c`, update the matching
+`*.ini.example` in the **same change** so the templates stay accurate.
 
 ## Freeze
 

@@ -28,7 +28,7 @@ Same rule for `manual/a2m/manual.md` — see `manual/a2m/HELP_MARKDOWN.md`.
 | `src/frontend/frontend_joystick_input.*` | Kbd stick → Apple axes/buttons |
 | `src/frontend/crt_renderer.*` | CRT presentation |
 | `src/shell/frontend/memory_search.*` | Find in the active Memory view |
-| `src/app_options.*` | CLI / INI |
+| `src/app_options.*` | CLI / INI. Commented template: repo-root `a2m.ini.example` (keep in sync when keys change; see [`../README.md`](../README.md)). |
 
 Intents (`FRONTEND_DEBUGGER_INTENT_*`) are dispatched in `main.c` onto
 `runtime_client_*`.

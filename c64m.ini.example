@@ -1,0 +1,95 @@
+; Example configuration for c64m
+; Copy to c64m.ini in the working directory, or pass: --inifile path
+; Command-line flags override values from this file.
+;
+; Hand-maintained template (not generated). When INI keys/values are added or
+; removed in src/c64/app_options.c, update this file in the same change.
+; See agents/README.md.
+
+[Window]
+; width = 1280
+; height = 800
+
+[Layout]
+; split_display_right = 0.62
+; split_top_bottom = 0.58
+; split_memory_misc = 0.55
+
+[Video]
+; standard = PAL
+; true_aspect = true
+; crt_smoothing = true
+; crt_scanlines = false
+; crt_scanline_strength = 35
+; crt_curvature = false
+; crt_curvature_amount = 30
+
+[config]
+; Turbo ladder: 1 = normal, max / warp modes (product turbo IDs).
+; First entry is the startup mode.
+turbo_speeds = 1,max
+; Host log policy: all | warn (default) | error | none. CLI: --log-level.
+; log_level = warn
+; Write this file on exit when true, or use --saveini / --remember
+; Save = yes
+; scroll_wheel_lines = 3
+; Optional symbol file list (comma-separated)
+; symbol_files = symbols/c64/basic.txt,symbols/c64/kernal.txt
+; pause_on_brk = false
+
+[roms]
+; Flat ROM set under roms/ (single_system=true uses system.rom for BASIC+KERNAL).
+; character = roms/character.rom
+; system = roms/system.rom
+; 1541 = roms/1541.rom
+; single_system = true
+; Separate images when single_system is false:
+; basic = /path/to/basic.rom
+; kernal = /path/to/kernal.rom
+; Legacy [rom] section keys (basic/char/character/kernal/system/1541) still load.
+
+[disk]
+; emulate_1541 = true
+; media_1541 = false
+; show_disk_leds = true
+; Device 8 / 9 image queues (comma-separated paths). Writable lists optional.
+; 8 = assets/c64/disks/game.d64
+; 8_writable = true
+; 9 = /path/to/second.d64
+; 9_writable = false
+
+[debug]
+; Inspector recording (default off).
+; inspector = 0
+; inspector_memory_mb = 128
+; Wipe Inspector Record when entering turbo 2/3 (default true).
+; inspector_off_on_max = 1
+; history_memory_mb = 256
+; frame_ring_memory_mb = 128
+; vic_ring_memory_mb = 16
+
+[input]
+; Keyboard stick: 0=off, 1 or 2 = joystick port; layout numpad|wasd
+; keyboard_joystick_port = 0
+; keyboard_joystick_layout = wasd
+
+[assembler]
+; file = samples/c64/hello.asm
+; address = 0801
+; run_address = 080d
+; use_address = true
+; auto_run = false
+; basic_run = false
+; reset = true
+; rearm_oneshots = false
+; auto_adjust_segments = false
+
+[browse]
+; Paths tab defaults (relative to cwd or absolute)
+; assembler = samples/c64
+; disk = assets/c64/disks
+; program = assets/c64/prg
+; basic = assets/c64
+; text = assets/c64
+; snapshot = assets/c64/snapshots
+; Legacy: [state] quicksave_folder migrates into browse snapshot when unset.

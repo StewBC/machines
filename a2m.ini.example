@@ -1,0 +1,111 @@
+; Example configuration for a2m
+; Copy to a2m.ini in the working directory, or pass: --inifile path
+; Command-line flags override values from this file.
+;
+; Hand-maintained template (not generated). When INI keys/values are added or
+; removed in src/apple2/app_options.c, update this file in the same change.
+; See agents/README.md.
+
+[Window]
+; width = 1120
+; height = 768
+
+[Layout]
+; split_display_right = 0.62
+; split_top_bottom = 0.58
+; split_memory_misc = 0.55
+
+[Video]
+; standard = NTSC
+; true_aspect = true
+; colour = true
+; mono_mode = white
+; crt_smoothing = false
+; crt_scanlines = false
+; crt_scanline_strength = 35
+; crt_curvature = false
+; crt_curvature_amount = 30
+
+[machine]
+; enh = //e Enhanced (default); plus = Apple ][+
+model = enh
+
+[Slots]
+; empty | diskii | smartport | mockingboard (one Mockingboard total)
+slot1 = empty
+slot2 = empty
+slot3 = empty
+slot4 = mockingboard
+slot5 = empty
+slot6 = diskii
+slot7 = smartport
+
+[config]
+; Turbo ladder: MHz targets and/or max (e.g. 1,max or 1,4,8,max).
+; First entry is the startup mode. Cycle with Opt+T (Alt+T).
+turbo_speeds = 1,max
+; Pause CPU flight-recorder while turbo is max. Default true.
+history_off_on_max = true
+; Host log policy: all | warn (default) | error | none. CLI: --log-level.
+; log_level = warn
+; Write this file on exit when true, or use --saveini / --remember
+; Save = yes
+; scroll_wheel_lines = 3
+; Make Backspace send Apple II DEL ($7F) instead of cursor-left ($08).
+original_del = false
+; Optional symbol file list (comma-separated; NAME hex per line files)
+; symbol_files = symbols/apple2/APPLE2E.SYM
+; pause_on_brk = false
+; disk_leds = true   ; also [disk] show_disk_leds
+
+[DiskII]
+; a2m-style multi-mount: s<slot>d<drive> = path (drive 0 or 1)
+; s6d0 = tests/apple2/fixtures/Apple DOS 3.3 January 1983.nib
+; s6d1 = /path/to/second.nib
+
+[SmartPort]
+; s<slot>d<unit> = path (unit 0 or 1)
+; s7d0 = /path/to/prodos.po
+; s5d0 = /path/to/other.po
+; Force startup through a mounted SmartPort unit 0 (][+ or non-slot-7 boot).
+; boot_slot = 5
+
+; Legacy single-path keys (still supported):
+; [disk]
+; path = ...   ; Disk II s6d0
+; hd = ...     ; SmartPort s7d0
+; show_disk_leds = true
+
+[debug]
+; Inspector recording (default off). On arms checkpoint recorder + frame ring.
+; inspector = false
+; inspector_memory_mb = 128
+; history_memory_mb = 256
+; frame_ring_memory_mb = 128
+
+[input]
+; Keyboard stick: 0=off, 1 or 2 = gameport stick; layout numpad|wasd
+; keyboard_joystick_port = 0
+; keyboard_joystick_layout = wasd
+; Swap Space↔Option fire while stick is on (Space=BUTN0, Option=BUTN1)
+; keyboard_joystick_swap_buttons = false
+
+[assembler]
+; file = samples/apple2/hello.asm
+; address = 8000
+; run_address = 8000
+; use_address = true
+; auto_run = false
+; mli_launch = false
+; reset = true
+; rearm_oneshots = false
+; auto_adjust_segments = false
+
+[browse]
+; Paths tab defaults (relative to cwd or absolute)
+; assembler = samples/apple2
+; floppy = assets/apple2/disks
+; smartport = samples/apple2/hostfs
+; binary = assets/apple2/Other
+; basic = assets/apple2/Other
+; snapshot = assets/apple2/Other

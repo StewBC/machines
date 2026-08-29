@@ -96,6 +96,10 @@ while an edit field has focus.
 
 ## Loading and configuration
 
+CLI / INI: `src/c64/app_options.*`. Commented template: repo-root
+`c64m.ini.example` (keep in sync when keys change; see
+[`../README.md`](../README.md)).
+
 Machine dialogs: D64 queues, writable toggle, PRG/BASIC/BASIC Text, T64
 extract, CRT attach, state save/load, ROM endpoints, video standard, audio,
 1541 emulation, media mode. Emulator tab also owns CRT presentation (4:3
