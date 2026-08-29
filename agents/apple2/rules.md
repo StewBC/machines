@@ -32,7 +32,7 @@ control   →  runtime_client + platform sockets
 
 | Path | Owns |
 |------|------|
-| `src/machine/` | CPU, soft switches, video beam/paint, Disk II, SmartPort, HostFS, MB, ROMs |
+| `src/apple2/machine/` | CPU, soft switches, video beam/paint, Disk II, SmartPort, HostFS, MB, ROMs |
 | leftover `src/runtime/` | Worker, leftover client extras, commands/events, TimeMachine clocks |
 | leftover `src/frontend/` | Exclusive Misc tabs, leftover input, leftover CRT |
 | `src/shell/frontend/` | Shared chrome (layout, CPU, disasm, memview, BP list, help, Forensics, Inspector tab) |

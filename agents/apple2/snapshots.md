@@ -17,7 +17,7 @@ Serialize on the **runtime thread**. Host never touches `apple2_t`.
 
 ## Machine blob
 
-`src/machine/apple2_snapshot.c`: little-endian magic **`A2ST`** (`0x41325354`),
+`src/apple2_snapshot.c`: little-endian magic **`A2ST`** (`0x41325354`),
 **version 2** (loads v1+). Chunked; not `memcpy` of `apple2_t`.
 
 | Tag | Contents |

@@ -13,14 +13,14 @@ ctest --test-dir build -L c64m --output-on-failure
 Root `project(machines)` registers 89 c64m tests (`c64m.<name>`): **78 pass +
 10 SKIP** (CTest 77 without leftover gitignored `assets/`) **+
 `c64m.history_control_integration` fails**. Do not "fix" that fail. Count drifts
-as targets land. Do not configure `-S src/machine/c64`.
+as targets land. Do not configure `-S src/c64`.
 
 ### Asset SKIP, not fail
 
 Copyrighted media under `assets/` is gitignored. Tests that need a fixture
 return `C64M_TEST_SKIP` (77) when it is missing; CMake marks those tests
 `SKIP_RETURN_CODE 77`. Helper: `tests/c64/test_asset.h`. Leftover gitignored `assets/` still lives
-under `src/machine/c64/assets/`.
+under `src/c64/assets/`.
 
 The ten asset-gated tests:
 

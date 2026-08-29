@@ -689,7 +689,7 @@ and operate on machine `.c64state` snapshots via the runtime. They return
 The control protocol currently exposes `is_basic`, but not the frontend's Basic
 Text flag; use the runtime/frontend path for Basic Text.
 
-The joystick mask uses the C64 constants in `src/machine/c64.h`:
+The joystick mask uses the C64 constants in `src/c64.h`:
 
 ```text
 bit 0 up, bit 1 down, bit 2 left, bit 3 right, bit 4 fire

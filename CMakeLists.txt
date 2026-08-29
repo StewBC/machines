@@ -18,7 +18,7 @@ foreach(_exe a2m c64m am65)
         message(FATAL_ERROR
             "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/${_exe} is a directory. "
             "Remove leftover nested build trees (`rm -rf build/a2m build/c64m`); "
-            "do not configure -S src/machine/apple2 or -S src/machine/c64.")
+            "do not configure -S src/apple2 or -S src/c64.")
     endif()
 endforeach()
 
@@ -60,8 +60,8 @@ add_subdirectory(src/shell)
 # Leftover silicon: library + product executable + tests. No project().
 set(MACHINES_LEFTOVER apple2)
 set(MACHINES_TEST_NS a2m)
-add_subdirectory(src/machine/apple2 apple2)
+add_subdirectory(src/apple2 apple2)
 
 set(MACHINES_LEFTOVER c64)
 set(MACHINES_TEST_NS c64m)
-add_subdirectory(src/machine/c64 c64)
+add_subdirectory(src/c64 c64)

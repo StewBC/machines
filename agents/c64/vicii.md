@@ -2,7 +2,7 @@
 
 ## Source of truth
 
-`src/machine/vicii.{c,h}`, integration in `c64.c` / `c64_bus.c`, geometry in
+`src/c64/machine/vicii.{c,h}`, integration in `c64.c` / `c64_bus.c`, geometry in
 `c64_frame.{c,h}`. Tests: `tests/machine/test_c64_vicii.c`, `test_c64_frame.c`,
 `test_c64_cpu_validation.c`.
 

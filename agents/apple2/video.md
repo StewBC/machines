@@ -4,8 +4,8 @@
 
 | File | Role |
 |------|------|
-| `src/machine/video.h` / `video.c` | Beam, scanner, paint, floating bus; `apple2_video_pixel_address` |
-| `src/machine/display_frame.h` | Host frame contract (static-asserted to `APPLE2_VIDEO_*`) |
+| `src/apple2/machine/video.h` / `video.c` | Beam, scanner, paint, floating bus; `apple2_video_pixel_address` |
+| `src/apple2/machine/display_frame.h` | Host frame contract (static-asserted to `APPLE2_VIDEO_*`) |
 | `tests/machine/test_video_beam.c` | Timing + mode coverage |
 | `tests/machine/test_video_block_paint.c` | Full-frame block paint |
 | `tests/machine/test_video_pixel_address.c` | Soft-switch-locked (flags, px, py) → bank/ofs/adr |

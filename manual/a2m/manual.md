@@ -1056,7 +1056,7 @@ succeeds, auto-run is skipped, and a notice reports that ProDOS MLI was not pres
 Turning **Auto-run** off clears and disables **MLI launch**. Checking **MLI launch**
 clears **Reset machine**, and checking **Reset machine** clears **MLI launch**
 (Assembler Reset is a warm reset that remaps language-card reads to ROM, so an
-immediate MLI call would be unsafe). See `samples/asm_mli_launch/` for a SET_PREFIX
+immediate MLI call would be unsafe). See `samples/apple2/asm_mli_launch/` for a SET_PREFIX
 + BIN open/read/JMP shim meant to run under live ProDOS (for example HostFS).
 
 **Rearm one-shots** is useful during iterative development: set a breakpoint with
@@ -1451,7 +1451,7 @@ am65 -i alt/root.asm -I shared -o out.bin
 am65 -i demo.asm -o loader.bin -a $0800 -D VERSION=3 -s symbols.txt
 ```
 
-Sample sources live in `samples/`.
+Sample sources live in `samples/apple2/`.
 
 ## Inspector
 

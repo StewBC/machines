@@ -5,11 +5,10 @@ Source and tests are authoritative. If a handoff and the code disagree,
 trust the code and fix the handoff in the same change.
 
 Monorepo index: [`../README.md`](../README.md). Shared debugger shape:
-[`../shell/`](../shell/). Do not open `src/machine/apple2` to decide C64 silicon.
+[`../shell/`](../shell/). Do not open `src/apple2` to decide C64 silicon.
 
-**Paths in this folder:** bare `src/...` means leftover
-`src/machine/c64/src/...` unless the path already starts with `src/shell/`,
-`manual/`, or `tests/`.
+**Paths in this folder** are repo-root literal (`src/c64/...`,
+`src/shell/...`, `manual/`, `tests/`, `samples/c64/...`).
 
 Do not read files under leftover `md-files/` if they reappear. They are
 historical working notes and are not guaranteed to be accurate.
@@ -48,7 +47,7 @@ VICE) also works here.
 
 ## Design docs (proposals, not product-as-is)
 
-Leftover c64m designs: [`src/machine/c64/design/`](../../src/machine/c64/design/).
+Product design drafts under the old leftover tree were removed; see `agents/c64/` and `manual/c64m/`.
 Monorepo designs: [`design/`](../../design/). Do not treat design drafts as
 handoff truth — source and `agents/*.md` win when they disagree.
 
@@ -101,11 +100,11 @@ measured. The examples are VIC-II, but the method is not.
 |------|---------|--------|
 | Layers, threads, ownership | `architecture.md` | leftover `src/main.c`, `src/*/CMakeLists.txt` |
 | What is not done | `known-gaps.md` | comments / `TODO.txt` |
-| CPU, bus, carts, snapshots | `machine.md` | leftover `src/machine/c64*.c`, `c6510*`, `c64_bus`, `c64_snapshot` |
-| VIC-II | `vicii.md` | leftover `src/machine/vicii.*`, `c64_frame.*` |
-| CIA, keyboard, IEC pins | `cia.md` | leftover `src/machine/cia.*`, `keyboard.*` |
-| SID and host audio | `sid-audio.md` | leftover `src/machine/sid.*`; shell `src/shell/util/audio_buffer.*`; leftover `src/platform/platform_audio.*` |
-| Disk, 1541, IEC | `disk-iec1541.md` | leftover `src/machine/c1541*`, `via6522.*` |
+| CPU, bus, carts, snapshots | `machine.md` | leftover `src/c64*.c`, `c6510*`, `c64_bus`, `c64_snapshot` |
+| VIC-II | `vicii.md` | `src/c64/machine/vicii.*`, `c64_frame.*` |
+| CIA, keyboard, IEC pins | `cia.md` | `src/c64/machine/cia.*`, `keyboard.*` |
+| SID and host audio | `sid-audio.md` | `src/c64/machine/sid.*`; shell `src/shell/util/audio_buffer.*`; leftover `src/platform/platform_audio.*` |
+| Disk, 1541, IEC | `disk-iec1541.md` | `src/c64/machine/c1541*`, `via6522.*` |
 | Runtime, Inspector clocks, recorder, rings | `runtime-control.md` | leftover `src/runtime/` |
 | Control-port wire | `control-port.md` | leftover `src/control/`, `src/main.c` dispatch; shell framing in `src/shell/control/` |
 | Driving c64m from a script | `using-c64m.md` | leftover `tools/c64_control_client.py` |

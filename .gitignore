@@ -1,9 +1,19 @@
 # Nested per-prefix CMake trees (Stage 0 helper)
 /build/
+/assets/
 
 .DS_Store
 .cache/
 .vscode/
+/*.ini
 compile_commands.json
 *.user
 CMakeUserPresets.json
+
+# samples: core tracked; local scratch ignored (already-tracked stay tracked;
+# git add -f samples/apple2/hostfs/... to lock new seeds)
+samples/apple2/penetrator
+samples/apple2/hostfs/
+
+# Local debugger symbol overlays
+symbols/*/USER.SYM

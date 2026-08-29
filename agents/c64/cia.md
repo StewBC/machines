@@ -2,7 +2,7 @@
 
 ## Source of truth
 
-`src/machine/cia.{c,h}`, keyboard in `keyboard.{c,h}`, C64 interrupt/IEC
+`src/c64/machine/cia.{c,h}`, keyboard in `keyboard.{c,h}`, C64 interrupt/IEC
 wiring in `c64.c`. Tests: `tests/machine/test_c64_cia.c`,
 `test_c64_keyboard.c`. Race-level evidence: `tools/cia-timing-corpus/`
 (optional fetch, not a ctest gate).

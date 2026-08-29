@@ -3,8 +3,8 @@
 These libraries are kept small and are intended to be wrapped by project-facing
 APIs under `src/shell/util/` (and leftover machine util) before broad use.
 
-C64 TrueType fonts are **not** here; they stay at
-`src/machine/c64/external/C64_TrueType_v1.2.1-STYLE/`.
+C64 TrueType fonts live here as `C64_TrueType_v1.2.1-STYLE/`
+(runtime help font is embedded in the c64m frontend).
 
 ## Contents (vendored in git)
 

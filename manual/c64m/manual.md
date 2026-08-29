@@ -2584,7 +2584,7 @@ source emits bytes or sets its own origin.
 assembly address:
 
 ```text
-1 assemble reset=0 address=$c000 samples/test1.asm
+1 assemble reset=0 address=$c000 samples/c64/test1.asm
 1 ok address=$C000
 ```
 
@@ -2611,7 +2611,7 @@ debugger's Disasm and Symbol Lookup views just as the Assembler tab does.
 A typical automation sequence assembles, locates a routine, breakpoints it, and runs:
 
 ```text
-1 assemble address=$c000 samples/test1.asm
+1 assemble address=$c000 samples/c64/test1.asm
 2 find-symbol loop
 3 break-exec $C004
 4 run

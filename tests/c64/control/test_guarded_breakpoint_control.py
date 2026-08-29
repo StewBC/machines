@@ -248,7 +248,7 @@ def main():
             "usage: test_guarded_breakpoint_control.py C64M_EXE REPO_ROOT")
     executable = str(pathlib.Path(sys.argv[1]).resolve())
     repo_root = pathlib.Path(sys.argv[2]).resolve()
-    sys.path.insert(0, str(repo_root / "tools"))
+    sys.path.insert(0, str(repo_root / "tools" / "c64"))
     from c64_control_client import Ctl
 
     with tempfile.TemporaryDirectory(prefix="c64m-guarded-bp-") as temp:

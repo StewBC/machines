@@ -54,7 +54,7 @@ from the frontend.
 
 ## Where to change code
 
-- leftover `src/machine/`: emulated hardware and machine-visible state
+- `src/c64/machine/`: emulated hardware and machine-visible state
 - leftover `src/runtime/`: execution, sessions, Inspector clocks, recorder, rings
 - leftover `src/control/`: leftover verbs, leftover TCP server loop
 - `src/shell/control/`: framing + verb-table runner

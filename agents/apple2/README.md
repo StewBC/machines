@@ -5,19 +5,17 @@ Implementation brief for leftover Apple silicon and leftover a2m chrome.
 (or the code) in the same change. These files describe the product as it is.
 
 Monorepo index: [`../README.md`](../README.md). Shared debugger shape:
-[`../shell/`](../shell/). Do not open `src/machine/c64` to decide Apple silicon.
+[`../shell/`](../shell/). Do not open `src/c64` to decide Apple silicon.
 
-**Paths in this folder:** bare `src/...` means leftover
-`src/machine/apple2/src/...` unless the path already starts with `src/shell/`,
-`manual/`, or `tests/`.
+**Paths in this folder** are repo-root literal (`src/apple2/...`,
+`src/shell/...`, `manual/`, `tests/`, `samples/apple2/...`).
 
 ## Product
 
 C99 **Apple ][+ / //e Enhanced** emulator (version **3.0.0**, protocol
 **A2M/14**).
 
-This tree is a descendant of V1–V2 notes in
-[`src/machine/apple2/doc/a2m-v1-2/`](../../src/machine/apple2/doc/a2m-v1-2/README-v1-2.md).
+User book: [`manual/a2m/`](../../manual/a2m/manual.md).
 It shares debugger muscle memory with leftover c64m. Treat that as ancestry,
 not a second source of truth.
 
@@ -48,7 +46,7 @@ Apple F/S clocks stay in [`timemachine.md`](timemachine.md).
 
 ## Design docs (proposals, not product-as-is)
 
-Leftover a2m designs: [`src/machine/apple2/design/`](../../src/machine/apple2/design/).
+Product design drafts under the old leftover tree were removed; see `agents/apple2/` and `manual/a2m/`.
 Monorepo designs: [`design/`](../../design/). Do not treat design drafts as
 handoff truth — source and `agents/*.md` win when they disagree.
 

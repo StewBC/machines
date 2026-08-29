@@ -132,7 +132,7 @@ def main():
         return 2
     executable = sys.argv[1]
     repo = pathlib.Path(sys.argv[2] if len(sys.argv) > 2 else ".")
-    sys.path.insert(0, str(repo / "tools"))
+    sys.path.insert(0, str(repo / "tools" / "c64"))
     from c64_control_client import Ctl
 
     with tempfile.TemporaryDirectory() as tmp:

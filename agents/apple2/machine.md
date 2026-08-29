@@ -1,6 +1,6 @@
 # Machine
 
-`src/machine/` — Apple ][+ / //e Enhanced. No SDL. The runtime worker owns the
+`src/apple2/machine/` — Apple ][+ / //e Enhanced. No SDL. The runtime worker owns the
 live `apple2_t`.
 
 ## Models

@@ -10,7 +10,7 @@ ctest --test-dir build -L a2m --output-on-failure
 ```
 
 Expect **82** green. CTest names are `a2m.<name>`. Root `project(machines)`
-is the gate; do not configure `-S src/machine/apple2`.
+is the gate; do not configure `-S src/apple2`.
 
 ## Registered tests
 

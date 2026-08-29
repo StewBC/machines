@@ -5,7 +5,7 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[3]
-sys.path.insert(0, str(ROOT / "src" / "machine" / "apple2" / "tools"))
+sys.path.insert(0, str(ROOT / "tools" / "apple2"))
 from a2m_control_client import Ctl  # noqa: E402
 
 

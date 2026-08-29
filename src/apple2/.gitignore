@@ -1,0 +1,16 @@
+/build/
+/build-*/
+/.cache/
+compile_commands.json
+*.o
+*.a
+.DS_Store
+*.user
+CMakeUserPresets.json
+
+# Local editor / user config (example: a2m.ini.example)
+.vscode/
+/*.ini
+TODO.txt
+
+disks/

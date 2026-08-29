@@ -329,7 +329,7 @@ paste-events RUN\[RT]
 ### 4.9 Assemble and run from source
 
 ```text
-assemble address=$0801 basic-run=1 samples/simple.bas
+assemble address=$0801 basic-run=1 samples/c64/simple.bas
 # or:
 assemble address=$C000 auto-run=1 run-address=$C000 path/to/file.asm
 ```

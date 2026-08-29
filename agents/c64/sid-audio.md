@@ -2,7 +2,7 @@
 
 ## SID
 
-`src/machine/sid.{c,h}`; bus attach in `c64_bus.c`. Tests:
+`src/c64/machine/sid.{c,h}`; bus attach in `c64_bus.c`. Tests:
 `tests/machine/test_sid.c`.
 
 Functional MOS 6581-style model: three voices, triangle/saw/pulse/noise,

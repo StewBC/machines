@@ -11,13 +11,13 @@ the build entry. Nested leftover `project(a2m)` / `project(c64m)` is retired.
 
 Host primitives that link into both binaries live under `src/shell/` and
 repo-root `external/`. Leftover silicon lives under
-`src/machine/{apple2,c64}` (nested leftover `src/` is **not** flattened).
+`src/{apple2,c64}` (flattened product trees under `src/apple2` and `src/c64`).
 
 | Path | Product | Build as |
 |------|---------|----------|
 | `src/shell/` | shared debugger shell | `libshell.a` |
-| `src/machine/apple2/` | a2m leftover silicon | `apple2_*` libraries + `a2m` |
-| `src/machine/c64/` | c64m leftover silicon | `c64_*` libraries + `c64m` |
+| `src/apple2/` | a2m leftover silicon | `apple2_*` libraries + `a2m` |
+| `src/c64/` | c64m leftover silicon | `c64_*` libraries + `c64m` |
 | `manual/a2m/` | a2m user book | help overlay |
 | `manual/c64m/` | c64m user book | help overlay |
 | `tests/shell/` | shared tests | both product ctest labels |

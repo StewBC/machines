@@ -1,6 +1,6 @@
 With the exception of vendored files under `external/` (and, until Stage 2
 extracts them fully, C64 TrueType still inside
-`src/machine/c64/external/C64_TrueType_v1.2.1-STYLE/`), the LICENSE for this
+`src/c64/external/C64_TrueType_v1.2.1-STYLE/`), the LICENSE for this
 repo is:
 
 This is free and unencumbered software released into the public domain.

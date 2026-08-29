@@ -128,8 +128,8 @@ for the land status strip), leave Forensics like F9 (debugger paused; abandon CR
 resume latch) and select Misc → Inspector. Cancel / soft-fail / incomplete land
 stay in Forensics; Opt+R/Close entry-surface rules unchanged. Double-click `id=` /
 `cyc=` / `pc=$...` copies that token. User docs: `manual/a2m/manual.md` (**Forensics**).
-Design (landed): [`design/forensics-ui.md`](../design/forensics-ui.md),
-[`design/forensics-query-guide.md`](../design/forensics-query-guide.md).
+Forensics UI behavior is covered in this note and `agents/shell/`; the old
+leftover product design drafts were removed.
 
 Entering **max** leaves Inspector Record available and keeps the same sample
 catalog. Max block presentations continue adding samples at approximately

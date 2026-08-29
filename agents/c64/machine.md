@@ -2,7 +2,7 @@
 
 ## Source of truth
 
-`src/machine/c64.{c,h}`, `c64_bus.{c,h}`, `c6510.{c,h}`, `c6510_inln.h`.
+`src/c64.{c,h}`, `c64_bus.{c,h}`, `c6510.{c,h}`, `c6510_inln.h`.
 Tests under `tests/machine/`.
 
 Start at `c64_init()`, `c64_set_config()`, `c64_install_roms()`, `c64_reset()`,

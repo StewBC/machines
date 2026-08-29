@@ -10,7 +10,7 @@ What the product is **now**. Source of truth is `src/`. User-facing catalog:
 | Layer | Reality |
 |-------|---------|
 | Shell | Debugger UI: Apple display, CPU, disasm, memory, Misc, Configure, CRT |
-| Machine | Apple II `src/machine` (//e Enhanced default, or ][+). Disk II, SmartPort/HostFS, Mockingboard |
+| Machine | Apple II `src/apple2/machine` (//e Enhanced default, or ][+). Disk II, SmartPort/HostFS, Mockingboard |
 | Runtime | Two-thread; worker owns `apple2_t`; UI/control use `runtime_client` only |
 | Display | ARGB **560×192** throughout (`display_frame` / runtime slot / frontend) |
 | Video | Beam-stepped a2m-class: LORES, DLORES, 40/80 text, HGR colour, DHGR; host Colour vs discrete-bit Mono (White/Green/Amber). Max uses full-frame block paint |
@@ -60,7 +60,7 @@ not latch BUTN0.
 | Area | Evidence |
 |------|----------|
 | Build / ctest | **82 green** - [`testing.md`](testing.md) |
-| Assembler | Misc → Assembler; `file=` HostFS; optional Auto-run; **MLI launch** gates auto-run on CPU-visible `$BF00 == $4C` (mutually exclusive with Reset). Sample: `samples/asm_mli_launch/` |
+| Assembler | Misc → Assembler; `file=` HostFS; optional Auto-run; **MLI launch** gates auto-run on CPU-visible `$BF00 == $4C` (mutually exclusive with Reset). Sample: `samples/apple2/asm_mli_launch/` |
 | CLI / INI | model, mounts `sNdN` (multi-image queue), turbo MHz/`max`, `--video-display`, lifecycle, headless, `[DEBUG] break.*`, `--inspector` |
 | Turbo / step / reset | Opt+T (default ladder `1,max`); F10–F12 family; F8 / Opt+F8 |
 | Display | Full frame in display-only and F9 debugger |
@@ -72,16 +72,16 @@ not latch BUTN0.
 ## Tree
 
 ```text
-src/machine/apple2/src/main.c     host loop
-src/machine/apple2/src/frontend/  leftover UI (exclusive tabs, input, CRT)
+src/apple2/main.c     host loop
+src/apple2/frontend/  leftover UI (exclusive tabs, input, CRT)
 src/shell/frontend/               shared chrome
-src/machine/apple2/src/runtime/   Apple-backed runtime
-src/machine/apple2/src/machine/   Apple II silicon
-src/machine/apple2/src/control/   A2M/14 leftover verbs
+src/apple2/runtime/   Apple-backed runtime
+src/apple2/machine/   Apple II silicon
+src/apple2/control/   A2M/14 leftover verbs
 src/shell/control/                framing + verb runner
-src/machine/apple2/src/platform/  leftover audio
+src/apple2/platform/  leftover audio
 src/shell/tools/am65/             assembler library + CLI
-src/machine/apple2/src/util/      leftover files / HostFS helpers
+src/apple2/util/      leftover files / HostFS helpers
 manual/a2m/manual.md              user manual (compiled into help)
 tests/apple2/                     leftover tests
 tests/shell/                      shared tests
