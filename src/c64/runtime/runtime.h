@@ -13,12 +13,12 @@ typedef struct runtime_client runtime_client;
 #endif
 
 /* Turbo mode IDs (not wall-clock multipliers). Stored in active_turbo_multiplier
-   and turbo_speeds[] for historical field names / Opt+T list compatibility. */
+   and turbo_speeds[] for historical field names / Opt+T list compatibility.
+   CSV / CLI / set-turbo also accept the token "max" as an alias for mode 2. */
 enum {
     RUNTIME_TURBO_MODE_NORMAL = 1, /* real-time pace, live pixels */
     RUNTIME_TURBO_MODE_MAX = 2,    /* free-run, live pixels (full correctness) */
-    RUNTIME_TURBO_MODE_WARP = 3,   /* free-run, paint off (debug frames only) */
-    RUNTIME_TURBO_MODE_LAST = RUNTIME_TURBO_MODE_WARP
+    RUNTIME_TURBO_MODE_LAST = RUNTIME_TURBO_MODE_MAX
 };
 
 typedef struct runtime_config {
@@ -68,8 +68,8 @@ typedef struct runtime_config {
     bool inspector;
     uint32_t inspector_memory_mb;
     bool inspector_memory_mb_configured;
-    /* Wipe Inspector Record on turbo max/warp (2/3). Default true in
-       app_options; does not pause HST1. */
+    /* Wipe Inspector Record on turbo max (2). Default true in app_options;
+       does not pause HST1. */
     bool inspector_off_on_max;
 } runtime_config;
 

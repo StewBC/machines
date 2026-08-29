@@ -2109,6 +2109,20 @@ static bool frontend_config_validate(frontend_config_dialog_state *dialog)
         snprintf(dialog->error, sizeof(dialog->error), "INI file path is required");
         return false;
     }
+    {
+        runtime_config turbo_check = {0};
+
+        if (dialog->edited.turbo_multipliers == NULL ||
+            dialog->edited.turbo_multipliers[0] == '\0' ||
+            !runtime_config_set_turbo_csv(
+                &turbo_check, dialog->edited.turbo_multipliers)) {
+            snprintf(
+                dialog->error,
+                sizeof(dialog->error),
+                "Turbo list must be 1, 2, and/or max (e.g. 1,max)");
+            return false;
+        }
+    }
     dialog->error[0] = '\0';
     return true;
 }
@@ -2167,7 +2181,7 @@ static void frontend_draw_config_machine_tab(frontend *ui, frontend_config_dialo
     (void)ui;
 
     if (dialog->edited.turbo_multipliers == NULL) {
-        app_options_set_string(&dialog->edited.turbo_multipliers, "1,2,3");
+        app_options_set_string(&dialog->edited.turbo_multipliers, "1,max");
     }
     if (dialog->edited.keyboard_joystick_layout == NULL) {
         app_options_set_string(&dialog->edited.keyboard_joystick_layout, "numpad");
@@ -2207,7 +2221,7 @@ static void frontend_draw_config_machine_tab(frontend *ui, frontend_config_dialo
 
     nk_layout_row_begin(ctx, NK_DYNAMIC, 22.0f, 2);
     nk_layout_row_push(ctx, 0.30f);
-    nk_label(ctx, "Turbo Modes (1,2,3)", NK_TEXT_LEFT);
+    nk_label(ctx, "Turbo Modes (1,max)", NK_TEXT_LEFT);
     nk_layout_row_push(ctx, 0.70f);
     frontend_edit_replace(ctx, NK_EDIT_FIELD, dialog->edited.turbo_multipliers, 256, nk_filter_default);
     nk_layout_row_end(ctx);

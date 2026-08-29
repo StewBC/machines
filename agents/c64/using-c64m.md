@@ -39,7 +39,7 @@ Useful startup flags:
 | `--control-port N` | Enable TCP control (required for this guide) |
 | `--headless` | No window/audio device; still needs a control port |
 | `--pal` / `--ntsc` | Video standard |
-| `--turbo=1\|2\|3` | Initial turbo mode (see § Gotchas) |
+| `--turbo=1\|2\|max` | Initial turbo mode / Opt+T ladder (see § Gotchas) |
 | `-p` / `--prg FILE` | Inject PRG at boot |
 | `-a` / `--autorun` | After PRG/BASIC/disk load, paste `RUN`+Return (CLI only) |
 | `--disk 8=image.d64` | Mount disk on device 8 |
@@ -150,23 +150,17 @@ If you send the two characters `\` and `n` (thinking of a C/Python escape):
 (`\[RT]`, `\[W:N]` waits, `\xHH` PETSCII, etc.). Full table: manual § Type text,
 or `control-port.md` / paste parser.
 
-### 3.3 Turbo 3 (warp) disables live painting
+### 3.3 Turbo modes are 1 and 2 (`max`); 3 is rejected
 
 | Mode | Name | Pixels |
 |------|------|--------|
 | 1 | normal | Real-time, **live** framebuffer |
-| 2 | max | Free-run, **live** framebuffer (good default for agents) |
-| 3 | warp | Free-run, **paint off** — `get-frame` is a geometric **debug** snapshot |
+| 2 / `max` | max | Free-run, **live** framebuffer (good default for agents) |
 
-After `set-turbo 3` the ok line includes:
-
-```text
-warning=warp-disables-live-framebuffer;get-frame-is-debug-only-until-turbo-is-1-or-2
-```
-
-To inspect a real screen: `set-turbo 1` or `set-turbo 2`, advance at least one
-frame (`step-frame` or `run` + wait), then `get-frame`. Register/memory reads
-are fine under turbo 3; only live pixels are not.
+Default Opt+T ladder is `1,max`. `set-turbo 3` (and CSV/`--turbo` value `3`)
+is hard-rejected. Max keeps live paint — there is no paint-off turbo path.
+Breakpoint action `fast` is a separate paint-off speed mode, not a turbo
+ladder value.
 
 ### 3.4 Other traps worth knowing early
 
@@ -248,7 +242,6 @@ key-up return
   per pixel; payload size `height * width` (PAL 504×312).
 - **Default `argb8888`:** Pepto RGB; **`stride` is always 2080** (520×4), not
   `width*4` — index rows by `stride`.
-- Under turbo 3 this is not a live picture (§ 3.3).
 
 Past frames after a late pause:
 
@@ -346,7 +339,7 @@ Not exhaustive — full syntax in `control-port.md` / `manual/c64m/manual.md`.
 |-----|----------|
 | Identity | `hello`, `version`, `capabilities`, `ping` |
 | Run control | `run`, `pause`, `reset`, `step-cycle`, `step-instruction`, `step-over`, `step-out`, `step-frame`, `run-cycles`, `run-instructions`, `run-to`, `run-to-raster` |
-| Speed | `set-turbo 1\|2\|3` |
+| Speed | `set-turbo 1\|2\|max` |
 | Sync | `wait-paused`, `wait-running`, `wait-frame`, `wait-event` |
 | State | `get-state`, `get-cpu`, `get-vic`, `get-cia`, `get-memory`, `set-memory`, `get-debug-memory`, `get-call-stack`, `get-drive-cpu` |
 | Screen | `get-frame`, `frame-ring-info`, `frame-ring-record`, `get-frame-at`, `vic-ring-*` |

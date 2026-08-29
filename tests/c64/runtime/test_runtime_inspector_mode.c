@@ -1018,10 +1018,9 @@ int main(void)
         stop_runtime(rt, client);
     }
 
-    /* PR2: turbo-display (warp) births film_cycle=0; MAX still pushes film. */
+    /* PR2: turbo max still pushes film while recording. */
     {
         uint64_t cps0;
-        uint64_t cps1;
         uint64_t cell = 0u;
         uint64_t film = 0u;
         c64_frame got;
@@ -1036,7 +1035,6 @@ int main(void)
             "pr2 turbo recording",
             runtime_inspector_recorder_is_recording(rt));
 
-        /* Seed one normal frame so the ring is non-empty before warp stall. */
         expect_true("pr2 turbo seed", runtime_client_step_frame(client));
         expect_true(
             "pr2 turbo seed done",
@@ -1044,48 +1042,6 @@ int main(void)
         drain(client);
         runtime_frame_ring_get_info(&rt->frame_ring, &fi_before);
         expect_true("pr2 turbo seed film", fi_before.count >= 1u);
-
-        expect_true(
-            "pr2 set warp",
-            runtime_client_set_turbo_multiplier(client, RUNTIME_TURBO_MODE_WARP));
-        drain(client);
-        expect_true(
-            "pr2 warp still recording",
-            runtime_inspector_recorder_is_recording(rt));
-        cps0 = runtime_inspector_checkpoint_count(rt);
-        expect_true("pr2 warp step", runtime_client_step_frame(client));
-        expect_true(
-            "pr2 warp frame done",
-            poll_event(client, RUNTIME_EVENT_RUN_COMPLETE, 0u, NULL, 1));
-        drain(client);
-        cps1 = runtime_inspector_checkpoint_count(rt);
-        expect_true("pr2 warp birth", cps1 == cps0 + 1u);
-        runtime_frame_ring_get_info(&rt->frame_ring, &fi_after);
-        expect_true(
-            "pr2 warp ring stalled",
-            fi_after.count == fi_before.count &&
-                fi_after.newest_cycle == fi_before.newest_cycle);
-        /* Newest warp cell has film_cycle=0; join skips it and uses earlier film. */
-        {
-            runtime_inspector_cp_index *idx = &rt->inspector_cp_index;
-            uint32_t newest;
-            expect_true("pr2 warp index nonempty", idx->count > 0u);
-            mutex_lock(idx->mutex);
-            newest = (idx->head + idx->capacity - 1u) % idx->capacity;
-            film = idx->entries[newest].film_cycle;
-            cell = idx->entries[newest].cycle;
-            mutex_unlock(idx->mutex);
-            expect_true("pr2 warp film_cycle 0", film == 0u);
-            expect_true("pr2 warp cell advanced", cell == rt->machine.clock.cycle ||
-                cell <= rt->machine.clock.cycle);
-        }
-        expect_true(
-            "pr2 warp join skips zero-film cell",
-            runtime_client_copy_inspector_cell_film(
-                client, rt->machine.clock.cycle, &got));
-        expect_true(
-            "pr2 warp join earlier film",
-            got.machine_cycle == fi_before.newest_cycle);
 
         expect_true(
             "pr2 set max",

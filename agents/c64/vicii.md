@@ -36,11 +36,9 @@ give NTSC a PAL-sized crop. Do not retry a modular +8 origin shift to fake
 True Aspect Ratio uses the VIC-II pixel aspect (PAL 0.9365, NTSC 0.7500), not
 a hardcoded 4:3.
 
-Turbo 1 and 2 publish the live per-cycle indexed framebuffer. Turbo 3 (warp)
-keeps raster, BA, IRQ, sprite-DMA, CIA, and SID; published frames are
-geometric debug, not visual evidence. Sprite collision latches update only
-while pixel output is on. After leaving warp, discard one completed frame
-before judging pixels.
+Turbo 1 and 2 / `max` publish the live per-cycle indexed framebuffer. Turbo
+`3` is gone. Sprite collision latches update only while pixel output is on
+(breakpoint FAST may turn paint off; that is not a turbo ladder value).
 
 ## Sequencer
 
@@ -115,8 +113,8 @@ made Deus Ex Machina `$F8` where VICE reads `$D8`. `vicii_read_register` and
 
 Runtime frame ring stores completed **indexed8** frames, keyed by frame
 number and `machine_cycle`. VIC ring stores per-line latched state
-(`vicii_line_record`), including the sprite X used for that line. Warp
-frames are not stored in the frame ring.
+(`vicii_line_record`), including the sprite X used for that line. Breakpoint
+FAST stalls the frame ring (no empty paint-off frames stored).
 
 ## Limits
 

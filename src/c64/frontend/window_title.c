@@ -54,8 +54,6 @@ void frontend_format_window_title_ex(
         snprintf(turbo, sizeof(turbo), "Normal");
     } else if (turbo_multiplier == 2u) {
         snprintf(turbo, sizeof(turbo), "Max");
-    } else if (turbo_multiplier == 3u) {
-        snprintf(turbo, sizeof(turbo), "Warp");
     } else {
         snprintf(turbo, sizeof(turbo), "%u", (unsigned int)turbo_multiplier);
     }

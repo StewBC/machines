@@ -66,7 +66,7 @@ These were decided with measurements. A new brief needs new evidence.
 - EOF resets only `VC`/`VCBASE`; `RC`, `VMLI`, and display state carry.
 - Unpowered 1541s must not sit on IEC (ATN acknowledge clamps DATA).
 - Media-on EXECUTE is not synthetic `format_track()`.
-- Warp (turbo 3) is the only paint-off path. Max (turbo 2) is the correctness
-  and throughput bar.
+- Max (turbo 2 / `max`) keeps live paint and is the correctness and throughput
+  bar. Turbo `3` is hard-rejected. Breakpoint FAST remains the paint-off path.
 - Wire identity is `C64M/8` with no dual-path compatibility layer. Bump `N`
   in the same change as the code and `control-port.md`.

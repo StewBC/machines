@@ -335,7 +335,7 @@ int main(void) {
         }
     }
 
-    /* I4: max/warp wipe Record; leave restores into an empty window. */
+    /* I4: max wipe Record; leave restores into an empty window. */
     {
         uint64_t oldest = 0u;
         uint64_t live = 0u;
@@ -445,43 +445,6 @@ int main(void) {
         drain_commands(client);
         if (runtime_inspector_enabled(rt)) {
             fail("Record-off did not stay off");
-        }
-
-        /* Warp (turbo 3) is the same as max. */
-        token = runtime_client_alloc_request_token(client);
-        if (!runtime_client_inspector_set_enabled(client, true, token)) {
-            fail("Record on for warp");
-        }
-        drain_commands(client);
-        (void)runtime_inspector_checkpoint_take(rt);
-        if (runtime_inspector_checkpoint_count(rt) < 1u) {
-            fail("no CP before warp");
-        }
-        if (!runtime_client_set_turbo_multiplier(client, RUNTIME_TURBO_MODE_WARP)) {
-            fail("set warp");
-        }
-        drain_commands(client);
-        if (runtime_inspector_enabled(rt) ||
-            runtime_inspector_checkpoint_count(rt) != 0u) {
-            fail("warp did not wipe Record");
-        }
-        /* max <-> warp must not forget the saved Record. */
-        if (!runtime_client_set_turbo_multiplier(client, RUNTIME_TURBO_MODE_MAX)) {
-            fail("warp to max");
-        }
-        drain_commands(client);
-        if (runtime_inspector_enabled(rt) ||
-            runtime_inspector_checkpoint_count(rt) != 0u) {
-            fail("max after warp re-armed Record");
-        }
-        if (!runtime_client_set_turbo_multiplier(
-                client, RUNTIME_TURBO_MODE_NORMAL)) {
-            fail("leave warp/max");
-        }
-        drain_commands(client);
-        if (!runtime_inspector_enabled(rt) ||
-            runtime_inspector_checkpoint_count(rt) < 1u) {
-            fail("Record not restored after warp");
         }
 
         /* Disable while in max clears the restore memory. */

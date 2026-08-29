@@ -39,7 +39,7 @@ c64m counterpart:
 ./build/c64m --video PAL -a -p "assets/prg/some-game.prg"
 ```
 
-For live frames use turbo 1 or 2. Turbo 3 disables live pixels.
+For live frames use turbo 1 or 2 / `max` (both keep live pixels).
 
 ## Binary monitor (scripted compares)
 

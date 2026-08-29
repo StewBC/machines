@@ -147,6 +147,7 @@ each manual.
 
 ## Design docs
 
-Merge Stages 0–11 are done. [`design/`](../design/) is empty of drafts
-(stub README only). Do not put speculative writeups in `agents/`; lasting
+Merge Stages 0–11 are done. Speculative and program-of-work writeups live under
+[`design/`](../design/); see [`design/README.md`](../design/README.md) for the
+index and status legend. Do not put speculative writeups in `agents/`; lasting
 invariants belong here and in `manual/`.

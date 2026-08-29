@@ -261,7 +261,7 @@ N run-to-raster <line 0..65535> [cycle-in-line]
 N run-cycles <positive-count>
 N run-instructions <positive-count>
 N run-to <address>
-N set-turbo <mode 1|2|3>
+N set-turbo <mode 1|2|max>
 ```
 
 Current fixed responses:
@@ -384,26 +384,18 @@ list. Modes are:
 | Mode | Name   | Meaning |
 |------|--------|---------|
 | 1    | normal | Real-time pace, live pixels |
-| 2    | max    | Free-run, live pixels (full correctness) |
-| 3    | warp   | Free-run, paint off (debug frames only) |
+| 2 / `max` | max | Free-run, live pixels (full correctness) |
 
-`set-turbo 2` or `set-turbo 3` wipes Inspector Record when `[debug] inspector_off_on_max` is on (default); turbo 1 restores Record into an empty window. HST1 is unchanged.
+Value `3` is hard-rejected (`bad-args`). Default Opt+T ladder is `1,max`.
+`set-turbo 2` / `set-turbo max` wipes Inspector Record when
+`[debug] inspector_off_on_max` is on (default); turbo 1 restores Record into an
+empty window. HST1 is unchanged.
 
-At modes 1 and 2 the response is:
+Response:
 
 ```text
 N ok accepted=1 turbo=2
 ```
-
-At mode 3 (warp) it includes a warning:
-
-```text
-N ok accepted=1 turbo=3 warning=warp-disables-live-framebuffer;get-frame-is-debug-only-until-turbo-is-1-or-2
-```
-
-In warp, VIC-II timing still advances, but the live per-cycle pixel renderer is
-disabled and `get-frame` returns a geometric debug snapshot. Lowering turbo to
-1 or 2 restores live rendering for subsequent frames.
 
 ## Frame ring (rolling framebuffer black box)
 
@@ -455,9 +447,8 @@ the ring carries its own mutex, so no runtime round-trip is needed and a scrub
 does not contend for the deferred slot. While running, the window keeps moving
 under you — pause first if you need a stable view.
 
-**Warp (turbo 3) does not record.** The live pixel renderer is off, so there are
-no real pixels; the ring stalls rather than storing geometric debug snapshots
-that would look like frames but are not. Recording resumes at turbo 1 or 2.
+Turbo max keeps live paint, so the ring keeps recording completed frames.
+Breakpoint FAST (paint off) stalls the ring rather than storing empty frames.
 Loading a machine state clears the ring: those frames belong to a discarded
 timeline whose cycle counter has restarted.
 
@@ -630,8 +621,6 @@ PAL is 504x312 and NTSC 520x263. **`stride` is always 2080 bytes (520 px), not
 shape serves both standards. Index rows by `stride`, never by `width`. Every
 dot of the line is composed, HBLANK included. The frontend crop is not applied
 to this payload.
-At turbo 3 (warp) this is a geometric debug snapshot rather than the live
-framebuffer; use `set-turbo 1` or `set-turbo 2` before inspecting live pixels.
 
 `format=indexed8` returns one byte per pixel (palette index 0..15), with
 `stride=width` and payload size `height * width` (PAL 504×312 = 157248 bytes).

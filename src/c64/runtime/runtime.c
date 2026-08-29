@@ -46,9 +46,44 @@ void runtime_config_set_turbo_defaults(runtime_config *config) {
         return;
     }
 
-    config->turbo_speeds[0] = RUNTIME_TURBO_DEFAULT_MODE;
-    config->turbo_speed_count = 1;
+    config->turbo_speeds[0] = RUNTIME_TURBO_MODE_NORMAL;
+    config->turbo_speeds[1] = RUNTIME_TURBO_MODE_MAX;
+    config->turbo_speed_count = 2;
     config->active_turbo_multiplier = RUNTIME_TURBO_DEFAULT_MODE;
+}
+
+static bool runtime_parse_turbo_token(const char *text, const char **end_out, uint32_t *out_mode) {
+    const char *end;
+
+    if (text == NULL || out_mode == NULL) {
+        return false;
+    }
+
+    if ((text[0] == 'm' || text[0] == 'M') &&
+        (text[1] == 'a' || text[1] == 'A') &&
+        (text[2] == 'x' || text[2] == 'X')) {
+        end = text + 3;
+        *out_mode = (uint32_t)RUNTIME_TURBO_MODE_MAX;
+        if (end_out != NULL) {
+            *end_out = end;
+        }
+        return true;
+    }
+
+    {
+        char *num_end = NULL;
+        unsigned long value = strtoul(text, &num_end, 10);
+        if (num_end == text ||
+            value < (unsigned long)RUNTIME_TURBO_MODE_NORMAL ||
+            value > (unsigned long)RUNTIME_TURBO_MODE_LAST) {
+            return false;
+        }
+        *out_mode = (uint32_t)value;
+        if (end_out != NULL) {
+            *end_out = num_end;
+        }
+        return true;
+    }
 }
 
 bool runtime_config_set_turbo_csv(runtime_config *config, const char *csv) {
@@ -66,8 +101,8 @@ bool runtime_config_set_turbo_csv(runtime_config *config, const char *csv) {
 
     cursor = csv;
     while (*cursor != '\0') {
-        char *end;
-        unsigned long value;
+        const char *end;
+        uint32_t mode;
 
         while (isspace((unsigned char)*cursor)) {
             cursor++;
@@ -76,10 +111,7 @@ bool runtime_config_set_turbo_csv(runtime_config *config, const char *csv) {
             break;
         }
 
-        value = strtoul(cursor, &end, 10);
-        if (end == cursor ||
-            value < (unsigned long)RUNTIME_TURBO_MODE_NORMAL ||
-            value > (unsigned long)RUNTIME_TURBO_MODE_LAST) {
+        if (!runtime_parse_turbo_token(cursor, &end, &mode)) {
             runtime_config_set_turbo_defaults(config);
             return false;
         }
@@ -91,7 +123,7 @@ bool runtime_config_set_turbo_csv(runtime_config *config, const char *csv) {
             return false;
         }
         if (count < (uint8_t)(sizeof(config->turbo_speeds) / sizeof(config->turbo_speeds[0]))) {
-            config->turbo_speeds[count++] = (uint32_t)value;
+            config->turbo_speeds[count++] = mode;
         }
         cursor = *end == ',' ? end + 1 : end;
     }

@@ -89,16 +89,15 @@ Edge of Disgrace checker remains a **manual** VICE compare. Match models
 - EoD capture: `build/eod_regression_capture` with `roms/system.rom`,
   `roms/character.rom`, `roms/1541.rom`, and the Edge of Disgrace D64s under
   `assets/disks/`. Fine-checker bar: no mono column at x=24, `ones@24` about
-  50%, seam 23/24 = 0. Top/bottom black bars solid at x=0. Turbo 3 captures
-  are debug geometry only.
+  50%, seam 23/24 = 0. Top/bottom black bars solid at x=0.
 - `assets/prg/` vs VICE: `vice-oracle.md` (`-autostartprgmode 1`, `-autoload`,
   `-VICIImodel 6569`)
 
 ## Performance
 
-Turbo **2** (max: free-run, live pixels) is the throughput bar for full
-correctness. Turbo 3 may drop paint; do not turn warp paint-off into a general
-free-run shortcut.
+Turbo **2** / **`max`** (free-run, live pixels) is the throughput bar for full
+correctness. Turbo `3` is hard-rejected; do not reintroduce a paint-off turbo
+path as a free-run shortcut.
 
 Measure serially (contention and thermal noise dominate):
 

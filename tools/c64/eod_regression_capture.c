@@ -184,7 +184,7 @@ int main(int argc, char **argv) {
     config.machine_config.video_standard = C64_VIDEO_STANDARD_PAL;
     config.machine_config.emulate_1541 = 1;
     config.machine_config.media_1541 = 1;
-    config.active_turbo_multiplier = 3; /* warp: free-run, paint off */
+    config.active_turbo_multiplier = 2; /* max: free-run, live paint */
     config.autorun = true;
 
     if (!runtime_init()) {
@@ -200,7 +200,7 @@ int main(int argc, char **argv) {
         fail("runtime startup timed out");
     }
 
-    if (!runtime_client_set_turbo_multiplier(client, 3) ||
+    if (!runtime_client_set_turbo_multiplier(client, 2) ||
         !runtime_client_mount_d64(client, 8, argv[4]) ||
         !run_until_pc(client, EOD_SWAP_PC, 300)) {
         fail("disk-swap marker timed out");
@@ -264,7 +264,7 @@ live_capture:
         fail("live capture setup failed");
     }
 
-    /* Warp uses a geometric debug reconstruction and the frame slot retains its
+    /* Paint-off FAST uses a geometric debug reconstruction and the frame slot retains its
        oldest undrained frame. Drain that slot, switch to max (live pixels), then
        discard one full PAL frame so the cycle renderer starts from a clean frame
        boundary. Keep draining FRAME_READY payloads while advancing so the final

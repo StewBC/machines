@@ -67,9 +67,9 @@ static runtime *start_real_runtime(runtime_client **out_client) {
     runtime_client *client;
     runtime_event event;
 
-    config.turbo_speeds[0] = 3; /* warp: free-run so the paste + SYS finish fast */
+    config.turbo_speeds[0] = 2; /* max: free-run so the paste + SYS finish fast */
     config.turbo_speed_count = 1;
-    config.active_turbo_multiplier = 3;
+    config.active_turbo_multiplier = 2;
 
     expect_true("runtime init", runtime_init());
     rt = runtime_create(&config);

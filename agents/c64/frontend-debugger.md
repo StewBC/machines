@@ -26,7 +26,7 @@ Misc tabs (two rows of three): Machine, Debugger, Breakpoints / Hardware,
 Assembler, Inspector. Inspector is the only Inspect entry.
 
 Window title: `c64m - VIDEO - TURBO - STATE`. Modes render as `Normal`,
-`Max`, `Warp`. Inspecting replaces the state with `Inspect`.
+`Max`. Inspecting replaces the state with `Inspect`.
 
 Host file selection uses `platform_fs`. Remembered browse directories live
 in `[browse]`. State hotkeys: Opt+Shift+`>` / `<`.

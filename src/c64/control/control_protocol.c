@@ -926,12 +926,24 @@ bool control_protocol_parse_request(
         skip_spaces(&cursor);
     } else if (type == CONTROL_COMMAND_SET_TURBO) {
         uint64_t multiplier = 0;
-        if (!parse_u64_token(cursor, &cursor, &multiplier) ||
-            multiplier < 1u || multiplier > 3u) {
-            set_parse_error(out_error, id, "bad-args", "expected turbo mode 1..3 (1=normal,2=max,3=warp)");
+        if ((cursor[0] == 'm' || cursor[0] == 'M') &&
+            (cursor[1] == 'a' || cursor[1] == 'A') &&
+            (cursor[2] == 'x' || cursor[2] == 'X') &&
+            (cursor[3] == '\0' || cursor[3] == ' ' || cursor[3] == '\t' ||
+             cursor[3] == '\r' || cursor[3] == '\n')) {
+            args.turbo_multiplier = 2u;
+            cursor += 3;
+        } else if (!parse_u64_token(cursor, &cursor, &multiplier) ||
+                   multiplier < 1u || multiplier > 2u) {
+            set_parse_error(
+                out_error,
+                id,
+                "bad-args",
+                "expected turbo mode 1|2|max (1=normal,2=max)");
             return false;
+        } else {
+            args.turbo_multiplier = (uint16_t)multiplier;
         }
-        args.turbo_multiplier = (uint16_t)multiplier;
         skip_spaces(&cursor);
     } else if (type == CONTROL_COMMAND_GET_DEBUG_MEMORY) {
         if (strncmp(cursor, "write-history=0", 15) == 0) {

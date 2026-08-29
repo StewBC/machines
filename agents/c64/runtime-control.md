@@ -14,12 +14,12 @@ control socket thread must not poll those surfaces or touch the machine.
 
 Runtime supports run, pause, reset, cycle/instruction stepping, step-over/out,
 run-to-cursor, `step-frame`, `run-to-raster`, breakpoints, input, paste,
-disk/file ops, assembler, save/load state, and turbo 1/2/3.
+disk/file ops, assembler, save/load state, and turbo 1/2 (`max` aliases 2).
 
 Turbo field names still say `active_turbo_multiplier` / `turbo_speeds`; values
-are mode IDs: 1 normal (real-time, live pixels), 2 max (free-run, live pixels),
-3 warp (free-run, paint off). Max is the correctness and throughput bar
-(`testing.md`).
+are mode IDs: 1 normal (real-time, live pixels), 2 / `max` (free-run, live
+pixels). Default ladder `1,max`. Value `3` is hard-rejected. Max is the
+correctness and throughput bar (`testing.md`).
 
 While free-running, the main loop must not poll fat snapshots every frame.
 Machine telemetry is once per UI present. Breakpoint and disk tables refresh
@@ -106,10 +106,10 @@ reuses default UI session `0` and closes the history cursor on leave.
 
 Frame ring (`runtime_frame_ring`): rolling completed **indexed8** frames so
 a glitch still exists after a late human pause. Default 128 MiB (~827 PAL
-frames). Keyed by frame number **and** `machine_cycle`. Warp geometric dumps
-are not stored. Generic lookup: nearest at-or-before; older than the window
-is `not-found`. Inspector CRT uses **exact** `machine_cycle` / cell-film join
-only (never a neighbour still labeled as this cycle).
+frames). Keyed by frame number **and** `machine_cycle`. Generic lookup:
+nearest at-or-before; older than the window is `not-found`. Inspector CRT uses
+**exact** `machine_cycle` / cell-film join only (never a neighbour still
+labeled as this cycle).
 
 VIC ring (`runtime_vic_ring`): per-line latched VIC state, including the
 sprite X used for paint. Default 16 MiB. `vic-ring-record off` stops
@@ -135,7 +135,7 @@ into the **one true** `c64_t`. Names: `runtime_inspector_*` only.
 Default off. `--inspector` / `[debug] inspector`. Memory
 `--inspector-memory` / `inspector_memory_mb` (0 or 16..4096; default 128).
 Does **not** arm or stop HST1. `--inspector-off-on-max` (default true):
-turbo 2/3 wipes Record (and film if Record was on) and remembers it for
+max (turbo 2) wipes Record (and film if Record was on) and remembers it for
 leave-max; turbo 1 restores Record into an empty window.
 
 | Term | Meaning |
@@ -156,8 +156,8 @@ non-reentrant instruction-boundary finish → checkpoint with that
 `cycles_per_frame` cadence on `after_step` is **not** the Record clock.
 Non-frame allow-list takes (`film_cycle = 0`): Record enable startup, enter
 Inspect (LIVE-adjacent), media-empty refill, history-invalidate refill.
-Sealed Inspect does not push film or birth CPs. Warp/FAST stall film but
-still birth CPs when recording; MAX can still push film.
+Sealed Inspect does not push film or birth CPs. Breakpoint FAST stalls film
+but still births CPs when recording; MAX can still push film.
 
 **Checkpoints are the timeline index** for scrub / `[-]` / `[+]`. Film is the
 preferred picture per cell; retention budgets may differ. Compact shared
@@ -190,8 +190,8 @@ Pinned product rules:
 - Guest media **write that succeeds** cuts the window (older checkpoints,
   inputs, and film drop). A refused write-protect does not cut. Housekeeping
   (eject flush, save-state, export) must not cut.
-- Timeline is oldest retained checkpoint -> live. A media cut or max/warp
-  wipe moves `oldest`; never leave islands.
+- Timeline is oldest retained checkpoint -> live. A media cut or max wipe
+  moves `oldest`; never leave islands.
 - Promote / Branch is out (`known-gaps.md`).
 
 Control: `get-state` reports `mode=live|inspector` and `focus_cycle`.

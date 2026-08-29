@@ -31,7 +31,7 @@ Useful flags:
 | `--nosaveini`          | Disable INI save on quit, regardless of other flags |
 | `--saveini` / `-v`     | Save INI on quit (one-time override)                |
 | `--remember` / `-r`    | Force save-on-quit into the INI file                |
-| `--turbo <list>` / `-t`| Turbo mode list for Opt+T, e.g. `1,2,3` (1=normal, 2=max, 3=warp) |
+| `--turbo <list>` / `-t`| Turbo mode list for Opt+T, e.g. `1,max` (1=normal, 2/`max`=max; `3` rejected) |
 | `--video PAL|NTSC`, `-P`, `-N` | Override the configured video standard for this run |
 | `--disk <drive>=<image[,image...]>` | Mount a D64/G64 image at startup, e.g. `--disk 8=game.d64`; comma-separated to pre-load a queue. Empty path (`--disk 8=`) soft-powers that unit without media |
 | `--prg <file>` / `-p`  | Load a file as PRG at startup                       |
@@ -43,7 +43,7 @@ Useful flags:
 | `--kbdjoy-layout <numpad|wasd>` | Select the keyboard joystick key layout        |
 | `--audio-smoke`        | Emit a 440 Hz test tone to verify audio output      |
 | `--inspector`          | Enable Inspector recording (checkpoints; default off). `--inspector-memory=<MiB>` sets the budget (0 or 16..4096) |
-| `--inspector-off-on-max` / `--no-inspector-off-on-max` | Wipe Inspector Record on max/warp (default on). Does not pause the CPU flight recorder |
+| `--inspector-off-on-max` / `--no-inspector-off-on-max` | Wipe Inspector Record on max (default on). Does not pause the CPU flight recorder |
 | `--log-level <level>`  | Host log policy: `all`, `warn` (default), `error`, or `none` |
 
 By default, c64m loads `c64m.ini` from the current directory. The INI file stores
@@ -211,7 +211,6 @@ even when Debug Mode is closed and no other indicator is visible:
 |----------------------------------------|----------------------------------------------|
 | `c64m - PAL - Normal - Running`        | PAL video, normal (real-time) speed, executing normally. |
 | `c64m - NTSC - Max - Paused (reason)`  | NTSC video in max free-run; execution has stopped. `reason` is one of `breakpoint`, `BRK`, `step`, `reset`, `pause`, or `run complete`. |
-| `c64m - PAL - Warp - Running`          | Warp free-run (live paint off; skip-ahead only). |
 | `c64m - NTSC - Normal - Error`         | The runtime hit an error and stopped.        |
 | `c64m - PAL - Normal - Inspect`        | Inspector mode: the C64 is a reconstructed past point. |
 
@@ -276,12 +275,12 @@ Opt+Left is unbound. Opt+B still toggles the same breakpoint list.
 A successful guest disk write **drops earlier Inspector history**. The tab shows
 `disk write, device N @ cycle X` at the left edge of the remaining window.
 
-**Opt+T** into max (turbo 2) or warp (turbo 3) discards Inspector Record: the
-tape is wiped and Record turns off. Leaving max/warp (back to turbo 1) restores
-Record into a new empty window if it was on. Record that was already off stays
-off. While in max/warp the Record checkbox is locked off. Turbo 1 still records.
-Opt out with `--no-inspector-off-on-max` or `[debug] inspector_off_on_max=false`.
-This does not pause the CPU flight recorder.
+**Opt+T** into max (turbo 2 / `max`) discards Inspector Record: the tape is
+wiped and Record turns off. Leaving max (back to turbo 1) restores Record into
+a new empty window if it was on. Record that was already off stays off. While
+in max the Record checkbox is locked off. Turbo 1 still records. Opt out with
+`--no-inspector-off-on-max` or `[debug] inspector_off_on_max=false`. This does
+not pause the CPU flight recorder.
 
 **Forensics...** (or **Opt+R**) opens the full-window FIND UI over the CPU flight
 recorder. **Land before** / **Land exact** jump Inspect to a FIND hit's cycle; they
@@ -290,28 +289,25 @@ Inspector tab. See **Forensics**.
 
 ### Turbo Mode
 
-**Opt+T** cycles through the configured turbo mode list (default when unset is
-just normal; Configure can set e.g. `1,2,3`). The list is stored in the INI file.
+**Opt+T** cycles through the configured turbo mode list (default `1,max`). The
+list is stored in the INI file. Value `3` is rejected on the CLI, INI, and
+control port.
 
-Turbo is three discrete modes for the whole emulated machine (CPU, VIC-II, CIAs,
+Turbo is two discrete modes for the whole emulated machine (CPU, VIC-II, CIAs,
 SID timing, and drive sync stay in lock-step):
 
 | Mode | Title | Behaviour |
 |------|-------|-----------|
 | `1` | `Normal` | Real-time pace, live ARGB framebuffer (PAL about 0.985 MHz Phi2, NTSC about 1.023 MHz). |
-| `2` | `Max` | Free-run as fast as the host allows, still full live paint and collisions. |
-| `3` | `Warp` | Free-run with live paint off; frames are geometric debug snapshots. |
+| `2` / `max` | `Max` | Free-run as fast as the host allows, still full live paint and collisions. |
 
-Entering max or warp with Inspector Record on discards that tape (see Inspector
-above). Turbo 1 is unchanged.
+Entering max with Inspector Record on discards that tape (see Inspector above).
+Turbo 1 is unchanged.
 
 On an Apple M2 Mac Mini, max free-runs around **12-16 MHz** emulated Phi2
 (roughly **12-16x** real C64 speed) with full live paint and correctness; pure
 machine-core benches land near the high end of that band, a full app free-run
-somewhat lower depending on load. Warp is faster still (live paint off) and is
-for skip-ahead to a breakpoint or load marker, not for judging pixels or
-collision-sensitive behaviour. Select mode `1` or `2` to restore live rendering
-for subsequent frames.
+somewhat lower depending on load.
 
 ### Help
 
@@ -1546,7 +1542,7 @@ below the tab body on every tab.
 |-------------------|--------|
 | Video             | Select `NTSC` or `PAL`; changes take effect on reboot |
 | Keyboard Joystick | Select `Off`, `Port 1`, or `Port 2`, plus the `Numpad` or `WASD` key layout |
-| Turbo Modes       | Comma-separated mode list, e.g. `1,2,3` (1=normal, 2=max, 3=warp) |
+| Turbo Modes       | Comma-separated mode list, e.g. `1,max` (1=normal, 2/`max`=max; `3` rejected) |
 | Pause on BRK      | Auto-pause free-run at the next `BRK` (`$00`) as a crash aid; off by default so carts that hit a KERNAL-handled BRK during boot (e.g. Ocean's Wonderboy) keep running; applies live |
 | Emulate 1541      | Route disk I/O through the real 1541 DOS ROM (needs a 1541 ROM); applies live |
 | 1541 media (GCR)  | When Emulate 1541 is on: GCR tracks, rotation, SYNC, motor/head; enables G64 |
@@ -1662,7 +1658,7 @@ emulator removes comments.
 | `scroll_wheel_lines` | Integer; lines scrolled per wheel click             |
 | `log_level`       | `all`, `warn` (default), `error`, or `none`; host log policy (also `--log-level`). Does not mute CLI/usage errors on stderr. |
 | `symbol_files`    | Comma-separated list of symbol file paths              |
-| `turbo_speeds`    | Comma-separated turbo modes, e.g. `1,2,3` (1=normal, 2=max, 3=warp) |
+| `turbo_speeds`    | Comma-separated turbo modes, e.g. `1,max` (1=normal, 2/`max`=max; `3` rejected) |
 | `pause_on_brk`    | `true`/`false`; when true, free-run auto-pauses at the next `BRK` (`$00`). Absent/false (default) executes BRK like hardware so carts that hit a KERNAL-handled BRK during boot keep running |
 
 ### [Video]
@@ -1899,7 +1895,7 @@ Keys listed here are intercepted by the emulator before reaching the C64. On mac
 | **Opt+Ins**        | Paste clipboard as timed C64 keystrokes (~40 ms per key) |
 | **Shift+Opt+Ins**  | Paste clipboard text via the input-encoding parser (same format as the Type breakpoint action) |
 
-Timed paste (**Opt+Ins**) advances with emulated time (faster wall-clock in max/warp). Parser-based paste
+Timed paste (**Opt+Ins**) advances with emulated time (faster wall-clock in max). Parser-based paste
 (**Shift+Opt+Ins**) supports named keys, PETSCII escapes, matrix addresses, and joystick
 events in addition to literal text; see **Type text format** under **Breakpoints**.
 
@@ -2122,7 +2118,7 @@ machine reaches a new state. Use `wait-*` commands when a script needs to synchr
 | `run-cycles <count>` | Run for a positive cycle count |
 | `run-instructions <count>` | Run for a positive instruction count |
 | `run-to <addr>` | Run until the PC reaches a 16-bit address |
-| `set-turbo <1\|2\|3>` | Set turbo mode: 1=normal, 2=max, 3=warp |
+| `set-turbo <1\|2\|max>` | Set turbo mode: 1=normal, 2/`max`=max (`3` rejected) |
 
 Accepted execution commands respond:
 
@@ -2131,19 +2127,13 @@ Accepted execution commands respond:
 ```
 
 `set-turbo` changes only the active mode; it does not modify the configured Opt+T
-turbo list. `set-turbo 2` or `set-turbo 3` wipes Inspector Record when the
+turbo list. `set-turbo 2` or `set-turbo max` wipes Inspector Record when the
 `inspector_off_on_max` policy is on (default); returning to turbo 1 restores
 Record into an empty window. The CPU flight recorder is unchanged. The accepted
 response includes the requested mode:
 
 ```text
 <id> ok accepted=1 turbo=2
-```
-
-For warp (mode 3), the response warns that live pixels are unavailable:
-
-```text
-<id> ok accepted=1 turbo=3 warning=warp-disables-live-ARGB-framebuffer;get-frame-is-debug-only-until-turbo-is-1-or-2
 ```
 
 ### CPU Flight Recorder
@@ -2221,9 +2211,9 @@ returns `not-found` rather than a substituted neighbour. Payloads are identical
 to `get-frame` in the same format.
 
 These commands answer immediately and work while the machine runs, although the
-retained window keeps moving until you pause. Warp does not record, because the
-live renderer is off and there are no real pixels to keep; recording resumes at
-normal or max speed. Loading a machine state clears the ring.
+retained window keeps moving until you pause. Turbo max keeps live paint, so the
+ring keeps recording; breakpoint FAST (paint off) stalls the ring. Loading a
+machine state clears the ring.
 
 Each retained frame carries its machine cycle, which is the key for searching the
 flight recorder for the same moment.
@@ -2362,10 +2352,6 @@ index rows by `stride`, never by `width`.
 `format=indexed8` returns one palette index (0..15) per pixel, with `stride=width`
 and payload size `height * width` (about 157 KB for PAL). Prefer indexed frames when
 comparing against VICE, which uses different RGB values for the same indices.
-
-At turbo 3 (warp), `get-frame` returns a geometric debug snapshot instead of the
-live ARGB framebuffer. Use `set-turbo 1` or `set-turbo 2` and wait for a subsequent
-frame before inspecting live pixels.
 
 `get-debug-memory` always refreshes from the runtime (it does not serve a stale
 cache). Payload order:

@@ -32,7 +32,7 @@ clock tests stay under `tests/apple2/` and `tests/c64/`.
 |------|-------|-----|
 | Record clock | Pair completed beam frame `F` with first instruction-boundary snapshot `S >= F` | Birth CP on frame-publish; `film_cycle` |
 | Picture | ARGB 560×192; join by sample/picture ID | indexed8 + VIC ring; exact `film_cycle`; miss = full pink |
-| Max turbo | TimeMachine stays on; `history_off_on_max` pauses HST1 only | `--inspector-off-on-max` (default true) wipes Record on turbo 2/3 |
+| Max turbo | TimeMachine stays on; `history_off_on_max` pauses HST1 only | `--inspector-off-on-max` (default true) wipes Record on max (turbo 2) |
 | Recorder files | `runtime_inspector.c` + `runtime_inspector_recorder.c` | recorder inlined; plus `runtime_vic_ring` |
 
 Thumb-down preview must not reconstruct on either product if that product's

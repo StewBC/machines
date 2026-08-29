@@ -3401,7 +3401,7 @@ void vicii_finish_cycle(vicii *v) {
     old_i = v->hborder_oldest;
     new_i = (uint8_t)(1u - old_i);
 
-    /* Warp / paint-off: no live spans. Still advance xscroll pipe + raster. */
+    /* Paint-off: no live spans. Still advance xscroll pipe + raster. */
     if (!v->pixel_output_enabled) {
         cyc = v->timing.cycle_in_line;
         if (!v->vertical_border_active &&

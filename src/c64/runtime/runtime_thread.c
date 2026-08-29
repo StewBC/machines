@@ -23,7 +23,7 @@
 #include <string.h>
 
 enum {
-    /* Normal free-run batch between command-queue polls. Turbo max/warp uses a
+    /* Normal free-run batch between command-queue polls. Turbo max uses a
        larger batch to cut poll overhead when the UI is not interactive. */
     RUNTIME_RUN_BATCH_CYCLES = 1024,
     /* Larger free-run turbo batch: command poll overhead drops; BRK still
@@ -64,7 +64,7 @@ static void runtime_commit_turbo_mode(runtime *rt, uint32_t multiplier);
 static void runtime_finish_to_instruction_boundary(runtime *rt);
 
 /* Turbo mode helpers. Field name remains active_turbo_multiplier; values are
-   RUNTIME_TURBO_MODE_* (1=normal, 2=max free-run full paint, 3=warp free-run). */
+   RUNTIME_TURBO_MODE_* (1=normal, 2=max free-run full paint). */
 static uint32_t runtime_turbo_mode(const runtime *rt) {
     uint32_t mode;
 
@@ -93,7 +93,7 @@ static void runtime_reset_pacer(runtime *rt) {
        ticks per frame = perf_freq * cycles_per_frame / cpu_clock_hz. This tracks
        emulated time to real time (PAL ~50.12 fps, NTSC ~59.83 fps). A fixed 60
        fps ran PAL ~20% fast, over-running the audio buffer and distorting output.
-       Max/Warp free-run modes skip pacing in runtime_pace_after_frame. */
+       Max free-run skips pacing in runtime_pace_after_frame. */
     cpu_clock_hz = c64_config_clock_hz(&rt->machine_config);
     cycles_per_frame = c64_config_cycles_per_frame(&rt->machine_config);
     rt->frame_counter_step = (frequency * (uint64_t)cycles_per_frame) /
@@ -140,7 +140,7 @@ static void runtime_pace_after_frame(runtime *rt) {
 
 static void runtime_update_sid_sample_output(runtime *rt) {
     bool enabled;
-    /* Free-run turbo (max/warp) skips host audio emission; only keep SID sample
+    /* Free-run turbo (max) skips host audio emission; only keep SID sample
        generation when recording so capture still hears the model. Envelope/phase
        still advance regardless of sample_output_enabled. */
     bool free_run_mute =
@@ -154,17 +154,14 @@ static void runtime_update_sid_sample_output(runtime *rt) {
     c64_set_audio_output_enabled(&rt->machine, enabled);
 }
 
-/* Warp / FAST: do not fill VIC pixels every cycle. Display frames are rebuilt
-   only when the frontend has drained the frame slot (geometric debug snapshot).
-   Max (mode 2) free-runs with full live paint. */
+/* FAST speed mode: do not fill VIC pixels every cycle. Display frames are
+   rebuilt only when the frontend has drained the frame slot (geometric debug
+   snapshot). Turbo max (mode 2) free-runs with full live paint. */
 static bool runtime_turbo_display_mode(const runtime *rt) {
     if (rt == NULL) {
         return false;
     }
-    if (rt->speed_mode == RUNTIME_SPEED_MODE_FAST) {
-        return true;
-    }
-    return runtime_turbo_mode(rt) >= (uint32_t)RUNTIME_TURBO_MODE_WARP;
+    return rt->speed_mode == RUNTIME_SPEED_MODE_FAST;
 }
 
 static void runtime_update_video_output(runtime *rt) {
@@ -1206,9 +1203,9 @@ static bool runtime_publish_frame_copy(runtime *rt, const c64_frame *frame) {
     return true;
 }
 
-/* Warp display path: if the UI still holds the previous frame, count a drop and
-   do no pixel copies and no FRAME_READY event. When the slot is free, rebuild one
-   geometric snapshot for display (live pixel path is off in warp). */
+/* FAST / paint-off display path: if the UI still holds the previous frame, count
+   a drop and do no pixel copies and no FRAME_READY event. When the slot is free,
+   rebuild one geometric snapshot for display (live pixel path is off). */
 static bool runtime_publish_completed_frame_turbo(runtime *rt) {
     runtime_event event = {
         .type = RUNTIME_EVENT_FRAME_READY,
@@ -1256,7 +1253,7 @@ static bool runtime_publish_debug_frame(runtime *rt) {
     return runtime_publish_frame_copy(rt, &rt->publish_frame);
 }
 
-/* A16: present the CRT after a stop (or land). Paint-off (warp, sealed F12)
+/* A16: present the CRT after a stop (or land). Paint-off (FAST, sealed F12)
  * has no beam image — dump VIC+RAM. Otherwise publish the beam buffer. */
 static void runtime_publish_presented_frame(runtime *rt) {
     bool paint_off;
@@ -1287,8 +1284,8 @@ static bool runtime_publish_completed_frame(runtime *rt) {
         return true;
     }
     if (runtime_turbo_display_mode(rt)) {
-        /* Warp/FAST: live pixels are off; ring stalls. Lattice still advances
-           when recording (film_cycle = 0). MAX is not turbo-display. */
+        /* FAST paint-off: live pixels are off; ring stalls. Lattice still
+           advances when recording (film_cycle = 0). Turbo max is not paint-off. */
         ok = runtime_publish_completed_frame_turbo(rt);
         if (runtime_inspector_recorder_is_recording(rt)) {
             runtime_finish_to_instruction_boundary(rt);
@@ -2420,8 +2417,8 @@ static void runtime_apply_machine_config(runtime *rt, const runtime_command *com
     }
 }
 
-/* I4: wipe Inspector Record on enter max/warp; restore on leave to turbo 1.
-   Does not pause or wipe HST1. Max <-> warp stays in the wipe regime. */
+/* I4: wipe Inspector Record on enter max; restore on leave to turbo 1.
+   Does not pause or wipe HST1. */
 static void runtime_inspector_apply_max_policy(runtime *rt, bool entering, bool leaving)
 {
     if (rt == NULL || !rt->inspector_off_on_max) {

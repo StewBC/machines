@@ -27,7 +27,7 @@ owns the SDL device and expands mono to the obtained output channels. The
 SDL callback only reads the buffer.
 
 Recording consumes emitted runtime samples. `--audio-smoke` emits a 440 Hz
-square wave independent of SID. Max/warp suppress host audio writes unless
+square wave independent of SID. Max suppresses host audio writes unless
 `--audio-record`; machine SID state still advances. Inspector sealed replay
 suppresses host audio.
 

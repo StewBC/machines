@@ -225,7 +225,7 @@ bool runtime_inspector_cp_index_lookup_film(
     }
     inspector_cp_index_lock(index);
     /* Greatest cycle ≤ preview that has a preferred still. Skip film_cycle=0
-       cells (enter/enable/refill, warp) so LIVE-adjacent scrub is not a miss. */
+       cells (enter/enable/refill, paint-off) so LIVE-adjacent scrub is not a miss. */
     for (i = 0u; i < index->count; ++i) {
         const runtime_inspector_cp_index_entry *entry =
             &index->entries[inspector_cp_index_logical_slot(index, i)];
@@ -609,7 +609,7 @@ void runtime_inspector_set_enabled(runtime *rt, bool enabled)
     }
 
     if (on_max) {
-        /* Remember Record-on for leave-max; do not arm in max/warp. */
+        /* Remember Record-on for leave-max; do not arm in max. */
         rt->inspector_enabled_saved_for_max = true;
         return;
     }

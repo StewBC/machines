@@ -535,7 +535,7 @@ void sid_advance_cycles(sid *s, uint32_t cycles) {
 
     if (!s || cycles == 0u) return;
 
-    /* Free-run / warp: host sample path off. Still advance oscillators and
+    /* Free-run / max: host sample path off. Still advance oscillators and
        envelopes so $D41B/$D41C and later 1x audio resume stay correct. */
     if (!s->sample_output_enabled) {
         bool any_sync =

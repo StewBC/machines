@@ -155,7 +155,7 @@ static void write_phase14_ini(const char *path) {
     fputs("\n[config]\n", file);
     fputs("Save=yes\n", file);
     fputs("scroll_wheel_lines=7\n", file);
-    fputs("turbo_speeds=3,6,12\n", file);
+    fputs("turbo_speeds=1,max\n", file);
     fputs("symbol_files=symbols/kernel.sym,symbols/basic.sym\n", file);
     fclose(file);
 }
@@ -171,7 +171,7 @@ static void write_legacy_runtime_turbo_ini(const char *path) {
     fputs("[runtime]\n", file);
     fputs("turbo=251\n", file);
     fputs("\n[config]\n", file);
-    fputs("turbo_speeds=1,2,4\n", file);
+    fputs("turbo_speeds=1,2\n", file);
     fclose(file);
 }
 
@@ -743,7 +743,7 @@ static void test_phase14_config_from_ini(void) {
     expect_int("CRT curvature amount", 23, options.crt_curvature_amount);
     expect_bool("remember", 1, options.remember);
     expect_int("scroll wheel lines", 7, options.scroll_wheel_lines);
-    expect_string("turbo speeds", "3,6,12", options.turbo_multipliers);
+    expect_string("turbo speeds", "1,max", options.turbo_multipliers);
     expect_string("symbol files", "symbols/kernel.sym,symbols/basic.sym", options.symbol_files);
 
     app_options_destroy(&options);
@@ -812,7 +812,7 @@ static void test_config_turbo_speeds_ignores_runtime_turbo(void) {
         exit(1);
     }
 
-    expect_string("config turbo speeds wins", "1,2,4", options.turbo_multipliers);
+    expect_string("config turbo speeds wins", "1,2", options.turbo_multipliers);
 
     app_options_destroy(&options);
     remove("test_turbo_precedence.ini");
@@ -857,7 +857,7 @@ static void test_phase14_config_saved_to_ini(void) {
     options.crt_curvature_amount = 41;
     options.remember = true;
     options.scroll_wheel_lines = 9;
-    app_options_set_string(&options.turbo_multipliers, "5,10");
+    app_options_set_string(&options.turbo_multipliers, "1,max");
     /* browse_dirs[5] is the snapshot slot (see APP_BROWSE_DIR_SNAPSHOT); it also
        serves as the quicksave folder after unification. */
     app_options_set_string(&options.browse_dirs[5], "states");
@@ -892,7 +892,7 @@ static void test_phase14_config_saved_to_ini(void) {
     expect_int("saved CRT curvature amount", 41, options.crt_curvature_amount);
     expect_bool("saved remember", 1, options.remember);
     expect_int("saved scroll wheel lines", 9, options.scroll_wheel_lines);
-    expect_string("saved turbo speeds", "5,10", options.turbo_multipliers);
+    expect_string("saved turbo speeds", "1,max", options.turbo_multipliers);
     normalize_path(options.browse_dirs[5]);
     expect_string("saved snapshot browse dir", expected_states, options.browse_dirs[5]);
     expect_string("saved symbol files", "symbols/main.sym", options.symbol_files);

@@ -28,8 +28,6 @@ int main(void)
         "PAL", 1, FRONTEND_RUNTIME_STATE_RUNNING, RUNTIME_STOP_REASON_NONE);
     expect_title("max turbo", "c64m - NTSC - Max - Running",
         "NTSC", 2, FRONTEND_RUNTIME_STATE_RUNNING, RUNTIME_STOP_REASON_NONE);
-    expect_title("warp turbo", "c64m - PAL - Warp - Running",
-        "PAL", 3, FRONTEND_RUNTIME_STATE_RUNNING, RUNTIME_STOP_REASON_NONE);
     expect_title("BRK pause", "c64m - PAL - Max - Paused (BRK)",
         "PAL", 2, FRONTEND_RUNTIME_STATE_PAUSED, RUNTIME_STOP_REASON_BRK);
     expect_title("error", "c64m - NTSC - Normal - Error",

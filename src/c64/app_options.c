@@ -1796,7 +1796,7 @@ static bool parse_command_line_overrides(app_options *options, int argc, char **
         OPT_STRING('\0', "history-memory", &history_memory, "CPU flight-recorder memory budget in MiB (0 or 16..4096)", NULL, 0, 0),
         OPT_BOOLEAN('\0', "inspector", &inspector, "enable Inspector recording (checkpoints; default off)", NULL, 0, 0),
         OPT_STRING('\0', "inspector-memory", &inspector_memory, "Inspector recording memory budget in MiB (0 or 16..4096)", NULL, 0, 0),
-        OPT_BOOLEAN('\0', "inspector-off-on-max", &inspector_off_on_max_flag, "wipe Inspector Record on max/warp (default on; --no-inspector-off-on-max)", NULL, 0, 0),
+        OPT_BOOLEAN('\0', "inspector-off-on-max", &inspector_off_on_max_flag, "wipe Inspector Record on max (default on; --no-inspector-off-on-max)", NULL, 0, 0),
         OPT_BOOLEAN('f', "defaults", &defaults, "use default settings", NULL, 0, OPT_NONEG),
         OPT_STRING('d', "disk", &disk, "1541 drive image; format <drive>=<image>", NULL, 0, 0),
         OPT_STRING('i', "inifile", &ini_path, "path to an .ini file", NULL, 0, 0),
@@ -1813,7 +1813,7 @@ static bool parse_command_line_overrides(app_options *options, int argc, char **
         OPT_STRING('\0', "kbdjoy-layout", &kbdjoy_layout, "keyboard joystick layout: numpad or wasd", NULL, 0, 0),
         OPT_BOOLEAN('r', "remember", &remember, "add save at quit to ini file", NULL, 0, OPT_NONEG),
         OPT_BOOLEAN('v', "saveini", &save_ini, "save to ini file at quit", NULL, 0, OPT_NONEG),
-        OPT_STRING('t', "turbo", &turbo, "comma separated turbo modes (1=normal,2=max,3=warp)", NULL, 0, 0),
+        OPT_STRING('t', "turbo", &turbo, "comma separated turbo modes (1=normal,2|max)", NULL, 0, 0),
         OPT_HELP(),
         OPT_END(),
     };
@@ -1977,6 +1977,53 @@ static bool parse_command_line_overrides(app_options *options, int argc, char **
     if (options->headless && options->control_port <= 0) {
         fprintf(stderr, "--headless requires --control-port PORT\n");
         return false;
+    }
+
+    return true;
+}
+
+/* Keep in sync with runtime_config_set_turbo_csv: modes 1, 2, and alias max. */
+static bool app_options_turbo_csv_is_valid(const char *csv)
+{
+    const char *cursor;
+
+    if (csv == NULL || csv[0] == '\0') {
+        return true;
+    }
+
+    cursor = csv;
+    while (*cursor != '\0') {
+        const char *end;
+        bool ok = false;
+
+        while (isspace((unsigned char)*cursor)) {
+            cursor++;
+        }
+        if (*cursor == '\0') {
+            break;
+        }
+
+        if ((cursor[0] == 'm' || cursor[0] == 'M') &&
+            (cursor[1] == 'a' || cursor[1] == 'A') &&
+            (cursor[2] == 'x' || cursor[2] == 'X')) {
+            end = cursor + 3;
+            ok = true;
+        } else {
+            char *num_end = NULL;
+            unsigned long value = strtoul(cursor, &num_end, 10);
+            end = num_end;
+            ok = (num_end != cursor && value >= 1ul && value <= 2ul);
+        }
+        if (!ok) {
+            return false;
+        }
+        while (isspace((unsigned char)*end)) {
+            end++;
+        }
+        if (*end != '\0' && *end != ',') {
+            return false;
+        }
+        cursor = *end == ',' ? end + 1 : end;
     }
 
     return true;
@@ -2174,6 +2221,17 @@ bool app_options_load_startup(app_options *options, int argc, char **argv)
             config_destroy(cfg);
             return false;
         }
+    }
+
+    if (options->turbo_multipliers != NULL &&
+        options->turbo_multipliers[0] != '\0' &&
+        !app_options_turbo_csv_is_valid(options->turbo_multipliers)) {
+        fprintf(
+            stderr,
+            "c64m: invalid turbo list '%s' (expected 1, 2, or max; e.g. 1,max)\n",
+            options->turbo_multipliers);
+        config_destroy(cfg);
+        return false;
     }
 
     config_destroy(cfg);

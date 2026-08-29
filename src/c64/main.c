@@ -6780,19 +6780,11 @@ static void dispatch_control_request(
         case CONTROL_COMMAND_SET_TURBO:
             if (accepted) {
                 char text[CONTROL_RESPONSE_TEXT_MAX];
-                if (request->args.turbo_multiplier >= 3u) {
-                    snprintf(
-                        text,
-                        sizeof(text),
-                        "accepted=1 turbo=%u warning=warp-disables-live-framebuffer;get-frame-is-debug-only-until-turbo-is-1-or-2",
-                        (unsigned int)request->args.turbo_multiplier);
-                } else {
-                    snprintf(
-                        text,
-                        sizeof(text),
-                        "accepted=1 turbo=%u",
-                        (unsigned int)request->args.turbo_multiplier);
-                }
+                snprintf(
+                    text,
+                    sizeof(text),
+                    "accepted=1 turbo=%u",
+                    (unsigned int)request->args.turbo_multiplier);
                 control_protocol_format_ok(&response, request->id, text, false);
                 request_debug_state(client);
             } else if (response.text[0] == '\0') {
