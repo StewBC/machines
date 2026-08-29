@@ -1,3 +1,0 @@
-cmake version 3.24.4
-
-CMake suite maintained and supported by Kitware (kitware.com/cmake).

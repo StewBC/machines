@@ -1,4 +1,0 @@
-a2m HEAD=d863ad98487639445db16134d260221839cb72e9
-a2m configure exit=0
-a2m build exit=0
-a2m ctest exit=0

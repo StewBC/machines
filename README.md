@@ -28,9 +28,6 @@ repo-root `external/`. Product silicon lives under `src/apple2/` and
 | `agents/` | handoff: `shell/` vs `apple2/` vs `c64/` | — |
 
 Agent notes: [`agents/README.md`](agents/README.md).
-The program of work is [`design/merge-stage-map.md`](design/merge-stage-map.md)
-(Stage 11 landed). Imported SHAs: [`design/import-revisions.md`](design/import-revisions.md).
-Root CMake layout: [`design/stage11-root-cmake.md`](design/stage11-root-cmake.md).
 
 ## Build
 
@@ -67,11 +64,9 @@ a merge regression. Do not "fix" it here.
 `machines` is the only home. Feature work on `a2m.git`
 (`https://github.com/StewBC/a2m.git`), `c64m.git`
 (`https://github.com/StewBC/c64m.git`), and the assembler hub `am65.git`
-(`https://github.com/StewBC/am65.git`) **stopped** at the freeze tags in
-[`design/import-revisions.md`](design/import-revisions.md) and
-[`design/retire-remotes.md`](design/retire-remotes.md). Those GitHub
-repos are **archived** (read-only) with a freeze README. Assembler source
-is `src/shell/tools/am65/` (one copy; not a hub).
+(`https://github.com/StewBC/am65.git`) has **stopped**; those GitHub repos
+are **archived** (read-only). Assembler source is `src/shell/tools/am65/`
+(one copy; not a hub).
 
 ## License
 

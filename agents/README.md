@@ -2,7 +2,6 @@
 
 Implementation brief for the **monorepo**. Source is authoritative. If a
 note and the code disagree, fix the note (or the code) in the same change.
-Design drafts live under [`design/`](../design/); they are not product-as-is.
 
 An agent given **only this file** can find the shared shell versus Apple
 versus C64. Do not open `src/c64` to decide Apple silicon. Do not open
@@ -18,9 +17,6 @@ versus C64. Do not open `src/c64` to decide Apple silicon. Do not open
    Inspector *tab*: [`shell/frontend.md`](shell/frontend.md) ·
    [`shell/control.md`](shell/control.md) · [`shell/history.md`](shell/history.md) ·
    [`shell/inspector-shape.md`](shell/inspector-shape.md)
-4. [`design/README.md`](../design/README.md) only for in-flight designs.
-   Stages 0–11 are done. There is no Stage 12. Historical stage docs may
-   still say `src/machine/...`; current trees are `src/{apple2,c64,shell}/`.
 
 ## Where things live
 
@@ -100,9 +96,7 @@ Help overlay: one `src/shell/tools/gen_help.py`, two books
 ## Freeze
 
 Feature work on `a2m.git`, `c64m.git`, and `am65.git` has stopped. Those
-GitHub repos are archived. Hotfixes land in `machines` first. Tag names:
-`design/import-revisions.md` and `design/retire-remotes.md`. Archive
-record: `design/retire-remotes.md`.
+GitHub repos are archived. Hotfixes land in `machines` first.
 
 Control **framing + verb runner + memory-source type** is `src/shell/control/`.
 Product binaries supply verb tables and memory-source tables. `capabilities`
@@ -143,7 +137,6 @@ each manual.
 
 ## Design docs
 
-[`design/README.md`](../design/README.md) indexes monorepo writeups. Promote
-lasting invariants into `agents/` when the work lands. Do not put design
-drafts here. Landed product design trees under the old leftover prefixes
-were removed; use `agents/` and `manual/`.
+Merge Stages 0–11 are done. [`design/`](../design/) is empty of drafts
+(stub README only). Do not put speculative writeups in `agents/`; lasting
+invariants belong here and in `manual/`.

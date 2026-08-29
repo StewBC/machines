@@ -1,3 +1,0 @@
-a2m cmake 3.24 configure exit=0
-c64m cmake 3.24 configure (as-is) exit=1
-c64m cmake 3.24 diagnostic (minimum patched to 3.24) exit=0
