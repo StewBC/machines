@@ -1,8 +1,36 @@
 # Design documents
 
-No in-flight monorepo designs. Stages 0–11 of the a2m + c64m merge are done.
+This directory holds **design docs** for a2m: proposed or in-flight architecture
+writeups that are not yet (or no longer) part of the agent handoff surface.
 
-Lasting product-as-is notes live under [`agents/`](../agents/) (and the
-per-binary manuals under [`manual/`](../manual/)). Put a new draft here only
-while work is speculative or in progress; promote invariants into `agents/`
-when it lands, then delete or empty the draft.
+## Why not `agents/`?
+
+[`agents/`](../agents/) is the implementation brief for the product **as it is**.
+Design drafts, alternatives, and abandoned plans clutter that handoff and go
+stale relative to source. Keep speculative and program-of-work docs here;
+promote lasting invariants into `agents/*.md` and `manual/manual.md` when the
+work lands.
+
+The agents index points here: [`agents/README.md`](../agents/README.md) → Design docs.
+
+## Status legend
+
+| Status | Meaning |
+|--------|---------|
+| **active** | Current design work; last touched for an in-progress feature |
+| **landed** | Implemented; doc retained for history / follow-ons |
+| **abandoned** | Not pursuing; kept only if useful as negative knowledge |
+
+## Index
+
+| Design | Status | Last worked on | Path |
+|--------|--------|----------------|------|
+
+## Conventions
+
+- One topic per file; kebab-case names.
+- Start with Title & Metadata (author, date, Draft/Accepted).
+- Cite real source paths and APIs; prefer Mermaid for flows.
+- When implementation merges, update this index (active → landed) and fold
+  durable rules into the relevant `agents/` note in the same change set when
+  practical.
