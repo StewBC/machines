@@ -1,14 +1,28 @@
-# Nested per-prefix CMake trees (Stage 0 helper)
+# Build / personal playground
 /build/
+/build-*/
+/build-trace/
 /assets/
 
 .DS_Store
 .cache/
 .vscode/
 /*.ini
+TODO.txt
 compile_commands.json
 *.user
 CMakeUserPresets.json
+*.o
+*.a
+
+# Local scratch dirs (product leftovers / personal)
+/disks/
+/snapshots/
+/JiffyDos/
+/md-files/
+/programs/
+/Testing/
+trace*.log
 
 # samples: core tracked; local scratch ignored (already-tracked stay tracked;
 # git add -f samples/apple2/hostfs/... to lock new seeds)

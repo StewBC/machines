@@ -1,0 +1,28 @@
+* text eol=lf
+*.gif -text
+
+# Media / ROM / font binaries
+*.bin binary
+*.rom binary
+*.png binary
+*.d64 binary
+*.g64 binary
+*.prg binary
+*.crt binary
+*.tap binary
+*.nib binary
+*.woz binary
+*.po binary
+*.hdv binary
+*.hgr binary
+*.eot binary
+*.otf binary
+*.ttf binary
+*.woff binary
+*.woff2 binary
+
+# Apple HostFS seed volume: ProDOS/NAPS binaries must not get LF normalization.
+# (hostfs.order and READMEs under here stay text.)
+samples/apple2/hostfs/** -text
+samples/apple2/hostfs/**/hostfs.order text eol=lf
+samples/apple2/hostfs/**/*.md text eol=lf

@@ -1,6 +1,0 @@
-* text eol=lf
-*.gif -text
-
-samples/hostfs/** -text
-samples/hostfs/**/hostfs.order text eol=lf
-samples/hostfs/mminer/README.md text eol=lf
