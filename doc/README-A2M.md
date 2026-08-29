@@ -1,10 +1,14 @@
 # a2m — Apple ][+ and //e Enhanced emulator
 
-This leftover tree is not a CMake root. Build from the **machines** repo
-root: `cmake -B build -S . && cmake --build build -j && ./build/a2m`.
-
 a2m is an Apple II emulator written in C99. It is aimed at people who enjoy
 developing or exploring Apple II software.
+
+Build from the **machines** repo root (this file is product docs, not a CMake
+tree):
+
+```bash
+cmake -B build -S . && cmake --build build -j && ./build/a2m
+```
 
 - Fast, cycle-accurate CPU emulation (6502 / 65C02)
 - 60 FPS video display
@@ -19,6 +23,9 @@ developing or exploring Apple II software.
 
 System ROMs are embedded. No separate ROM files are required.
 
+Source lives under [`src/apple2/`](../src/apple2/). Shared debugger shell:
+[`src/shell/`](../src/shell/). Samples: [`samples/apple2/`](../samples/apple2/).
+
 ## Introduction
 
 a2m began as a small experiment after I discovered the Harte 6502 CPU tests. I wanted
@@ -31,9 +38,8 @@ later I started work on V2.0. Apparently the emulation hook never really let go 
 
 This tree is **V3**: the Apple II machine with a rewritten debugger/product shell.
 a2m now matches the layout and many of the keys of
-[c64m](https://github.com/StewBC/c64m) so that the same muscle-memory works in
+[c64m](README-C64.md) so that the same muscle-memory works in
 both emulators. V3 was created with the help of AI.
-
 
 ## What it does
 
@@ -58,13 +64,13 @@ DOS), optionally with a reset before load and optional run at the load
 address; Applesoft listings as ASCII (tokenized by the emulator on load,
 detokenized on save); and `.a2state` snapshots.
 
-The manual is here: [a2m Manual](../../../manual/a2m/manual.md).  
-There is a details section with more [technical details](../../../manual/a2m/manual.md#Details).
+The manual is here: [a2m Manual](../manual/a2m/manual.md).  
+There is a details section with more [technical details](../manual/a2m/manual.md#Details).
 
 ## Quick Start
 
 ```bash
-# From the machines repo root (not this leftover tree).
+# From the machines repo root.
 brew install cmake sdl2
 cmake -B build -S . -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j
@@ -84,10 +90,14 @@ Disks are added in the Machine tab of the **Misc** view (bottom right) in the
 debugger layout. Drag-and-drop of disk images and `.a2state` files onto the
 window also works.
 
+Curated demos live under [`samples/apple2/`](../samples/apple2/) (for example
+`samples/apple2/mminer/` and the HostFS seed volume under
+`samples/apple2/hostfs/`).
+
 ## License
 
 a2m is released under the Unlicense (public domain), except for the third-party
-code under `external/`, which keeps its own licenses. See [LICENSE](LICENSE).
+code under `external/`, which keeps its own licenses. See [LICENSE](../LICENSE).
 
 ## Contact
 

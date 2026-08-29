@@ -2,16 +2,18 @@
 
 Home of two C99 emulators that share a debugger *shell*, not silicon:
 
-- **a2m** — Apple ][+ / //e Enhanced (protocol `A2M/N`)
-- **c64m** — Commodore 64 (protocol `C64M/N`)
+- **a2m** — Apple ][+ / //e Enhanced (protocol `A2M/N`) —
+  [product README](doc/README-A2M.md)
+- **c64m** — Commodore 64 (protocol `C64M/N`) —
+  [product README](doc/README-C64.md)
 
 They remain **two binaries**. There is no dual-machine executable, no plugin
 loader, and no shared `runtime_thread`. Root CMake (`project(machines)`) is
 the build entry. Nested leftover `project(a2m)` / `project(c64m)` is retired.
 
 Host primitives that link into both binaries live under `src/shell/` and
-repo-root `external/`. Leftover silicon lives under
-`src/{apple2,c64}` (flattened product trees under `src/apple2` and `src/c64`).
+repo-root `external/`. Product silicon lives under `src/apple2/` and
+`src/c64/`.
 
 | Path | Product | Build as |
 |------|---------|----------|

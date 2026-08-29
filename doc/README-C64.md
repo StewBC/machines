@@ -1,19 +1,27 @@
 # c64m — Commodore 64 Emulator
 
-This leftover tree is not a CMake root. Build from the **machines** repo
-root: `cmake -B build -S . && cmake --build build -j && ./build/c64m`.
-
 c64m is a Commodore 64 emulator written in C99. It was almost entirely written using
 coding agents — ChatGPT's Codex (5.x), Claude Code (4.8) and Grok (4.5). There are a few exceptions:
 
 1. Codex chose to use the CPU emulation I had written for
-   [a2m](https://github.com/StewBC/a2m) (my Apple II emulator).  It later updated and improved this CPU.
+   [a2m](README-A2M.md) (my Apple II emulator).  It later updated and improved this CPU.
 2. Codex brought in the a2m built-in assembler, then modified and improved it — and
    scaled it back to just 6502. In hindsight it is the way I wish I had written it
    originally.
 3. Claude Code wrote the manual (and this README.md), though it read the a2m manual first, so some concepts —
    especially in the assembler section — trace back there.
 4. The code in external was added to the project by Codex.  I added the font for the help screens.
+
+Build from the **machines** repo root (this file is product docs, not a CMake
+tree):
+
+```bash
+cmake -B build -S . && cmake --build build -j && ./build/c64m
+```
+
+Source lives under [`src/c64/`](../src/c64/). Shared debugger shell:
+[`src/shell/`](../src/shell/). ROMs: [`roms/`](../roms/). Samples placeholder:
+[`samples/c64/`](../samples/c64/).
 
 ## What it does
 
@@ -27,15 +35,24 @@ Loading and saving host files is done from the Machine tab: you can load a PRG a
 
 SID audio is functional — three voices, ADSR envelopes, waveform generation, hard sync and ring modulation, per-voice filter routing, a state-variable filter, and voice 3 read-back — though some hardware-specific behaviors (analog waveform blending, runtime 8580 switching, paddles) remain deferred.
 
-The manual is also online here: [c64m Manual](../../../manual/c64m/manual.md)  
-There's a details section with a lot more [technical details.](../../../manual/c64m/manual.md#Details)  
-There's a [YouTube Video](https://youtu.be/LGlVHitZAtw) detailing the emulator at the 60 hour mark.  
+The manual is also online here: [c64m Manual](../manual/c64m/manual.md)  
+There's a details section with a lot more [technical details.](../manual/c64m/manual.md#Details)  
+There's a [YouTube Video](https://youtu.be/LGlVHitZAtw) detailing the emulator at the 60 hour mark.
 
 ## Quick Start
 
-c64m requires C64 ROM files. Place files named `basic`, `kernal`, and `character` (any
-extension) in the same directory as the executable, or in a `rom` or `roms`
-subdirectory. A combined basic+kernal `system` ROM is also accepted.
+c64m requires C64 ROM files. The repo ships a flat set under [`roms/`](../roms/)
+(`system.rom`, `character.rom`, `1541.rom`). At runtime, c64m also discovers ROMs
+next to the executable or in a `rom` / `roms` subdirectory (combined basic+kernal
+`system` ROM is accepted).
+
+```bash
+# From the machines repo root.
+brew install cmake sdl2
+cmake -B build -S . -DCMAKE_BUILD_TYPE=Release
+cmake --build build -j
+./build/c64m
+```
 
 Launch the application. The C64 display fills the window and the emulated machine boots
 normally — you should see the familiar blue BASIC screen within a moment.
@@ -45,7 +62,6 @@ manual. Everything — keyboard shortcuts, debugger controls, assembler syntax, 
 format — is documented there.
 
 Press **F9** to toggle the debugger layout.
-
 
 ## Issues
 
