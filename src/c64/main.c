@@ -1246,6 +1246,8 @@ static runtime_config runtime_config_from_options(const app_options *options) {
     runtime_config_set_turbo_defaults(&config);
     if (options != NULL) {
         runtime_config_set_turbo_csv(&config, options->turbo_multipliers);
+        config.history_off_on_max = options->history_off_on_max;
+        config.inspector_off_on_max = options->inspector_off_on_max;
     }
     return config;
 }
@@ -7464,6 +7466,7 @@ int main(int argc, char **argv) {
     runtime_cfg.inspector = options.inspector;
     runtime_cfg.inspector_memory_mb = (uint32_t)options.inspector_memory_mb;
     runtime_cfg.inspector_memory_mb_configured = true;
+    runtime_cfg.history_off_on_max = options.history_off_on_max;
     runtime_cfg.inspector_off_on_max = options.inspector_off_on_max;
     {
         runtime_config turbo_cfg = runtime_config_from_options(&options);

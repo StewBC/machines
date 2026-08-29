@@ -253,7 +253,7 @@ typedef struct runtime_machine_snapshot {
     uint8_t inspector_history_recording;
     uint8_t inspector_frame_recording;
     uint8_t inspector_recorder_recording;
-    uint8_t inspector_stopped_for_max;
+    uint8_t inspector_stopped_for_max; /* Record locked: max + inspector_off_on_max */
     uint8_t inspector_window_start_kind; /* runtime_history_media_change_kind */
     uint32_t inspector_window_start_arg1;
     uint64_t inspector_focus_cycle;

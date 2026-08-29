@@ -2516,6 +2516,12 @@ static void frontend_draw_config_machine_tab(frontend *ui, frontend_config_dialo
         &dialog->edited.history_off_on_max);
 
     nk_layout_row_dynamic(ctx, 22.0f, 1);
+    frontend_checkbox_bool(
+        ctx,
+        "Inspector off on max (wipe Record)",
+        &dialog->edited.inspector_off_on_max);
+
+    nk_layout_row_dynamic(ctx, 22.0f, 1);
     frontend_checkbox_bool(ctx, "Pause on BRK", &dialog->edited.pause_on_brk);
     nk_layout_row_dynamic(ctx, 22.0f, 1);
     frontend_checkbox_bool(ctx, "Show disk LEDs", &dialog->edited.show_disk_leds);
@@ -7483,7 +7489,7 @@ static void frontend_draw_misc_inspector(
 
     view.inspecting = inspecting;
     view.record_on = debug != NULL && debug->inspector_enabled;
-    view.record_locked = false;
+    view.record_locked = debug != NULL && debug->inspector_stopped_for_max;
     view.can_enter = can_enter;
     view.window_valid = debug != NULL && debug->inspector_window_valid;
     view.inspector_enabled = debug != NULL && debug->inspector_enabled;

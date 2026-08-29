@@ -2389,6 +2389,8 @@ static void dispatch_intent(
             if (client != NULL) {
                 (void)runtime_client_set_history_off_on_max(
                     client, options->history_off_on_max);
+                (void)runtime_client_set_inspector_off_on_max(
+                    client, options->inspector_off_on_max);
                 (void)runtime_client_set_video_display(
                     client,
                     options->colour_display,
@@ -2654,6 +2656,7 @@ static bool apply_options_to_runtime_config(const app_options *options, runtime_
     }
     rt_config->history_off_on_max = options->history_off_on_max;
     rt_config->inspector = options->inspector;
+    rt_config->inspector_off_on_max = options->inspector_off_on_max;
     if (options->inspector_memory_mb > 0) {
         rt_config->inspector_memory_mb = (uint32_t)options->inspector_memory_mb;
         rt_config->inspector_memory_mb_configured = true;

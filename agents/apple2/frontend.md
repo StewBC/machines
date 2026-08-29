@@ -131,9 +131,11 @@ stay in Forensics; Opt+R/Close entry-surface rules unchanged. Double-click `id=`
 Forensics UI behavior is covered in this note and `agents/shell/`; the old
 leftover product design drafts were removed.
 
-Entering **max** leaves Inspector Record available and keeps the same sample
-catalog. Max block presentations continue adding samples at approximately
-60 Hz. `history_off_on_max` pauses only the separate HST1 CPU recorder.
+Entering **max** leaves Inspector Record available (same sample catalog) unless
+`inspector_off_on_max` is on; then Record is wiped and the checkbox locks until
+leave-max. Max block presentations continue adding samples at approximately
+60 Hz when Record stays on. `history_off_on_max` pauses only the separate HST1
+CPU recorder.
 
 ## Keyboard stick
 

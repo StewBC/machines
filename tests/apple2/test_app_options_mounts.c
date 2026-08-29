@@ -583,6 +583,112 @@ int main(void)
         expect_true("remove inspector INI", remove(path) == 0);
     }
 
+    /* inspector_off_on_max: default false; CLI/INI under [debug]; history_off migrates. */
+    {
+        char *argv_default[] = {
+            (char *)"a2m",
+            (char *)"--noini",
+        };
+        char *argv_on[] = {
+            (char *)"a2m",
+            (char *)"--noini",
+            (char *)"--inspector-off-on-max",
+        };
+        char *argv_off[] = {
+            (char *)"a2m",
+            (char *)"--noini",
+            (char *)"--no-inspector-off-on-max",
+        };
+        const char *path = A2M_TEST_TMP "/a2m-test-inspector-off-on-max.ini";
+        const char *legacy_path =
+            A2M_TEST_TMP "/a2m-test-history-off-legacy.ini";
+        FILE *file;
+        config *saved;
+
+        expect_true(
+            "inspector_off default load",
+            app_options_load_startup(
+                &options,
+                (int)(sizeof(argv_default) / sizeof(argv_default[0])),
+                argv_default));
+        expect_true("inspector_off_on_max default false", !options.inspector_off_on_max);
+        expect_true("history_off_on_max default true", options.history_off_on_max);
+        app_options_destroy(&options);
+
+        expect_true(
+            "CLI --inspector-off-on-max",
+            app_options_load_startup(
+                &options, (int)(sizeof(argv_on) / sizeof(argv_on[0])), argv_on));
+        expect_true("CLI inspector_off on", options.inspector_off_on_max);
+        app_options_destroy(&options);
+
+        expect_true(
+            "CLI --no-inspector-off-on-max",
+            app_options_load_startup(
+                &options, (int)(sizeof(argv_off) / sizeof(argv_off[0])), argv_off));
+        expect_true("CLI inspector_off off", !options.inspector_off_on_max);
+        app_options_destroy(&options);
+
+        file = fopen(path, "w");
+        expect_true("create inspector_off INI", file != NULL);
+        fputs(
+            "[debug]\n"
+            "inspector_off_on_max = 1\n"
+            "history_off_on_max = 0\n",
+            file);
+        expect_true("close inspector_off INI", fclose(file) == 0);
+        app_options_init(&options);
+        expect_true("load inspector_off INI", app_options_apply_ini_file(&options, path));
+        expect_true("INI inspector_off on", options.inspector_off_on_max);
+        expect_true("INI history_off off", !options.history_off_on_max);
+        set_ini_path(&options, path);
+        expect_true("save inspector_off INI", app_options_save_shutdown(&options));
+        app_options_destroy(&options);
+
+        saved = config_load(path);
+        expect_true("reload inspector_off INI", saved != NULL);
+        expect_true(
+            "saved inspector_off under [debug]",
+            config_get(saved, "debug", "inspector_off_on_max") != NULL &&
+                strcmp(config_get(saved, "debug", "inspector_off_on_max"), "true") ==
+                    0);
+        expect_true(
+            "saved history_off under [debug]",
+            config_get(saved, "debug", "history_off_on_max") != NULL &&
+                strcmp(config_get(saved, "debug", "history_off_on_max"), "false") ==
+                    0);
+        expect_true(
+            "legacy [config] history_off gone",
+            config_get(saved, "config", "history_off_on_max") == NULL);
+        config_destroy(saved);
+        expect_true("remove inspector_off INI", remove(path) == 0);
+
+        file = fopen(legacy_path, "w");
+        expect_true("create legacy history_off INI", file != NULL);
+        fputs("[config]\nhistory_off_on_max = false\n", file);
+        expect_true("close legacy history_off INI", fclose(file) == 0);
+        app_options_init(&options);
+        expect_true(
+            "load legacy history_off",
+            app_options_apply_ini_file(&options, legacy_path));
+        expect_true("legacy [config] history_off read", !options.history_off_on_max);
+        set_ini_path(&options, legacy_path);
+        expect_true("save migrates history_off", app_options_save_shutdown(&options));
+        app_options_destroy(&options);
+        saved = config_load(legacy_path);
+        expect_true("reload migrated history_off", saved != NULL);
+        expect_true(
+            "migrated history_off in [debug]",
+            config_get(saved, "debug", "history_off_on_max") != NULL &&
+                strcmp(config_get(saved, "debug", "history_off_on_max"), "false") ==
+                    0);
+        expect_true(
+            "legacy key removed on save",
+            config_get(saved, "config", "history_off_on_max") == NULL);
+        config_destroy(saved);
+        expect_true("remove legacy history_off INI", remove(legacy_path) == 0);
+    }
+
     {
         char *argv_green[] = {
             (char *)"a2m",

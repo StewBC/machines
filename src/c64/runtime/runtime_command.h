@@ -232,6 +232,11 @@ typedef struct runtime_command {
             char char_rom_path[RUNTIME_COMMAND_PATH_MAX];
             char kernal_rom_path[RUNTIME_COMMAND_PATH_MAX];
             char rom1541_path[RUNTIME_COMMAND_PATH_MAX];
+            /* When has_debug_max_policies is set, apply these live and
+               re-run the matching max policy if already free-running. */
+            uint8_t has_debug_max_policies;
+            uint8_t history_off_on_max;
+            uint8_t inspector_off_on_max;
         } apply_machine_config;
 
         struct {

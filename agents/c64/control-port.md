@@ -387,9 +387,10 @@ list. Modes are:
 | 2 / `max` | max | Free-run, live pixels (full correctness) |
 
 Value `3` is hard-rejected (`bad-args`). Default Opt+T ladder is `1,max`.
-`set-turbo 2` / `set-turbo max` wipes Inspector Record when
-`[debug] inspector_off_on_max` is on (default); turbo 1 restores Record into an
-empty window. HST1 is unchanged.
+`set-turbo 2` / `set-turbo max` pauses HST1 when
+`[debug] history_off_on_max` is on (default) and wipes Inspector Record when
+`[debug] inspector_off_on_max` is on (default); turbo 1 resumes HST1 and
+restores Record into an empty window.
 
 Response:
 

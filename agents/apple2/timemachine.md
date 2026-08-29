@@ -81,9 +81,12 @@ block-paint, and leave-max barriers share sequence order with input events so
 sealed replay reproduces execution mode and canonical framebuffer changes.
 Each max block presentation adds one sample at approximately 60 Hz wall time.
 
-Default `history_off_on_max` (true) pauses only the dense HST1 CPU observer.
-`--no-history-off-on-max` keeps HST1 recording too. Inspector Record remains
-available in max and changing turbo alone does not wipe its catalog.
+Default `history_off_on_max` (true, `[debug]`) pauses only the dense HST1 CPU
+observer. `--no-history-off-on-max` keeps HST1 recording too. Optional
+`inspector_off_on_max` (default **false**) wipes Inspector Record (+ film) on
+enter max and restores an empty Record on leave if it was on; with the default
+off, Record remains available in max and changing turbo alone does not wipe its
+catalog. `--inspector` / Record still does not arm HST1.
 
 ## Media writes
 

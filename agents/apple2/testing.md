@@ -61,7 +61,7 @@ is the gate; do not configure `-S src/apple2`.
 | `runtime_history_wire_decode` | HST1 decode round-trip + Python `Ctl.decode_hst1` golden |
 | `runtime_history_sessions` | Dual session FIND/NEXT isolation |
 | `runtime_state_changed` | state-changed inform + cursor stale |
-| `runtime_inspector` | master enable arms HST1 + frame ring; pin-3 no re-arm |
+| `runtime_inspector` | master enable arms checkpoint recorder + frame ring (not HST1); pin-3 no re-arm |
 | `runtime_inspector_replay` | frame samples + sealed materialize; anchor eviction; media truncate; max continuity |
 | `runtime_inspector_mode` | enter/exit NOW; land; read-only; sealed step |
 | `runtime_inspector_bp` | one BP list; time-travel run-until hits it or live |

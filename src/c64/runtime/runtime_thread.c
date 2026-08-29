@@ -61,6 +61,8 @@ static void runtime_inspector_publish_head(runtime *rt);
 static void runtime_inspector_publish_committed_head(runtime *rt);
 static void runtime_inspector_publish_leave_frame(runtime *rt, uint64_t now_cycle);
 static void runtime_commit_turbo_mode(runtime *rt, uint32_t multiplier);
+static void runtime_inspector_apply_max_policy(runtime *rt, bool entering, bool leaving);
+static void runtime_history_apply_max_policy(runtime *rt, bool entering_max, bool leaving_max);
 static void runtime_finish_to_instruction_boundary(runtime *rt);
 
 /* Turbo mode helpers. Field name remains active_turbo_multiplier; values are
@@ -2343,6 +2345,8 @@ static void runtime_apply_machine_config(runtime *rt, const runtime_command *com
     bool live_clock_change =
         command->data.apply_machine_config.reset == 0u &&
         old_clock_hz != new_clock_hz;
+    bool prev_history_off = rt->history_off_on_max;
+    bool prev_inspector_off = rt->inspector_off_on_max;
 
     if (live_clock_change) {
         runtime_history_prepare_discontinuity(rt);
@@ -2351,6 +2355,24 @@ static void runtime_apply_machine_config(runtime *rt, const runtime_command *com
     rt->save_ini = command->data.apply_machine_config.save_ini != 0;
     memcpy(rt->turbo_speeds, command->data.apply_machine_config.turbo_speeds, sizeof(rt->turbo_speeds));
     rt->turbo_speed_count = command->data.apply_machine_config.turbo_speed_count;
+    if (command->data.apply_machine_config.has_debug_max_policies != 0u) {
+        bool new_history_off =
+            command->data.apply_machine_config.history_off_on_max != 0u;
+        bool new_inspector_off =
+            command->data.apply_machine_config.inspector_off_on_max != 0u;
+        /* History leave does not require the flag. Inspector restore must see
+           the policy off so set_enabled can arm while still free-running. */
+        if (runtime_turbo_is_free_run(rt) &&
+            prev_history_off && !new_history_off) {
+            runtime_history_apply_max_policy(rt, false, true);
+        }
+        rt->history_off_on_max = new_history_off;
+        rt->inspector_off_on_max = new_inspector_off;
+        if (runtime_turbo_is_free_run(rt) &&
+            prev_inspector_off && !new_inspector_off) {
+            runtime_inspector_apply_max_policy(rt, false, true);
+        }
+    }
     {
         uint32_t new_turbo = command->data.apply_machine_config.active_turbo_multiplier;
         if (rt->turbo_speed_count == 0 || new_turbo == 0) {
@@ -2361,6 +2383,16 @@ static void runtime_apply_machine_config(runtime *rt, const runtime_command *com
             new_turbo = defaults.active_turbo_multiplier;
         }
         runtime_commit_turbo_mode(rt, new_turbo);
+    }
+    /* Enable-while-on-max after turbo settle: apply enter policies. */
+    if (command->data.apply_machine_config.has_debug_max_policies != 0u &&
+        runtime_turbo_is_free_run(rt)) {
+        if (!prev_history_off && rt->history_off_on_max) {
+            runtime_history_apply_max_policy(rt, true, false);
+        }
+        if (!prev_inspector_off && rt->inspector_off_on_max) {
+            runtime_inspector_apply_max_policy(rt, true, false);
+        }
     }
     if (!runtime_replace_string(&rt->ini_path, command->data.apply_machine_config.ini_path)) {
         runtime_publish_error(rt, "failed to update runtime INI path");
@@ -2418,10 +2450,14 @@ static void runtime_apply_machine_config(runtime *rt, const runtime_command *com
 }
 
 /* I4: wipe Inspector Record on enter max; restore on leave to turbo 1.
-   Does not pause or wipe HST1. */
+   Does not pause or wipe HST1. Entering requires inspector_off_on_max;
+   leaving restores whenever Record was saved for max. */
 static void runtime_inspector_apply_max_policy(runtime *rt, bool entering, bool leaving)
 {
-    if (rt == NULL || !rt->inspector_off_on_max) {
+    if (rt == NULL) {
+        return;
+    }
+    if (entering && !rt->inspector_off_on_max) {
         return;
     }
 
@@ -2452,6 +2488,39 @@ static void runtime_inspector_apply_max_policy(runtime *rt, bool entering, bool 
     }
 }
 
+/* history_off_on_max is HST1-only. Entering requires the policy; leaving
+   resumes whenever we paused for max (including policy turned off live). */
+static void runtime_history_apply_max_policy(runtime *rt, bool entering_max, bool leaving_max)
+{
+    runtime_history_status st;
+    uint64_t cycle;
+
+    if (rt == NULL) {
+        return;
+    }
+    if (entering_max && !rt->history_off_on_max) {
+        return;
+    }
+    cycle = rt->machine.clock.cycle;
+
+    if (entering_max) {
+        if (rt->history != NULL) {
+            runtime_history_get_status(rt->history, &st);
+            if (st.available && st.recording) {
+                (void)runtime_history_stop(rt->history, cycle);
+                rt->history_paused_for_max = true;
+                runtime_history_sync_observer(rt);
+            }
+        }
+    } else if (leaving_max) {
+        if (rt->history_paused_for_max && rt->history != NULL) {
+            (void)runtime_history_resume(rt->history, cycle);
+            rt->history_paused_for_max = false;
+            runtime_history_sync_observer(rt);
+        }
+    }
+}
+
 static void runtime_commit_turbo_mode(runtime *rt, uint32_t multiplier)
 {
     bool was_free_run;
@@ -2469,8 +2538,10 @@ static void runtime_commit_turbo_mode(runtime *rt, uint32_t multiplier)
     now_free_run = runtime_turbo_is_free_run(rt);
     if (now_free_run && !was_free_run) {
         runtime_inspector_apply_max_policy(rt, true, false);
+        runtime_history_apply_max_policy(rt, true, false);
     } else if (!now_free_run && was_free_run) {
         runtime_inspector_apply_max_policy(rt, false, true);
+        runtime_history_apply_max_policy(rt, false, true);
     }
 }
 
@@ -5573,14 +5644,23 @@ static bool runtime_process_command(runtime *rt, const runtime_command *command,
             break;
 
         case RUNTIME_COMMAND_HISTORY_RECORD:
-            if (command->data.history_record.enabled != 0u) {
-                (void)runtime_history_resume(
-                    rt->history, rt->machine.clock.cycle);
-            } else {
-                (void)runtime_history_stop(
-                    rt->history, rt->machine.clock.cycle);
+            if (rt->history != NULL) {
+                uint64_t cycle = rt->machine.clock.cycle;
+                if (command->data.history_record.enabled != 0u) {
+                    (void)runtime_history_resume(rt->history, cycle);
+                    /* Explicit resume cancels "paused for max" unless still on
+                       max with policy — re-apply so max stays history-free. */
+                    rt->history_paused_for_max = false;
+                    if (runtime_turbo_is_free_run(rt) && rt->history_off_on_max) {
+                        (void)runtime_history_stop(rt->history, cycle);
+                        rt->history_paused_for_max = true;
+                    }
+                } else {
+                    (void)runtime_history_stop(rt->history, cycle);
+                    rt->history_paused_for_max = false;
+                }
+                runtime_history_sync_observer(rt);
             }
-            runtime_history_sync_observer(rt);
             runtime_publish_history_status(rt, command->request_token);
             break;
 
@@ -6614,6 +6694,9 @@ int runtime_thread_main(void *userdata) {
     runtime_history_sync_observer(rt);
     runtime_vic_ring_sync_observer(rt);
     runtime_inspector_set_enabled(rt, rt->inspector);
+    if (runtime_turbo_is_free_run(rt)) {
+        runtime_history_apply_max_policy(rt, true, false);
+    }
     rt->exec_state = RUNTIME_EXEC_PAUSED;
     rt->last_stop_reason = RUNTIME_STOP_REASON_NONE;
     rt->speed_mode = RUNTIME_SPEED_MODE_SLOW;

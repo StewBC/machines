@@ -825,6 +825,11 @@ bool runtime_client_apply_machine_config(
         command.data.apply_machine_config.turbo_speed_count = runtime_options->turbo_speed_count;
         command.data.apply_machine_config.active_turbo_multiplier =
             runtime_options->active_turbo_multiplier;
+        command.data.apply_machine_config.has_debug_max_policies = 1u;
+        command.data.apply_machine_config.history_off_on_max =
+            runtime_options->history_off_on_max ? 1u : 0u;
+        command.data.apply_machine_config.inspector_off_on_max =
+            runtime_options->inspector_off_on_max ? 1u : 0u;
     }
     if (ini_path != NULL) {
         snprintf(command.data.apply_machine_config.ini_path, sizeof(command.data.apply_machine_config.ini_path), "%s", ini_path);

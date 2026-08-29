@@ -95,6 +95,9 @@ typedef enum runtime_inspector_enter_status {
     RUNTIME_INSPECTOR_ENTER_FAILED
 } runtime_inspector_enter_status;
 
+/* Off→on arms checkpoint recorder + frame ring; never arms HST1.
+ * While turbo is max and inspector_off_on_max is on, enable only
+ * remembers Record-on for leave-max. Disable clears that memory. */
 void runtime_inspector_set_enabled(runtime *rt, bool enabled);
 bool runtime_inspector_enabled(const runtime *rt);
 uint32_t runtime_inspector_memory_mb(const runtime *rt);

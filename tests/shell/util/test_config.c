@@ -90,7 +90,7 @@ static void test_save_consolidates_sections(const char *path)
 
     config_set(cfg, "config", "turbo_speeds", "1,max");
     config_set(cfg, "debug", "history_memory_mb", "256");
-    config_set(cfg, "config", "history_off_on_max", "true");
+    config_set(cfg, "debug", "history_off_on_max", "true");
     config_set(cfg, "assembler", "address", "8000");
     config_set(cfg, "debug", "inspector", "true");
     config_set(cfg, "assembler", "file", "samples/mminer/mminer-a2m.asm");
@@ -116,15 +116,18 @@ static void test_save_consolidates_sections(const char *path)
         "turbo before history_off",
         strstr(body, "turbo_speeds=") < strstr(body, "history_off_on_max="));
     expect_true(
-        "history_off before symbol_files",
-        strstr(body, "history_off_on_max=") < strstr(body, "symbol_files="));
+        "history_mb before history_off",
+        strstr(body, "history_memory_mb=") < strstr(body, "history_off_on_max="));
+    expect_true(
+        "history_off before inspector",
+        strstr(body, "history_off_on_max=") < strstr(body, "inspector="));
 
     free(body);
 
     cfg = config_load(path);
     expect_true("reload", cfg != NULL);
     expect_streq("turbo", "1,max", config_get(cfg, "config", "turbo_speeds"));
-    expect_streq("history_off", "true", config_get(cfg, "config", "history_off_on_max"));
+    expect_streq("history_off", "true", config_get(cfg, "debug", "history_off_on_max"));
     expect_streq("symbols", "", config_get(cfg, "config", "symbol_files"));
     expect_streq("history_mb", "256", config_get(cfg, "debug", "history_memory_mb"));
     expect_streq("inspector", "true", config_get(cfg, "debug", "inspector"));
@@ -152,7 +155,7 @@ static void test_load_fragmented_then_save(const char *src, const char *dst)
         "[debug]\n"
         "history_memory_mb=256\n"
         "\n"
-        "[config]\n"
+        "[debug]\n"
         "history_off_on_max=true\n"
         "\n"
         "[assembler]\n"

@@ -62,6 +62,9 @@ turbo_speeds = 1,max
 ; Inspector recording (default off).
 ; inspector = 0
 ; inspector_memory_mb = 128
+; Pause HST1 (CPU flight recorder) when entering max / turbo 2 (default true).
+; Retained records stay; recording resumes on leave max.
+; history_off_on_max = 1
 ; Wipe Inspector Record when entering max / turbo 2 (default true).
 ; inspector_off_on_max = 1
 ; history_memory_mb = 256

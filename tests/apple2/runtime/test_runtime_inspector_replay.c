@@ -87,6 +87,7 @@ int main(void)
     config.frame_ring_memory_mb = 8;
     config.frame_ring_memory_mb_configured = true;
     config.history_off_on_max = true;
+    config.inspector_off_on_max = false;
     expect_true("turbo 1", runtime_config_set_turbo_csv(&config, "1"));
 
     rt = runtime_create(&config);

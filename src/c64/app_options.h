@@ -108,6 +108,9 @@ typedef struct app_options {
        in MiB: 0 or 16..4096. 0 is an empty tape, not a refuse. */
     bool inspector;
     int inspector_memory_mb;
+    /* Pause HST1 on turbo max. Default true. Keeps retained records;
+       resumes on leave max. Does not arm/stop via Inspector Record. */
+    bool history_off_on_max;
     /* Wipe Inspector Record on turbo max. Default true. Does not
        pause the CPU flight recorder. */
     bool inspector_off_on_max;

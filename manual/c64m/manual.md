@@ -42,7 +42,8 @@ Useful flags:
 | `--kbdjoy <0|1|2>`     | Drive the keyboard joystick on the given C64 port (`0` disables) |
 | `--kbdjoy-layout <numpad|wasd>` | Select the keyboard joystick key layout        |
 | `--audio-smoke`        | Emit a 440 Hz test tone to verify audio output      |
-| `--inspector`          | Enable Inspector recording (checkpoints; default off). `--inspector-memory=<MiB>` sets the budget (0 or 16..4096) |
+| `--inspector` / `--no-inspector` | Enable Inspector recording (checkpoints; default off). `--inspector-memory=<MiB>` sets the budget (0 or 16..4096) |
+| `--history-off-on-max` / `--no-history-off-on-max` | Pause the CPU flight recorder (HST1) on max (default on). Keeps retained records; resumes on leave max |
 | `--inspector-off-on-max` / `--no-inspector-off-on-max` | Wipe Inspector Record on max (default on). Does not pause the CPU flight recorder |
 | `--log-level <level>`  | Host log policy: `all`, `warn` (default), `error`, or `none` |
 
@@ -275,12 +276,16 @@ Opt+Left is unbound. Opt+B still toggles the same breakpoint list.
 A successful guest disk write **drops earlier Inspector history**. The tab shows
 `disk write, device N @ cycle X` at the left edge of the remaining window.
 
-**Opt+T** into max (turbo 2 / `max`) discards Inspector Record: the tape is
-wiped and Record turns off. Leaving max (back to turbo 1) restores Record into
-a new empty window if it was on. Record that was already off stays off. While
-in max the Record checkbox is locked off. Turbo 1 still records. Opt out with
-`--no-inspector-off-on-max` or `[debug] inspector_off_on_max=false`. This does
-not pause the CPU flight recorder.
+**Opt+T** into max (turbo 2 / `max`) pauses the CPU flight recorder by default
+and discards Inspector Record. HST1 keeps retained records and resumes when
+leaving max (back to turbo 1). Opt out of the HST1 pause with
+`--no-history-off-on-max` or `[debug] history_off_on_max=false`. Separately,
+Inspector Record is wiped and turns off; leaving max restores Record into a
+new empty window if it was on. Record that was already off stays off. While
+in max the Record checkbox is locked off. Turbo 1 still records. Opt out of
+the Record wipe with `--no-inspector-off-on-max` or
+`[debug] inspector_off_on_max=false`. Inspector Record still does not arm or
+stop HST1.
 
 **Forensics...** (or **Opt+R**) opens the full-window FIND UI over the CPU flight
 recorder. **Land before** / **Land exact** jump Inspect to a FIND hit's cycle; they
@@ -2127,10 +2132,11 @@ Accepted execution commands respond:
 ```
 
 `set-turbo` changes only the active mode; it does not modify the configured Opt+T
-turbo list. `set-turbo 2` or `set-turbo max` wipes Inspector Record when the
-`inspector_off_on_max` policy is on (default); returning to turbo 1 restores
-Record into an empty window. The CPU flight recorder is unchanged. The accepted
-response includes the requested mode:
+turbo list. `set-turbo 2` or `set-turbo max` pauses the CPU flight recorder when
+`history_off_on_max` is on (default) and wipes Inspector Record when
+`inspector_off_on_max` is on (default). Returning to turbo 1 resumes HST1 and
+restores Record into an empty window. The accepted response includes the
+requested mode:
 
 ```text
 <id> ok accepted=1 turbo=2

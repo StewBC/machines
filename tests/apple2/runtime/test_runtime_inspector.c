@@ -63,6 +63,7 @@ static void init_config(runtime_config *config)
     runtime_config_init(config);
     config->start_running = true;
     config->history_off_on_max = false;
+    config->inspector_off_on_max = false;
     expect_true("turbo 1", runtime_config_set_turbo_csv(config, "1"));
 }
 

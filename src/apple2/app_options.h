@@ -128,8 +128,13 @@ typedef struct app_options {
      */
     bool history_off_on_max;
     int frame_ring_memory_mb;
-    /* Inspector master enable (default off). Off→on arms HST1 + frame ring. */
+    /* Inspector master enable (default off). Off→on arms checkpoint recorder + frame ring. */
     bool inspector;
+    /*
+     * When true, wipe Inspector Record (+ film) on enter max; restore empty
+     * Record on leave if it was on. Default false. Does not arm or pause HST1.
+     */
+    bool inspector_off_on_max;
     /* Checkpoint-ring budget in MiB (consumed in TM2). 0 or 16..4096; default 128. */
     int inspector_memory_mb;
     /* Host-keyboard joystick: layout name ("numpad" or "wasd") and the Apple

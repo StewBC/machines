@@ -38,6 +38,7 @@ Common flags (see `--help` for the full list):
 | `--control-port N` | Listen on localhost TCP for A2M/14 remote control (`0`=off) |
 | `--inspector` / `--no-inspector` | Enable Inspector recording (default off) |
 | `--history-off-on-max` / `--no-history-off-on-max` | Pause only the CPU flight recorder at turbo `max` (default on) |
+| `--inspector-off-on-max` / `--no-inspector-off-on-max` | Wipe Inspector Record on turbo `max` (default off) |
 | `--log-level <level>` | Host log policy: `all`, `warn` (default), `error`, or `none` |
 | `--audio-smoke` | Emit a 440 Hz test tone to verify audio output |
 | `--video-display <mode>` | Display decoder: `colour`/`color`, `white`, `green`, `amber`, or `colour,<mono>` |
@@ -312,10 +313,13 @@ peripherals, and Mockingboard stay in lock-step):
 | `max` or `-1` | `max` | Free-run as fast as the host allows, still full live paint |
 
 The first entry is the startup speed. By default entering `max` pauses only the dense
-CPU flight recorder (Configure -> Emulator, or `--history-off-on-max` /
-`--no-history-off-on-max`). Inspector Record stays on and continues taking snapshots
-at the approximately 60 Hz max presentation cadence. Leaving `max` keeps the same
-Inspector window.
+CPU flight recorder (Configure -> Machine, or `--history-off-on-max` /
+`--no-history-off-on-max` / `[debug] history_off_on_max`). Inspector Record stays on
+unless `inspector_off_on_max` is enabled (Configure -> Machine, or
+`--inspector-off-on-max` / `[debug] inspector_off_on_max`; default off): then Record
+and film are wiped on enter `max`, and leaving `max` restores an empty Record if it
+was on. With the default off, Record continues at the approximately 60 Hz max
+presentation cadence and leaving `max` keeps the same Inspector window.
 
 ### Help
 
@@ -373,9 +377,10 @@ CRT or with Debug Mode up). Forensics and Help cannot both be open.
 | **F9** | Always open the debugger, paused. |
 | Successful **Land before** / **Land exact** | Same as **F9**: debugger, paused, on Misc -> Inspector. Cancel or failed land stays in Forensics. |
 
-FIND needs a paused machine and a recording window (turn **Record** on in Misc ->
-Inspector and run a bit before searching). **Clear view** clears the on-screen
-transcript only; it does not clear the recorder.
+FIND needs a paused machine and an HST1 recording window (`history_memory_mb` /
+the CPU flight recorder, not Inspector **Record**). Run a bit with history
+recording on before searching. **Clear view** clears the on-screen transcript
+only; it does not clear the recorder.
 
 **Query line** (Enter to run). The first token must be a verb (`find`, `next`,
 `read`, `info`). Up/Down browses recent queries. Tab completes the next expected
@@ -1485,7 +1490,8 @@ Disassembly cursor. Memory and register pokes are rejected while Inspect is on.
 are independent toggles.
 
 A guest disk write that succeeds drops earlier history: the scrubber's left edge
-becomes that write. Finite and `max` turbo keep one continuous Inspector window;
+becomes that write. Finite and `max` turbo keep one continuous Inspector window
+unless `inspector_off_on_max` is on (then Record is wiped on enter `max`).
 `history_off_on_max` affects only the separate CPU flight recorder.
 
 Budgets for the checkpoint ring, CPU flight recorder, and frame ring are under
@@ -1506,7 +1512,8 @@ below the tab body on every tab.
 | Keyboard Joystick | `Off`, `Stick 1`, or `Stick 2`, plus the `Numpad` or `WASD` key layout |
 | Swap fire keys | While the stick is on: Space is button 0 and Option is button 1 (WASD-friendly). Off when the stick is Off |
 | Turbo | Comma-separated ladder, e.g. `1,max` or `1,4,8,max` |
-| History off on max | Pause only the CPU flight recorder while turbo is `max` (faster free-run); Inspector Record continues |
+| History off on max | Pause only the CPU flight recorder while turbo is `max` (faster free-run) |
+| Inspector off on max (wipe Record) | When on: wipe Inspector Record (+ film) on enter `max`; restore empty Record on leave if it was on (default off) |
 | Show disk LEDs | Draw green (Disk II motor-on) and red (write activity) LEDs in the window corner |
 
 The Keyboard Joystick stick selector matches the runtime **Shift+Opt+1** /
@@ -1614,7 +1621,6 @@ Default layout: slot 4 Mockingboard, slot 6 Disk II, slot 7 SmartPort, others em
 |-----|-------|
 | `Save` | `yes` -- save INI on quit |
 | `turbo_speeds` | Comma-separated turbo ladder, e.g. `1,max` |
-| `history_off_on_max` | `true`/`false`; pause only the CPU flight recorder on `max` (default true). Inspector Record continues across finite/max transitions. |
 | `log_level` | `all`, `warn` (default), `error`, or `none`; host log policy (also `--log-level`). Does not mute CLI/usage errors on stderr. |
 | `scroll_wheel_lines` | Integer; lines scrolled per wheel click |
 | `original_del` | `true`/`false`; Backspace sends `$7F` instead of `$08` |
@@ -1716,6 +1722,8 @@ Persists the Assembler tab state. See **Assembler INI persistence**.
 | `inspector_memory_mb` | Checkpoint-ring budget; `0` or `16..4096` (default `128`) |
 | `history_memory_mb` | CPU flight-recorder budget; `0` or `16..4096` (default `256`) |
 | `frame_ring_memory_mb` | Frame-ring budget; `0` or `8..4096` (default `128`) |
+| `history_off_on_max` | `true`/`false`; pause only the CPU flight recorder on `max` (default true). Legacy `[config] history_off_on_max` is still read; saves migrate the key here. |
+| `inspector_off_on_max` | `true`/`false`; wipe Inspector Record (+ film) on `max` and restore empty Record on leave if it was on (default false). Does not arm or pause HST1. |
 
 Inspector recording is opt-in. Off is the normal play path. On arms the
 checkpoint ring and the frame ring. It does **not** arm or stop the CPU flight

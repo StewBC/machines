@@ -38,9 +38,11 @@ CLI `--turbo` / INI `turbo_speeds`. Opt+T cycles. Paste and TYPE do **not**
 change turbo. FAST → max; SLOW → 1 MHz. Control: `set-turbo` accepts MHz,
 `max`, or `-1` — not ladder indices.
 
-Default `history_off_on_max` (true) pauses only dense HST1 CPU recording in
-max. TimeMachine continues at the max block-presentation cadence. See
-[`timemachine.md`](timemachine.md). Opt-out: `--no-history-off-on-max`.
+Default `history_off_on_max` (true, `[debug]`) pauses only dense HST1 CPU
+recording in max. Optional `inspector_off_on_max` (default false) wipes
+Inspector Record on max like c64m. TimeMachine continues at the max
+block-presentation cadence unless that wipe policy is on. See
+[`timemachine.md`](timemachine.md).
 
 ## Client surface
 

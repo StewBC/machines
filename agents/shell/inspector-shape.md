@@ -26,13 +26,24 @@ Do not merge those notes.
 Tests for the tab: `tests/shell/frontend/test_inspector_tab.c`. Leftover
 clock tests stay under `tests/apple2/` and `tests/c64/`.
 
+## Max-turbo knobs (shared names, product defaults)
+
+Both products expose the same CLI/INI/Configure pair under `[debug]`:
+
+| Knob | Meaning | a2m default | c64m default |
+|------|---------|-------------|--------------|
+| `history_off_on_max` | Pause HST1 in max; resume on leave | true | true |
+| `inspector_off_on_max` | Wipe Inspector Record (+ film) in max; restore empty Record on leave if it was on | false | true |
+
+Record does not arm or stop HST1. Budgets: `history_memory_mb` / `inspector_memory_mb` / `frame_ring_memory_mb` (`0` disables that stream).
+
 ## Leftover (do not smash)
 
 | Axis | Apple | C64 |
 |------|-------|-----|
 | Record clock | Pair completed beam frame `F` with first instruction-boundary snapshot `S >= F` | Birth CP on frame-publish; `film_cycle` |
 | Picture | ARGB 560×192; join by sample/picture ID | indexed8 + VIC ring; exact `film_cycle`; miss = full pink |
-| Max turbo | TimeMachine stays on; `history_off_on_max` pauses HST1 only | `--inspector-off-on-max` (default true) wipes Record on max (turbo 2) |
+| Max turbo defaults | TimeMachine continues (`inspector_off_on_max` false); HST1 pauses | Record wiped (`inspector_off_on_max` true); HST1 pauses |
 | Recorder files | `runtime_inspector.c` + `runtime_inspector_recorder.c` | recorder inlined; plus `runtime_vic_ring` |
 
 Thumb-down preview must not reconstruct on either product if that product's

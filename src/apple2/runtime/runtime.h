@@ -51,8 +51,10 @@ typedef struct runtime_config {
     bool history_off_on_max;
     uint32_t frame_ring_memory_mb;
     bool frame_ring_memory_mb_configured;
-    /* Inspector master enable (default off). Off→on arms HST1 + frame ring. */
+    /* Inspector master enable (default off). Off→on arms checkpoint recorder + frame ring. */
     bool inspector;
+    /* Wipe Inspector Record on max when true (default false). */
+    bool inspector_off_on_max;
     /* Checkpoint-ring budget in MiB (consumed in TM2). */
     uint32_t inspector_memory_mb;
     bool inspector_memory_mb_configured;

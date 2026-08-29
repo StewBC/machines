@@ -1629,9 +1629,8 @@ static void runtime_publish_machine(runtime *rt)
     event.data.machine_state.inspector_mode = (uint8_t)runtime_inspector_current_mode(rt);
     event.data.machine_state.inspector_enabled = runtime_inspector_enabled(rt) ? 1u : 0u;
     event.data.machine_state.inspector_stopped_for_max =
-        (rt->history_paused_for_max ||
-         (runtime_turbo_is_max_value(rt->active_turbo_multiplier) &&
-          rt->history_off_on_max)) ? 1u : 0u;
+        (rt->inspector_off_on_max &&
+         runtime_turbo_is_max_value(rt->active_turbo_multiplier)) ? 1u : 0u;
     if (rt->history != NULL) {
         runtime_history_status st;
         runtime_history_get_status(rt->history, &st);
@@ -2557,6 +2556,40 @@ static void runtime_history_apply_max_policy(runtime *rt, bool entering_max, boo
     }
 }
 
+/* Wipe Inspector Record on enter max; restore empty Record on leave if it was on.
+   Does not pause or wipe HST1. */
+static void runtime_inspector_apply_max_policy(runtime *rt, bool entering, bool leaving)
+{
+    if (rt == NULL || !rt->inspector_off_on_max) {
+        return;
+    }
+
+    if (entering) {
+        if (rt->inspecting) {
+            runtime_inspector_leave(rt);
+            runtime_inspector_reattach_live_hooks(rt);
+            runtime_inspector_publish_head(rt);
+            runtime_publish_state_changed(
+                rt,
+                RUNTIME_STATE_CHANGED_INSPECTOR_LEAVE,
+                rt->default_session_id);
+        }
+        rt->inspector_enabled_saved_for_max = rt->inspector_enabled;
+        runtime_inspector_recorder_set_enabled(rt, false);
+        runtime_inspector_on_history_invalidate(rt);
+        if (rt->inspector_enabled_saved_for_max) {
+            runtime_frame_ring_set_recording(&rt->frame_ring, false);
+            runtime_frame_ring_clear(&rt->frame_ring);
+        }
+        rt->inspector_enabled = false;
+    } else if (leaving) {
+        if (rt->inspector_enabled_saved_for_max) {
+            rt->inspector_enabled_saved_for_max = false;
+            runtime_inspector_set_enabled(rt, true);
+        }
+    }
+}
+
 static void runtime_set_active_turbo(runtime *rt, uint32_t milli_mhz);
 
 /* Install a Configure/OK turbo ladder. Keep the current speed if it is still
@@ -2614,8 +2647,10 @@ static void runtime_set_active_turbo(runtime *rt, uint32_t milli_mhz)
     runtime_apply_turbo_video_policy(rt, was_max && !now_max);
     if (now_max && !was_max) {
         runtime_history_apply_max_policy(rt, true, false);
+        runtime_inspector_apply_max_policy(rt, true, false);
     } else if (!now_max && was_max) {
         runtime_history_apply_max_policy(rt, false, true);
+        runtime_inspector_apply_max_policy(rt, false, true);
     }
     if (now_max && rt->machine_ready) {
         /* Immediate presentation frame so max is never blank. */
@@ -4546,6 +4581,25 @@ static void runtime_process_command(runtime *rt, const runtime_command *cmd, boo
             } else if (rt->history_paused_for_max) {
                 /* Policy turned off while on max: restore recording. */
                 runtime_history_apply_max_policy(rt, false, true);
+            }
+        }
+        break;
+    }
+
+    case RUNTIME_COMMAND_SET_INSPECTOR_OFF_ON_MAX: {
+        bool enable = cmd->data.set_inspector_off_on_max.enabled != 0u;
+        if (enable) {
+            rt->inspector_off_on_max = true;
+            if (runtime_turbo_is_max_value(rt->active_turbo_multiplier)) {
+                runtime_inspector_apply_max_policy(rt, true, false);
+            }
+        } else {
+            bool restore = rt->inspector_enabled_saved_for_max;
+            /* Clear policy first so set_enabled can arm while still on max. */
+            rt->inspector_off_on_max = false;
+            rt->inspector_enabled_saved_for_max = false;
+            if (restore) {
+                runtime_inspector_set_enabled(rt, true);
             }
         }
         break;

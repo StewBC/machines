@@ -351,6 +351,7 @@ runtime *runtime_create(const runtime_config *config)
         rt->history_memory_mb = config->history_memory_mb;
         rt->history_off_on_max = config->history_off_on_max;
         rt->history_paused_for_max = false;
+        rt->inspector_off_on_max = config->inspector_off_on_max;
         rt->inspector_enabled_saved_for_max = false;
         rt->inspector_enabled = false;
         rt->inspector_memory_mb = config->inspector_memory_mb;

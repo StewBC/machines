@@ -62,6 +62,7 @@ typedef enum runtime_command_type {
     RUNTIME_COMMAND_SESSION_OPEN,
     RUNTIME_COMMAND_SESSION_CLOSE,
     RUNTIME_COMMAND_SET_HISTORY_OFF_ON_MAX,
+    RUNTIME_COMMAND_SET_INSPECTOR_OFF_ON_MAX,
     RUNTIME_COMMAND_MEDIA_INSERT,
     RUNTIME_COMMAND_MEDIA_EJECT,
     RUNTIME_COMMAND_MEDIA_SWAP,
@@ -326,6 +327,10 @@ typedef struct runtime_command {
         struct {
             uint8_t enabled;
         } set_history_off_on_max;
+
+        struct {
+            uint8_t enabled;
+        } set_inspector_off_on_max;
 
         struct {
             uint8_t enabled;

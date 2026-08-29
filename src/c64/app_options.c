@@ -1587,6 +1587,8 @@ static void apply_config(app_options *options, config *cfg)
     }
     options->inspector = config_get_bool(
         cfg, "debug", "inspector", options->inspector);
+    options->history_off_on_max = config_get_bool(
+        cfg, "debug", "history_off_on_max", options->history_off_on_max);
     options->inspector_off_on_max = config_get_bool(
         cfg, "debug", "inspector_off_on_max", options->inspector_off_on_max);
     value = config_get(cfg, "debug", "inspector_memory_mb");
@@ -1774,6 +1776,8 @@ static bool parse_command_line_overrides(app_options *options, int argc, char **
     const char *log_level_s = NULL;
     int inspector = 0;
     int inspector_cli = -1;
+    int history_off_on_max_flag = 0;
+    int history_off_on_max_cli = -1;
     int inspector_off_on_max_flag = 0;
     int inspector_off_on_max_cli = -1;
     int i;
@@ -1794,9 +1798,18 @@ static bool parse_command_line_overrides(app_options *options, int argc, char **
         OPT_INTEGER('\0', "control-port", &control_port, "enable localhost control server on port", NULL, 0, 0),
         OPT_BOOLEAN('\0', "headless", &headless, "run without creating a window; requires --control-port", NULL, 0, OPT_NONEG),
         OPT_STRING('\0', "history-memory", &history_memory, "CPU flight-recorder memory budget in MiB (0 or 16..4096)", NULL, 0, 0),
-        OPT_BOOLEAN('\0', "inspector", &inspector, "enable Inspector recording (checkpoints; default off)", NULL, 0, 0),
-        OPT_STRING('\0', "inspector-memory", &inspector_memory, "Inspector recording memory budget in MiB (0 or 16..4096)", NULL, 0, 0),
-        OPT_BOOLEAN('\0', "inspector-off-on-max", &inspector_off_on_max_flag, "wipe Inspector Record on max (default on; --no-inspector-off-on-max)", NULL, 0, 0),
+        OPT_BOOLEAN('\0', "history-off-on-max", &history_off_on_max_flag,
+                    "pause CPU flight recorder on max (default on; --no-history-off-on-max)",
+                    NULL, 0, 0),
+        OPT_BOOLEAN('\0', "inspector", &inspector,
+                    "enable Inspector recording (default off; --no-inspector)",
+                    NULL, 0, 0),
+        OPT_STRING('\0', "inspector-memory", &inspector_memory,
+                   "Inspector checkpoint-ring budget in MiB (0 or 16..4096; default 128)",
+                   NULL, 0, 0),
+        OPT_BOOLEAN('\0', "inspector-off-on-max", &inspector_off_on_max_flag,
+                    "wipe Inspector Record on max (default on; --no-inspector-off-on-max)",
+                    NULL, 0, 0),
         OPT_BOOLEAN('f', "defaults", &defaults, "use default settings", NULL, 0, OPT_NONEG),
         OPT_STRING('d', "disk", &disk, "1541 drive image; format <drive>=<image>", NULL, 0, 0),
         OPT_STRING('i', "inifile", &ini_path, "path to an .ini file", NULL, 0, 0),
@@ -1819,9 +1832,10 @@ static bool parse_command_line_overrides(app_options *options, int argc, char **
     };
 
     /* Scan original argv before argparse compact-shifts it so --inspector /
-       --no-inspector and --inspector-off-on-max / --no-inspector-off-on-max
-       can override INI (argparse BOOLEAN cannot tell unset from the --no-
-       form). Last occurrence wins. */
+       --no-inspector, --history-off-on-max / --no-history-off-on-max, and
+       --inspector-off-on-max / --no-inspector-off-on-max can override INI
+       (argparse BOOLEAN cannot tell unset from the --no- form). Last
+       occurrence wins. */
     for (i = 1; i < argc; ++i) {
         if (argv[i] == NULL) {
             continue;
@@ -1830,6 +1844,10 @@ static bool parse_command_line_overrides(app_options *options, int argc, char **
             inspector_cli = 1;
         } else if (strcmp(argv[i], "--no-inspector") == 0) {
             inspector_cli = 0;
+        } else if (strcmp(argv[i], "--history-off-on-max") == 0) {
+            history_off_on_max_cli = 1;
+        } else if (strcmp(argv[i], "--no-history-off-on-max") == 0) {
+            history_off_on_max_cli = 0;
         } else if (strcmp(argv[i], "--inspector-off-on-max") == 0) {
             inspector_off_on_max_cli = 1;
         } else if (strcmp(argv[i], "--no-inspector-off-on-max") == 0) {
@@ -1841,6 +1859,7 @@ static bool parse_command_line_overrides(app_options *options, int argc, char **
     argparse_describe(&argparse, "A Commodore 64 emulator written by Codex, Claude Code and Grok, produced by Stefan Wessels, 2026.", NULL);
     argparse_parse(&argparse, argc, (const char **)argv);
     (void)inspector; /* consumed so --inspector is a known flag; CLI value comes from inspector_cli */
+    (void)history_off_on_max_flag;
     (void)inspector_off_on_max_flag;
 
     if (defaults) {
@@ -1959,6 +1978,9 @@ static bool parse_command_line_overrides(app_options *options, int argc, char **
     if (inspector_cli >= 0) {
         options->inspector = inspector_cli != 0;
     }
+    if (history_off_on_max_cli >= 0) {
+        options->history_off_on_max = history_off_on_max_cli != 0;
+    }
     if (inspector_off_on_max_cli >= 0) {
         options->inspector_off_on_max = inspector_off_on_max_cli != 0;
     }
@@ -2061,6 +2083,7 @@ void app_options_init(app_options *options)
     options->vic_ring_memory_mb = C64M_DEFAULT_VIC_RING_MEMORY_MB;
     options->inspector = false;
     options->inspector_memory_mb = C64M_DEFAULT_INSPECTOR_MEMORY_MB;
+    options->history_off_on_max = true; /* pause HST1 in max by default */
     options->inspector_off_on_max = true;
 }
 
@@ -2134,6 +2157,7 @@ bool app_options_copy(app_options *dest, const app_options *src)
     dest->vic_ring_memory_mb = src->vic_ring_memory_mb;
     dest->inspector = src->inspector;
     dest->inspector_memory_mb = src->inspector_memory_mb;
+    dest->history_off_on_max = src->history_off_on_max;
     dest->inspector_off_on_max = src->inspector_off_on_max;
 
     if (!replace_string(&dest->keyboard_joystick_layout, src->keyboard_joystick_layout) ||
@@ -2288,6 +2312,8 @@ bool app_options_save_shutdown(const app_options *options)
     config_set_int(cfg, "debug", "vic_ring_memory_mb", options->vic_ring_memory_mb);
     config_set_int(cfg, "debug", "inspector", options->inspector ? 1 : 0);
     config_set_int(cfg, "debug", "inspector_memory_mb", options->inspector_memory_mb);
+    config_set_int(
+        cfg, "debug", "history_off_on_max", options->history_off_on_max ? 1 : 0);
     config_set_int(
         cfg, "debug", "inspector_off_on_max", options->inspector_off_on_max ? 1 : 0);
     /* The snapshot folder is now [browse] snapshot; drop the legacy key. */

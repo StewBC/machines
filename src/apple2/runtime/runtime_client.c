@@ -972,6 +972,17 @@ bool runtime_client_set_history_off_on_max(runtime_client *client, bool enabled)
     return runtime_client_push(client, &command);
 }
 
+bool runtime_client_set_inspector_off_on_max(runtime_client *client, bool enabled) {
+    runtime_command command = {
+        .type = RUNTIME_COMMAND_SET_INSPECTOR_OFF_ON_MAX,
+    };
+    if (client == NULL) {
+        return false;
+    }
+    command.data.set_inspector_off_on_max.enabled = enabled ? 1u : 0u;
+    return runtime_client_push(client, &command);
+}
+
 bool runtime_client_inspector_set_enabled(
     runtime_client *client,
     bool enabled,

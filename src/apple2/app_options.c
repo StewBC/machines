@@ -1825,8 +1825,13 @@ static void apply_config(app_options *options, config *cfg)
         config_get_bool(cfg, "config", "disk_leds", options->show_disk_leds));
     /* Absent key defaults to false. */
     options->pause_on_brk = config_get_bool(cfg, "config", "pause_on_brk", options->pause_on_brk);
+    /* Prefer [debug]; fall back to legacy [config] for older INIs. */
     options->history_off_on_max = config_get_bool(
-        cfg, "config", "history_off_on_max", options->history_off_on_max);
+        cfg,
+        "debug",
+        "history_off_on_max",
+        config_get_bool(
+            cfg, "config", "history_off_on_max", options->history_off_on_max));
     value = config_get(cfg, "config", "log_level");
     if (value != NULL && value[0] != '\0') {
         host_log_level parsed_log = HOST_LOG_LEVEL_WARN;
@@ -1945,6 +1950,8 @@ static void apply_config(app_options *options, config *cfg)
     }
     options->inspector = config_get_bool(
         cfg, "debug", "inspector", options->inspector);
+    options->inspector_off_on_max = config_get_bool(
+        cfg, "debug", "inspector_off_on_max", options->inspector_off_on_max);
     value = config_get(cfg, "debug", "inspector_memory_mb");
     if (value != NULL) {
         char *end = NULL;
@@ -2195,6 +2202,9 @@ static bool parse_command_line_overrides(app_options *options, int argc, char **
     int inspector_flag = 0;
     int inspector_cli = 0;
     int inspector_seen = 0;
+    int inspector_off_on_max_flag = 0;
+    int inspector_off_on_max_cli = 0;
+    int inspector_off_on_max_seen = 0;
     const char *disk_help = NULL;
     const char *hd_help = NULL;
     const char *kbdjoy_layout = NULL;
@@ -2223,7 +2233,7 @@ static bool parse_command_line_overrides(app_options *options, int argc, char **
                     NULL, 0, OPT_NONEG),
         OPT_STRING('\0', "history-memory", &history_memory, "CPU flight-recorder memory budget in MiB (0 or 16..4096)", NULL, 0, 0),
         OPT_BOOLEAN('\0', "history-off-on-max", &history_off_on_max_flag,
-                    "pause CPU history while turbo is max (default on; --no-history-off-on-max)",
+                    "pause CPU flight recorder on max (default on; --no-history-off-on-max)",
                     NULL, 0, 0),
         OPT_BOOLEAN('\0', "inspector", &inspector_flag,
                     "enable Inspector recording (default off; --no-inspector)",
@@ -2231,6 +2241,9 @@ static bool parse_command_line_overrides(app_options *options, int argc, char **
         OPT_STRING('\0', "inspector-memory", &inspector_memory,
                    "Inspector checkpoint-ring budget in MiB (0 or 16..4096; default 128)",
                    NULL, 0, 0),
+        OPT_BOOLEAN('\0', "inspector-off-on-max", &inspector_off_on_max_flag,
+                    "wipe Inspector Record on max (default off; --no-inspector-off-on-max)",
+                    NULL, 0, 0),
         OPT_BOOLEAN('f', "defaults", &defaults, "use default settings", NULL, 0, OPT_NONEG),
         OPT_STRING('d', "disk", &disk_help,
                    "Disk II mount: path or s6d0=path (repeatable; same drive appends queue)",
@@ -2431,6 +2444,12 @@ static bool parse_command_line_overrides(app_options *options, int argc, char **
             } else if (strcmp(argv[ai], "--no-inspector") == 0) {
                 inspector_seen = 1;
                 inspector_cli = 0;
+            } else if (strcmp(argv[ai], "--inspector-off-on-max") == 0) {
+                inspector_off_on_max_seen = 1;
+                inspector_off_on_max_cli = 1;
+            } else if (strcmp(argv[ai], "--no-inspector-off-on-max") == 0) {
+                inspector_off_on_max_seen = 1;
+                inspector_off_on_max_cli = 0;
             }
         }
         if (history_off_on_max_seen) {
@@ -2439,9 +2458,13 @@ static bool parse_command_line_overrides(app_options *options, int argc, char **
         if (inspector_seen) {
             options->inspector = inspector_cli != 0;
         }
+        if (inspector_off_on_max_seen) {
+            options->inspector_off_on_max = inspector_off_on_max_cli != 0;
+        }
     }
     (void)history_off_on_max_flag;
     (void)inspector_flag;
+    (void)inspector_off_on_max_flag;
     if (inspector_memory != NULL) {
         char *end = NULL;
         unsigned long parsed = strtoul(inspector_memory, &end, 0);
@@ -2495,6 +2518,7 @@ void app_options_init(app_options *options)
     options->history_off_on_max = true; /* max free-run boost by default */
     options->frame_ring_memory_mb = A2M_DEFAULT_FRAME_RING_MEMORY_MB;
     options->inspector = false;
+    options->inspector_off_on_max = false;
     options->inspector_memory_mb = A2M_DEFAULT_INSPECTOR_MEMORY_MB;
     options->apple_model = 0; /* //e Enhanced */
     options->mb_slot = 4;
@@ -2554,6 +2578,7 @@ bool app_options_copy(app_options *dest, const app_options *src)
     dest->show_disk_leds = src->show_disk_leds;
     dest->pause_on_brk = src->pause_on_brk;
     dest->history_off_on_max = src->history_off_on_max;
+    dest->inspector_off_on_max = src->inspector_off_on_max;
     dest->true_aspect = src->true_aspect;
     dest->colour_display = src->colour_display;
     dest->mono_mode = src->mono_mode;
@@ -2782,10 +2807,14 @@ bool app_options_save_shutdown(const app_options *options)
     /* Always persist so a non-default value (and an explicit warn) survives. */
     config_set(cfg, "config", "log_level", host_log_level_name(options->log_level));
     config_set_int(cfg, "debug", "history_memory_mb", options->history_memory_mb);
-    config_set_bool(cfg, "config", "history_off_on_max", options->history_off_on_max);
+    config_set_bool(cfg, "debug", "history_off_on_max", options->history_off_on_max);
     config_set_int(cfg, "debug", "frame_ring_memory_mb", options->frame_ring_memory_mb);
     config_set_bool(cfg, "debug", "inspector", options->inspector);
+    config_set_bool(
+        cfg, "debug", "inspector_off_on_max", options->inspector_off_on_max);
     config_set_int(cfg, "debug", "inspector_memory_mb", options->inspector_memory_mb);
+    /* Migrate legacy [config] history_off_on_max into [debug]. */
+    config_remove_prefix(cfg, "config", "history_off_on_max");
     /* Drop pre-A2M/13 TimeMachine keys. Prefix match also drops
        timemachine_memory_mb. */
     config_remove_prefix(cfg, "debug", "timemachine");

@@ -126,6 +126,8 @@ bool runtime_client_poll_breakpoints(
 
 /* Pause flight-recorder automatically while turbo is max (live policy). */
 bool runtime_client_set_history_off_on_max(runtime_client *client, bool enabled);
+/* Wipe Inspector Record on max when enabled (live policy). */
+bool runtime_client_set_inspector_off_on_max(runtime_client *client, bool enabled);
 bool runtime_client_inspector_catalog_copy(
     runtime_client *client,
     runtime_inspector_catalog *out_catalog);

@@ -229,10 +229,12 @@ struct runtime {
     bool history_off_on_max;
     /* True if we stopped history solely for max (so we may resume on leave). */
     bool history_paused_for_max;
-    /* Record checkbox to restore on leave-max (TMA3). */
+    /* Wipe Inspector Record on enter max when true (default false). */
+    bool inspector_off_on_max;
+    /* Record checkbox to restore on leave-max. */
     bool inspector_enabled_saved_for_max;
 
-    /* Inspector master enable. Off→on arms HST1 + frame ring once. */
+    /* Inspector master enable. Off→on arms checkpoint recorder + frame ring once. */
     bool inspector_enabled;
     uint32_t inspector_memory_mb;
     runtime_inspector_focus inspector_focus;

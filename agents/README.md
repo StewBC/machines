@@ -124,6 +124,8 @@ Shared `runtime_client` subset (run/pause/step, get-cpu, get-memory
 *names*) is `src/shell/runtime/runtime_client_subset.h`. Implementations
 stay product-local. Do not include `apple2.h` / `c64.h` from that header.
 A2M wire has `enter-inspector` / `leave-inspector`. Record does not arm HST1.
+Both products share `[debug] history_off_on_max` / `inspector_off_on_max`
+(see [`shell/inspector-shape.md`](shell/inspector-shape.md)).
 
 ## Verification
 

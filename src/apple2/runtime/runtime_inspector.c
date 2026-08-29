@@ -61,15 +61,28 @@ static void runtime_inspector_warn_zero_budget(const runtime *rt)
 void runtime_inspector_set_enabled(runtime *rt, bool enabled)
 {
     bool was_enabled;
+    bool on_max;
 
     if (rt == NULL) {
         return;
     }
 
+    on_max = rt->inspector_off_on_max &&
+             runtime_turbo_is_max_value(rt->active_turbo_multiplier);
+
     if (!enabled) {
+        if (on_max) {
+            rt->inspector_enabled_saved_for_max = false;
+        }
         rt->inspector_enabled = false;
         runtime_inspector_recorder_set_enabled(rt, false);
         runtime_inspector_on_history_invalidate(rt);
+        return;
+    }
+
+    if (on_max) {
+        /* Remember Record-on for leave-max; do not arm in max. */
+        rt->inspector_enabled_saved_for_max = true;
         return;
     }
 

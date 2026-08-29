@@ -124,6 +124,8 @@ static void fill_base_config(runtime_config *config) {
     config->inspector = true;
     config->inspector_memory_mb = 16u;
     config->inspector_memory_mb_configured = true;
+    /* Keep HST1 recording through max so I4 isolates inspector wipe. */
+    config->history_off_on_max = false;
     config->inspector_off_on_max = true;
 }
 
@@ -630,6 +632,51 @@ int main(void) {
         drain_commands(client);
         if (!runtime_inspector_enabled(rt)) {
             fail("opt-out Record off after leave");
+        }
+    }
+    stop_runtime(rt, client);
+
+    /* history_off_on_max: enter max pauses HST1; leave resumes. */
+    fill_base_config(&config);
+    config.history_off_on_max = true;
+    config.inspector_off_on_max = false;
+    rt = start_runtime(&config, &client);
+    {
+        runtime_history_status hist_before;
+        runtime_history_status hist_after;
+        uint64_t count_at_pause;
+
+        runtime_history_get_status(rt->history, &hist_before);
+        if (!hist_before.recording) {
+            fail("history policy setup: HST1 not recording");
+        }
+        if (!runtime_client_set_turbo_multiplier(client, RUNTIME_TURBO_MODE_MAX)) {
+            fail("history policy set max");
+        }
+        drain_commands(client);
+        runtime_history_get_status(rt->history, &hist_after);
+        if (hist_after.recording) {
+            fail("history_off_on_max did not pause HST1 on max");
+        }
+        count_at_pause = hist_after.record_count;
+        step_instructions(client, 20u);
+        runtime_history_get_status(rt->history, &hist_after);
+        if (hist_after.record_count != count_at_pause) {
+            fail("HST1 grew while paused for max");
+        }
+        if (!runtime_client_set_turbo_multiplier(
+                client, RUNTIME_TURBO_MODE_NORMAL)) {
+            fail("history policy leave max");
+        }
+        drain_commands(client);
+        runtime_history_get_status(rt->history, &hist_after);
+        if (!hist_after.recording) {
+            fail("history_off_on_max did not resume HST1 on leave max");
+        }
+        step_instructions(client, 8u);
+        runtime_history_get_status(rt->history, &hist_after);
+        if (hist_after.record_count <= count_at_pause) {
+            fail("HST1 did not grow after resume from max");
         }
     }
     stop_runtime(rt, client);

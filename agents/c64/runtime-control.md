@@ -90,6 +90,9 @@ Runtime owns `runtime_history`. Default 256 MiB; `[debug] history_memory_mb`
 / `--history-memory` accept 0 (off) or 16..4096. Allocation failure is
 nonfatal and visible through `history-info`. Observer installed only while
 available and recording. Inspector Record does **not** arm or stop HST1.
+`--history-off-on-max` / `[debug] history_off_on_max` (default true): max
+(turbo 2) pauses HST1 recording, keeps retained records, and resumes on leave
+max. Explicit `history-record on` while still on max with the policy re-stops.
 
 Resets retain records and advance `timeline`. Successful state load clears
 the arena and advances `epoch`. Save-state never serializes recorder state.
@@ -136,7 +139,8 @@ Default off. `--inspector` / `[debug] inspector`. Memory
 `--inspector-memory` / `inspector_memory_mb` (0 or 16..4096; default 128).
 Does **not** arm or stop HST1. `--inspector-off-on-max` (default true):
 max (turbo 2) wipes Record (and film if Record was on) and remembers it for
-leave-max; turbo 1 restores Record into an empty window.
+leave-max; turbo 1 restores Record into an empty window. HST1 pause on max is
+the separate `history_off_on_max` knob (default true).
 
 | Term | Meaning |
 |------|---------|

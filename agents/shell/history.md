@@ -28,6 +28,7 @@ leftover (mapping / swap / save-ini).
   Control-port `history-find` still accepts bare keys.
 - One cursor per leftover session. Mutation stamps cursors stale.
 - Record (Inspector) does **not** arm or stop HST1. Independent toggles.
-- a2m `history_off_on_max` pauses dense HST1 in max; TimeMachine continues.
-  That is leftover Apple policy, not a shell ifdef.
+- Both products: `[debug] history_off_on_max` / `--history-off-on-max` (default
+  true) pauses dense HST1 in max and resumes on leave. Independent of
+  `inspector_off_on_max` (see [`inspector-shape.md`](inspector-shape.md)).
 - Leftover a2m `vic_cycle` alias for `cycle_in_line` is gone; do not restore it.

@@ -68,6 +68,9 @@ typedef struct runtime_config {
     bool inspector;
     uint32_t inspector_memory_mb;
     bool inspector_memory_mb_configured;
+    /* Pause HST1 on turbo max (2). Default true in app_options; keeps
+       retained records and resumes on leave max. */
+    bool history_off_on_max;
     /* Wipe Inspector Record on turbo max (2). Default true in app_options;
        does not pause HST1. */
     bool inspector_off_on_max;

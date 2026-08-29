@@ -2227,6 +2227,16 @@ static void frontend_draw_config_machine_tab(frontend *ui, frontend_config_dialo
     nk_layout_row_end(ctx);
 
     nk_layout_row_dynamic(ctx, 22.0f, 1);
+    frontend_checkbox_bool(
+        ctx,
+        "History off on max (pause CPU flight recorder only)",
+        &dialog->edited.history_off_on_max);
+    nk_layout_row_dynamic(ctx, 22.0f, 1);
+    frontend_checkbox_bool(
+        ctx,
+        "Inspector off on max (wipe Record)",
+        &dialog->edited.inspector_off_on_max);
+    nk_layout_row_dynamic(ctx, 22.0f, 1);
     frontend_checkbox_bool(ctx, "Pause on BRK", &dialog->edited.pause_on_brk);
     nk_layout_row_dynamic(ctx, 22.0f, 1);
     frontend_checkbox_bool(ctx, "Emulate 1541", &dialog->edited.emulate_1541);
