@@ -4,7 +4,6 @@
 #include "memory_source.h"
 #include "nuklear_config.h"
 
-#include <SDL.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -69,12 +68,9 @@ typedef struct memview_pane_ops {
     void *ctx;
     bool (*byte_available)(void *ctx, uint32_t source_id, uint16_t address);
     bool (*read_byte)(void *ctx, uint32_t source_id, uint16_t address, uint8_t *out);
-    void (*write_byte)(void *ctx, uint32_t source_id, uint16_t address, uint8_t value);
     void (*request)(void *ctx);
     const uint8_t *(*search_plane)(
         void *ctx, uint32_t source_id, const uint8_t **out_valid);
-    void (*open_symbol_lookup)(void *ctx);
-    void (*navigate_disasm)(void *ctx, uint16_t address);
     void (*set_active_view)(void *ctx);
     bool (*any_dialog_open)(void *ctx);
     bool (*view_is_active)(void *ctx);
@@ -85,7 +81,6 @@ typedef struct memview_pane_ops {
 } memview_pane_ops;
 
 char memview_pane_ascii(uint8_t value, bool highbit_ascii);
-uint8_t memview_pane_ascii_store(uint8_t value, bool highbit_ascii);
 void memview_pane_apply_source(
     memview_pane_view *view,
     const memory_source *table,
@@ -95,15 +90,6 @@ void memview_pane_apply_source(
 void memview_pane_init(memview_pane_state *state, uint32_t source_id, bool highbit_ascii);
 void memview_pane_split_at(memview_pane_state *state, int view_index, bool aligned);
 void memview_pane_join_at(memview_pane_state *state, int view_index);
-
-void memview_pane_handle_key(
-    memview_pane_state *state,
-    const SDL_KeyboardEvent *key,
-    const memory_source *table,
-    size_t count,
-    bool running,
-    bool editable,
-    const memview_pane_ops *ops);
 
 void memview_pane_draw(
     struct nk_context *ctx,

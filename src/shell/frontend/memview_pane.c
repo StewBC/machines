@@ -44,14 +44,6 @@ char memview_pane_ascii(uint8_t value, bool highbit_ascii)
     return '.';
 }
 
-uint8_t memview_pane_ascii_store(uint8_t value, bool highbit_ascii)
-{
-    if (highbit_ascii) {
-        return (uint8_t)(value | 0x80u);
-    }
-    return value;
-}
-
 void memview_pane_apply_source(
     memview_pane_view *view,
     const memory_source *table,
@@ -176,18 +168,6 @@ void memview_pane_init(memview_pane_state *state, uint32_t source_id, bool highb
     state->color_slot_used[0] = true;
 }
 
-static void memview_move_cursor(memview_pane_state *state, int32_t delta)
-{
-    memview_pane_view *view = memview_active(state);
-
-    if (view == NULL) {
-        return;
-    }
-    view->cursor_address = (uint16_t)(view->cursor_address + delta);
-    memview_recenter_cursor(view);
-    view->request_pending = false;
-}
-
 static bool memview_ops_available(
     const memview_pane_ops *ops, uint32_t source_id, uint16_t address)
 {
@@ -206,92 +186,6 @@ static uint8_t memview_ops_read(
         (void)ops->read_byte(ops->ctx, source_id, address, &value);
     }
     return value;
-}
-
-static void memview_write(
-    memview_pane_state *state,
-    uint16_t address,
-    uint8_t value,
-    bool editable,
-    const memory_source *src,
-    const memview_pane_ops *ops)
-{
-    memview_pane_view *view = memview_active(state);
-
-    if (view == NULL || !editable || !memview_source_writable(src)) {
-        return;
-    }
-    if (!memview_ops_available(ops, view->source_id, address)) {
-        return;
-    }
-    if (ops != NULL && ops->write_byte != NULL) {
-        ops->write_byte(ops->ctx, view->source_id, address, value);
-    }
-    view->request_pending = false;
-}
-
-static int memview_hex_digit(int sym)
-{
-    if (sym >= '0' && sym <= '9') {
-        return sym - '0';
-    }
-    if (sym >= 'a' && sym <= 'f') {
-        return 10 + (sym - 'a');
-    }
-    if (sym >= 'A' && sym <= 'F') {
-        return 10 + (sym - 'A');
-    }
-    return -1;
-}
-
-static void memview_apply_hex_digit(
-    memview_pane_state *state,
-    int digit,
-    bool editable,
-    const memory_source *src,
-    const memview_pane_ops *ops)
-{
-    memview_pane_view *view = memview_active(state);
-    uint8_t old_value;
-    uint8_t new_value;
-
-    if (view == NULL || digit < 0 || digit > 15) {
-        return;
-    }
-    if (!editable || !memview_source_writable(src) ||
-        !memview_ops_available(ops, view->source_id, view->cursor_address)) {
-        return;
-    }
-    old_value = memview_ops_read(ops, view->source_id, view->cursor_address);
-    if (view->active_nibble == 0u) {
-        new_value = (uint8_t)((old_value & 0x0fu) | (uint8_t)(digit << 4));
-        memview_write(state, view->cursor_address, new_value, editable, src, ops);
-        view->active_nibble = 1u;
-    } else {
-        new_value = (uint8_t)((old_value & 0xf0u) | (uint8_t)digit);
-        memview_write(state, view->cursor_address, new_value, editable, src, ops);
-        view->active_nibble = 0u;
-        memview_move_cursor(state, 1);
-    }
-}
-
-static void memview_apply_address_digit(memview_pane_view *view, int digit)
-{
-    int shift;
-    uint16_t mask;
-
-    if (view == NULL || digit < 0 || digit > 15) {
-        return;
-    }
-    shift = (3 - view->active_address_digit) * 4;
-    mask = (uint16_t)(0x0fu << shift);
-    view->view_address = (uint16_t)(
-        (view->view_address & (uint16_t)~mask) | (uint16_t)((uint16_t)digit << shift));
-    view->cursor_address = view->view_address;
-    view->request_pending = false;
-    if (view->active_address_digit < 3u) {
-        view->active_address_digit++;
-    }
 }
 
 static bool memview_search_run(memview_pane_state *state, bool reverse, const memview_pane_ops *ops)
@@ -329,19 +223,6 @@ static bool memview_search_run(memview_pane_state *state, bool reverse, const me
     view->request_pending = false;
     snprintf(state->search.status, sizeof(state->search.status), "Found at %04X", found);
     return true;
-}
-
-static void memview_search_open(memview_pane_state *state)
-{
-    memview_pane_view *view = memview_active(state);
-
-    if (state == NULL || view == NULL) {
-        return;
-    }
-    state->search.open = true;
-    state->search.just_opened = true;
-    state->search.last_found_address = view->cursor_address;
-    state->search.status[0] = '\0';
 }
 
 static uint8_t memview_alloc_color(memview_pane_state *state)
@@ -479,21 +360,6 @@ void memview_pane_join_at(memview_pane_state *state, int view_index)
     }
 }
 
-static void memview_dissolve(memview_pane_state *state)
-{
-    int i;
-
-    if (state == NULL || state->view_count <= 1) {
-        return;
-    }
-    for (i = 1; i < state->view_count; i++) {
-        state->color_slot_used[state->views[i].color_slot] = false;
-    }
-    state->views[0].rows = (uint8_t)memview_total_rows(state);
-    state->view_count = 1;
-    state->active_index = 0;
-}
-
 static void memview_redistribute_rows(memview_pane_state *state, int new_total)
 {
     int i;
@@ -555,217 +421,6 @@ static void memview_redistribute_rows(memview_pane_state *state, int new_total)
         state->views[i].rows = (uint8_t)(shares[i] > 255 ? 255 : shares[i]);
         if (was_visible[i]) {
             memview_recenter_cursor(&state->views[i]);
-        }
-    }
-}
-
-void memview_pane_handle_key(
-    memview_pane_state *state,
-    const SDL_KeyboardEvent *key,
-    const memory_source *table,
-    size_t count,
-    bool running,
-    bool editable,
-    const memview_pane_ops *ops)
-{
-    memview_pane_view *view;
-    SDL_Keycode sym;
-    SDL_Keymod mod;
-    bool alt;
-    bool shift;
-    const memory_source *src;
-
-    if (state == NULL || key == NULL || key->type != SDL_KEYDOWN) {
-        return;
-    }
-    view = memview_active(state);
-    if (view == NULL) {
-        return;
-    }
-    sym = key->keysym.sym;
-    mod = key->keysym.mod;
-    alt = (mod & KMOD_ALT) != 0;
-    shift = (mod & KMOD_SHIFT) != 0;
-    src = memory_source_find_by_id(table, count, view->source_id);
-
-    if (sym == SDLK_F9 || sym == SDLK_F10 || sym == SDLK_F11 || sym == SDLK_F12) {
-        return;
-    }
-    if (alt && !shift && sym == SDLK_f) {
-        if (!running) {
-            memview_search_open(state);
-        }
-        return;
-    }
-    if (alt && sym == SDLK_g) {
-        if (!running) {
-            (void)memview_search_run(state, shift, ops);
-        }
-        return;
-    }
-    if (alt && sym == SDLK_UP && view->edit_field != MEMVIEW_PANE_EDIT_ADDRESS) {
-        if (state->active_index > 0) {
-            state->active_index--;
-        }
-        return;
-    }
-    if (alt && sym == SDLK_DOWN && view->edit_field != MEMVIEW_PANE_EDIT_ADDRESS) {
-        if (state->active_index < state->view_count - 1) {
-            state->active_index++;
-        }
-        return;
-    }
-    if (alt && sym == SDLK_v) {
-        memview_split(state, !shift);
-        return;
-    }
-    if (alt && sym == SDLK_j) {
-        memview_dissolve(state);
-        return;
-    }
-    if (alt && !shift && sym == SDLK_a) {
-        if (view->edit_field == MEMVIEW_PANE_EDIT_ADDRESS) {
-            view->edit_field = MEMVIEW_PANE_EDIT_HEX;
-        } else {
-            uint16_t offset = (uint16_t)(view->cursor_address - view->view_address);
-            uint16_t row = (uint16_t)(offset / view->columns);
-            view->edit_field = MEMVIEW_PANE_EDIT_ADDRESS;
-            view->cursor_address = (uint16_t)(view->view_address + row * view->columns);
-        }
-        view->active_address_digit = 0u;
-        return;
-    }
-    if (alt && sym == SDLK_x) {
-        view->edit_field = view->edit_field == MEMVIEW_PANE_EDIT_ASCII ?
-            MEMVIEW_PANE_EDIT_HEX : MEMVIEW_PANE_EDIT_ASCII;
-        return;
-    }
-    if (alt && !shift && sym == SDLK_m) {
-        memview_pane_apply_source(
-            view, table, count, memory_source_cycle_next(table, count, view->source_id));
-        return;
-    }
-    if (alt && sym == SDLK_s) {
-        if (ops != NULL && ops->open_symbol_lookup != NULL) {
-            ops->open_symbol_lookup(ops->ctx);
-        }
-        return;
-    }
-    if (sym == SDLK_PAGEUP && view->edit_field != MEMVIEW_PANE_EDIT_ADDRESS) {
-        view->view_address = (uint16_t)(view->view_address - memview_visible_count(view));
-        view->request_pending = false;
-        return;
-    }
-    if (sym == SDLK_PAGEDOWN && view->edit_field != MEMVIEW_PANE_EDIT_ADDRESS) {
-        view->view_address = (uint16_t)(view->view_address + memview_visible_count(view));
-        view->request_pending = false;
-        return;
-    }
-    if (sym == SDLK_HOME) {
-        if (view->edit_field == MEMVIEW_PANE_EDIT_ADDRESS) {
-            view->active_address_digit = 0u;
-        } else if (alt) {
-            view->cursor_address = view->view_address;
-        } else {
-            uint16_t offset = (uint16_t)(view->cursor_address - view->view_address);
-            uint16_t row = (uint16_t)(offset / view->columns);
-            view->cursor_address = (uint16_t)(view->view_address + row * view->columns);
-        }
-        return;
-    }
-    if (sym == SDLK_END) {
-        if (view->edit_field == MEMVIEW_PANE_EDIT_ADDRESS) {
-            view->active_address_digit = 3u;
-        } else if (alt) {
-            view->cursor_address = (uint16_t)(
-                view->view_address + memview_visible_count(view) - 1u);
-        } else {
-            uint16_t offset = (uint16_t)(view->cursor_address - view->view_address);
-            uint16_t row = (uint16_t)(offset / view->columns);
-            view->cursor_address = (uint16_t)(
-                view->view_address + row * view->columns + view->columns - 1u);
-        }
-        return;
-    }
-    if (sym == SDLK_UP && view->edit_field != MEMVIEW_PANE_EDIT_ADDRESS) {
-        memview_move_cursor(state, -(int32_t)view->columns);
-        return;
-    }
-    if (sym == SDLK_DOWN && view->edit_field != MEMVIEW_PANE_EDIT_ADDRESS) {
-        memview_move_cursor(state, view->columns);
-        return;
-    }
-    if (sym == SDLK_LEFT) {
-        if (view->edit_field == MEMVIEW_PANE_EDIT_ADDRESS) {
-            if (view->active_address_digit > 0u) {
-                view->active_address_digit--;
-            }
-        } else if (view->edit_field == MEMVIEW_PANE_EDIT_ASCII) {
-            memview_move_cursor(state, -1);
-        } else if (view->active_nibble == 0u) {
-            memview_move_cursor(state, -1);
-            view->active_nibble = 1u;
-        } else {
-            view->active_nibble = 0u;
-        }
-        return;
-    }
-    if (sym == SDLK_RIGHT) {
-        if (view->edit_field == MEMVIEW_PANE_EDIT_ADDRESS) {
-            if (view->active_address_digit >= 3u) {
-                view->edit_field = MEMVIEW_PANE_EDIT_HEX;
-                view->active_address_digit = 0u;
-            } else {
-                view->active_address_digit++;
-            }
-        } else if (view->edit_field == MEMVIEW_PANE_EDIT_ASCII) {
-            memview_move_cursor(state, 1);
-        } else if (view->active_nibble == 0u) {
-            view->active_nibble = 1u;
-        } else {
-            view->active_nibble = 0u;
-            memview_move_cursor(state, 1);
-        }
-        return;
-    }
-    if (view->edit_field == MEMVIEW_PANE_EDIT_ASCII) {
-        if (sym == SDLK_RETURN) {
-            memview_write(
-                state, view->cursor_address,
-                memview_pane_ascii_store(0x0du, view->highbit_ascii),
-                editable, src, ops);
-            memview_move_cursor(state, 1);
-            return;
-        }
-        if (sym == SDLK_BACKSPACE) {
-            memview_write(
-                state, view->cursor_address,
-                memview_pane_ascii_store(0x08u, view->highbit_ascii),
-                editable, src, ops);
-            memview_move_cursor(state, 1);
-            return;
-        }
-        if (sym >= 32 && sym <= 126) {
-            uint8_t byte = (uint8_t)sym;
-            if (sym >= 'a' && sym <= 'z') {
-                bool caps = (mod & KMOD_CAPS) != 0;
-                if (shift ^ caps) {
-                    byte = (uint8_t)(sym - ('a' - 'A'));
-                }
-            }
-            memview_write(
-                state, view->cursor_address,
-                memview_pane_ascii_store(byte, view->highbit_ascii),
-                editable, src, ops);
-            memview_move_cursor(state, 1);
-            return;
-        }
-    } else {
-        int digit = memview_hex_digit((int)sym);
-        if (view->edit_field == MEMVIEW_PANE_EDIT_ADDRESS) {
-            memview_apply_address_digit(view, digit);
-        } else {
-            memview_apply_hex_digit(state, digit, editable, src, ops);
         }
     }
 }

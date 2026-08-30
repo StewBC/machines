@@ -5726,15 +5726,35 @@ static void frontend_memory_handle_key(
         return;
     }
 
-    /* Virtual view navigation */
-    if (alt && sym == SDLK_UP && memory->edit_field != FRONTEND_MEMORY_EDIT_ADDRESS) {
+    /* Opt+Shift+Up/Down: scroll one row with the cursor pinned on-screen. */
+    if (alt && shift && sym == SDLK_UP &&
+        memory->edit_field != FRONTEND_MEMORY_EDIT_ADDRESS) {
+        int32_t delta = -(int32_t)memory->columns;
+        memory->view_address = (uint16_t)(memory->view_address + delta);
+        memory->cursor_address = (uint16_t)(memory->cursor_address + delta);
+        memory->request_pending = false;
+        return;
+    }
+    if (alt && shift && sym == SDLK_DOWN &&
+        memory->edit_field != FRONTEND_MEMORY_EDIT_ADDRESS) {
+        int32_t delta = (int32_t)memory->columns;
+        memory->view_address = (uint16_t)(memory->view_address + delta);
+        memory->cursor_address = (uint16_t)(memory->cursor_address + delta);
+        memory->request_pending = false;
+        return;
+    }
+
+    /* Virtual view navigation (Opt alone; Shift reserved above). */
+    if (alt && !shift && sym == SDLK_UP &&
+        memory->edit_field != FRONTEND_MEMORY_EDIT_ADDRESS) {
         if (ui->memory_active_view_index > 0) {
             ui->memory_active_view_index--;
         }
         return;
     }
 
-    if (alt && sym == SDLK_DOWN && memory->edit_field != FRONTEND_MEMORY_EDIT_ADDRESS) {
+    if (alt && !shift && sym == SDLK_DOWN &&
+        memory->edit_field != FRONTEND_MEMORY_EDIT_ADDRESS) {
         if (ui->memory_active_view_index < ui->memory_view_count - 1) {
             ui->memory_active_view_index++;
         }
@@ -5952,14 +5972,6 @@ static bool frontend_memview_read_byte(void *ctx, uint32_t source_id, uint16_t a
     return true;
 }
 
-static void frontend_memview_write_byte(void *ctx, uint32_t source_id, uint16_t address, uint8_t value)
-{
-    frontend *ui = ctx;
-    const frontend_debug_state *debug = ui != NULL ? (const frontend_debug_state *)ui->memview_debug : NULL;
-    frontend_push_memory_write_byte(ui, address, value, (runtime_memory_mode)source_id);
-    (void)debug;
-}
-
 static void frontend_memview_request(void *ctx)
 {
     frontend *ui = ctx;
@@ -6161,7 +6173,6 @@ static void frontend_draw_memory(frontend *ui, struct nk_rect bounds, const fron
     ops.ctx = ui;
     ops.byte_available = frontend_memview_byte_available;
     ops.read_byte = frontend_memview_read_byte;
-    ops.write_byte = frontend_memview_write_byte;
     ops.request = frontend_memview_request;
     ops.search_plane = frontend_memview_search_plane;
     ops.char_width = frontend_memview_char_width_ops;

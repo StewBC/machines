@@ -709,6 +709,8 @@ active split Memory view and wraps around the 64K address space.
 | `Opt+J` | Dissolve active view (no-op when only one view exists) |
 | `Opt+Up` | Switch focus to the view above |
 | `Opt+Down` | Switch focus to the view below |
+| `Opt+Shift+Up` | Scroll one row up; cursor stays on the same screen cell |
+| `Opt+Shift+Down` | Scroll one row down; cursor stays on the same screen cell |
 | `Up` / `Down` | Move cursor one row (16 bytes) |
 | `Left` / `Right` | Move cursor one byte (or nibble in hex mode) |
 | `PgUp` / `PgDn` | Scroll one page |
