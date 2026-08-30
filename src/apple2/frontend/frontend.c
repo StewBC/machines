@@ -6016,11 +6016,14 @@ static void frontend_memview_open_context(
     }
     ui->memory_context_menu_view_index = view_index;
     ui->memory_context_menu_address = address;
+    /* Height while Memory pane spacing is zeroed:
+     * rows*22 + seps*5 + 2*popup_padding.y(4). Stopped adds Access (heading+4).
+     * Prior constants were one row short and clipped the newest Access PC. */
     frontend_context_popup_open(
         ui,
         &ui->memory_context_popup,
         120.0f,
-        stopped ? (can_join ? 417.0f : 395.0f) : (can_join ? 297.0f : 275.0f));
+        stopped ? (can_join ? 439.0f : 417.0f) : (can_join ? 319.0f : 297.0f));
 }
 
 static void frontend_memview_draw_context(

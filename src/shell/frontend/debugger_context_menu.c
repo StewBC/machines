@@ -148,7 +148,10 @@ void debugger_context_menu_separator(struct nk_context *ctx)
 
 void debugger_context_menu_heading(struct nk_context *ctx, const char *label)
 {
-    debugger_context_menu_label(ctx, label);
+    /* Titles stay left-aligned like items; colour is what marks them as group
+     * labels (selectable rows use the default text colour). */
+    nk_layout_row_dynamic(ctx, 22.0f, 1);
+    nk_label_colored(ctx, label, NK_TEXT_LEFT, nk_rgb(160, 200, 220));
     debugger_context_menu_separator(ctx);
 }
 
