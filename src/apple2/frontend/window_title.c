@@ -35,10 +35,7 @@ void frontend_format_window_title_ex(
     uint32_t turbo_multiplier,
     frontend_runtime_state state,
     runtime_stop_reason stop_reason,
-    bool inspecting,
-    uint64_t inspector_focus_cycle,
-    uint64_t inspector_oldest_cycle,
-    uint64_t inspector_newest_cycle)
+    bool inspecting)
 {
     const char *label = "Apple II";
     char turbo[32];
@@ -53,14 +50,7 @@ void frontend_format_window_title_ex(
     runtime_turbo_format_label(turbo_multiplier, turbo, sizeof(turbo));
 
     if (inspecting) {
-        snprintf(
-            state_text,
-            sizeof(state_text),
-            "INSPECT %llu-%llu @ %llu",
-            (unsigned long long)inspector_oldest_cycle,
-            (unsigned long long)inspector_newest_cycle,
-            (unsigned long long)inspector_focus_cycle);
-        debugger_format_window_title(out, out_size, "a2m", label, turbo, state_text);
+        debugger_format_window_title(out, out_size, "a2m", label, turbo, "Inspect");
         return;
     }
 
@@ -98,8 +88,5 @@ void frontend_format_window_title(
         turbo_multiplier,
         state,
         stop_reason,
-        false,
-        0u,
-        0u,
-        0u);
+        false);
 }

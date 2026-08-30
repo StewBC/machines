@@ -7448,7 +7448,6 @@ static void frontend_draw_misc_inspector(
     char oldest_buf[64];
     char live_buf[64];
     char duration_buf[64];
-    char frame_cycle_buf[64];
 
     if (ui == NULL || ui->ctx == NULL) {
         return;
@@ -7557,17 +7556,6 @@ static void frontend_draw_misc_inspector(
         snprintf(
             view.cycle_line, sizeof(view.cycle_line), "%llu",
             (unsigned long long)debug->inspector_focus_cycle);
-        if (debug->inspector_focus_is_sample &&
-            debug->inspector_focus_ordinal < catalog_count) {
-            snprintf(
-                frame_cycle_buf, sizeof(frame_cycle_buf), "%llu",
-                (unsigned long long)debug->inspector_catalog
-                    .samples[debug->inspector_focus_ordinal].frame_cycle);
-            view.extra[view.extra_count].label = "Frame cycle:";
-            view.extra[view.extra_count].value = frame_cycle_buf;
-            view.extra[view.extra_count].wrap = false;
-            view.extra_count++;
-        }
         frontend_inspector_append_summary(
             &view, debug, oldest_buf, live_buf, duration_buf, 64u);
     } else if (can_enter) {

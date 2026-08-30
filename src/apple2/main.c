@@ -164,10 +164,7 @@ static void update_window_title(
         turbo_multiplier,
         state,
         stop_reason,
-        debug != NULL && debug->inspecting,
-        debug != NULL ? debug->inspector_focus_cycle : 0u,
-        debug != NULL ? debug->inspector_oldest_cycle : 0u,
-        debug != NULL ? debug->inspector_newest_cycle : 0u);
+        debug != NULL && debug->inspecting);
     platform_window_set_title(window, title);
 }
 
@@ -2721,7 +2718,6 @@ int main(int argc, char **argv)
     uint32_t last_title_turbo = 0u;
     int last_title_model = -1;
     bool last_title_inspecting = false;
-    uint64_t last_title_focus = 0u;
     /* Keep SDL text input off unless a UI field is focused (c64m / macOS). */
     bool text_input_active = false;
     /* After Opt+letter host chords, swallow TEXTINPUT until Option is released
@@ -3576,8 +3572,7 @@ int main(int argc, char **argv)
                 debug.stop_reason != last_title_stop_reason ||
                 debug.active_turbo_multiplier != last_title_turbo ||
                 model != last_title_model ||
-                debug.inspecting != last_title_inspecting ||
-                debug.inspector_focus_cycle != last_title_focus) {
+                debug.inspecting != last_title_inspecting) {
                 update_window_title(
                     window,
                     app_model_label(model),
@@ -3590,7 +3585,6 @@ int main(int argc, char **argv)
                 last_title_turbo = debug.active_turbo_multiplier;
                 last_title_model = model;
                 last_title_inspecting = debug.inspecting;
-                last_title_focus = debug.inspector_focus_cycle;
                 title_set = true;
             }
         }

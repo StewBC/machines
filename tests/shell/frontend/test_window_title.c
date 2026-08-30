@@ -21,8 +21,8 @@ int main(void)
     expect_eq("a2m running", "a2m - //e Enhanced - 1.00 MHz - Running", actual);
 
     debugger_format_window_title(
-        actual, sizeof(actual), "a2m", "][+ ", "Max", "INSPECT 1-2 @ 3");
-    expect_eq("a2m inspect", "a2m - ][+  - Max - INSPECT 1-2 @ 3", actual);
+        actual, sizeof(actual), "a2m", "][+ ", "Max", "Inspect");
+    expect_eq("a2m inspect", "a2m - ][+  - Max - Inspect", actual);
 
     debugger_format_window_title(
         actual, sizeof(actual), "c64m", "PAL", "Normal", "Running");
