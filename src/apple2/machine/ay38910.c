@@ -169,39 +169,6 @@ static void ay38910_step_envelope_level(AY38910 *ay) {
     ay38910_finish_envelope_cycle(ay);
 }
 
-uint8_t ay38910_get_channel_mixer_gate(const AY38910 *ay, int channel) {
-    uint8_t mixer = ay->regs[AY38910_REG_MIXER];
-    uint8_t tone_gate = (uint8_t)((mixer & (1u << channel)) ? 1u : ay->tone_output[channel]);
-    uint8_t noise_gate = (uint8_t)((mixer & (1u << (channel + 3))) ? 1u : ay->noise_output);
-
-    assert(channel >= 0 && channel < 3);
-    return (uint8_t)(tone_gate & noise_gate);
-}
-
-uint8_t ay38910_get_channel_amplitude_level(const AY38910 *ay, int channel) {
-    uint8_t volume_reg = ay->regs[AY38910_REG_VOLUME_A + channel];
-    uint8_t level;
-
-    assert(channel >= 0 && channel < 3);
-    if(volume_reg & 0x10) {
-        return (uint8_t)(ay->env_level & 0x0F);
-    }
-
-    level = volume_reg & 0x0F;
-    return level;
-}
-
-float ay38910_get_channel_output_level(const AY38910 *ay, int channel) {
-    uint8_t channel_gate = ay38910_get_channel_mixer_gate(ay, channel);
-    uint8_t level = ay38910_get_channel_amplitude_level(ay, channel);
-
-    if(!channel_gate) {
-        return 0.0f;
-    }
-
-    return ay38910_volume_table[level];
-}
-
 static void ay38910_refresh_sample(AY38910 *ay) {
     // This core computes the chip's current logical output level from already-modeled AY
     // state. Treat this as a chip-state generator, not as the final host reconstruction
@@ -484,12 +451,4 @@ void ay38910_write_selected(AY38910 *ay, uint8_t value) {
 
 uint8_t ay38910_is_active(const AY38910 *ay) {
     return ay->active;
-}
-
-void ay38910_step_cycles(AY38910 *ay, uint32_t cycles) {
-    ay38910_step_cycles_render(ay, cycles, NULL);
-}
-
-float ay38910_get_sample(const AY38910 *ay) {
-    return ay->sample;
 }

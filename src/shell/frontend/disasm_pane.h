@@ -83,21 +83,7 @@ void disasm_pane_init(disasm_pane_state *state, uint32_t source_id, disasm_6502_
 
 disasm_pc_lock_cache *disasm_pane_cache(disasm_pane_state *state, uint32_t source_id);
 
-void disasm_pane_merge_bytes(
-    disasm_pane_state *state,
-    uint32_t source_id,
-    uint16_t address,
-    const uint8_t *bytes,
-    uint16_t length);
-
 void disasm_pane_decode(disasm_pane_state *state, const symbol_resolver *symbols);
-
-void disasm_pane_handle_key(
-    disasm_pane_state *state,
-    const SDL_KeyboardEvent *key,
-    const memory_source *table,
-    size_t count,
-    const disasm_pane_ops *ops);
 
 void disasm_pane_draw(
     struct nk_context *ctx,

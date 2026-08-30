@@ -10,7 +10,6 @@ typedef struct {
 } DYNARRAY;
 
 int array_add(DYNARRAY *array, void *element);
-int array_copy_items(DYNARRAY *array, size_t start_index, size_t end_index, size_t to_index);
 void array_free(DYNARRAY *array);
 void *array_get(const DYNARRAY *array, size_t index);
 void array_init(DYNARRAY *array, size_t element_size);

@@ -37,11 +37,6 @@ void runtime_client_set_command_session(runtime_client *client, uint32_t session
     }
 }
 
-uint32_t runtime_client_get_command_session(const runtime_client *client)
-{
-    return (client != NULL) ? client->session_id : 0u;
-}
-
 uint64_t runtime_client_alloc_request_token(runtime_client *client)
 {
     if (client == NULL) {

@@ -12,8 +12,7 @@
 #define A2_SNAPSHOT_VERSION_MIN 1u
 
 typedef enum a2_snapshot_content_mode {
-    A2_SNAPSHOT_CONTENT_REFERENCED = 1,
-    A2_SNAPSHOT_CONTENT_SELF_CONTAINED = 2
+    A2_SNAPSHOT_CONTENT_REFERENCED = 1
 } a2_snapshot_content_mode;
 
 enum {

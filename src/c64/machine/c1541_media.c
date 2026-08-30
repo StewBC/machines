@@ -934,41 +934,6 @@ static void media_align_after_sync(c1541_media *m) {
     m->in_sync = 0;
 }
 
-void c1541_media_align_after_sync(struct c1541 *drive) {
-    if (drive == NULL || !drive->media.enabled || !drive->media.tracks_valid) {
-        return;
-    }
-    media_align_after_sync(&drive->media);
-}
-
-/* Like align_after_sync, then skip skip_bytes GCR bytes (for dual-BVC pre-roll). */
-void c1541_media_align_after_sync_skip(struct c1541 *drive, unsigned skip_bytes) {
-    c1541_media *m;
-    c1541_track *tr;
-    uint32_t nbits;
-
-    if (drive == NULL || !drive->media.enabled || !drive->media.tracks_valid) {
-        return;
-    }
-    media_align_after_sync(&drive->media);
-    if (skip_bytes == 0) {
-        return;
-    }
-    m = &drive->media;
-    tr = current_track(m);
-    if (tr == NULL || tr->data == NULL || tr->length <= 0) {
-        return;
-    }
-    nbits = (uint32_t)tr->length * 8u;
-    m->head_bit_pos = (m->head_bit_pos + (uint32_t)skip_bytes * 8u) % nbits;
-    m->bits_in_byte = 0;
-    m->byte_ready = 0;
-    m->shifting_byte = 0;
-    /* shift10/in_sync will resync from flux on subsequent bit clocks */
-    m->shift10 = 0;
-    m->in_sync = 0;
-}
-
 static void sample_disk_via_outputs(c1541 *drive) {
     c1541_media *m = &drive->media;
     uint8_t orb = drive->via2.orb;
@@ -1411,42 +1376,4 @@ int c1541_media_poke_sector(
         }
     }
     return 1;
-}
-
-int c1541_media_rebuild_track(c1541 *drive, uint8_t track) {
-    c1541_media *m;
-    const c64_drive_slot *slot;
-    uint8_t id_lo = 0x41u;
-    uint8_t id_hi = 0x41u;
-    int bam_off;
-
-    if (drive == NULL || track < 1 || track > 35) {
-        return 0;
-    }
-    m = &drive->media;
-    if (!m->enabled) {
-        return 0;
-    }
-    slot = c64_get_drive_slot(drive->c64, drive->device_number);
-    if (slot == NULL || !slot->mounted || slot->image_bytes == NULL) {
-        return 0;
-    }
-    bam_off = c1541_gcr_d64_sector_offset(18, 0);
-    if (bam_off >= 0 && (size_t)(bam_off + 164) <= slot->image_size) {
-        id_lo = slot->image_bytes[bam_off + 162];
-        id_hi = slot->image_bytes[bam_off + 163];
-    }
-    {
-        int hs = whole_track_slot(track);
-        if (hs < 0) {
-            return 0;
-        }
-        return build_one_track(
-            &m->halves[hs],
-            track,
-            slot->image_bytes,
-            slot->image_size,
-            id_lo,
-            id_hi);
-    }
 }

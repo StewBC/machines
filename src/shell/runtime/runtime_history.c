@@ -911,16 +911,6 @@ bool runtime_history_force_new_block(
     return history_advance_block(history, machine_cycle);
 }
 
-bool runtime_history_set_timeline(runtime_history *history, uint32_t timeline) {
-    if (history == NULL || !history->available) {
-        return false;
-    }
-    (void)runtime_history_seal_partial(history);
-    history_seal_current_block(history);
-    history->timeline = timeline;
-    return true;
-}
-
 bool runtime_history_lookup(
     const runtime_history *history,
     uint64_t epoch,

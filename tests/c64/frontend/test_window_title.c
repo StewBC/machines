@@ -14,8 +14,8 @@ static void expect_title(
 {
     char actual[96];
 
-    frontend_format_window_title(
-        actual, sizeof(actual), video, turbo, state, reason);
+    frontend_format_window_title_ex(
+        actual, sizeof(actual), video, turbo, state, reason, false);
     if (strcmp(expected, actual) != 0) {
         fprintf(stderr, "%s: expected `%s`, got `%s`\n", name, expected, actual);
         exit(1);

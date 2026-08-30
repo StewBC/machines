@@ -67,10 +67,6 @@ typedef struct debugger_disasm_ops {
     void (*on_set_pc)(void *ctx, uint16_t address); /* Opt+Left */
     void (*on_cycle_memory_mode)(void *ctx); /* Opt+M */
     void (*on_symbol_lookup)(void *ctx); /* Opt+S */
-
-    /* Optional frame-step in time travel. */
-    void (*on_step_prev)(void *ctx);
-    void (*on_step_next)(void *ctx);
 } debugger_disasm_ops;
 
 void debugger_disasm_view_init(debugger_disasm_view *view);
@@ -85,9 +81,6 @@ void debugger_disasm_apply_address_digit(
     debugger_disasm_view *view,
     const debugger_disasm_ops *ops,
     int digit);
-
-/* Row marker: '>' = focus (live PC / THEN), '*' = browse, ' ' = neither. */
-char debugger_disasm_row_marker(bool is_focus, bool is_browse);
 
 /* ASCII footer hint for the panel. */
 const char *debugger_disasm_footer_hint(debugger_disasm_mode mode);

@@ -39,8 +39,7 @@ enum {
     STEP_OUT_FAST_LIMIT      = 10000,
 
     /* Step Over fast-loop budget: must cover complex KERNAL subroutines while
-       still providing a safety fallback if the callee never returns to stop_pc.
-       Logged periodically so the terminal shows progress. */
+       still providing a safety fallback if the callee never returns to stop_pc. */
     STEP_OVER_FAST_LIMIT     = 500000,
 
 };
@@ -3169,7 +3168,6 @@ static bool runtime_step_cycle_command(runtime *rt) {
 
 static bool runtime_step_instruction(runtime *rt) {
     char error[256];
-    c64_cpu_snapshot snapshot;
 
     rt->suppress_execute_bp = false;
     if (!c64_step_instruction(&rt->machine, error, sizeof(error))) {
@@ -3180,12 +3178,6 @@ static bool runtime_step_instruction(runtime *rt) {
     runtime_inspector_after_step(rt);
 
     rt->breakpoint_hit_pending = false;
-    c64_copy_cpu_snapshot(&rt->machine, &snapshot);
-    fprintf(
-        stderr,
-        "STEP instruction PC=%04X CYCLES=%llu\n",
-        snapshot.pc,
-        (unsigned long long)snapshot.cycles);
     return runtime_publish_step_complete(rt);
 }
 

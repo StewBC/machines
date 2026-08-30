@@ -6,7 +6,7 @@ next work. Do not reopen them as implicit TODOs.
 | Gap | Reality |
 |-----|---------|
 | Promote / Branch | There is no “make this past the new live NOW” verb. History `timeline` exists for discontinuities; no promote API or control op. |
-| Self-contained snapshots | `A2_SNAPSHOT_CONTENT_SELF_CONTAINED` is an unused enum. `.a2state` stores **paths**; missing media fails the load. |
+| Self-contained snapshots | Not implemented. `.a2state` stores **paths** only; missing media fails the load. |
 | WOZ writes | `.woz` mounts read; `image_put_byte` fails. |
 | SmartPort command set | Host trap implements STATUS / READ_BLOCK / WRITE_BLOCK only. No full DIB / extended SP firmware. |
 | Extra slot cards | Disk II, SmartPort, Mockingboard. No SSC, mouse, clock, Videx, Franklin. |

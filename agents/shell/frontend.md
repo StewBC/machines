@@ -45,7 +45,9 @@ Stage 7 client subset and Stage 5 memory-source table, not `apple2.h` /
   and is tracked by address independently of the view. Wheel/scrollbar only
   pan the listing. Execute BPs show as `X`/`x`. Leftover supplies target
   annotation and BP lookup; leftover `frontend_disassembly_handle_key` is
-  the live key table.
+  the live key table. Do not leave unused `*_ops` callbacks or unused shell
+  pane key/merge stubs beside a live product handler — delete or wire in
+  the same change.
 - Opt+M cycles the **machine's published sources**, not a shared enum.
   Apple memview Map→Main→Aux→LC1→LC2→ROM; Apple disasm Map→ROM→Main.
   C64 CPU map / ROM / RAM / drive 8 / drive 9. High-bit ASCII is a source

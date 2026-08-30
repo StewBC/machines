@@ -111,12 +111,6 @@ int c1541_media_build_from_g64(
 /* One drive-cycle media step: sample disk VIA, rotate, update SYNC/Port A/SO. */
 void c1541_media_step(struct c1541 *drive);
 
-/* Align head after a SYNC that precedes a long gap (full data-block sample). */
-void c1541_media_align_after_sync(struct c1541 *drive);
-
-/* Align after long-gap SYNC, then skip GCR bytes (match dual-BVC pre-roll). */
-void c1541_media_align_after_sync_skip(struct c1541 *drive, unsigned skip_bytes);
-
 /* Called when the drive CPU reads disk-controller VIA Port A ($1C01). */
 void c1541_media_on_port_a_read(struct c1541 *drive);
 
@@ -136,9 +130,6 @@ int c1541_media_poke_sector(
     uint8_t track,
     uint8_t sector,
     const uint8_t data[256]);
-
-/* Rebuild one track's GCR from the mounted D64 image (after format erase). */
-int c1541_media_rebuild_track(struct c1541 *drive, uint8_t track);
 
 /* Decode dirty GCR tracks back into the mounted D64 image_bytes; marks dirty. */
 int c1541_media_sync_dirty_to_d64(struct c1541 *drive);

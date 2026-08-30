@@ -72,21 +72,3 @@ void frontend_format_window_title_ex(
     }
     debugger_format_window_title(out, out_size, "a2m", label, turbo, state_text);
 }
-
-void frontend_format_window_title(
-    char *out,
-    size_t out_size,
-    const char *product_label,
-    uint32_t turbo_multiplier,
-    frontend_runtime_state state,
-    runtime_stop_reason stop_reason)
-{
-    frontend_format_window_title_ex(
-        out,
-        out_size,
-        product_label,
-        turbo_multiplier,
-        state,
-        stop_reason,
-        false);
-}

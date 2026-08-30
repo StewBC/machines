@@ -64,14 +64,6 @@ void runtime_client_set_command_session(runtime_client *client, uint32_t session
     client->command_session_id = session_id;
 }
 
-uint32_t runtime_client_get_command_session(const runtime_client *client)
-{
-    if (client == NULL) {
-        return 0u;
-    }
-    return client->command_session_id;
-}
-
 bool runtime_client_ping(runtime_client *client) {
     return runtime_client_send_command(client, RUNTIME_COMMAND_PING);
 }

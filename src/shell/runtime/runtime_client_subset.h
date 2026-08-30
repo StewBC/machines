@@ -19,7 +19,6 @@ typedef struct runtime_client runtime_client;
 #endif
 
 void runtime_client_set_command_session(runtime_client *client, uint32_t session_id);
-uint32_t runtime_client_get_command_session(const runtime_client *client);
 uint64_t runtime_client_alloc_request_token(runtime_client *client);
 
 bool runtime_client_ping(runtime_client *client);

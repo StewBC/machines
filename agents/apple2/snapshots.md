@@ -32,10 +32,10 @@ Serialize on the **runtime thread**. Host never touches `apple2_t`.
 | `SPrt` | SmartPort paths + handshake buffer |
 | `MBrd` | VIA + AY chip state |
 
-**Referenced media only.** `A2_SNAPSHOT_CONTENT_SELF_CONTAINED` exists as an
-enum and is not written. Missing media path on load is a **hard failure**.
-Dirty Disk II images are flushed to their files before save; a failed flush
-fails the save.
+**Referenced media only.** Snapshots store paths (`A2_SNAPSHOT_CONTENT_REFERENCED`);
+there is no self-contained blob mode. Missing media path on load is a **hard
+failure**. Dirty Disk II images are flushed to their files before save; a
+failed flush fails the save.
 
 Never serialize: host pointers, page maps, framebuffer, paste, write_history,
 mono/phosphor. After load: `softswitch_apply_full_map`, rebind CPU callbacks,

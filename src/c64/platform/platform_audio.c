@@ -133,20 +133,6 @@ void platform_audio_start(platform_audio *audio) {
     }
 }
 
-void platform_audio_stop(platform_audio *audio) {
-    if (audio != NULL && audio->device_id != 0) {
-        SDL_PauseAudioDevice(audio->device_id, 1);
-    }
-}
-
 int platform_audio_actual_rate(const platform_audio *audio) {
     return audio != NULL ? audio->actual_rate : 0;
-}
-
-int platform_audio_actual_channels(const platform_audio *audio) {
-    return audio != NULL ? audio->actual_channels : 0;
-}
-
-bool platform_audio_is_open(const platform_audio *audio) {
-    return audio != NULL && audio->is_open;
 }

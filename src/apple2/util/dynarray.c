@@ -21,24 +21,6 @@ int array_add(DYNARRAY *array, void *element) {
     return A2_OK;
 }
 
-// Copy element in array from old to new index
-int array_copy_items(DYNARRAY *array, size_t start_index, size_t end_index, size_t to_index) {
-    size_t num_items = end_index - start_index;
-    size_t next_index = to_index + num_items;
-    if(next_index >= array->size) {
-        if(A2_OK != array_resize(array, next_index)) {
-            return A2_ERR;
-        }
-    }
-
-    memmove((char *) array->data + to_index * array->element_size, (char *) array->data + start_index * array->element_size,
-            num_items * array->element_size);
-    if(next_index > array->items) {
-        array->items = next_index;
-    }
-    return A2_OK;
-}
-
 // Free the array
 void array_free(DYNARRAY *array) {
     free(array->data);

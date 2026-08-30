@@ -313,7 +313,6 @@ bool runtime_history_clear_for_state_load(
     runtime_history *history,
     uint64_t machine_cycle);
 bool runtime_history_transition_timeline(runtime_history *history);
-bool runtime_history_set_timeline(runtime_history *history, uint32_t timeline);
 bool runtime_history_force_new_block(
     runtime_history *history, uint64_t machine_cycle);
 /* Logical floor: status/first treat `id` as the new oldest retained record. */

@@ -16,17 +16,6 @@ void debugger_disasm_view_init(debugger_disasm_view *view)
     view->has_cursor = false;
 }
 
-char debugger_disasm_row_marker(bool is_focus, bool is_browse)
-{
-    if (is_focus) {
-        return '>';
-    }
-    if (is_browse) {
-        return '*';
-    }
-    return ' ';
-}
-
 const char *debugger_disasm_footer_hint(debugger_disasm_mode mode)
 {
     if (mode == DEBUGGER_DISASM_MODE_INSPECT) {

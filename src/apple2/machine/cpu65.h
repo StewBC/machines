@@ -151,7 +151,6 @@ void cpu65_set_irq_pending_callback(cpu65_t *m, cpu65_irq_pending_fn irq_pending
 void cpu65_set_nmi_pending_callback(cpu65_t *m, cpu65_nmi_pending_fn nmi_pending);
 
 void cpu65_reset(cpu65_t *m);
-void cpu65_set_overflow(cpu65_t *m);
 size_t cpu65_step(cpu65_t *m);
 
 /* Resumable Phi2 path for documented NMOS 6502/6510 opcodes plus practical
@@ -160,6 +159,4 @@ bool cpu65_micro_can_begin(const cpu65_t *m, uint8_t opcode);
 void cpu65_micro_begin(cpu65_t *m);
 void cpu65_micro_begin_interrupt(cpu65_t *m, cpu65_interrupt_kind kind);
 cpu65_interrupt_kind cpu65_micro_poll_interrupt(cpu65_t *m);
-cpu65_bus_access_kind cpu65_micro_access_kind(const cpu65_t *m);
 bool cpu65_micro_step(cpu65_t *m);
-size_t cpu65_micro_cycles_remaining(const cpu65_t *m);
