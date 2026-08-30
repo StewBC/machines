@@ -719,10 +719,10 @@ raster register:
 N break-create write $D012 actions=break
 ```
 
-`actions` is a comma-separated subset of `break,fast,slow,tron,troff,type,swap`,
-or the exclusive token `none` for a **count-only** breakpoint: hits accumulate
-while the machine free-runs (no pause). Use `break-list` / `hits=` to read the
-count after a run.
+`actions` is a comma-separated subset of `break,fast,slow,type,swap`, or the
+exclusive token `none` for a **count-only** breakpoint: hits accumulate while
+the machine free-runs (no pause). Use `break-list` / `hits=` to read the count
+after a run.
 
 ```text
 N break-create exec $EA31 actions=none
@@ -791,8 +791,8 @@ only advance on guarded matches — a count-only guarded breakpoint
 
 Guarded definitions round-trip through the debug `.ini`.
 
-Richer frontend breakpoint parameters (Type text, Swap param, Tron path) are
-persisted by the UI but are not all expressible through this control syntax.
+Richer frontend breakpoint parameters (Type text, Swap param) are persisted by
+the UI but are not all expressible through this control syntax.
 Breakpoint data responses are newline-separated text records with metadata
 `count=N`:
 

@@ -135,5 +135,5 @@ overlap-layout retries. Library details: `tools.md`.
 ## Limits
 
 File browser has no Windows drive-letter enumeration UI. Undocumented
-opcodes display as `.BYTE`. Breakpoint Type during cycle stepping,
-per-device Swap, and richer Tron management remain limited.
+opcodes display as `.BYTE`. Breakpoint Type during cycle stepping and
+per-device Swap remain limited.

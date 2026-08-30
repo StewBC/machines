@@ -225,17 +225,6 @@ static bool runtime_ini_parse_breakpoint_item(
     } else if (runtime_ini_streq(item, "slow")) {
         definition->actions |= RUNTIME_BREAKPOINT_ACTION_SLOW;
         state->saw_action = true;
-    } else if (runtime_ini_streq(item, "tron")) {
-        definition->actions |= RUNTIME_BREAKPOINT_ACTION_TRON;
-        definition->tron_path[0] = '\0';
-        state->saw_action = true;
-    } else if (strncmp(item, "tron=", 5) == 0) {
-        definition->actions |= RUNTIME_BREAKPOINT_ACTION_TRON;
-        snprintf(definition->tron_path, sizeof(definition->tron_path), "%s", item + 5);
-        state->saw_action = true;
-    } else if (runtime_ini_streq(item, "troff")) {
-        definition->actions |= RUNTIME_BREAKPOINT_ACTION_TROFF;
-        state->saw_action = true;
     } else if (runtime_ini_streq(item, "type")) {
         definition->actions |= RUNTIME_BREAKPOINT_ACTION_TYPE;
         definition->type_text[0] = '\0';
@@ -467,7 +456,6 @@ static bool runtime_add_loaded_breakpoint(runtime *rt, const runtime_breakpoint_
     breakpoint->swap_slot = definition->swap_slot;
     breakpoint->swap_param = definition->swap_param;
     breakpoint->swap_relative = definition->swap_relative;
-    snprintf(breakpoint->tron_path, sizeof(breakpoint->tron_path), "%s", definition->tron_path);
     snprintf(breakpoint->type_text, sizeof(breakpoint->type_text), "%s", definition->type_text);
     breakpoint->condition = definition->condition;
     if (!runtime_bp_condition_is_valid(&breakpoint->condition)) {
@@ -614,18 +602,6 @@ static void runtime_format_breakpoint_value(
     }
     if ((breakpoint->action_mask & RUNTIME_BREAKPOINT_ACTION_SLOW) != 0) {
         runtime_append_token(out, out_size, "slow");
-    }
-    if ((breakpoint->action_mask & RUNTIME_BREAKPOINT_ACTION_TRON) != 0) {
-        if (breakpoint->tron_path[0] != '\0') {
-            char tron_tok[RUNTIME_BREAKPOINT_TRON_PATH_MAX + 8];
-            snprintf(tron_tok, sizeof(tron_tok), "tron=%s", breakpoint->tron_path);
-            runtime_append_token(out, out_size, tron_tok);
-        } else {
-            runtime_append_token(out, out_size, "tron");
-        }
-    }
-    if ((breakpoint->action_mask & RUNTIME_BREAKPOINT_ACTION_TROFF) != 0) {
-        runtime_append_token(out, out_size, "troff");
     }
     if ((breakpoint->action_mask & RUNTIME_BREAKPOINT_ACTION_SWAP) != 0) {
         char slot_tok[24];

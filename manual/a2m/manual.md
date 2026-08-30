@@ -904,7 +904,7 @@ W[C123-C1FF] (5/10)  [Edit] [Disable] [Clear]
 | `R`, `W`, `RW` | Access type (read, write, or either) |
 | `[C123]` | Address; or `[C123-C1FF]` for a range |
 | `(5/10)` | Counter: total hits / repeat countdown (shown when counter is active) |
-| Action label | `Fast`, `Slow`, `Tron`, `Troff`, `Swap`, `Type`, or nothing (Break) |
+| Action label | `Fast`, `Slow`, `Swap`, `Type`, or nothing (Break) |
 
 - **[Edit]** opens the Breakpoint Editor.
 - **[Disable]** / **[Enable]** toggles the breakpoint without removing it.
@@ -939,13 +939,10 @@ breakpoint.
 | Break | - | Pause execution (default) |
 | Fast | - | Switch turbo to `max` |
 | Slow | - | Switch turbo to 1 MHz |
-| Troff | - | Disable per-instruction execution trace |
-| Tron | Filename | Enable per-instruction execution trace; writes to the given file, or `trace.log` if the field is empty |
 | Swap | Slot + queue step | Advance a Disk II queue (see below) |
 | Type | Text | Inject text as Apple keystrokes when the breakpoint fires |
 
-Tron and Troff are mutually exclusive: checking one automatically clears the other.
-When Tron, Swap, or Type is unchecked, its parameter field is grayed out.
+When Swap or Type is unchecked, its parameter field is grayed out.
 
 **Swap parameter format:**
 
@@ -1768,9 +1765,6 @@ break.<addr[-addr]> = <access>[,mapping][,actions][,count=N][,reset=N]
 | `break` | Pause execution |
 | `fast` | Switch turbo to `max` |
 | `slow` | Switch turbo to 1 MHz |
-| `troff` | Disable execution trace |
-| `tron` | Enable execution trace; writes to `trace.log` |
-| `tron=path` | Enable execution trace; writes to `path` |
 | `swap=+N` | Advance the Disk II queue forward N steps (wraps) |
 | `swap=-N` | Advance the Disk II queue backward N steps (wraps) |
 | `swap=N` | Mount the Nth disk in the queue, 1-based |

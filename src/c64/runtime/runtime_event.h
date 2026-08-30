@@ -100,7 +100,6 @@ enum {
         RUNTIME_RPC_PAYLOAD_POOL_CAPACITY,
     RUNTIME_BREAKPOINT_SNAPSHOT_MAX = 64,
     RUNTIME_CALL_STACK_MAX = 16,
-    RUNTIME_BREAKPOINT_TRON_PATH_MAX = 256,
     RUNTIME_BREAKPOINT_TYPE_TEXT_MAX = 256
 };
 
@@ -127,8 +126,6 @@ typedef enum runtime_breakpoint_action {
     RUNTIME_BREAKPOINT_ACTION_BREAK = 1u << 0,
     RUNTIME_BREAKPOINT_ACTION_FAST = 1u << 1,
     RUNTIME_BREAKPOINT_ACTION_SLOW = 1u << 2,
-    RUNTIME_BREAKPOINT_ACTION_TRON = 1u << 3,
-    RUNTIME_BREAKPOINT_ACTION_TROFF = 1u << 4,
     RUNTIME_BREAKPOINT_ACTION_TYPE = 1u << 5,
     RUNTIME_BREAKPOINT_ACTION_SWAP = 1u << 6
 } runtime_breakpoint_action;
@@ -146,7 +143,6 @@ typedef struct runtime_breakpoint_definition {
     uint32_t reset_count;
     int32_t swap_param;    /* disk queue target: negative=backward, positive+swap_relative=forward, positive+!swap_relative=absolute 1-based */
     uint8_t swap_relative; /* 1 if +/- was explicit (relative movement), 0 if bare number (absolute index) */
-    char tron_path[RUNTIME_BREAKPOINT_TRON_PATH_MAX]; /* trace file path; empty = default "trace.log" */
     char type_text[RUNTIME_BREAKPOINT_TYPE_TEXT_MAX]; /* text to inject via Type action */
     /* Guard evaluated after address/access/mapping already matched. An empty
        condition (term_count 0) is an unguarded breakpoint. */
@@ -282,7 +278,6 @@ typedef struct runtime_breakpoint_snapshot_entry {
     uint32_t counter;
     int32_t swap_param;
     uint8_t swap_relative;
-    char tron_path[RUNTIME_BREAKPOINT_TRON_PATH_MAX];
     char type_text[RUNTIME_BREAKPOINT_TYPE_TEXT_MAX];
     runtime_bp_condition condition;
 

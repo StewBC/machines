@@ -178,7 +178,6 @@ typedef struct runtime_breakpoint {
     uint8_t swap_slot;
     int32_t swap_param;
     uint8_t swap_relative;
-    char tron_path[RUNTIME_BREAKPOINT_TRON_PATH_MAX];
     char type_text[RUNTIME_BREAKPOINT_TYPE_TEXT_MAX];
     runtime_bp_condition condition;
 } runtime_breakpoint;
@@ -256,10 +255,6 @@ struct runtime {
     uint64_t presentation_generation;
     uint32_t inspector_now_live_turbo_value;
     uint8_t inspector_now_execution_mode;
-
-    /* TRON/TROFF instruction log (C5b) — file open while trace_enabled. */
-    bool trace_enabled;
-    FILE *trace_file;
 
     /* Ladder + active: milli-MHz values; 0 = max. See runtime.h. */
     uint32_t turbo_speeds[16];

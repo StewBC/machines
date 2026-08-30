@@ -109,19 +109,6 @@ static void runtime_history_observer_complete(void *user)
     if (rt->history != NULL) {
         (void)runtime_history_complete_record(rt->history);
     }
-    /* TRON: log completed instruction using pre-complete CPU state after step. */
-    if (rt->trace_enabled && rt->trace_file != NULL) {
-        fprintf(
-            rt->trace_file,
-            "PC=%04X A=%02X X=%02X Y=%02X SP=%02X P=%02X CYC=%llu\n",
-            rt->machine.cpu.cpu.opcode_pc,
-            rt->machine.cpu.cpu.A,
-            rt->machine.cpu.cpu.X,
-            rt->machine.cpu.cpu.Y,
-            (unsigned)(rt->machine.cpu.cpu.sp & 0xffu),
-            rt->machine.cpu.cpu.flags,
-            (unsigned long long)apple2_cycles(&rt->machine));
-    }
 }
 
 static const apple2_cpu_observer runtime_history_observer = {
@@ -1784,7 +1771,6 @@ static void runtime_publish_breakpoints(runtime *rt)
         e->swap_slot = rt->breakpoints[i].swap_slot;
         e->swap_param = rt->breakpoints[i].swap_param;
         e->swap_relative = rt->breakpoints[i].swap_relative;
-        snprintf(e->tron_path, sizeof(e->tron_path), "%s", rt->breakpoints[i].tron_path);
         snprintf(e->type_text, sizeof(e->type_text), "%s", rt->breakpoints[i].type_text);
         e->condition = rt->breakpoints[i].condition;
         e->address = rt->breakpoints[i].start_address;
@@ -1838,8 +1824,6 @@ static bool runtime_breakpoint_definition_is_valid(const runtime_breakpoint_defi
         RUNTIME_BREAKPOINT_ACTION_BREAK |
         RUNTIME_BREAKPOINT_ACTION_FAST |
         RUNTIME_BREAKPOINT_ACTION_SLOW |
-        RUNTIME_BREAKPOINT_ACTION_TRON |
-        RUNTIME_BREAKPOINT_ACTION_TROFF |
         RUNTIME_BREAKPOINT_ACTION_TYPE |
         RUNTIME_BREAKPOINT_ACTION_SWAP;
 
@@ -1896,7 +1880,6 @@ static void runtime_breakpoint_apply_definition(
     breakpoint->swap_slot = definition->swap_slot;
     breakpoint->swap_param = definition->swap_param;
     breakpoint->swap_relative = definition->swap_relative;
-    snprintf(breakpoint->tron_path, sizeof(breakpoint->tron_path), "%s", definition->tron_path);
     snprintf(breakpoint->type_text, sizeof(breakpoint->type_text), "%s", definition->type_text);
     breakpoint->condition = definition->condition;
     if (!runtime_bp_condition_is_valid(&breakpoint->condition)) {
@@ -2128,34 +2111,6 @@ static bool runtime_execute_breakpoint_actions(runtime *rt, const runtime_breakp
         runtime_type_script_start(rt, breakpoint->type_text);
     }
 
-    /* TRON/TROFF: append instruction lines to a host file while enabled. */
-    if ((breakpoint->action_mask & RUNTIME_BREAKPOINT_ACTION_TRON) != 0) {
-        rt->trace_enabled = true;
-        if (rt->trace_file == NULL) {
-            const char *path = (breakpoint->tron_path[0] != '\0') ?
-                breakpoint->tron_path :
-                "trace.log";
-            rt->trace_file = fopen(path, "a");
-            if (rt->trace_file != NULL) {
-                fprintf(
-                    rt->trace_file,
-                    "--- TRON  CYC=%08llX ---\n",
-                    (unsigned long long)apple2_cycles(&rt->machine));
-            }
-        }
-    }
-    if ((breakpoint->action_mask & RUNTIME_BREAKPOINT_ACTION_TROFF) != 0) {
-        rt->trace_enabled = false;
-        if (rt->trace_file != NULL) {
-            fprintf(
-                rt->trace_file,
-                "--- TROFF CYC=%08llX ---\n",
-                (unsigned long long)apple2_cycles(&rt->machine));
-            fclose(rt->trace_file);
-            rt->trace_file = NULL;
-        }
-    }
-
     /*
      * SWAP: step a multi-image queue on Disk II (drive 0).
      * Machine owns the live queue; host may mirror current index via DISK_SWAP.
@@ -2360,7 +2315,6 @@ static void runtime_duplicate_breakpoint(runtime *rt, const runtime_command *com
     definition.swap_slot = source->swap_slot;
     definition.swap_param = source->swap_param;
     definition.swap_relative = source->swap_relative;
-    snprintf(definition.tron_path, sizeof(definition.tron_path), "%s", source->tron_path);
     snprintf(definition.type_text, sizeof(definition.type_text), "%s", source->type_text);
     definition.condition = source->condition;
     (void)runtime_add_breakpoint(rt, &definition, NULL);

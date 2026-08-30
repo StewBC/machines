@@ -975,7 +975,7 @@ W[C123-C1FF] (5/10)  [Edit] [Disable] [Clear]
 | `R`, `W`, `RW` | Access type (read, write, or either)                           |
 | `[C123]`       | Address; or `[C123-C1FF]` for a range                          |
 | `(5/10)`       | Counter: total hits / repeat countdown (shown when counter is active) |
-| Action label   | `Fast`, `Slow`, `Tron`, `Troff`, `Swap`, `Type`, or nothing (Break) |
+| Action label   | `Fast`, `Slow`, `Swap`, `Type`, or nothing (Break) |
 
 - **[Edit]** opens the Breakpoint Editor.
 - **[Disable]** / **[Enable]** toggles the breakpoint without removing it.
@@ -1011,13 +1011,10 @@ documentation for the condition syntax.
 | Break   | -               | Pause execution (default)                               |
 | Fast    | -               | Switch to free-run (breakpoint speed mode; paint off)   |
 | Slow    | -               | Restore normal paced speed                              |
-| Troff   | -               | Disable per-instruction execution trace                 |
-| Tron    | Filename        | Enable per-instruction execution trace; writes to the given file, or `trace.log` if the field is empty |
 | Swap    | Queue step      | Navigate the device 8 disk queue (see below)            |
 | Type    | Text            | Inject text as C64 keystrokes when the breakpoint fires |
 
-Tron and Troff are mutually exclusive: checking one automatically clears the other.
-When Tron, Swap, or Type is unchecked, its parameter field is grayed out.
+When Swap or Type is unchecked, its parameter field is grayed out.
 
 **Swap parameter format:**
 
@@ -1850,9 +1847,6 @@ break.<suffix> = <address[-address]>[,access][,mapping][,actions][,count=N][,res
 | `break`            | Pause execution                                                      |
 | `fast`             | Free-run with paint off until a slow/normal path restores pacing       |
 | `slow`             | Restore normal paced speed                                           |
-| `troff`            | Disable execution trace                                              |
-| `tron`             | Enable execution trace; writes to `trace.log`                        |
-| `tron=path`        | Enable execution trace; writes to `path`                             |
 | `swap=+N`          | Advance device 8 disk queue forward N steps (wraps)                  |
 | `swap=-N`          | Advance device 8 disk queue backward N steps (wraps)                 |
 | `swap=N`           | Mount the Nth disk in the device 8 queue, 1-based (wraps)            |
@@ -1866,7 +1860,6 @@ Examples:
 break.C000 = execute,map,break
 break.D000-D3FF = write,map,fast
 break.C100 = execute,map,break,count=10,reset=2
-break.E000 = execute,map,tron=my_trace.log
 break.C000.1 = execute,map,swap=+1
 break.E38B = execute,map,type=load\x22*\x22\x2c8\x2c1\[RT]
 ```
@@ -2526,9 +2519,9 @@ Definition syntax:
 `read-write` / `load-store`. Use `end=` for an inclusive address range (for example
 `write $D000 end=$D02E`).
 
-`actions` is a comma-separated list of `break`, `fast`, `slow`, `tron`, `troff`,
-`type`, and `swap`, or the exclusive token `none` for a **count-only** breakpoint
-that never pauses. After a free run, read `hits=` from `break-list`.
+`actions` is a comma-separated list of `break`, `fast`, `slow`, `type`, and
+`swap`, or the exclusive token `none` for a **count-only** breakpoint that never
+pauses. After a free run, read `hits=` from `break-list`.
 
 Examples:
 

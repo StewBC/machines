@@ -171,7 +171,6 @@ typedef struct runtime_breakpoint {
     uint32_t current_hits;
     int32_t swap_param;
     uint8_t swap_relative;
-    char tron_path[RUNTIME_BREAKPOINT_TRON_PATH_MAX];
     char type_text[RUNTIME_BREAKPOINT_TYPE_TEXT_MAX];
     /* Guard evaluated only after address/access/mapping matched, so an armed
        condition costs nothing on accesses that miss the watched address. */
@@ -239,8 +238,6 @@ struct runtime {
     runtime_exec_state exec_state;
     runtime_stop_reason last_stop_reason;
     runtime_speed_mode speed_mode;
-    bool trace_enabled;
-    FILE *trace_file;
     runtime_breakpoint breakpoints[RUNTIME_BREAKPOINT_CAPACITY];
     size_t breakpoint_count;
     uint32_t next_breakpoint_id;

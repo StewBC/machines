@@ -327,15 +327,12 @@ typedef struct frontend_breakpoint_dialog_state {
     bool action_break;
     bool action_fast;
     bool action_slow;
-    bool action_tron;
-    bool action_troff;
     bool action_type;
     bool action_swap;
     char start_address[5];
     char end_address[5];
     char initial_count[11];
     char reset_count[11];
-    char tron_path_buf[RUNTIME_BREAKPOINT_TRON_PATH_MAX];
     char swap_param_buf[16];
     char type_text_buf[RUNTIME_BREAKPOINT_TYPE_TEXT_MAX];
     char error[96];
@@ -1398,15 +1395,12 @@ static void frontend_open_breakpoint_dialog_from_entry(
     dialog->action_break = (entry->actions & RUNTIME_BREAKPOINT_ACTION_BREAK) != 0;
     dialog->action_fast = (entry->actions & RUNTIME_BREAKPOINT_ACTION_FAST) != 0;
     dialog->action_slow = (entry->actions & RUNTIME_BREAKPOINT_ACTION_SLOW) != 0;
-    dialog->action_tron = (entry->actions & RUNTIME_BREAKPOINT_ACTION_TRON) != 0;
-    dialog->action_troff = (entry->actions & RUNTIME_BREAKPOINT_ACTION_TROFF) != 0;
     dialog->action_type = (entry->actions & RUNTIME_BREAKPOINT_ACTION_TYPE) != 0;
     dialog->action_swap = (entry->actions & RUNTIME_BREAKPOINT_ACTION_SWAP) != 0;
     snprintf(dialog->start_address, sizeof(dialog->start_address), "%04X", entry->start_address);
     snprintf(dialog->end_address, sizeof(dialog->end_address), "%04X", entry->end_address);
     snprintf(dialog->initial_count, sizeof(dialog->initial_count), "%u", entry->initial_count);
     snprintf(dialog->reset_count, sizeof(dialog->reset_count), "%u", entry->reset_count);
-    snprintf(dialog->tron_path_buf, sizeof(dialog->tron_path_buf), "%s", entry->tron_path);
     snprintf(dialog->type_text_buf, sizeof(dialog->type_text_buf), "%s", entry->type_text);
     if (entry->swap_param == 0) {
         dialog->swap_param_buf[0] = '\0';
@@ -1438,7 +1432,7 @@ static bool frontend_breakpoint_dialog_build_definition(
         return false;
     }
     if (!dialog->action_break && !dialog->action_fast && !dialog->action_slow &&
-        !dialog->action_tron && !dialog->action_troff && !dialog->action_type && !dialog->action_swap) {
+        !dialog->action_type && !dialog->action_swap) {
         snprintf(dialog->error, sizeof(dialog->error), "Select at least one action");
         return false;
     }
@@ -1465,13 +1459,6 @@ static bool frontend_breakpoint_dialog_build_definition(
     }
     if (dialog->action_slow) {
         definition->actions |= RUNTIME_BREAKPOINT_ACTION_SLOW;
-    }
-    if (dialog->action_tron) {
-        definition->actions |= RUNTIME_BREAKPOINT_ACTION_TRON;
-        snprintf(definition->tron_path, sizeof(definition->tron_path), "%s", dialog->tron_path_buf);
-    }
-    if (dialog->action_troff) {
-        definition->actions |= RUNTIME_BREAKPOINT_ACTION_TROFF;
     }
     if (dialog->action_type) {
         definition->actions |= RUNTIME_BREAKPOINT_ACTION_TYPE;
@@ -1995,35 +1982,6 @@ static void frontend_draw_breakpoint_editor(frontend *ui, int width, int height)
             frontend_checkbox_bool(ctx, "Break", &dialog->action_break);
             frontend_checkbox_bool(ctx, "Fast", &dialog->action_fast);
             frontend_checkbox_bool(ctx, "Slow", &dialog->action_slow);
-
-            /* Troff — no parameter */
-            nk_layout_row_dynamic(ctx, 20.0f, 1);
-            {
-                bool prev_troff = dialog->action_troff;
-                frontend_checkbox_bool(ctx, "Troff", &dialog->action_troff);
-                if (dialog->action_troff && !prev_troff) {
-                    dialog->action_tron = false;
-                }
-            }
-
-            /* Tron — optional trace file path */
-            nk_layout_row_begin(ctx, NK_DYNAMIC, 22.0f, 2);
-            nk_layout_row_push(ctx, 0.20f);
-            {
-                bool prev_tron = dialog->action_tron;
-                frontend_checkbox_bool(ctx, "Tron", &dialog->action_tron);
-                if (dialog->action_tron && !prev_tron) {
-                    dialog->action_troff = false;
-                }
-            }
-            nk_layout_row_push(ctx, 0.80f);
-            frontend_edit_replace(
-                ctx,
-                dialog->action_tron ? (nk_flags)NK_EDIT_FIELD : ((nk_flags)NK_EDIT_FIELD | NK_EDIT_READ_ONLY),
-                dialog->tron_path_buf,
-                sizeof(dialog->tron_path_buf),
-                nk_filter_default);
-            nk_layout_row_end(ctx);
 
             /* Swap — disk queue parameter (+N/-N/N) */
             nk_layout_row_begin(ctx, NK_DYNAMIC, 22.0f, 2);

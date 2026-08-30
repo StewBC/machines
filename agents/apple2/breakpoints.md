@@ -18,7 +18,6 @@ generic bus graph.
 |--------|---------|
 | BREAK | Pause |
 | FAST / SLOW | Turbo max / 1 MHz |
-| TRON / TROFF | Instruction log file (`tron=` path, default `trace.log`) |
 | TYPE | Inject type-script (not clipboard paste) |
 | SWAP | Disk II multi-image queue step |
 

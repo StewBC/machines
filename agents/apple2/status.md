@@ -64,7 +64,7 @@ not latch BUTN0.
 | CLI / INI | model, mounts `sNdN` (multi-image queue), turbo MHz/`max`, `--video-display`, lifecycle, headless, `[DEBUG] break.*`, `--inspector` |
 | Turbo / step / reset | Opt+T (default ladder `1,max`); F10–F12 family; F8 / Opt+F8 |
 | Display | Full frame in display-only and F9 debugger |
-| Breakpoints | Exec + R/W, mapping, FAST/SLOW, TYPE, SWAP, TRON/TROFF, INI, control RPC. [`breakpoints.md`](breakpoints.md) |
+| Breakpoints | Exec + R/W, mapping, FAST/SLOW, TYPE, SWAP, INI, control RPC. [`breakpoints.md`](breakpoints.md) |
 | Disk II / SmartPort | Cards in slots 1–7; Configure live-applies model/cards via power-cycle reset; live insert/eject + slot boot; `[SmartPort] boot_slot=N`; Disk II queue/swap with dirty flush; ProDOS `$C0s4/5`; `$C800` host trap; **HostFS** folder volumes |
 | Gameport | Paddles, buttons, kbd stick, SDL pads, motor LEDs |
 | Control | `--control-port` A2M/14; `tools/a2m_control_client.py` (`Ctl`); `tools/a2m_coop_watch.py` |

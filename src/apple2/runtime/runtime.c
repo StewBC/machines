@@ -445,10 +445,6 @@ void runtime_destroy(runtime *rt)
         return;
     }
     runtime_stop(rt);
-    if (rt->trace_file != NULL) {
-        fclose(rt->trace_file);
-        rt->trace_file = NULL;
-    }
     runtime_frame_ring_destroy(&rt->frame_ring);
     runtime_inspector_destroy(rt);
     runtime_inspector_recorder_destroy(rt);

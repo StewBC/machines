@@ -1530,21 +1530,21 @@ static void test_runtime_non_break_actions_do_not_pause(void) {
     definition.has_end_address = 0;
     definition.access = RUNTIME_BREAKPOINT_ACCESS_EXECUTE;
     definition.mapping = RUNTIME_BREAKPOINT_MAPPING_ROM;
-    definition.actions = RUNTIME_BREAKPOINT_ACTION_TRON;
+    definition.actions = RUNTIME_BREAKPOINT_ACTION_FAST;
     definition.use_counter = 0;
     definition.initial_count = 0;
     definition.reset_count = 0;
 
-    expect_true("create tron-only breakpoint", runtime_client_create_breakpoint(client, &definition));
+    expect_true("create fast-only breakpoint", runtime_client_create_breakpoint(client, &definition));
     poll_breakpoint_count(client, &event, &bps, 1);
-    expect_true("run instruction over tron-only breakpoint", runtime_client_run_instructions(client, 1));
+    expect_true("run instruction over fast-only breakpoint", runtime_client_run_instructions(client, 1));
     if (!poll_event(client, &event, RUNTIME_EVENT_STEP_COMPLETE)) {
-        fail("STEP_COMPLETE not received for tron-only breakpoint");
+        fail("STEP_COMPLETE not received for fast-only breakpoint");
     }
-    expect_true("request tron-only breakpoint snapshot", runtime_client_request_breakpoints(client));
+    expect_true("request fast-only breakpoint snapshot", runtime_client_request_breakpoints(client));
     /* count may be wrong - use refresh with known count */
     refresh_breakpoints(client, &event, &bps, bps.count);
-    expect_u64("tron-only breakpoint hit count", 1, bps.entries[0].current_hits);
+    expect_u64("fast-only breakpoint hit count", 1, bps.entries[0].current_hits);
 
     stop_runtime(rt, client);
 }
@@ -1622,7 +1622,7 @@ static void test_runtime_loads_breakpoints_from_ini(void) {
     fprintf(file, "[DEBUG]\n");
     fprintf(file, "break.C000=execute,map,break\n");
     fprintf(file, "break.C000.1=write,ram,break\n");
-    fprintf(file, "break.D000-D0FF=read,rom,tron,count=3\n");
+    fprintf(file, "break.D000-D0FF=read,rom,fast,count=3\n");
     fprintf(file, "break.A469=execute,map,type= load \"galntsc\",8\\[rt]run\\[rt]\\[w:20]\\j1,b\\[w:20]\\j1,b,count=0,reset=0\n");
     fprintf(file, "break.GGGG=execute,map,break\n");
     fprintf(file, "break.C100=execute,map,break,count=-1\n");

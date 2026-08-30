@@ -13,7 +13,6 @@
 #include "runtime_inspector.h"
 #include "crt.h"
 #include "d64.h"
-#include "disasm_6502.h"
 #include "t64.h"
 
 #include <SDL.h>
@@ -803,11 +802,6 @@ static void runtime_publish_breakpoints(runtime *rt) {
         snap.entries[i].target_hits = rt->breakpoints[i].initial_count;
         snap.entries[i].swap_param = rt->breakpoints[i].swap_param;
         snap.entries[i].swap_relative = rt->breakpoints[i].swap_relative;
-        snprintf(
-            snap.entries[i].tron_path,
-            sizeof(snap.entries[i].tron_path),
-            "%s",
-            rt->breakpoints[i].tron_path);
         snprintf(
             snap.entries[i].type_text,
             sizeof(snap.entries[i].type_text),
@@ -2601,8 +2595,6 @@ static bool runtime_breakpoint_definition_is_valid(const runtime_breakpoint_defi
         RUNTIME_BREAKPOINT_ACTION_BREAK |
         RUNTIME_BREAKPOINT_ACTION_FAST |
         RUNTIME_BREAKPOINT_ACTION_SLOW |
-        RUNTIME_BREAKPOINT_ACTION_TRON |
-        RUNTIME_BREAKPOINT_ACTION_TROFF |
         RUNTIME_BREAKPOINT_ACTION_TYPE |
         RUNTIME_BREAKPOINT_ACTION_SWAP;
 
@@ -2650,7 +2642,6 @@ static void runtime_breakpoint_apply_definition(
     }
     breakpoint->swap_param = definition->swap_param;
     breakpoint->swap_relative = definition->swap_relative;
-    snprintf(breakpoint->tron_path, sizeof(breakpoint->tron_path), "%s", definition->tron_path);
     snprintf(breakpoint->type_text, sizeof(breakpoint->type_text), "%s", definition->type_text);
     /* Definitions are built field by field by several callers; a caller that
        forgot to zero the struct must not arm a garbage guard that could never
@@ -2773,58 +2764,6 @@ static bool runtime_breakpoint_record_match(runtime *rt, runtime_breakpoint *bre
     return true;
 }
 
-static void runtime_write_trace_line(runtime *rt) {
-    c64_cpu_instruction_trace trace;
-    c64_cpu_snapshot snapshot;
-    symbol_resolver resolver;
-    disasm_6502_line line;
-    uint8_t bytes[3];
-    char bytes_str[9];
-    char flags[9];
-    uint8_t p;
-
-    if (rt->trace_file == NULL) {
-        return;
-    }
-
-    c64_debug_copy_last_cpu_trace(&rt->machine, &trace);
-    c64_copy_cpu_snapshot(&rt->machine, &snapshot);
-
-    bytes[0] = c64_debug_read_cpu_map(&rt->machine, trace.opcode_pc);
-    bytes[1] = c64_debug_read_cpu_map(&rt->machine, trace.opcode_pc + 1);
-    bytes[2] = c64_debug_read_cpu_map(&rt->machine, trace.opcode_pc + 2);
-
-    symbol_table_make_resolver(rt->symbols, &resolver);
-    line = disasm_6502_decode_line(
-        trace.opcode_pc, bytes, 3, &resolver, DISASM_6502_NMOS);
-
-    switch (line.length) {
-        case 1:  snprintf(bytes_str, sizeof(bytes_str), "%02X      ", bytes[0]); break;
-        case 2:  snprintf(bytes_str, sizeof(bytes_str), "%02X %02X   ", bytes[0], bytes[1]); break;
-        default: snprintf(bytes_str, sizeof(bytes_str), "%02X %02X %02X", bytes[0], bytes[1], bytes[2]); break;
-    }
-
-    p = snapshot.p;
-    flags[0] = (p & 0x80) ? 'N' : 'n';
-    flags[1] = (p & 0x40) ? 'V' : 'v';
-    flags[2] = '-';
-    flags[3] = (p & 0x10) ? 'B' : 'b';
-    flags[4] = (p & 0x08) ? 'D' : 'd';
-    flags[5] = (p & 0x04) ? 'I' : 'i';
-    flags[6] = (p & 0x02) ? 'Z' : 'z';
-    flags[7] = (p & 0x01) ? 'C' : 'c';
-    flags[8] = '\0';
-
-    fprintf(rt->trace_file,
-        "%04X  %s  %-12s  A=%02X X=%02X Y=%02X SP=%02X  %s  CYC=%08llX\n",
-        trace.opcode_pc,
-        bytes_str,
-        line.text,
-        snapshot.a, snapshot.x, snapshot.y, snapshot.sp,
-        flags,
-        (unsigned long long)rt->machine.clock.cycle);
-}
-
 static bool runtime_execute_breakpoint_actions(runtime *rt, const runtime_breakpoint *breakpoint) {
     if ((breakpoint->action_mask & RUNTIME_BREAKPOINT_ACTION_BREAK) != 0) {
         return true;
@@ -2842,31 +2781,6 @@ static bool runtime_execute_breakpoint_actions(runtime *rt, const runtime_breakp
         rt->pace_initialized = false;
         runtime_update_sid_sample_output(rt);
         runtime_update_video_output(rt);
-    }
-
-    if ((breakpoint->action_mask & RUNTIME_BREAKPOINT_ACTION_TRON) != 0) {
-        rt->trace_enabled = true;
-        c64_set_cpu_trace_enabled(&rt->machine, true);
-        if (rt->trace_file == NULL) {
-            const char *path = (breakpoint->tron_path[0] != '\0') ?
-                breakpoint->tron_path : "trace.log";
-            rt->trace_file = fopen(path, "a");
-            if (rt->trace_file != NULL) {
-                fprintf(rt->trace_file, "--- TRON  CYC=%08llX ---\n",
-                    (unsigned long long)rt->machine.clock.cycle);
-            }
-        }
-    }
-
-    if ((breakpoint->action_mask & RUNTIME_BREAKPOINT_ACTION_TROFF) != 0) {
-        rt->trace_enabled = false;
-        c64_set_cpu_trace_enabled(&rt->machine, false);
-        if (rt->trace_file != NULL) {
-            fprintf(rt->trace_file, "--- TROFF CYC=%08llX ---\n",
-                (unsigned long long)rt->machine.clock.cycle);
-            fclose(rt->trace_file);
-            rt->trace_file = NULL;
-        }
     }
 
     if ((breakpoint->action_mask & RUNTIME_BREAKPOINT_ACTION_SWAP) != 0 &&
@@ -3137,7 +3051,6 @@ static uint32_t runtime_step_cycles_free_run(runtime *rt, uint32_t count) {
 static bool runtime_free_run_is_simple(const runtime *rt) {
     return rt->breakpoint_count == 0 &&
         !rt->paste_active &&
-        !rt->trace_enabled &&
         !rt->temp_bp_active &&
         !rt->suppress_execute_bp &&
         rt->pending_prg_path == NULL &&
@@ -3373,7 +3286,7 @@ static void runtime_set_execute_breakpoint(runtime *rt, const runtime_command *c
     }
 
     /* Zero first: the definition carries optional fields (condition, swap,
-       tron/type text) that this path does not set, and stack garbage in them
+       type text) that this path does not set, and stack garbage in them
        would otherwise reach the breakpoint table. */
     memset(&definition, 0, sizeof(definition));
     definition.enabled = command->data.set_execute_breakpoint.enabled;
@@ -6692,9 +6605,6 @@ int runtime_thread_main(void *userdata) {
     rt->exec_state = RUNTIME_EXEC_PAUSED;
     rt->last_stop_reason = RUNTIME_STOP_REASON_NONE;
     rt->speed_mode = RUNTIME_SPEED_MODE_SLOW;
-    rt->trace_enabled = false;
-    c64_set_cpu_trace_enabled(&rt->machine, false);
-    rt->trace_file = NULL;
     rt->breakpoint_count = 0;
     rt->next_breakpoint_id = 1;
     rt->next_frame_cycle = 0;
@@ -6919,9 +6829,6 @@ int runtime_thread_main(void *userdata) {
                     }
                     {
                         bool instr_done = c64_consume_instruction_complete(&rt->machine);
-                        if (rt->trace_enabled && instr_done) {
-                            runtime_write_trace_line(rt);
-                        }
                         if (rt->suppress_execute_bp && instr_done) {
                             rt->suppress_execute_bp = false;
                         }
@@ -6936,9 +6843,6 @@ int runtime_thread_main(void *userdata) {
                         runtime_publish_completed_frame(rt);
                         rt->next_frame_cycle = rt->machine.clock.cycle;
                         runtime_pace_after_frame(rt);
-                        if (rt->trace_file != NULL) {
-                            fflush(rt->trace_file);
-                        }
                     }
                 }
             }
@@ -6960,12 +6864,6 @@ int runtime_thread_main(void *userdata) {
     free(rt->pending_bin_path);
     rt->pending_bin_path = NULL;
     runtime_flush_dirty_disks(rt);
-    if (rt->trace_file != NULL) {
-        fprintf(rt->trace_file, "--- STOP  CYC=%08llX ---\n",
-            (unsigned long long)rt->machine.clock.cycle);
-        fclose(rt->trace_file);
-        rt->trace_file = NULL;
-    }
     runtime_audio_record_finish(rt);
     symbol_table_destroy(rt->symbols);
     rt->symbols = NULL;

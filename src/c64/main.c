@@ -2212,10 +2212,6 @@ static bool control_parse_breakpoint_actions(const char *value, uint32_t *out_ac
             actions |= RUNTIME_BREAKPOINT_ACTION_FAST;
         } else if (length == 4 && strncmp(start, "slow", length) == 0) {
             actions |= RUNTIME_BREAKPOINT_ACTION_SLOW;
-        } else if (length == 4 && strncmp(start, "tron", length) == 0) {
-            actions |= RUNTIME_BREAKPOINT_ACTION_TRON;
-        } else if (length == 5 && strncmp(start, "troff", length) == 0) {
-            actions |= RUNTIME_BREAKPOINT_ACTION_TROFF;
         } else if (length == 4 && strncmp(start, "type", length) == 0) {
             actions |= RUNTIME_BREAKPOINT_ACTION_TYPE;
         } else if (length == 4 && strncmp(start, "swap", length) == 0) {
