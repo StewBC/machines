@@ -4405,7 +4405,6 @@ static void runtime_process_command(runtime *rt, const runtime_command *cmd, boo
     }
     case RUNTIME_COMMAND_BOOT_SLOT: {
         const uint8_t slot = cmd->data.boot_slot.slot;
-        const bool was_running = rt->exec_state == RUNTIME_EXEC_RUNNING;
 
         if (slot < 1u || slot > 7u ||
             (rt->machine.slot_type[slot] != SLOT_TYPE_DISKII &&
@@ -4419,15 +4418,14 @@ static void runtime_process_command(runtime *rt, const runtime_command *cmd, boo
         rt->suppress_execute_bp = false;
         rt->temp_bp_active = false;
         rt->breakpoint_hit_pending = false;
-        rt->exec_state = was_running ? RUNTIME_EXEC_RUNNING : RUNTIME_EXEC_PAUSED;
-        rt->last_stop_reason = was_running ?
-            RUNTIME_STOP_REASON_NONE : RUNTIME_STOP_REASON_RESET;
-        if (was_running) {
-            runtime_reset_pacer(rt);
-        }
+        /* Slot N.0 boot always runs — resume if the machine was paused. */
+        rt->exec_state = RUNTIME_EXEC_RUNNING;
+        rt->last_stop_reason = RUNTIME_STOP_REASON_NONE;
+        runtime_reset_pacer(rt);
         runtime_publish_simple(rt, RUNTIME_EVENT_RESET_COMPLETE);
         runtime_publish_cpu(rt, 0u);
         runtime_publish_machine(rt);
+        runtime_publish_simple(rt, RUNTIME_EVENT_RUNNING);
         break;
     }
     case RUNTIME_COMMAND_SET_DISPLAY_OVERRIDE:
