@@ -1890,6 +1890,23 @@ static void frontend_draw_breakpoint_editor(frontend *ui, int width, int height)
     struct nk_context *ctx;
     struct nk_rect bounds;
     nk_flags edit_flags = NK_EDIT_FIELD;
+    float dialog_h;
+    float sp_y;
+    float pad_y;
+    float header_h;
+    /* Row heights must stay in sync with the layout below. */
+    const float content_h =
+        20.0f + /* Enabled */
+        18.0f + 20.0f + /* Access */
+        18.0f + 22.0f + /* Address */
+        18.0f + 20.0f + /* Mapping */
+        18.0f + 22.0f + /* Counter */
+        18.0f + 20.0f + /* Actions */
+        22.0f + /* Swap */
+        22.0f + /* Type */
+        18.0f + /* spacer / error row (size for the taller of the two) */
+        24.0f;  /* Cancel/Apply */
+    const int content_rows = 15;
 
     if (ui == NULL || !ui->breakpoint_dialog.open || ui->ctx == NULL) {
         return;
@@ -1897,7 +1914,20 @@ static void frontend_draw_breakpoint_editor(frontend *ui, int width, int height)
 
     ctx = ui->ctx;
     dialog = &ui->breakpoint_dialog;
-    bounds = nk_rect((float)(width - 430) * 0.5f, (float)(height - 540) * 0.5f, 430.0f, 540.0f);
+    sp_y = ctx->style.window.spacing.y;
+    pad_y = ctx->style.window.padding.y;
+    header_h = ctx->style.font->height
+        + ctx->style.window.header.padding.y * 2.0f
+        + ctx->style.window.header.label_padding.y * 2.0f;
+    /* Content + chrome; extra slack covers border/button padding so Cancel/Apply
+       are not clipped and leave a small margin like the Type→buttons gap. */
+    dialog_h = header_h + content_h + (float)(content_rows - 1) * sp_y
+        + 2.0f * pad_y + 36.0f;
+    bounds = nk_rect(
+        (float)(width - 430) * 0.5f,
+        (float)((float)height - dialog_h) * 0.5f,
+        430.0f,
+        dialog_h);
     if (bounds.x < 8.0f) {
         bounds.x = 8.0f;
     }
