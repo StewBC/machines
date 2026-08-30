@@ -143,7 +143,7 @@ static void test_no_search_draws_no_bands(struct nk_context *ctx)
     capture cap;
 
     help_view_init(&state);
-    help_view_open(&state, false);
+    help_view_open(&state, false, FRONTEND_HELP_RETURN_CRT);
     render_help(ctx, &state, &cap);
 
     if (cap.text_count == 0) fail("help view drew no text at all");
@@ -159,7 +159,7 @@ static void test_search_highlights_the_word(struct nk_context *ctx)
     bool found_thick = false;
 
     help_view_init(&state);
-    help_view_open(&state, false);
+    help_view_open(&state, false, FRONTEND_HELP_RETURN_CRT);
     if (!help_view_search(ctx, &state, needle, true)) fail("search for 'emulator' found nothing");
 
     render_help(ctx, &state, &cap);
@@ -195,7 +195,7 @@ static float converged_hit_y(struct nk_context *ctx, const char *needle, nk_uint
     int i;
 
     help_view_init(&state);
-    help_view_open(&state, false);
+    help_view_open(&state, false, FRONTEND_HELP_RETURN_CRT);
     if (!help_view_search(ctx, &state, needle, true)) {
         return -1.0f;
     }
@@ -269,13 +269,43 @@ static void test_failed_search_highlights_nothing(struct nk_context *ctx)
     capture cap;
 
     help_view_init(&state);
-    help_view_open(&state, false);
+    help_view_open(&state, false, FRONTEND_HELP_RETURN_CRT);
     if (help_view_search(ctx, &state, "zzzznotinthemanual", true)) {
         fail("search matched a string that is not in the manual");
     }
 
     render_help(ctx, &state, &cap);
     if (cap.band_count != 0) fail("failed search still drew highlight bands");
+}
+
+static void test_return_surface_latch(void)
+{
+    frontend_help_state state;
+
+    help_view_init(&state);
+    if (help_view_return_surface(&state) != FRONTEND_HELP_RETURN_CRT) {
+        fail("closed help return surface should default to CRT");
+    }
+
+    help_view_open(&state, true, FRONTEND_HELP_RETURN_FORENSICS);
+    if (!help_view_is_open(&state)) fail("help should be open");
+    if (!help_view_paused_by_help(&state)) fail("paused latch should stick");
+    if (help_view_return_surface(&state) != FRONTEND_HELP_RETURN_FORENSICS) {
+        fail("return surface should remember Forensics");
+    }
+
+    help_view_close(&state);
+    if (help_view_is_open(&state)) fail("help should close");
+    if (help_view_paused_by_help(&state)) fail("paused latch should clear");
+    if (help_view_return_surface(&state) != FRONTEND_HELP_RETURN_CRT) {
+        fail("closed help return surface should reset to CRT");
+    }
+
+    help_view_open(&state, false, FRONTEND_HELP_RETURN_DEBUGGER);
+    if (help_view_return_surface(&state) != FRONTEND_HELP_RETURN_DEBUGGER) {
+        fail("return surface should remember debugger");
+    }
+    help_view_close(&state);
 }
 
 int main(void)
@@ -294,6 +324,7 @@ int main(void)
     test_search_highlights_the_word(&ctx);
     test_scroll_lands_on_the_hit(&ctx);
     test_failed_search_highlights_nothing(&ctx);
+    test_return_surface_latch();
 
     nk_free(&ctx);
     printf("test_help_view: all checks passed\n");

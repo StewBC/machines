@@ -75,6 +75,7 @@ void help_view_init(frontend_help_state *state)
     }
     state->open = false;
     state->paused_by_help = false;
+    state->return_surface = FRONTEND_HELP_RETURN_CRT;
     state->section_index = 0;
     state->pending_scroll_y = 0;
     state->content_page_y = 400;
@@ -90,13 +91,17 @@ void help_view_init(frontend_help_state *state)
     memset(state->section_scroll_y, 0, sizeof(state->section_scroll_y));
 }
 
-void help_view_open(frontend_help_state *state, bool paused_by_help)
+void help_view_open(
+    frontend_help_state *state,
+    bool paused_by_help,
+    frontend_help_return return_surface)
 {
     if (state == NULL) {
         return;
     }
     state->open = true;
     state->paused_by_help = paused_by_help;
+    state->return_surface = return_surface;
     if (state->section_index < 0 || state->section_index >= help_section_count) {
         state->section_index = 0;
     }
@@ -116,6 +121,7 @@ void help_view_close(frontend_help_state *state)
     }
     state->open = false;
     state->paused_by_help = false;
+    state->return_surface = FRONTEND_HELP_RETURN_CRT;
     state->index_popup_open = false;
     state->index_popup_just_opened = false;
     state->search_no_match = false;
@@ -129,6 +135,14 @@ bool help_view_is_open(const frontend_help_state *state)
 bool help_view_paused_by_help(const frontend_help_state *state)
 {
     return state != NULL && state->paused_by_help;
+}
+
+frontend_help_return help_view_return_surface(const frontend_help_state *state)
+{
+    if (state == NULL || !state->open) {
+        return FRONTEND_HELP_RETURN_CRT;
+    }
+    return state->return_surface;
 }
 
 static int help_view_clamp_section_index(int section_index)

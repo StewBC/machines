@@ -310,12 +310,16 @@ bool frontend_inspector_preview(
 void frontend_render(frontend *ui, bool ui_visible, const frontend_debug_state *debug_state);
 /* Force disk activity LEDs off (e.g. machine reset). */
 void frontend_clear_disk_activity_leds(frontend *ui);
-void frontend_open_help(frontend *ui, bool paused_by_help);
+/* from_debugger: Help opened over F9 debugger (ignored if Forensics is open).
+   paused_by_help: Help paused a running machine (CRT/debugger); never set when
+   stacking over Forensics. Forensics stays open under Help as return surface. */
+void frontend_open_help(frontend *ui, bool from_debugger, bool paused_by_help);
 bool frontend_close_help(frontend *ui);
 bool frontend_help_is_open(const frontend *ui);
 bool frontend_help_paused_by_help(const frontend *ui);
 bool frontend_handle_help_key(frontend *ui, const SDL_KeyboardEvent *key, int scroll_wheel_lines);
-/* Forensics full-window mode (mutually exclusive with Help).
+/* Forensics full-window mode. Help may open over it (modal); opening Forensics
+   while Help is up closes Help.
    from_debugger: opened with F9 debugger up; else full-screen CRT.
    crt_was_running: recorded only for CRT entry (restore on Opt+R/Close). */
 void frontend_open_forensics(

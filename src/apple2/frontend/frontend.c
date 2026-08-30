@@ -10412,6 +10412,8 @@ void frontend_render(frontend *ui, bool ui_visible, const frontend_debug_state *
     }
 
     if (help_view_is_open(&ui->help)) {
+        /* CRT underlay for Help over CRT, debugger, or Forensics (Forensics
+           stays open as return surface but is not drawn under Help). */
         frontend_render_display_only(ui);
         help_view_render(ui->ctx, &ui->help, ui->help_font, width, height);
         nk_sdl_render(NK_ANTI_ALIASING_ON);
@@ -10505,18 +10507,24 @@ void frontend_render(frontend *ui, bool ui_visible, const frontend_debug_state *
     frontend_draw_disk_activity_leds(ui, width, height, debug_state);
 }
 
-void frontend_open_help(frontend *ui, bool paused_by_help)
+void frontend_open_help(frontend *ui, bool from_debugger, bool paused_by_help)
 {
+    frontend_help_return return_surface;
+
     if (ui == NULL) {
         return;
     }
-    /* Mutual exclusion: leave Forensics without resuming (machine already paused). */
+    /* Stack over Forensics: keep it open as the return surface. */
     if (forensics_view_is_open(&ui->forensics)) {
-        (void)forensics_view_close(&ui->forensics);
+        return_surface = FRONTEND_HELP_RETURN_FORENSICS;
         /* Forensics already paused the machine; do not make Help auto-resume. */
         paused_by_help = false;
+    } else if (from_debugger) {
+        return_surface = FRONTEND_HELP_RETURN_DEBUGGER;
+    } else {
+        return_surface = FRONTEND_HELP_RETURN_CRT;
     }
-    help_view_open(&ui->help, paused_by_help);
+    help_view_open(&ui->help, paused_by_help, return_surface);
     frontend_set_active_view(ui, FRONTEND_ACTIVE_VIEW_NONE);
 }
 

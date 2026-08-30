@@ -59,7 +59,8 @@ Help-style CRT overlay. **Forensics...** on the Inspector tab and **Opt+R**
 open it (pauses on enter). **Opt+R** / **Close** return to the entry surface
 (CRT restores prior run state if it was running; debugger stays paused).
 **F9** from Forensics always opens the debugger paused. **Esc** does not
-leave. Mutually exclusive with Help.
+leave. **Opt+H** stacks modal Help over Forensics (CRT underlay; Forensics
+stays open as return surface).
 
 Query line → structured `HISTORY_*` intents → `main.c` claim/decode →
 transcript (`session_id = 0`; `history_close` on exit). Find options use
@@ -114,6 +115,9 @@ Basic Text is stock BASIC V2 only (`util/basic_v2`).
 `manual/c64m/manual.md` is compiled by `src/shell/tools/gen_help.py`. Before
 editing it, read `manual/c64m/HELP_MARKDOWN.md` (ASCII, no links, help-renderer
 subset).
+
+Opt+H opens modal Help (Quit still works). Remembers return surface: CRT,
+debugger, or Forensics. CRT underlay while open.
 
 Help search highlights hits: inverse band on the jumped-to span, underline
 on other visible occurrences. Matching is per drawn line inside

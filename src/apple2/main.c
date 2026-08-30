@@ -3043,7 +3043,10 @@ int main(int argc, char **argv)
                        event.type == SDL_CONTROLLERAXISMOTION ||
                        event.type == SDL_CONTROLLERBUTTONDOWN ||
                        event.type == SDL_CONTROLLERBUTTONUP) {
-                sdl_apple_controller_handle_event(&controllers, client, &event);
+                /* Help is modal: do not publish stick/pad state into the machine. */
+                if (!frontend_help_is_open(ui)) {
+                    sdl_apple_controller_handle_event(&controllers, client, &event);
+                }
                 send_event_to_frontend = false;
             } else if (event.type == SDL_KEYDOWN && event.key.repeat != 0 &&
                        frontend_handle_help_key(
@@ -3059,6 +3062,32 @@ int main(int argc, char **argv)
 
                 if (frontend_input_is_host_quit_shortcut(&event.key)) {
                     running = false;
+                } else if (frontend_help_is_open(ui)) {
+                    /* Help is modal: Quit (above), close chords, Help keys, and
+                       Help widgets only. Forensics/debugger/host chords wait. */
+                    if (sym == SDLK_h &&
+                        frontend_input_has_option_modifier(&event.key)) {
+                        bool paused_by_help = frontend_close_help(ui);
+                        if (paused_by_help) {
+                            (void)runtime_client_run(client);
+                        }
+                        suppress_text_after_option_chord = true;
+                        send_event_to_frontend = false;
+                    } else if (sym == SDLK_ESCAPE) {
+                        bool paused_by_help = frontend_close_help(ui);
+                        if (paused_by_help) {
+                            (void)runtime_client_run(client);
+                        }
+                        send_event_to_frontend = false;
+                    } else if (frontend_handle_help_key(
+                                   ui, &event.key, options.scroll_wheel_lines)) {
+                        send_event_to_frontend = false;
+                    } else if (frontend_input_has_option_modifier(&event.key)) {
+                        suppress_text_after_option_chord = true;
+                        send_event_to_frontend = false;
+                    } else {
+                        send_event_to_frontend = true;
+                    }
                 } else if (sym == SDLK_m &&
                            frontend_input_has_option_modifier(&event.key) &&
                            frontend_input_has_shift_modifier(&event.key)) {
@@ -3186,20 +3215,13 @@ int main(int argc, char **argv)
                     send_event_to_frontend = false;
                 } else if (sym == SDLK_h &&
                            frontend_input_has_option_modifier(&event.key)) {
-                    if (frontend_help_is_open(ui)) {
-                        bool paused_by_help = frontend_close_help(ui);
-                        if (paused_by_help) {
-                            (void)runtime_client_run(client);
-                        }
-                    } else {
-                        /* frontend_open_help closes Forensics and transfers latch. */
-                        bool was_running =
-                            debug.runtime_state == FRONTEND_RUNTIME_STATE_RUNNING;
-                        if (was_running) {
-                            (void)runtime_client_pause(client);
-                        }
-                        frontend_open_help(ui, was_running);
+                    /* Help closed path is handled in the modal branch above. */
+                    bool was_running =
+                        debug.runtime_state == FRONTEND_RUNTIME_STATE_RUNNING;
+                    if (was_running) {
+                        (void)runtime_client_pause(client);
                     }
+                    frontend_open_help(ui, ui_visible, was_running);
                     suppress_text_after_option_chord = true;
                     send_event_to_frontend = false;
                 } else if (
@@ -3220,12 +3242,6 @@ int main(int argc, char **argv)
                     /* KEYDOWN is consumed, but SDL may still emit TEXTINPUT "r"
                        later in this pump; block it until Option is released. */
                     suppress_text_after_option_chord = true;
-                    send_event_to_frontend = false;
-                } else if (sym == SDLK_ESCAPE && frontend_help_is_open(ui)) {
-                    bool paused_by_help = frontend_close_help(ui);
-                    if (paused_by_help) {
-                        (void)runtime_client_run(client);
-                    }
                     send_event_to_frontend = false;
                 } else if (frontend_handle_forensics_key(ui, &event.key)) {
                     send_event_to_frontend = false;
@@ -3302,7 +3318,9 @@ int main(int argc, char **argv)
                 }
                 send_event_to_frontend = false;
             } else if (event.type == SDL_DROPFILE) {
-                handle_drop_file(client, ui, &options, &debug, event.drop.file);
+                if (!frontend_help_is_open(ui)) {
+                    handle_drop_file(client, ui, &options, &debug, event.drop.file);
+                }
                 send_event_to_frontend = false;
             }
 
@@ -3586,16 +3604,19 @@ int main(int argc, char **argv)
                 client, &debug.inspector_catalog);
         }
         frontend_render(ui, ui_visible, &debug);
-        if (frontend_forensics_consume_pause_request(ui)) {
+        if (!frontend_help_is_open(ui) &&
+            frontend_forensics_consume_pause_request(ui)) {
             if (debug.runtime_state == FRONTEND_RUNTIME_STATE_RUNNING) {
                 (void)runtime_client_pause(client);
             }
         }
-        if (frontend_forensics_consume_close_request(ui)) {
+        if (!frontend_help_is_open(ui) &&
+            frontend_forensics_consume_close_request(ui)) {
             /* Close button == Opt+R (return to entry surface). */
             leave_forensics_mode(window, client, ui, &ui_visible, false);
         }
-        if (frontend_forensics_consume_leave_debugger_request(ui)) {
+        if (!frontend_help_is_open(ui) &&
+            frontend_forensics_consume_leave_debugger_request(ui)) {
             /* Successful Land before/exact → debugger paused + Inspector tab. */
             leave_forensics_mode(window, client, ui, &ui_visible, true);
         }

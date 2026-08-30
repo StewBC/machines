@@ -321,7 +321,11 @@ somewhat lower depending on load.
 ### Help
 
 Press **Opt+H** or **ESC** to open or close the in-emulator help overlay. The C64 pauses
-while the overlay is open and resumes when it is dismissed.
+while the overlay is open and resumes when it is dismissed (unless Help was opened over
+Forensics, which was already paused). Help is **modal**: while it is open, only Help
+navigation, **Esc** / **Opt+H** (close), and Quit work -- not F9, Opt+R, step/run, or
+other host chords. Help draws over the CRT underlay; closing it returns to the surface
+that was active (full-screen CRT, Debug Mode, or Forensics).
 
 The overlay shows one section of the manual at a time in a scrollable content area. A
 navigation bar along the bottom of the overlay contains:
@@ -364,8 +368,7 @@ recorder (HST1 FIND / NEXT / READ). It is not the Inspector slider: FIND answers
 "who wrote this?", then you can land Inspect at a hit's machine cycle.
 
 Open from Misc -> Inspector (**Forensics...**) or **Opt+R** (works from the
-full-screen CRT or with F9 Debug Mode up). Forensics and Help cannot both be
-open.
+full-screen CRT or with F9 Debug Mode up).
 
 | Transition | Behavior |
 |------------|----------|

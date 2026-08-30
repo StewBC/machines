@@ -110,7 +110,8 @@ modes (one list).
 **Forensics…** / **Opt+R** open full-window Forensics (no CRT behind). **Pauses**
 on enter. **Opt+R** / **Close** return to the entry surface (CRT restores prior
 run state if it was running; debugger stays paused). **F9** always opens the
-debugger paused. **Esc** does not leave Forensics. Mutually exclusive with Help.
+debugger paused. **Esc** does not leave Forensics. **Opt+H** stacks modal Help over
+Forensics (CRT underlay; Forensics stays open as return surface).
 Query line → `HISTORY_*` intents → `main.c` claim/decode → transcript (session 0;
 `history_close` on exit). Transcript group scroll is kept in
 `transcript_scroll_y` and restored on re-open (same idea as Help
@@ -171,7 +172,8 @@ the render pass measures the row that holds the hit and corrects group
 scroll on the next frame. `help_view_search()` is what `test_help_view`
 drives.
 
-Opt+H opens (and pauses if running). Esc closes.
+Opt+H opens (and pauses if running). Esc / Opt+H close. Help is modal (Quit still
+works). Remembers return surface: CRT, debugger, or Forensics.
 
 ## Assembler view
 

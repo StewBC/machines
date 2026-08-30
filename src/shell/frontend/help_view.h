@@ -6,9 +6,17 @@
 
 #define FRONTEND_HELP_MAX_SECTIONS 128
 
+/* Surface to restore when Help closes. Help is modal over that surface. */
+typedef enum frontend_help_return {
+    FRONTEND_HELP_RETURN_CRT = 0,
+    FRONTEND_HELP_RETURN_DEBUGGER,
+    FRONTEND_HELP_RETURN_FORENSICS
+} frontend_help_return;
+
 typedef struct frontend_help_state {
     bool open;
     bool paused_by_help;
+    frontend_help_return return_surface;
     int section_index;
     nk_uint section_scroll_y[FRONTEND_HELP_MAX_SECTIONS];
     nk_uint pending_scroll_y;
@@ -25,10 +33,14 @@ typedef struct frontend_help_state {
 } frontend_help_state;
 
 void help_view_init(frontend_help_state *state);
-void help_view_open(frontend_help_state *state, bool paused_by_help);
+void help_view_open(
+    frontend_help_state *state,
+    bool paused_by_help,
+    frontend_help_return return_surface);
 void help_view_close(frontend_help_state *state);
 bool help_view_is_open(const frontend_help_state *state);
 bool help_view_paused_by_help(const frontend_help_state *state);
+frontend_help_return help_view_return_surface(const frontend_help_state *state);
 bool help_view_select_section(struct nk_context *ctx, frontend_help_state *state, int section_index);
 bool help_view_scroll_content(struct nk_context *ctx, frontend_help_state *state, int delta_y);
 bool help_view_scroll_content_to(struct nk_context *ctx, frontend_help_state *state, nk_uint y);

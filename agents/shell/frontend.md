@@ -53,7 +53,9 @@ Stage 7 client subset and Stage 5 memory-source table, not `apple2.h` /
 - Exclusive tabs stay leftover: Machine, Debugger, Hardware, **Assembler**,
   Config. Inspector tab is shared chrome.
 - Forensics is HST1 FIND, not Inspector. Opt+R / Inspector **Forensics...**.
-- Help: Opt+H. Generated from that binary's `manual/*/manual.md`.
+- Help: Opt+H. Modal while open (Quit still works). May stack over Forensics
+  (CRT underlay; returns to Forensics on close). Generated from that binary's
+  `manual/*/manual.md`.
 
 ## ASCII-only UI
 

@@ -3773,14 +3773,19 @@ static void send_pause_command(runtime_client *client) {
     }
 }
 
-static void open_help(frontend *ui, runtime_client *client, const frontend_debug_state *debug_state) {
+static void open_help(
+    frontend *ui,
+    runtime_client *client,
+    const frontend_debug_state *debug_state,
+    bool from_debugger)
+{
     bool was_running = debug_state != NULL &&
         debug_state->runtime_state == FRONTEND_RUNTIME_STATE_RUNNING;
 
     if (was_running) {
         send_pause_command(client);
     }
-    frontend_open_help(ui, was_running);
+    frontend_open_help(ui, from_debugger, was_running);
 }
 
 static void close_help(frontend *ui, runtime_client *client, const frontend_debug_state *debug_state) {
@@ -6922,7 +6927,7 @@ static bool run_main_loop(
                 suppress_text_after_option_chord = false;
             }
 
-            if (!debug_state.inspecting) {
+            if (!debug_state.inspecting && !frontend_help_is_open(ui)) {
                 sdl_c64_controller_handle_event(&controller_state, client, &event);
             }
 
@@ -6939,14 +6944,29 @@ static bool run_main_loop(
             } else if (event.type == SDL_KEYDOWN && event.key.repeat == 0) {
                 if (frontend_input_is_host_quit_shortcut(&event.key)) {
                     running = false;
+                } else if (frontend_help_is_open(ui)) {
+                    /* Help is modal: Quit (above), close chords, Help keys, and
+                       Help widgets only. Forensics/debugger/host chords wait. */
+                    if (event.key.keysym.sym == SDLK_h &&
+                        frontend_input_has_option_modifier(&event.key)) {
+                        close_help(ui, client, &debug_state);
+                        suppress_text_after_option_chord = true;
+                        send_event_to_frontend = false;
+                    } else if (event.key.keysym.sym == SDLK_ESCAPE) {
+                        close_help(ui, client, &debug_state);
+                        send_event_to_frontend = false;
+                    } else if (frontend_handle_help_key(
+                                   ui, &event.key, options->scroll_wheel_lines)) {
+                        send_event_to_frontend = false;
+                    } else if (frontend_input_has_option_modifier(&event.key)) {
+                        suppress_text_after_option_chord = true;
+                        send_event_to_frontend = false;
+                    } else {
+                        send_event_to_frontend = true;
+                    }
                 } else if (event.key.keysym.sym == SDLK_h &&
                            frontend_input_has_option_modifier(&event.key)) {
-                    if (frontend_help_is_open(ui)) {
-                        close_help(ui, client, &debug_state);
-                    } else {
-                        /* frontend_open_help closes Forensics and transfers latch. */
-                        open_help(ui, client, &debug_state);
-                    }
+                    open_help(ui, client, &debug_state, ui_visible);
                     suppress_text_after_option_chord = true;
                     send_event_to_frontend = false;
                 } else if (
@@ -6982,10 +7002,6 @@ static bool run_main_loop(
                             platform_window_set_minimum_size(window, min_w, min_h);
                         }
                     }
-                    send_event_to_frontend = false;
-                } else if (event.key.keysym.sym == SDLK_ESCAPE && frontend_help_is_open(ui)) {
-                    /* Esc closes Help only; never leaves Forensics. */
-                    close_help(ui, client, &debug_state);
                     send_event_to_frontend = false;
                 } else if (frontend_handle_forensics_key(ui, &event.key)) {
                     send_event_to_frontend = false;
@@ -7141,7 +7157,7 @@ static bool run_main_loop(
                 }
                 send_event_to_frontend = false;
             } else if (event.type == SDL_DROPFILE) {
-                if (!debug_state.inspecting) {
+                if (!debug_state.inspecting && !frontend_help_is_open(ui)) {
                     handle_drop_file(client, options, event.drop.file);
                 }
                 send_event_to_frontend = false;
@@ -7234,16 +7250,19 @@ static bool run_main_loop(
             return false;
         }
         frontend_render(ui, ui_visible, &debug_state);
-        if (frontend_forensics_consume_pause_request(ui)) {
+        if (!frontend_help_is_open(ui) &&
+            frontend_forensics_consume_pause_request(ui)) {
             if (debug_state.runtime_state == FRONTEND_RUNTIME_STATE_RUNNING) {
                 send_pause_command(client);
             }
         }
-        if (frontend_forensics_consume_close_request(ui)) {
+        if (!frontend_help_is_open(ui) &&
+            frontend_forensics_consume_close_request(ui)) {
             /* Close button == Opt+R (return to entry surface). */
             leave_forensics_mode(window, client, ui, &ui_visible, false);
         }
-        if (frontend_forensics_consume_leave_debugger_request(ui)) {
+        if (!frontend_help_is_open(ui) &&
+            frontend_forensics_consume_leave_debugger_request(ui)) {
             /* Successful Land before/exact -> debugger paused + Inspector tab. */
             leave_forensics_mode(window, client, ui, &ui_visible, true);
         }

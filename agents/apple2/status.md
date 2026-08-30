@@ -37,7 +37,7 @@ binds in `src/main.c`:
 | **Shift+Opt+C** | Toggle colour / configured mono phosphor (White, Green, Amber) |
 | **Opt+Shift+.** / **,** | Quicksave / quickload `.a2state` |
 | **Opt+Shift+A** | Assemble configured source (reset / auto-run / MLI / one-shot) |
-| **Opt+H** | Help (pauses while open). **Esc** closes it. |
+| **Opt+H** | Help (modal; pauses while open). **Esc** closes it; returns to CRT / debugger / Forensics. |
 | **Opt+R** | Toggle Forensics; leave returns to entry surface (CRT may resume; debugger stays paused). **F9** from Forensics → debugger paused. |
 | **Opt+M** | Memory area cycle (disasm is Map/ROM/Main; memory pane is six areas) |
 | **Opt+F / Opt+G / Opt+Shift+G** | Active Memory view: Find / next / previous |
