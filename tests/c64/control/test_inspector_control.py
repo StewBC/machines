@@ -77,7 +77,7 @@ def run_available(executable, directory, Ctl):
     try:
         client = Ctl(port=port, timeout=5.0)
         hello = require_ok(client.cmd("hello"), "hello")
-        assert "protocol=C64M/8" in hello
+        assert "protocol=C64M/9" in hello
         caps = require_ok(client.cmd("capabilities"), "capabilities")
         assert "inspector" in caps.split()
         require_ok(client.cmd("pause"), "initial pause")
@@ -107,6 +107,9 @@ def run_available(executable, directory, Ctl):
         assert poke[0] == "error"
         assert "read-only-inspector" in poke[1]
 
+        sealed = require_ok(client.cmd("step-instruction"), "sealed step")
+        assert "accepted=1" in sealed
+
         leave = require_ok(client.cmd("leave-inspector"), "leave-inspector")
         assert "accepted=1" in leave
         deadline = time.monotonic() + 3.0
@@ -117,6 +120,27 @@ def run_available(executable, directory, Ctl):
                 break
             time.sleep(0.05)
         assert live is not None and "mode=live" in live, live
+
+        # land-inspector from live implies enter.
+        cycle = 0
+        for part in live.split():
+            if part.startswith("cycle="):
+                cycle = int(part.split("=", 1)[1])
+                break
+        land_cycle = max(0, cycle // 2)
+        require_ok(
+            client.cmd(f"land-inspector cycle={land_cycle}"),
+            "land-inspector",
+        )
+        deadline = time.monotonic() + 3.0
+        landed = None
+        while time.monotonic() < deadline:
+            landed = require_ok(client.cmd("get-state"), "get-state after land")
+            if "mode=inspector" in landed:
+                break
+            time.sleep(0.05)
+        assert landed is not None and "mode=inspector" in landed, landed
+        require_ok(client.cmd("leave-inspector"), "leave after land")
     finally:
         if client is not None:
             try:

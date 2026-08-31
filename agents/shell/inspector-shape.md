@@ -17,8 +17,10 @@ Do not merge those notes.
 - Subset names: `runtime_client_inspector_{set_enabled,enter,leave,land,land_to_cycle}`
   in `src/shell/runtime/runtime_client_subset.h`. Picture blit and catalog
   stay leftover.
-- Wire: `get-state` reports `mode=live|inspector`. A2M/14 and C64M/8 both
-  have `enter-inspector` / `leave-inspector`.
+- Wire: `get-state` reports `mode=live|inspector`. A2M/15 and C64M/9 both
+  have `enter-inspector` / `leave-inspector` / `land-inspector` /
+  `land-inspector-exact`. Land from live implies enter. Socket `run` /
+  `step-*` while Inspecting are sealed execute on both products.
 - Record does **not** arm or stop HST1. FIND is Forensics, not the slider.
 - Inspect is read-only. Forward motion is sealed re-execute, clamped to
   live. No reverse CPU. No Promote/Branch.

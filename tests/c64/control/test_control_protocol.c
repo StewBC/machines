@@ -116,6 +116,31 @@ static void test_parse_known_commands(void)
         control_protocol_parse_request("41 enter-inspector", &request, &error));
     expect_int("enter-inspector type", CONTROL_COMMAND_ENTER_INSPECTOR, request.type);
 
+    expect_true(
+        "parse land-inspector",
+        control_protocol_parse_request(
+            "42 land-inspector cycle=12345", &request, &error));
+    expect_int("land-inspector type", CONTROL_COMMAND_LAND_INSPECTOR, request.type);
+    expect_true(
+        "land-inspector cycle",
+        request.args.inspector_land_cycle == 12345ull);
+
+    expect_true(
+        "parse land-inspector-exact",
+        control_protocol_parse_request(
+            "43 land-inspector-exact cycle=99", &request, &error));
+    expect_int(
+        "land-inspector-exact type",
+        CONTROL_COMMAND_LAND_INSPECTOR_EXACT,
+        request.type);
+    expect_true(
+        "land-inspector-exact cycle",
+        request.args.inspector_land_cycle == 99ull);
+
+    expect_true(
+        "land-inspector bad-args",
+        !control_protocol_parse_request("44 land-inspector", &request, &error));
+
     expect_true("parse get-cpu", control_protocol_parse_request("14 get-cpu", &request, &error));
     expect_int("get-cpu type", CONTROL_COMMAND_GET_CPU, request.type);
 

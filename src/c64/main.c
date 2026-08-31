@@ -5388,6 +5388,28 @@ static void dispatch_control_request(
             break;
         }
 
+        case CONTROL_COMMAND_LAND_INSPECTOR:
+        case CONTROL_COMMAND_LAND_INSPECTOR_EXACT: {
+            uint64_t cycle = request->args.inspector_land_cycle;
+            uint64_t token;
+            /* Land implies enter (UI Inspect & Land). Queue enter then land. */
+            if (debug_state == NULL || !debug_state->inspecting) {
+                token = runtime_client_alloc_request_token(client);
+                accepted = runtime_client_inspector_enter(client, token);
+                if (!accepted) {
+                    break;
+                }
+            }
+            token = runtime_client_alloc_request_token(client);
+            if (request->type == CONTROL_COMMAND_LAND_INSPECTOR_EXACT) {
+                accepted = runtime_client_inspector_land_to_cycle(
+                    client, cycle, token);
+            } else {
+                accepted = runtime_client_inspector_land(client, cycle, token);
+            }
+            break;
+        }
+
         case CONTROL_COMMAND_STEP_CYCLE:
             accepted = runtime_client_step_cycle(client);
             break;
@@ -6729,6 +6751,8 @@ static void dispatch_control_request(
     switch (request->type) {
         case CONTROL_COMMAND_LEAVE_INSPECTOR:
         case CONTROL_COMMAND_ENTER_INSPECTOR:
+        case CONTROL_COMMAND_LAND_INSPECTOR:
+        case CONTROL_COMMAND_LAND_INSPECTOR_EXACT:
         case CONTROL_COMMAND_RESET:
         case CONTROL_COMMAND_RUN:
         case CONTROL_COMMAND_PAUSE:

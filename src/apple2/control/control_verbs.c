@@ -580,6 +580,33 @@ static bool parse_get_frame_at(
     return true;
 }
 
+static bool parse_inspector_land_cycle(
+    const char *rest, void *args_out, uint32_t id, control_response *err)
+{
+    control_verb_args *args = args_out;
+    const char *cursor = skip_ws(rest);
+    char *end = NULL;
+    unsigned long long v = 0;
+
+    if (strncmp(cursor, "cycle=", 6) != 0) {
+        fail_args(err, id, "cycle=<n>");
+        return false;
+    }
+    cursor += 6;
+    v = strtoull(cursor, &end, 0);
+    if (end == cursor) {
+        fail_args(err, id, "cycle=<n>");
+        return false;
+    }
+    cursor = skip_ws(end);
+    if (cursor[0] != '\0') {
+        fail_args(err, id, "cycle=<n>");
+        return false;
+    }
+    args->inspector_land.cycle = (uint64_t)v;
+    return true;
+}
+
 static bool parse_path(
     const char *rest, void *args_out, uint32_t id, control_response *err)
 {
@@ -1129,7 +1156,11 @@ static const apple_control_verb k_apple_verbs[] = {
     { { NULL, "sessions", NULL, NULL }, CONTROL_COMMAND_NONE },
     { { NULL, "state-changed", NULL, NULL }, CONTROL_COMMAND_NONE },
     { { "leave-inspector", "inspector", NULL, parse_empty }, CONTROL_COMMAND_LEAVE_INSPECTOR },
-    { { "enter-inspector", "inspector", NULL, parse_empty }, CONTROL_COMMAND_ENTER_INSPECTOR }
+    { { "enter-inspector", "inspector", NULL, parse_empty }, CONTROL_COMMAND_ENTER_INSPECTOR },
+    { { "land-inspector", "inspector", NULL, parse_inspector_land_cycle },
+      CONTROL_COMMAND_LAND_INSPECTOR },
+    { { "land-inspector-exact", "inspector", NULL, parse_inspector_land_cycle },
+      CONTROL_COMMAND_LAND_INSPECTOR_EXACT }
 };
 
 static const apple_control_verb *find_apple_verb(const char *name)

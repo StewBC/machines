@@ -112,7 +112,7 @@ Control **framing + verb runner + memory-source type** is `src/shell/control/`.
 Product binaries supply verb tables and memory-source tables. `capabilities`
 is generated from the product table (static advertisement). Deferred
 capacity (a2m 1, c64m 16) and product `control_server.c` loops stay product-local.
-`hello` is `A2M/14` / `C64M/8`.
+`hello` is `A2M/15` / `C64M/9`.
 
 HST1 store / find grammar / wire, breakpoint-condition parse (published
 LHS table: Apple `cycle_in_line`, C64 `vic_cycle` / `raster`), Forensics,
@@ -123,7 +123,8 @@ Shared `runtime_client` subset (run/pause/step, get-cpu, get-memory
 `source_id`, breakpoint id-ops, history FIND, inspector enter/leave/land/step
 *names*) is `src/shell/runtime/runtime_client_subset.h`. Implementations
 stay product-local. Do not include `apple2.h` / `c64.h` from that header.
-A2M wire has `enter-inspector` / `leave-inspector`. Record does not arm HST1.
+Both products wire `enter-inspector` / `leave-inspector` /
+`land-inspector` / `land-inspector-exact`. Record does not arm HST1.
 Both products share `[debug] history_off_on_max` / `inspector_off_on_max`
 (see [`shell/inspector-shape.md`](shell/inspector-shape.md)).
 
@@ -144,7 +145,7 @@ Or `make test`. Product groups: `ctest --test-dir build -L a2m` and
 
 ctest: a2m **82/82**. c64m **78 pass + 10 SKIP** (CTest 77 without
 gitignored `assets/`) **+ `c64m.history_control_integration` fails**.
-Do not "fix" that fail. Hello shows A2M/14. Help overlay still builds from
+Do not "fix" that fail. Hello shows A2M/15. Help overlay still builds from
 each manual.
 
 ## Design docs

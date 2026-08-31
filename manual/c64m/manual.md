@@ -34,7 +34,7 @@ Useful flags:
 | `--saveini` / `-v`     | Save INI on quit (one-time override)                |
 | `--remember` / `-r`    | Force save-on-quit into the INI file                |
 | `--log-level <level>`  | Host log policy: `all`, `warn` (default), `error`, or `none` |
-| `--control-port N`     | Listen on localhost TCP for C64M/8 remote control (`0`=off) |
+| `--control-port N`     | Listen on localhost TCP for C64M/9 remote control (`0`=off) |
 | `--headless`           | No window; requires `--control-port`                |
 | `--disk <drive>=<image[,image...]>` | Mount a D64/G64 image at startup, e.g. `--disk 8=game.d64`; comma-separated to pre-load a queue. Empty path (`--disk 8=`) soft-powers that unit without media |
 | `--prg <file>` / `-p`  | Load a file as PRG at startup                       |
@@ -416,6 +416,10 @@ reports the post-land `focus_cycle` versus the requested cycle (clamp, live, or
 quantized). After a successful land, Forensics closes and the debugger opens
 paused on the Inspector tab. Cancel or a failed land leaves you in Forensics.
 **Opt+R** / **Close** still return to the entry surface as above.
+
+The control port can land the same way: `land-inspector cycle=<n>` (quantized)
+and `land-inspector-exact cycle=<n>` (see **Remote** / **State and Snapshots**).
+From live, those verbs imply enter.
 
 See **CPU Flight Recorder** under **Remote** for the wire grammar and budgets.
 
@@ -1969,7 +1973,7 @@ combine headless mode with `--sna`:
 The server always binds to `127.0.0.1`. It accepts one client at a time. The socket
 thread performs network I/O only; runtime commands and snapshot requests are dispatched
 by the main loop, so remote control follows the same thread-ownership rules as the GUI
-debugger. The current protocol name is `C64M/8`.
+debugger. The current protocol name is `C64M/9`.
 
 Unsolicited events may arrive with request id `0`, for example
 `0 event state-changed reason=step session=2 cycles=... frame=... epoch=...`. Scripts that
@@ -2091,8 +2095,8 @@ is still paced by present/vsync (~16 ms class).
 
 | Command | Response |
 |---------|----------|
-| `hello` | `ok name=c64m protocol=C64M/8` |
-| `version` | `ok protocol=C64M/8 app=c64m` |
+| `hello` | `ok name=c64m protocol=C64M/9` |
+| `version` | `ok protocol=C64M/9 app=c64m` |
 | `capabilities` | Space-separated capability names |
 | `ping` | `ok` |
 | `quit-client` | `ok`, then the server closes the client connection |
@@ -2261,7 +2265,11 @@ disable the ring with a budget of `0`.
 
 | Command | Response |
 |---------|----------|
-| `get-state` | Text state summary: runtime state, CPU availability, frame, cycle, stop reason, turbo; when hardware is known also `raster=` and `vic_cycle=` |
+| `get-state` | Text state summary: runtime state, CPU availability, frame, cycle, stop reason, turbo, `mode=live\|inspector`, `focus_cycle`, window `start` / `start_arg1`; when hardware is known also `raster=` and `vic_cycle=` |
+| `enter-inspector` | Enter Inspect at live NOW (requires a Record window). Fire-and-forget. |
+| `leave-inspector` | Leave Inspect and restore live NOW (does not auto-resume). |
+| `land-inspector cycle=<n>` | Land at the nearest Record checkpoint at or before `cycle` (quantized). From live, implies enter. Requires a non-empty Record catalog. |
+| `land-inspector-exact cycle=<n>` | Land exactly at `cycle` (checkpoint then sealed re-execute to that cycle). From live, implies enter. |
 | `get-cpu` | Text CPU snapshot |
 | `get-vic` | Text VIC-II internal state (raster, cycle, compare latch, VC/RC, IRQ, BA/AEC/RDY, ...) |
 | `get-cia <1\|2>` | Text CIA internal state including ICR mask |
@@ -2273,6 +2281,11 @@ disable the ring with a budget of `0`.
 | `step-frame` | Advance one full VIC-II frame, publish it, and pause |
 
 `get-state` is answered from the main loop's cached frontend debug state.
+While `mode=inspector` (time travel), `get-cpu` / `get-memory` / `get-frame` show the
+landed C64 (THEN). Pokes and other true mutators fail with `error read-only-inspector`.
+Socket `run` / `step-*` while Inspecting are sealed execute clamped to live.
+`land-inspector` / `land-inspector-exact` position the Record tape (and enter from live
+when needed). Leave does not resume execution.
 `get-frame` uses the latest completed frame cached by the main loop, or requests one
 if no cached frame exists yet. In headless mode the main loop still polls frame
 snapshots for `get-frame` and `wait-frame`.

@@ -5,8 +5,8 @@ This note is A2M verbs, the Python client, and coop.
 
 **Audience:** agents and humans scripting the emulator (headless or windowed).
 
-**Protocol today:** **A2M/14** (`CONTROL_PROTOCOL_VERSION` in
-`src/control/control_protocol.h`).
+**Protocol today:** **A2M/15** (`CONTROL_PROTOCOL_VERSION` in
+`src/apple2/control/control_protocol.h`).
 
 ## Source of truth
 
@@ -32,7 +32,7 @@ python3 -c "
 import sys; sys.path.insert(0, 'tools')
 from a2m_control_client import Ctl
 c = Ctl(port=6510)
-print(c.cmd('hello'))          # name=a2m protocol=A2M/14
+print(c.cmd('hello'))          # name=a2m protocol=A2M/15
 print(c.cmd('get-cpu'))
 c.cmd('run'); c.wait_frame(2, 5000); c.cmd('pause'); c.wait_paused(2000)
 r = c.history_find(limit=8)
@@ -58,7 +58,7 @@ tools/a2m_coop_watch.py --port 6510
 Snaps: `build/debug/snap-NNN.txt` (+ optional `snap-NNN-frames/`).
 Inbox: append lines to `build/debug/coop_inbox`.
 
-## Wire inventory (A2M/14)
+## Wire inventory (A2M/15)
 
 Framing: `<id> <command> [args]\n` → `ok` / `error` / `data` (+ binary + `\n`).
 Unsolicited: `0 event state-changed reason=… session=… cycles=… frame=… epoch=…\n`
@@ -81,7 +81,7 @@ snapshot history assemble mli-launch symbols sessions state-changed inspector`
 | Frame ring | `frame-ring-info` `frame-ring-record` `frame-ring-clear` `get-frame-at frame=\|cycle=` |
 | Breakpoints | `break-create` / `break-update` / `break-list` / `break-enable` / `break-clear` / `break-clear-all` / `rearm-oneshots` / `break-exec`; `when=`; access exec/read/write |
 | History | `history-info` `history-record` `history-clear` `history-find` `history-next` `history-read` `history-close` → `data history` **HST1**. Marker 13 = `MEDIA_CHANGED`; `arg0` is `0 unknown / 1 guest-write / 2 host-directory`, `arg1` is `(slot<<8)\|device`. Find options: shared `runtime_history_parse_find_options` — keys `pc address access direction limit from epoch timeline cycle value opcodes`; access includes `execute`/`fetch`, fine bus names, and `read`/`write`/`data` aliases. |
-| Inspector | Master switch is INI `[debug] inspector=0\|1` / CLI `--inspector` (default **off**). Optional `[debug] inspector_off_on_max` (default false) wipes Record on max. `get-state` reports `mode=live\|inspector focus_cycle=N`. `enter-inspector` / `leave-inspector` (any session). Mutating verbs fail with `error read-only-inspector`. Land/seek stay UI / `runtime_client`. FIND stays on HST1. Record does not arm HST1. |
+| Inspector | Master switch is INI `[debug] inspector=0\|1` / CLI `--inspector` (default **off**). Optional `[debug] inspector_off_on_max` (default false) wipes Record on max. `get-state` reports `mode=live\|inspector focus_cycle=N`. `enter-inspector` / `leave-inspector` (any session). `land-inspector cycle=N` (quantized ≤ N) / `land-inspector-exact cycle=N`; from live they imply enter. While Inspecting, `run` / `step-*` are sealed execute clamped to live; pokes/media/reset fail with `error read-only-inspector`. Catalog `[-]`/`[+]` stay UI. FIND stays on HST1. Record does not arm HST1. |
 | Waits | `wait-paused` `wait-running` `wait-frame` `wait-event` (incl. `assemble-complete` / `assemble-error`) |
 | Assembler | `assemble [address=] [run-address=] [auto-run=] [mli-launch=] [reset=] [auto-adjust-segments=] <path>` (deferred) |
 | Symbols | `find-symbol <name>` → `ok address=$XXXX name=…` / `not-ready` / `not-found` |
@@ -123,7 +123,7 @@ Aliases for `kind=`: `disk` → diskii; `sp` / `hd` → smartport.
 - **Events:** `0 event state-changed …` may arrive at any time; do not treat as the next reply for id N. Prefer `Ctl` (`drain_events` / `events` list).
 - History FIND/NEXT cursors are **per session**; a step/poke/reset from any asker invalidates all cursors (`CURSOR_STALE` → re-FIND).
 - `history-find` grammar lives in `src/runtime/runtime_history_query_parse.*` (not a private control-only parse). Autocomplete / docs must use `runtime_history_find_option_keys()` / `_access_names()`.
-- While `mode=inspector`, `get-memory`/`get-cpu` return THEN; `run`/`set-memory`/`set-reg`/mount/reset fail with `read-only-inspector`. `leave-inspector` restores live NOW and does **not** auto-resume.
+- While `mode=inspector`, `get-memory`/`get-cpu` return THEN; `set-memory`/`set-reg`/mount/reset fail with `read-only-inspector`. Socket `run` / `step-*` are sealed execute clamped to live. `leave-inspector` restores live NOW and does **not** auto-resume.
 - Control memory-mode enum order is remapped in dispatch; do not assume it matches `runtime_memory_mode`.
 
 Bump `A2M/N` when scripts must learn new behaviour. Keep this file, the client

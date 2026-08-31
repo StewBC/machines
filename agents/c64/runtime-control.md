@@ -76,7 +76,7 @@ owns I/O; SDL/main drains requests. `--headless` requires a control port and
 skips window/renderer/frontend/host audio; the headless loop wakes when a
 control request is queued. `quit-client` closes the socket, not the process.
 
-Wire is **C64M/8**. Grammar, payloads, and client sketch: `control-port.md`.
+Wire is **C64M/9**. Grammar, payloads, and client sketch: `control-port.md`.
 Recipes: `using-c64m.md`.
 
 ## CPU flight recorder (HST1)
@@ -199,7 +199,8 @@ Pinned product rules:
 - Promote / Branch is out (`known-gaps.md`).
 
 Control: `get-state` reports `mode=live|inspector` and `focus_cycle`.
-`enter-inspector` / `leave-inspector`. Tests: `runtime_inspector`,
+`enter-inspector` / `leave-inspector` / `land-inspector` /
+`land-inspector-exact`. Tests: `runtime_inspector`,
 `runtime_inspector_replay`, `runtime_inspector_mode`,
 `inspector_control_integration`. UI: `frontend-debugger.md`.
 

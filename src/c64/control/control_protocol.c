@@ -803,6 +803,23 @@ bool control_protocol_parse_request(
                 cursor++;
             }
         }
+    } else if (type == CONTROL_COMMAND_LAND_INSPECTOR ||
+               type == CONTROL_COMMAND_LAND_INSPECTOR_EXACT) {
+        skip_spaces(&cursor);
+        if (strncmp(cursor, "cycle=", 6) != 0) {
+            set_parse_error(out_error, id, "bad-args", "expected cycle=<number>");
+            return false;
+        }
+        cursor += 6;
+        if (!parse_u64_token(cursor, &cursor, &args.inspector_land_cycle)) {
+            set_parse_error(out_error, id, "bad-args", "expected cycle=<number>");
+            return false;
+        }
+        skip_spaces(&cursor);
+        if (*cursor != '\0' && *cursor != '\r' && *cursor != '\n') {
+            set_parse_error(out_error, id, "bad-args", "expected cycle=<number>");
+            return false;
+        }
     } else if (type == CONTROL_COMMAND_GET_FRAME_AT) {
         bool have_target = false;
         args.frame_format = CONTROL_FRAME_FORMAT_ARGB8888;

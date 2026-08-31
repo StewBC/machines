@@ -13,7 +13,7 @@ enum {
 };
 
 /* Product wire identity. Bump when scripts must learn new behaviour. */
-#define CONTROL_PROTOCOL_VERSION "C64M/8"
+#define CONTROL_PROTOCOL_VERSION "C64M/9"
 #define CONTROL_PROTOCOL_APP_NAME "c64m"
 
 typedef enum control_command_type {
@@ -93,7 +93,9 @@ typedef enum control_command_type {
     CONTROL_COMMAND_ASSEMBLE,
     CONTROL_COMMAND_FIND_SYMBOL,
     CONTROL_COMMAND_LEAVE_INSPECTOR,
-    CONTROL_COMMAND_ENTER_INSPECTOR
+    CONTROL_COMMAND_ENTER_INSPECTOR,
+    CONTROL_COMMAND_LAND_INSPECTOR,
+    CONTROL_COMMAND_LAND_INSPECTOR_EXACT
 } control_command_type;
 
 enum {
@@ -170,6 +172,7 @@ typedef struct control_args {
     bool auto_run;
     bool basic_run;
     bool has_run_address;
+    uint64_t inspector_land_cycle;
     char text[1024];
 } control_args;
 

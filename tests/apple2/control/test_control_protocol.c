@@ -234,6 +234,34 @@ int main(void)
         (int)request.type);
 
     expect_true(
+        "land-inspector",
+        control_protocol_parse_request(
+            "42 land-inspector cycle=12345", &request, &error));
+    expect_int(
+        "land-inspector type",
+        CONTROL_COMMAND_LAND_INSPECTOR,
+        (int)request.type);
+    expect_true(
+        "land-inspector cycle",
+        request.args.inspector_land.cycle == 12345ull);
+
+    expect_true(
+        "land-inspector-exact",
+        control_protocol_parse_request(
+            "43 land-inspector-exact cycle=99", &request, &error));
+    expect_int(
+        "land-inspector-exact type",
+        CONTROL_COMMAND_LAND_INSPECTOR_EXACT,
+        (int)request.type);
+    expect_true(
+        "land-inspector-exact cycle",
+        request.args.inspector_land.cycle == 99ull);
+
+    expect_true(
+        "land-inspector bad-args",
+        !control_protocol_parse_request("44 land-inspector", &request, &error));
+
+    expect_true(
         "assemble defaults",
         control_protocol_parse_request(
             "80 assemble samples/test.asm", &request, &error));

@@ -189,6 +189,31 @@ static bool control_command_mutates_machine(control_command_type type)
     }
 }
 
+/* True mutators blocked while Inspecting. Sealed run/step-* reach the runtime
+   (same as UI F10/F12). Land verbs are not mutators of live NOW. */
+static bool control_command_inspector_forbidden(control_command_type type)
+{
+    switch (type) {
+    case CONTROL_COMMAND_RESET:
+    case CONTROL_COMMAND_SET_MEMORY:
+    case CONTROL_COMMAND_SET_REG:
+    case CONTROL_COMMAND_SAVE_STATE:
+    case CONTROL_COMMAND_LOAD_STATE:
+    case CONTROL_COMMAND_KEY:
+    case CONTROL_COMMAND_MOUNT_DISK:
+    case CONTROL_COMMAND_MOUNT:
+    case CONTROL_COMMAND_UNMOUNT:
+    case CONTROL_COMMAND_SELECT_DISK:
+    case CONTROL_COMMAND_SET_DISK_WRITABLE:
+    case CONTROL_COMMAND_HISTORY_CLEAR:
+    case CONTROL_COMMAND_HISTORY_RECORD:
+    case CONTROL_COMMAND_ASSEMBLE:
+        return true;
+    default:
+        return false;
+    }
+}
+
 /* Close the bound control session without waiting (fire-and-forget). */
 static void control_dispatch_release_session(control_dispatch_t *disp)
 {
@@ -1319,7 +1344,7 @@ static void handle_request(control_dispatch_t *disp, control_request *req)
 {
     runtime_client *client = disp->client;
 
-    if (disp->inspecting && control_command_mutates_machine(req->type)) {
+    if (disp->inspecting && control_command_inspector_forbidden(req->type)) {
         post_error(
             disp,
             req->id,
@@ -1413,6 +1438,25 @@ static void handle_request(control_dispatch_t *disp, control_request *req)
     case CONTROL_COMMAND_ENTER_INSPECTOR: {
         uint64_t token = runtime_client_alloc_request_token(client);
         (void)runtime_client_inspector_enter(client, token);
+        post_ok(disp, req->id, "accepted=1");
+        break;
+    }
+
+    case CONTROL_COMMAND_LAND_INSPECTOR:
+    case CONTROL_COMMAND_LAND_INSPECTOR_EXACT: {
+        uint64_t cycle = req->args.inspector_land.cycle;
+        uint64_t token;
+        /* Land implies enter (UI Inspect & Land). Queue enter then land. */
+        if (!disp->inspecting) {
+            token = runtime_client_alloc_request_token(client);
+            (void)runtime_client_inspector_enter(client, token);
+        }
+        token = runtime_client_alloc_request_token(client);
+        if (req->type == CONTROL_COMMAND_LAND_INSPECTOR_EXACT) {
+            (void)runtime_client_inspector_land_to_cycle(client, cycle, token);
+        } else {
+            (void)runtime_client_inspector_land(client, cycle, token);
+        }
         post_ok(disp, req->id, "accepted=1");
         break;
     }

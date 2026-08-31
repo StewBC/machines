@@ -9,7 +9,7 @@
 #include <stdint.h>
 
 /* Product wire identity. Bump when scripts must learn new behaviour. */
-#define CONTROL_PROTOCOL_VERSION "A2M/14"
+#define CONTROL_PROTOCOL_VERSION "A2M/15"
 #define CONTROL_PROTOCOL_APP_NAME "a2m"
 
 typedef enum control_command_type {
@@ -68,7 +68,9 @@ typedef enum control_command_type {
     CONTROL_COMMAND_ASSEMBLE,
     CONTROL_COMMAND_FIND_SYMBOL,
     CONTROL_COMMAND_LEAVE_INSPECTOR,
-    CONTROL_COMMAND_ENTER_INSPECTOR
+    CONTROL_COMMAND_ENTER_INSPECTOR,
+    CONTROL_COMMAND_LAND_INSPECTOR,
+    CONTROL_COMMAND_LAND_INSPECTOR_EXACT
 } control_command_type;
 
 /* mount/unmount card selection (0 = infer / resolve uniquely). */
@@ -155,6 +157,10 @@ typedef struct control_args_find_symbol {
     char name[CONTROL_LINE_MAX];
 } control_args_find_symbol;
 
+typedef struct control_args_inspector_land {
+    uint64_t cycle;
+} control_args_inspector_land;
+
 typedef union control_verb_args {
     control_args_memory memory;
     control_args_set_reg set_reg;
@@ -168,6 +174,7 @@ typedef union control_verb_args {
     control_args_history history;
     control_args_assemble assemble;
     control_args_find_symbol find_symbol;
+    control_args_inspector_land inspector_land;
 } control_verb_args;
 
 typedef struct control_request {

@@ -34,10 +34,10 @@ the bottom.
 | Second control client | One TCP client. Co-op is windowed UI + one script (`using-c64m.md`). |
 
 Inspector itself is shipped (opt-in `--inspector` / `[debug] inspector`, Misc
-Inspector tab, `enter-inspector` / `leave-inspector`). Forensics (Opt+R /
-Inspector **Forensics...**) is the in-emulator HST1 FIND transcript (see the
-manual **Forensics** section). File snapshots (`save-state` / `load-state`)
-are a different product.
+Inspector tab, `enter-inspector` / `leave-inspector` / `land-inspector` /
+`land-inspector-exact`). Forensics (Opt+R / Inspector **Forensics...**) is the
+in-emulator HST1 FIND transcript (see the manual **Forensics** section). File
+snapshots (`save-state` / `load-state`) are a different product.
 
 ## Tests and oracles
 
@@ -68,5 +68,5 @@ These were decided with measurements. A new brief needs new evidence.
 - Media-on EXECUTE is not synthetic `format_track()`.
 - Max (turbo 2 / `max`) keeps live paint and is the correctness and throughput
   bar. Turbo `3` is hard-rejected. Breakpoint FAST remains the paint-off path.
-- Wire identity is `C64M/8` with no dual-path compatibility layer. Bump `N`
+- Wire identity is `C64M/9` with no dual-path compatibility layer. Bump `N`
   in the same change as the code and `control-port.md`.

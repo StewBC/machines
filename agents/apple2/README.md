@@ -13,7 +13,7 @@ Monorepo index: [`../README.md`](../README.md). Shared debugger shape:
 ## Product
 
 C99 **Apple ][+ / //e Enhanced** emulator (version **3.1.0**, protocol
-**A2M/14**).
+**A2M/15**).
 
 User book: [`manual/a2m/`](../../manual/a2m/manual.md).
 It shares debugger muscle memory with leftover c64m. Treat that as ancestry,

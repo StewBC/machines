@@ -52,7 +52,7 @@ There is no dual-path compatibility layer. When wire behavior or control
 concurrency semantics change in a way that scripts must learn, bump `N` in
 the same change as the code and this document.
 
-**Current: C64M/8** — Inspect honesty (`mode=live|inspector`, `leave-inspector`,
+**Current: C64M/9** — Inspect honesty (`mode=live|inspector`, enter/leave/land,
 capability `inspector`, `state-changed` reasons `inspector-*`), sessions,
 unsolicited `state-changed`, VIC ring, frame ring, guarded breakpoints, HST1.
 
@@ -267,8 +267,8 @@ N set-turbo <mode 1|2|max>
 Current fixed responses:
 
 ```text
-hello        -> ok name=c64m protocol=C64M/8
-version      -> ok protocol=C64M/8 app=c64m
+hello        -> ok name=c64m protocol=C64M/9
+version      -> ok protocol=C64M/9 app=c64m
 capabilities -> ok connection introspection execution state step turbo frame memory debug-memory call-stack input disk file snapshot breakpoints wait assemble symbols drive-cpu vic cia run-to-raster history power-drive frame-ring vic-ring sessions state-changed inspector
 (generated from the leftover verb table)
 ping         -> ok
@@ -293,12 +293,17 @@ Inspect verbs:
 ```text
 N leave-inspector
 N enter-inspector
+N land-inspector cycle=<n>
+N land-inspector-exact cycle=<n>
 ```
 
 `leave-inspector` is required so a socket peer can recover from a UI Inspect
 session: fire-and-forget `ok accepted=1`, restores live NOW, does not auto-resume.
 `enter-inspector` is optional (UI uses `runtime_client`); same fire-and-forget
-shape. While `mode=inspector`, `set-memory` / keys / media / save-load-state /
+shape. `land-inspector` is quantized (nearest checkpoint ≤ cycle);
+`land-inspector-exact` is checkpoint ≤ N then sealed fill to N. From live, land
+implies enter (UI Inspect & Land). Requires a non-empty Record catalog.
+While `mode=inspector`, `set-memory` / keys / media / save-load-state /
 history-record/clear fail immediately with `error read-only-inspector`. Socket
 `run` / `step-*` while Inspecting perform sealed execute clamped to live (same
 as the UI F10/F12 family), not the unclamped live line.

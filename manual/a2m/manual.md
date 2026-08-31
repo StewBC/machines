@@ -27,7 +27,7 @@ Common flags (see `--help` for the full list):
 | `--remember` / `-r` | Force save-on-quit into the INI file |
 | `--defaults` / `-f` | Start from built-in defaults |
 | `--log-level <level>` | Host log policy: `all`, `warn` (default), `error`, or `none` |
-| `--control-port N` | Listen on localhost TCP for A2M/14 remote control (`0`=off) |
+| `--control-port N` | Listen on localhost TCP for A2M/15 remote control (`0`=off) |
 | `--headless` | No window; short smoke exit unless `--control-port` is set |
 | `--model enh\|plus` / `-m` | `enh` is Apple //e Enhanced (default); `plus` is Apple ][+ |
 | `--disk <spec>` / `-d` | Mount a Disk II image; `path` or `s6d0=path` (repeatable) |
@@ -418,6 +418,10 @@ If you are not yet Inspecting but checkpoints exist, either land button asks to
 successful land, Forensics closes and the debugger opens paused on the Inspector
 tab. Cancel or a failed land leaves you in Forensics. **Opt+R** / **Close** still
 return to the entry surface as above.
+
+The control port can land the same way: `land-inspector cycle=<n>` (quantized)
+and `land-inspector-exact cycle=<n>` (see **Remote** / **State and Snapshots**).
+From live, those verbs imply enter.
 
 See **CPU Flight Recorder** for the remote query grammar and **`[debug]`** for
 Record budgets.
@@ -1895,7 +1899,7 @@ combine headless mode with `--sna`:
 
 The server always binds to `127.0.0.1` and accepts one client at a time. Network I/O
 runs on a socket thread; commands are handled by the main loop, the same path the GUI
-debugger uses. The protocol name is `A2M/14`.
+debugger uses. The protocol name is `A2M/15`.
 
 Python helpers:
 
@@ -2015,8 +2019,8 @@ for low-latency automation; a windowed session is still paced by present/vsync.
 
 | Command | Response |
 |---------|----------|
-| `hello` | `ok name=a2m protocol=A2M/14` |
-| `version` | `ok protocol=A2M/14 app=a2m` |
+| `hello` | `ok name=a2m protocol=A2M/15` |
+| `version` | `ok protocol=A2M/15 app=a2m` |
 | `capabilities` | Space-separated capability names |
 | `ping` | `ok` |
 | `quit-client` | `ok`, then the server closes the client connection |
@@ -2162,6 +2166,8 @@ flight recorder for the same moment.
 | `get-state` | Text state summary: runtime state, CPU availability, frame, cycle, stop reason, turbo, `mode=live\|inspector`, `focus_cycle`, window `start` / `start_arg1` |
 | `enter-inspector` | Enter Inspect at live NOW (requires a Record window). Fire-and-forget; UI also uses `runtime_client`. |
 | `leave-inspector` | Leave Inspect and restore live NOW (does not auto-resume). Any session may call this. |
+| `land-inspector cycle=<n>` | Land at the nearest Record checkpoint at or before `cycle` (quantized). From live, implies enter. Requires a non-empty Record catalog. |
+| `land-inspector-exact cycle=<n>` | Land exactly at `cycle` (checkpoint then sealed re-execute to that cycle). From live, implies enter. |
 | `get-cpu` | Text CPU snapshot |
 | `get-softswitches` | Latched soft-switch flags plus beam (not `$C0xx` memory) |
 | `get-frame` | Binary 560 x 192 ARGB frame |
@@ -2173,9 +2179,12 @@ flight recorder for the same moment.
 
 `get-state` is answered from the main loop's cached frontend debug state.
 While `mode=inspector` (time travel), `get-cpu` / `get-memory` / `get-frame` show the landed Apple
-(THEN). Mutating verbs (`run`, `set-memory`, `set-reg`, mount, reset, ...) fail
-with `error read-only-inspector`. `enter-inspector` / `leave-inspector` enter at live
-NOW and restore live NOW. Leave does not resume execution.
+(THEN). Pokes and other true mutators (`set-memory`, `set-reg`, mount, reset, ...) fail
+with `error read-only-inspector`. Socket `run` / `step-*` while Inspecting are sealed
+execute clamped to live (same idea as the UI F10/F12 family). `enter-inspector` /
+`leave-inspector` enter at live NOW and restore live NOW. `land-inspector` /
+`land-inspector-exact` position the Record tape (and enter from live when needed).
+Leave does not resume execution.
 `get-frame` uses the latest completed frame cached by the main loop, or requests one
 if no cached frame exists yet.
 

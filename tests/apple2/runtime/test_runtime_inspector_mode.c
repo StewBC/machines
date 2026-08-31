@@ -744,7 +744,7 @@ int main(void)
         expect_true("tcp connect", fd >= 0);
         SDL_Delay(50);
         expect_true("hello", tcp_cmd(fd, "1 hello\n", resp, sizeof(resp)));
-        expect_true("hello a2m14", strstr(resp, "A2M/14") != NULL);
+        expect_true("hello a2m15", strstr(resp, "A2M/15") != NULL);
         expect_true(
             "caps", tcp_cmd(fd, "2 capabilities\n", resp, sizeof(resp)));
         expect_true("caps tm", strstr(resp, "inspector") != NULL);
@@ -760,6 +760,14 @@ int main(void)
         expect_true(
             "readonly code",
             strstr(resp, "read-only-inspector") != NULL);
+        /* Sealed step must not be rejected as read-only-inspector. */
+        expect_true(
+            "sealed step wire",
+            tcp_cmd(fd, "14 step-instruction\n", resp, sizeof(resp)));
+        expect_true("sealed step ok", strstr(resp, "ok") != NULL);
+        expect_true(
+            "sealed step not readonly",
+            strstr(resp, "read-only-inspector") == NULL);
         expect_true(
             "exit wire", tcp_cmd(fd, "5 leave-inspector\n", resp, sizeof(resp)));
         expect_true("exit accepted", strstr(resp, "ok") != NULL);
@@ -784,6 +792,37 @@ int main(void)
             "get-state live2",
             tcp_cmd(fd, "10 get-state\n", resp, sizeof(resp)));
         expect_true("state live2", strstr(resp, "mode=live") != NULL);
+
+        /* land-inspector from live implies enter. */
+        {
+            uint64_t land_cycle = 0u;
+            uint64_t oldest = 0u;
+            uint64_t live = 0u;
+            uint64_t count = 0u;
+            char land_cmd[96];
+
+            runtime_inspector_timeline_bounds(rt, &oldest, &live, &count);
+            expect_true("land catalog", count > 0u);
+            land_cycle = oldest + ((live > oldest) ? ((live - oldest) / 2u) : 0u);
+            snprintf(
+                land_cmd,
+                sizeof(land_cmd),
+                "11 land-inspector cycle=%llu\n",
+                (unsigned long long)land_cycle);
+            expect_true("land wire", tcp_cmd(fd, land_cmd, resp, sizeof(resp)));
+            expect_true("land accepted", strstr(resp, "ok") != NULL);
+            SDL_Delay(120);
+            expect_true(
+                "get-state after land",
+                tcp_cmd(fd, "12 get-state\n", resp, sizeof(resp)));
+            expect_true(
+                "state inspect after land",
+                strstr(resp, "mode=inspector") != NULL);
+            expect_true(
+                "leave after land",
+                tcp_cmd(fd, "13 leave-inspector\n", resp, sizeof(resp)));
+            SDL_Delay(80);
+        }
 
         close(fd);
         SDL_AtomicSet(&pump.alive, 0);
