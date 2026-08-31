@@ -75,3 +75,7 @@ void control_dispatch_check_session(control_dispatch_t *disp);
 bool control_dispatch_copy_symbols(
     const control_dispatch_t *disp,
     runtime_symbol_snapshot *out);
+
+/* Single-consumer poll into the dispatch durable cache. Returns true when a
+ * fresh snapshot was taken (caller may copy to the UI). */
+bool control_dispatch_poll_symbols(control_dispatch_t *disp);

@@ -34,6 +34,7 @@ typedef struct symbol_info {
     uint16_t address;
     symbol_source_kind source_kind;
     const char *source_name;
+    uint32_t source_id; /* raw table->sources[] slot */
 } symbol_info;
 
 symbol_table *symbol_table_create(void);

@@ -218,6 +218,7 @@ static void symbol_info_fill(
     out_symbol->address = entry->address;
     out_symbol->source_kind = source->kind;
     out_symbol->source_name = source->name;
+    out_symbol->source_id = entry->source_id;
 }
 
 static void symbol_free_entry(symbol_record *entry)

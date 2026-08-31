@@ -8180,8 +8180,6 @@ void frontend_invalidate_disassembly_cache(frontend *ui)
 
 void frontend_update_symbols(frontend *ui, const runtime_symbol_snapshot *snapshot)
 {
-    size_t i;
-
     if (ui == NULL || snapshot == NULL) {
         return;
     }
@@ -8193,16 +8191,8 @@ void frontend_update_symbols(frontend *ui, const runtime_symbol_snapshot *snapsh
         return;
     }
 
-    symbol_table_clear(ui->symbol_table);
-
-    for (i = 0; i < snapshot->count; ++i) {
-        symbol_table_add(
-            ui->symbol_table,
-            snapshot->entries[i].address,
-            snapshot->entries[i].name,
-            SYMBOL_SOURCE_ASSEMBLER,
-            "assembler",
-            true);
+    if (!runtime_symbol_snapshot_apply_to_table(snapshot, ui->symbol_table)) {
+        return;
     }
 
     symbol_table_make_resolver(ui->symbol_table, &ui->symbols);

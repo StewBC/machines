@@ -3550,15 +3550,19 @@ static bool control_parse_and_send_paste_events(
 /* Consume any freshly published symbol snapshot once and distribute it to the
    frontend (for the debugger views) and/or the control cache (so a control
    client can resolve labels via find-symbol). The runtime symbol slot is a
-   single-consumer handoff, so this must be the only poll site. */
+   single-consumer handoff, so this must be the only poll site.
+   Uses one durable heap buffer — do not malloc/free every frame. */
 static void poll_symbols_into(
     runtime_client *client,
     frontend *ui,
     control_cached_state *control_cache) {
-    runtime_symbol_snapshot *symbols = malloc(sizeof(*symbols));
+    static runtime_symbol_snapshot *symbols = NULL;
 
     if (symbols == NULL) {
-        return;
+        symbols = (runtime_symbol_snapshot *)malloc(sizeof(*symbols));
+        if (symbols == NULL) {
+            return;
+        }
     }
     if (runtime_client_poll_symbols(client, symbols)) {
         if (ui != NULL) {
@@ -3569,7 +3573,6 @@ static void poll_symbols_into(
             control_cache->has_symbols = true;
         }
     }
-    free(symbols);
 }
 
 static void forensics_handle_history_event(

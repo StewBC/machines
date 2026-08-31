@@ -66,17 +66,22 @@ bool control_dispatch_copy_symbols(
     return true;
 }
 
-static void cache_symbols_from_client(control_dispatch_t *disp)
+static bool cache_symbols_from_client(control_dispatch_t *disp)
 {
-    runtime_symbol_snapshot snap;
-
     if (disp == NULL || disp->client == NULL) {
-        return;
+        return false;
     }
-    if (runtime_client_poll_symbols(disp->client, &snap)) {
-        disp->symbols = snap;
-        disp->has_symbols = true;
+    /* Poll directly into the durable cache member — never a ~350KB stack local. */
+    if (!runtime_client_poll_symbols(disp->client, &disp->symbols)) {
+        return false;
     }
+    disp->has_symbols = true;
+    return true;
+}
+
+bool control_dispatch_poll_symbols(control_dispatch_t *disp)
+{
+    return cache_symbols_from_client(disp);
 }
 
 static const char *stop_reason_name(runtime_stop_reason reason)
@@ -964,9 +969,8 @@ void control_dispatch_on_runtime_event(
         disp->frame_number += 1u;
     } else if (event->type == RUNTIME_EVENT_ASSEMBLE_COMPLETE) {
         disp->latch_assemble_complete = true;
-        /* Single-consumer symbol slot: cache here so find-symbol and the UI
-           (via control_dispatch_copy_symbols) share one poll. */
-        cache_symbols_from_client(disp);
+        /* Symbol slot is drained by the main-loop durable poll helper
+           (control_dispatch_poll_symbols) so find-symbol and UI share one path. */
     } else if (event->type == RUNTIME_EVENT_ASSEMBLE_ERROR) {
         disp->latch_assemble_error = true;
     } else if (event->type == RUNTIME_EVENT_STATE_CHANGED) {

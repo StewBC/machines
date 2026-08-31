@@ -3627,29 +3627,9 @@ static void runtime_inject_host_key(runtime *rt, host_key key, bool pressed)
 static void runtime_publish_symbols(runtime *rt)
 {
     runtime_symbol_slot *slot = &rt->symbol_slot;
-    runtime_symbol_snapshot *snap = &slot->snapshot;
-    symbol_info info;
-    size_t total;
-    size_t i;
 
     mutex_lock(slot->mutex);
-    total = symbol_table_count(rt->symbols);
-    snap->total = total;
-    snap->count = total < RUNTIME_SYMBOL_SNAPSHOT_MAX ?
-        total : RUNTIME_SYMBOL_SNAPSHOT_MAX;
-    for (i = 0; i < snap->count; ++i) {
-        if (symbol_table_get(rt->symbols, i, &info) == SYMBOL_OK) {
-            snap->entries[i].address = info.address;
-            snprintf(
-                snap->entries[i].name,
-                RUNTIME_SYMBOL_NAME_MAX,
-                "%s",
-                info.name);
-        } else {
-            snap->entries[i].address = 0;
-            snap->entries[i].name[0] = '\0';
-        }
-    }
+    runtime_symbol_snapshot_from_table(rt->symbols, &slot->snapshot);
     slot->has_symbols = true;
     mutex_unlock(slot->mutex);
 }

@@ -547,6 +547,13 @@ target_compile_features(${test_runtime_client} PRIVATE c_std_99)
 target_link_libraries(${test_runtime_client} PRIVATE shell)
 leftover_add_test(NAME runtime_client COMMAND ${test_runtime_client})
 
+leftover_exe(test_runtime_symbol_snapshot
+    ${MACHINES_ROOT}/tests/shell/runtime/test_runtime_symbol_snapshot.c
+)
+target_compile_features(${test_runtime_symbol_snapshot} PRIVATE c_std_99)
+target_link_libraries(${test_runtime_symbol_snapshot} PRIVATE shell)
+leftover_add_test(NAME runtime_symbol_snapshot COMMAND ${test_runtime_symbol_snapshot})
+
 # --- tools / assembler -----------------------------------------------------
 
 leftover_exe(test_assembler_expressions

@@ -38,6 +38,7 @@ add_library(shell STATIC
     runtime/runtime_history_query_parse.c
     runtime/runtime_history_wire.c
     runtime/runtime_breakpoint_condition.c
+    runtime/runtime_symbol_snapshot.c
 )
 
 set_source_files_properties(util/audio_buffer.c PROPERTIES
@@ -61,6 +62,7 @@ target_link_libraries(shell
         SDL2::SDL2
         logc
         disasm_6502
+        symbols
     PRIVATE
         inih
         stb_ds

@@ -3384,16 +3384,8 @@ int main(int argc, char **argv)
                 forensics_handle_history_event(client, ui, &revent);
             }
             if (revent.type == RUNTIME_EVENT_ASSEMBLE_COMPLETE) {
-                runtime_symbol_snapshot symbols;
-                /* Control dispatch owns the single-consumer symbol poll when
-                   the control port is active; otherwise poll here for the UI. */
-                if (control_active &&
-                    control_dispatch_copy_symbols(&control_disp, &symbols)) {
-                    frontend_update_symbols(ui, &symbols);
-                } else if (!control_active &&
-                           runtime_client_poll_symbols(client, &symbols)) {
-                    frontend_update_symbols(ui, &symbols);
-                }
+                /* Symbol ingest is loop-polled (durable buffer); invalidate
+                   disasm so labels refresh once the snapshot lands. */
                 frontend_invalidate_disassembly_cache(ui);
                 if (revent.data.assemble.notice[0] != '\0') {
                     frontend_show_assembler_notice(
@@ -3504,6 +3496,29 @@ int main(int argc, char **argv)
             control_dispatch_check_session(&control_disp);
             if (control_deferred_active(&control_disp.deferred) == NULL) {
                 control_dispatch_poll(&control_disp);
+            }
+        }
+
+        /* Loop poll + one durable heap buffer (idle = mutex+flag only).
+         * Control owns the single-consumer slot when active; UI reads via copy. */
+        {
+            static runtime_symbol_snapshot *symbol_poll_buf = NULL;
+            if (symbol_poll_buf == NULL) {
+                symbol_poll_buf = (runtime_symbol_snapshot *)malloc(sizeof(*symbol_poll_buf));
+            }
+            if (symbol_poll_buf != NULL) {
+                bool got = false;
+                if (control_active) {
+                    got = control_dispatch_poll_symbols(&control_disp);
+                    if (got) {
+                        got = control_dispatch_copy_symbols(&control_disp, symbol_poll_buf);
+                    }
+                } else {
+                    got = runtime_client_poll_symbols(client, symbol_poll_buf);
+                }
+                if (got && ui != NULL) {
+                    frontend_update_symbols(ui, symbol_poll_buf);
+                }
             }
         }
 

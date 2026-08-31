@@ -12,25 +12,11 @@
 #include "keyboard.h"
 #include "paste_parser.h"
 
+#include "runtime_symbol_snapshot.h"
+
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
-
-enum {
-    RUNTIME_SYMBOL_NAME_MAX    = 64,
-    RUNTIME_SYMBOL_SNAPSHOT_MAX = 4096
-};
-
-typedef struct runtime_symbol_snapshot_entry {
-    uint16_t address;
-    char name[RUNTIME_SYMBOL_NAME_MAX];
-} runtime_symbol_snapshot_entry;
-
-typedef struct runtime_symbol_snapshot {
-    size_t count;
-    size_t total;
-    runtime_symbol_snapshot_entry entries[RUNTIME_SYMBOL_SNAPSHOT_MAX];
-} runtime_symbol_snapshot;
 
 bool runtime_client_reset_ex(runtime_client *client, bool detach_cartridge);
 bool runtime_client_reset_ex_with_resume(
