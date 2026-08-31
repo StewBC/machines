@@ -1525,9 +1525,13 @@ Command-line `am65` uses `file=` / `prg=` to create a separate binary and accept
 ignores `dest=`. A `dest=`-only scope therefore continues writing into its parent file
 image. Pass `--prg` on the CLI to apply the same PRG header to the default `-o` output.
 
-The in-emulator C64 host ignores `file=` / `prg=` and accepts only `dest="map"`, which
-writes to live C64 RAM. A file-only target also defaults to `map`. Destination matching
-is case-insensitive; every other destination name is an assembly error.
+The in-emulator C64 host honors `file=` / `prg=` (writes host files beside the source;
+`prg=` adds a Commodore 2-byte LE load-address header) and accepts `dest="map"` to write
+live C64 RAM. `file=`/`prg=` and `dest=` are orthogonal: either or both may be set. A
+file-only scope does **not** poke RAM. When a written path falls under a mounted HostFS
+root, the HostFS catalog is rescanned so the next `LOAD "$",N` can see the new file.
+Destination matching is case-insensitive; every other destination name is an assembly
+error.
 
 ### Build-Time Detection
 

@@ -3,14 +3,17 @@
 ## Tools
 
 - `src/shell/tools/am65`: two-pass assembler library used by the frontend, runtime,
-  and standalone `am65`. The C64 in-emulator host advertises only `map`,
-  ignores `file=`, and writes named targets to live RAM; any other `dest=`
-  name is an assembly error. Opt-in segment auto-adjust retries pass-1 layout
-  up to three times from structured overlap suggestions; pass 2 runs only
-  after layout stabilizes. Segments tagged `locked` in `.segdef` are anchors
-  auto-adjust never moves. A plain `noemit` segment may not overlap any
-  segment. The sanctioned overlay is `.segdef "n", reclaim="host"`: implicit
-  noemit, inherits the host start, and must not be larger than the host.
+  and standalone `am65`. The C64 in-emulator host advertises only `map` for
+  `dest=`, honors `file=`/`prg=` (host files beside the source; `prg=` adds a
+  Commodore LE load-address header), and rescans HostFS when the output path
+  is under a mounted root. `file=` alone does not poke RAM; `dest="map"` writes
+  live RAM; both may be set. Any other `dest=` name is an assembly error.
+  Opt-in segment auto-adjust retries pass-1 layout up to three times from
+  structured overlap suggestions; pass 2 runs only after layout stabilizes.
+  Segments tagged `locked` in `.segdef` are anchors auto-adjust never moves. A
+  plain `noemit` segment may not overlap any segment. The sanctioned overlay is
+  `.segdef "n", reclaim="host"`: implicit noemit, inherits the host start, and
+  must not be larger than the host.
 - `src/shell/tools/disasm_6502`: 6502 disassembly and addressing-mode metadata.
   The frontend adds effective-address annotations from copied snapshots.
 - `src/shell/tools/symbols`: symbol-file parsing for debugger and control port.

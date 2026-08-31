@@ -2,7 +2,7 @@
 
 | Field | Value |
 |-------|--------|
-| Status | **Active** (Phase 0–2 / PR1–PR7 + PR6 polish landed; Phase 3 assembler + PR9 snapshot remain) |
+| Status | **Active** (Phase 0–3 / PR1–PR8 landed; PR9 snapshot remain) |
 | Author | design brief session |
 | Date | 2026-08-30 |
 | Audience | Senior engineers / agents expanding phases into implementation plans |
@@ -425,16 +425,16 @@ Migration: none for existing D64 users; directories previously rejected as unsup
 3. Writable policy explicit (default read-only inside image unless Write enabled).
 4. G64 enter is **out** (no trap path for G64 today).
 
-### Phase 3 — In-emu assembler `prg=` into volume / refresh
+### Phase 3 — In-emu assembler `prg=` into volume / refresh — **landed (PR8)**
 
 **Scope:** Honor `file=`/`prg=` in `runtime_assembler.c`; refresh HostFS catalog when output lands under a mounted root.
 
 **Exit criteria:**
 
-1. `.scope foo prg="foo.prg"` writes a host file.
-2. If under mounted HostFS, next `LOAD "$",N` shows it.
-3. Manual updated (no longer “always ignores file=/prg=”).
-4. Parity note with a2m HostFS rescan after assemble.
+1. `.scope foo prg="foo.prg"` writes a host file. ✅
+2. If under mounted HostFS, next `LOAD "$",N` shows it. ✅ (`test_assemble_hostfs_refresh`)
+3. Manual updated (no longer “always ignores file=/prg=”). ✅
+4. Parity note with a2m HostFS rescan after assemble. ✅ (same flush/rescan shape)
 
 ---
 
@@ -548,7 +548,7 @@ No network exposure beyond existing control-port localhost model.
 | D | **Symlinks** — confirm follow-within-root? | Provisional follow-within-root |
 | E | **Phase 2 image types** — D64 only, or also D71/D81 later? | Phase 2 = D64 only until answered |
 | F | **Control verb naming** — overload `mount-d64` vs `mount-hostfs` / `mount-disk`? | CLI path-kind works regardless |
-| G | **Assembler Phase 3** — confirm write `prg=`/`file=` always to host + refresh if under HostFS? | Design default stands until answered |
+| G | **Assembler Phase 3** — confirm write `prg=`/`file=` always to host + refresh if under HostFS? | **Answered / landed 2026-08-31:** yes (PR8) |
 
 ---
 
@@ -625,12 +625,13 @@ Incremental, independently reviewable PRs. **Ordering invariant:** PR1 owns Host
 - **Landed:** `.d64` catalogs as `DIR` with `.D64` kept in the name; owned `d64_image` overlay; BAM `$` header;
   LOAD extract / SAVE write+flush; `test_hostfs_cd_into_d64`
 
-### PR8 — Phase 3: assembler `prg=` / `file=` + HostFS refresh
+### PR8 — Phase 3: assembler `prg=` / `file=` + HostFS refresh — **landed**
 
 - **Title:** `c64m: assembler host-file output and HostFS rescan`
 - **Files/components:** `runtime_assembler.c`, HostFS refresh API, manual Assembler section, optional `samples/c64/`
 - **Depends on:** PR2 (PR5 nice-to-have)
 - **Changes:** Stop ignoring `file=`/`prg=`; rescan when output under HostFS root
+- **Landed:** a2m-shaped per-target file buffer + flush; HostFS rescan/apply on path-under-root; tests `test_assemble_named_map_targets` / `test_assemble_hostfs_refresh`
 
 ### PR9 — Snapshot HostFS path+cwd
 

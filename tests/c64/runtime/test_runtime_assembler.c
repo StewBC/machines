@@ -1,12 +1,21 @@
 #include "runtime_assembler.h"
 
 #include "c64.h"
+#include "c64_hostfs.h"
 #include "symbol_table.h"
 #include "../test_file.h"
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
+
+#if defined(_WIN32)
+#include <direct.h>
+#include <windows.h>
+#else
+#include <unistd.h>
+#endif
 
 static int write_source(char *path, size_t path_size, const char *source) {
     return c64m_test_write_temp_file(path, path_size, "c64m_runtime_assembler", source);
@@ -122,21 +131,52 @@ static int test_assemble_reports_errors(void) {
     return failures;
 }
 
+static void sibling_path(
+    char *out, size_t out_size, const char *source_path, const char *name)
+{
+    const char *slash = strrchr(source_path, '/');
+#if defined(_WIN32)
+    const char *bslash = strrchr(source_path, '\\');
+    if (bslash != NULL && (slash == NULL || bslash > slash)) {
+        slash = bslash;
+    }
+#endif
+    if (slash == NULL) {
+        snprintf(out, out_size, "%s", name);
+    } else {
+        snprintf(
+            out,
+            out_size,
+            "%.*s%s",
+            (int)(slash - source_path + 1),
+            source_path,
+            name);
+    }
+}
+
 static int test_assemble_named_map_targets(void) {
     char path[128];
+    char dual_path[160];
+    char file_only_path[160];
     char error[1024];
     c64_t machine;
     int failures = 0;
+    FILE *fp;
+    unsigned char byte = 0;
     const char *source =
         ".if AM65 .eq 0\n"
         "    .if C64 .eq 1\n"
-        "        .scope mapped file=\"ignored.bin\" dest=\"MAP\"\n"
+        "        .scope mapped file=\"dual.bin\" dest=\"MAP\"\n"
         "            .org $4000\n"
         "            .byte $c6\n"
         "        .endscope\n"
-        "        .scope file_only file=\"also-ignored.bin\"\n"
+        "        .scope file_only file=\"file_only.bin\"\n"
         "            .org $4001\n"
         "            .byte $f1\n"
+        "        .endscope\n"
+        "        .scope prg_only prg=\"out.prg\"\n"
+        "            .org $4100\n"
+        "            .byte $aa\n"
         "        .endscope\n"
         "    .endif\n"
         ".endif\n";
@@ -144,6 +184,8 @@ static int test_assemble_named_map_targets(void) {
     if (write_source(path, sizeof(path), source) != 0) {
         return 1;
     }
+    sibling_path(dual_path, sizeof(dual_path), path, "dual.bin");
+    sibling_path(file_only_path, sizeof(file_only_path), path, "file_only.bin");
     c64_init(&machine);
     if (!c64_assemble_file(
             &machine, NULL, path, 0x0801, "current", error, sizeof(error))) {
@@ -151,11 +193,122 @@ static int test_assemble_named_map_targets(void) {
         failures++;
     } else {
         failures += expect_u8(
-            "map target byte", 0xc6, c64_debug_read_ram(&machine, 0x4000));
-        failures += expect_u8(
-            "file-only map byte", 0xf1, c64_debug_read_ram(&machine, 0x4001));
+            "map+file RAM byte", 0xc6, c64_debug_read_ram(&machine, 0x4000));
+        /* file= alone must not poke memory. */
+        if (c64_debug_read_ram(&machine, 0x4001) == 0xf1) {
+            fprintf(stderr, "file-only scope poked memory\n");
+            failures++;
+        }
+        fp = fopen(dual_path, "rb");
+        if (fp == NULL || fread(&byte, 1, 1, fp) != 1 || byte != 0xc6) {
+            fprintf(stderr, "dual.bin missing or wrong\n");
+            failures++;
+        }
+        if (fp != NULL) {
+            fclose(fp);
+        }
+        fp = fopen(file_only_path, "rb");
+        if (fp == NULL || fread(&byte, 1, 1, fp) != 1 || byte != 0xf1) {
+            fprintf(stderr, "file_only.bin missing or wrong\n");
+            failures++;
+        }
+        if (fp != NULL) {
+            fclose(fp);
+        }
+        {
+            char prg_path[160];
+            unsigned char hdr[3];
+            sibling_path(prg_path, sizeof(prg_path), path, "out.prg");
+            fp = fopen(prg_path, "rb");
+            if (fp == NULL || fread(hdr, 1, 3, fp) != 3 ||
+                hdr[0] != 0x00 || hdr[1] != 0x41 || hdr[2] != 0xaa) {
+                fprintf(stderr, "out.prg missing or wrong PRG payload\n");
+                failures++;
+            }
+            if (fp != NULL) {
+                fclose(fp);
+            }
+            (void)remove(prg_path);
+        }
     }
+    (void)remove(dual_path);
+    (void)remove(file_only_path);
     c64m_test_remove_file(path);
+    return failures;
+}
+
+static int test_assemble_hostfs_refresh(void) {
+    char dir[160];
+    char path[180];
+    char error[1024];
+    c64_t machine;
+    int failures = 0;
+    size_t i;
+    int found = 0;
+    const char *source =
+        ".scope game prg=\"game.prg\"\n"
+        "    .org $c000\n"
+        "    .byte $60\n"
+        ".endscope\n";
+
+#if defined(_WIN32)
+    snprintf(dir, sizeof(dir), "c64m_asm_hostfs_%u", (unsigned)GetTickCount());
+    if (_mkdir(dir) != 0) {
+        return 1;
+    }
+#else
+    snprintf(dir, sizeof(dir), "/tmp/c64m_asm_hostfs_XXXXXX");
+    if (mkdtemp(dir) == NULL) {
+        perror("mkdtemp");
+        return 1;
+    }
+#endif
+    snprintf(path, sizeof(path), "%s/src.s", dir);
+    {
+        FILE *fp = fopen(path, "w");
+        if (fp == NULL) {
+            return 1;
+        }
+        fputs(source, fp);
+        fclose(fp);
+    }
+
+    c64_init(&machine);
+    if (c64_mount_hostfs(&machine, 9, dir, true) != C64_DRIVE_STATUS_OK) {
+        fprintf(stderr, "hostfs mount failed\n");
+        failures++;
+    } else if (!c64_assemble_file(
+                   &machine, NULL, path, 0x0801, "current", error, sizeof(error))) {
+        fprintf(stderr, "hostfs assemble failed: %s\n", error);
+        failures++;
+    } else {
+        for (i = 0; i < machine.drives[1].entry_count; i++) {
+            char name[17];
+            size_t n = machine.drives[1].entries[i].filename_length;
+            if (n > 16u) {
+                n = 16u;
+            }
+            memcpy(name, machine.drives[1].entries[i].filename, n);
+            name[n] = '\0';
+            if (strcmp(name, "GAME") == 0 &&
+                machine.drives[1].entries[i].type == C64_DRIVE_FILE_PRG) {
+                found = 1;
+            }
+        }
+        if (!found) {
+            fprintf(stderr, "HostFS catalog missing GAME after assemble\n");
+            failures++;
+        }
+    }
+
+    remove(path);
+    snprintf(path, sizeof(path), "%s/game.prg", dir);
+    remove(path);
+#if defined(_WIN32)
+    _rmdir(dir);
+#else
+    rmdir(dir);
+#endif
     return failures;
 }
 
@@ -358,6 +511,7 @@ int main(void) {
     failures += test_assemble_imports_symbols();
     failures += test_assemble_reports_errors();
     failures += test_assemble_named_map_targets();
+    failures += test_assemble_hostfs_refresh();
     failures += test_assemble_rejects_non_map_target();
     failures += test_assemble_cpu_profile_defaults();
     failures += test_assemble_reports_emitted_extent();

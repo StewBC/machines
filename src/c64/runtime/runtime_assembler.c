@@ -1,11 +1,17 @@
 #include "runtime_assembler.h"
 
 #include "asm.h"
+#include "c64_hostfs.h"
 #include "errorlog.h"
 
+#include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+#ifndef RUNTIME_ASSEMBLER_PATH_MAX
+#define RUNTIME_ASSEMBLER_PATH_MAX 1024
+#endif
 
 typedef struct assembler_output_stats {
     uint16_t first_address;
@@ -14,10 +20,27 @@ typedef struct assembler_output_stats {
     bool has_output;
 } assembler_output_stats;
 
-typedef struct assembler_output_ctx {
+/* Per-target host context. dest=map selects RAM; file=/prg= buffers bytes and
+   writes them beside the source after a successful assemble. Both may be set.
+   prg= uses ASM_OUTPUT_PRG (Commodore LE load-address header). */
+typedef struct assembler_output_target {
+    c64_t *machine;
+    bool write_memory;
+    bool write_file;
+    assembler_output_format file_format;
+    char *file_path;
+    uint8_t *ram;
+    int wrote_file_any;
+    uint32_t file_lo;
+    uint32_t file_hi;
+    assembler_output_stats *stats;
+} assembler_output_target;
+
+typedef struct assembler_host_ctx {
     c64_t *machine;
     assembler_output_stats *stats;
-} assembler_output_ctx;
+    const char *source_path;
+} assembler_host_ctx;
 
 typedef struct assembler_symbol_import {
     symbol_table *symbols;
@@ -32,10 +55,77 @@ typedef struct assembler_adjustment_format {
     bool has_adjustments;
 } assembler_adjustment_format;
 
-static void runtime_assembler_output_byte(void *user, uint16_t addr, uint8_t val) {
-    assembler_output_ctx *ctx = (assembler_output_ctx *)user;
-    assembler_output_stats *stats = ctx->stats;
-    c64_debug_write_ram(ctx->machine, addr, val);
+static bool runtime_assembler_path_is_absolute(const char *path)
+{
+    if (path == NULL || path[0] == '\0') {
+        return false;
+    }
+#if defined(_WIN32)
+    if (path[0] == '/' || path[0] == '\\') {
+        return true;
+    }
+    return isalpha((unsigned char)path[0]) && path[1] == ':' &&
+           (path[2] == '/' || path[2] == '\\' || path[2] == '\0');
+#else
+    return path[0] == '/';
+#endif
+}
+
+static const char *runtime_assembler_find_last_separator(const char *path)
+{
+    const char *slash = strrchr(path, '/');
+#if defined(_WIN32)
+    const char *backslash = strrchr(path, '\\');
+    if (slash == NULL || (backslash != NULL && backslash > slash)) {
+        return backslash;
+    }
+#endif
+    return slash;
+}
+
+static bool runtime_assembler_resolve_output_path(
+    const char *source_path,
+    const char *file,
+    int file_len,
+    char *out,
+    size_t out_size)
+{
+    char file_name[RUNTIME_ASSEMBLER_PATH_MAX];
+    const char *sep;
+
+    if (out == NULL || out_size == 0 || file == NULL || file_len <= 0) {
+        return false;
+    }
+    if ((size_t)file_len >= sizeof(file_name)) {
+        return false;
+    }
+    memcpy(file_name, file, (size_t)file_len);
+    file_name[file_len] = '\0';
+
+    if (runtime_assembler_path_is_absolute(file_name) ||
+        source_path == NULL || source_path[0] == '\0') {
+        return snprintf(out, out_size, "%s", file_name) < (int)out_size;
+    }
+
+    sep = runtime_assembler_find_last_separator(source_path);
+    if (sep == NULL) {
+        return snprintf(out, out_size, "%s", file_name) < (int)out_size;
+    }
+    return snprintf(
+               out,
+               out_size,
+               "%.*s%s",
+               (int)(sep - source_path + 1),
+               source_path,
+               file_name) < (int)out_size;
+}
+
+static void runtime_assembler_note_memory_byte(
+    assembler_output_stats *stats, uint16_t addr)
+{
+    if (stats == NULL) {
+        return;
+    }
     if (!stats->has_output) {
         stats->first_address = addr;
         stats->last_address = addr;
@@ -51,6 +141,82 @@ static void runtime_assembler_output_byte(void *user, uint16_t addr, uint8_t val
     stats->byte_count++;
 }
 
+static void runtime_assembler_output_byte(void *user, uint16_t addr, uint8_t val)
+{
+    assembler_output_target *target = (assembler_output_target *)user;
+
+    if (target->write_memory) {
+        c64_debug_write_ram(target->machine, addr, val);
+        runtime_assembler_note_memory_byte(target->stats, addr);
+    }
+    if (target->write_file && target->ram != NULL) {
+        target->ram[addr] = val;
+        if (!target->wrote_file_any) {
+            target->wrote_file_any = 1;
+            target->file_lo = addr;
+            target->file_hi = (uint32_t)addr + 1u;
+        } else {
+            if (addr < target->file_lo) {
+                target->file_lo = addr;
+            }
+            if ((uint32_t)addr + 1u > target->file_hi) {
+                target->file_hi = (uint32_t)addr + 1u;
+            }
+        }
+    }
+}
+
+static bool runtime_assembler_dest_is(
+    const char *text, int length, const char *name)
+{
+    size_t name_length = strlen(name);
+    int i;
+
+    if ((size_t)length != name_length) {
+        return false;
+    }
+    for (i = 0; i < length; i++) {
+        if (tolower((unsigned char)text[i]) !=
+            tolower((unsigned char)name[i])) {
+            return false;
+        }
+    }
+    return true;
+}
+
+/* C64 only accepts dest=map (case-insensitive). Empty dest is fine for file-only. */
+static bool runtime_assembler_parse_destination(
+    const char *dest, int dest_len)
+{
+    int offset = 0;
+
+    while (offset < dest_len) {
+        int start;
+        int end;
+
+        while (offset < dest_len &&
+               (dest[offset] == ' ' || dest[offset] == '\t')) {
+            offset++;
+        }
+        start = offset;
+        while (offset < dest_len && dest[offset] != ',') {
+            offset++;
+        }
+        end = offset;
+        while (end > start &&
+               (dest[end - 1] == ' ' || dest[end - 1] == '\t')) {
+            end--;
+        }
+        if (!runtime_assembler_dest_is(dest + start, end - start, "map")) {
+            return false;
+        }
+        if (offset < dest_len) {
+            offset++;
+        }
+    }
+    return true;
+}
+
 static void *runtime_assembler_target_open(
     void *user,
     const char *name,
@@ -59,33 +225,188 @@ static void *runtime_assembler_target_open(
     int path_len,
     const char *dest,
     int dest_len,
-    assembler_output_format format) {
-    assembler_output_ctx *host = (assembler_output_ctx *)user;
-    assembler_output_ctx *target =
-        (assembler_output_ctx *)calloc(1, sizeof(*target));
+    assembler_output_format format)
+{
+    assembler_host_ctx *host = (assembler_host_ctx *)user;
+    assembler_output_target *target;
+    bool write_memory = dest != NULL && dest_len > 0;
+    bool write_file = path != NULL && path_len > 0;
+    char resolved[RUNTIME_ASSEMBLER_PATH_MAX];
 
     (void)name;
     (void)name_len;
-    (void)path;
-    (void)path_len;
-    (void)dest;
-    (void)dest_len;
-    (void)format;
-    /* c64m ignores host-file redirects (file=/prg=); dest= is accepted for
-       shared source but bytes always go to RAM via the default/output ctx. */
-    if (target != NULL) {
-        target->machine = host->machine;
-        target->stats = host->stats;
+
+    if (!write_memory && !write_file) {
+        return NULL;
+    }
+    if (write_memory &&
+        !runtime_assembler_parse_destination(dest, dest_len)) {
+        return NULL;
+    }
+    if (write_file &&
+        !runtime_assembler_resolve_output_path(
+            host->source_path, path, path_len, resolved, sizeof(resolved))) {
+        return NULL;
+    }
+
+    target = (assembler_output_target *)calloc(1, sizeof(*target));
+    if (target == NULL) {
+        return NULL;
+    }
+    target->machine = host->machine;
+    target->write_memory = write_memory;
+    target->write_file = write_file;
+    target->file_format = write_file ? format : ASM_OUTPUT_RAW;
+    target->stats = host->stats;
+
+    if (write_file) {
+        target->file_path = strdup(resolved);
+        target->ram = (uint8_t *)calloc(1, 65536u);
+        if (target->file_path == NULL || target->ram == NULL) {
+            free(target->file_path);
+            free(target->ram);
+            free(target);
+            return NULL;
+        }
     }
     return target;
 }
 
-static void runtime_assembler_target_release(void *user, void *target) {
+static void runtime_assembler_target_release(void *user, void *target)
+{
+    assembler_output_target *output = (assembler_output_target *)target;
+
     (void)user;
-    free(target);
+    if (output == NULL) {
+        return;
+    }
+    free(output->file_path);
+    free(output->ram);
+    free(output);
 }
 
-static void runtime_assembler_import_symbol(const char *name, uint16_t address, void *user) {
+static void runtime_assembler_rescan_hostfs_for_path(
+    c64_t *machine, const char *path)
+{
+    size_t i;
+
+    if (machine == NULL || path == NULL || path[0] == '\0') {
+        return;
+    }
+    for (i = 0; i < C64_DRIVE_SLOT_COUNT; i++) {
+        c64_drive_slot *slot = &machine->drives[i];
+        const char *root;
+        size_t root_len;
+
+        if (!slot->mounted || slot->backend != C64_DRIVE_BACKEND_HOSTFS ||
+            slot->hostfs == NULL) {
+            continue;
+        }
+        root = c64_hostfs_root_path(slot->hostfs);
+        if (root == NULL || root[0] == '\0') {
+            continue;
+        }
+        root_len = strlen(root);
+        while (root_len > 1u &&
+               (root[root_len - 1u] == '/' || root[root_len - 1u] == '\\')) {
+            root_len--;
+        }
+        if (strncmp(path, root, root_len) == 0 &&
+            (path[root_len] == '\0' || path[root_len] == '/' ||
+             path[root_len] == '\\')) {
+            (void)c64_hostfs_rescan(slot->hostfs);
+            (void)c64_hostfs_apply_catalog_to_slot(slot->hostfs, slot);
+        }
+    }
+}
+
+static bool runtime_assembler_flush_file_target(
+    assembler_output_target *target, char *error, size_t error_size)
+{
+    FILE *fp;
+    size_t length;
+    size_t written;
+
+    if (target == NULL || !target->write_file || target->file_path == NULL) {
+        return true;
+    }
+    if (!target->wrote_file_any || target->ram == NULL) {
+        return true;
+    }
+
+    fp = fopen(target->file_path, "wb");
+    if (fp == NULL) {
+        if (error != NULL && error_size > 0) {
+            snprintf(
+                error,
+                error_size,
+                "could not write assembler output file %s",
+                target->file_path);
+        }
+        return false;
+    }
+    length = (size_t)(target->file_hi - target->file_lo);
+    if (target->file_format == ASM_OUTPUT_PRG) {
+        uint8_t header[2] = {
+            (uint8_t)(target->file_lo & 0xFFu),
+            (uint8_t)((target->file_lo >> 8) & 0xFFu),
+        };
+        written = fwrite(header, 1, sizeof(header), fp);
+        if (written != sizeof(header)) {
+            fclose(fp);
+            if (error != NULL && error_size > 0) {
+                snprintf(
+                    error,
+                    error_size,
+                    "short write to assembler output file %s",
+                    target->file_path);
+            }
+            return false;
+        }
+    }
+    written = fwrite(&target->ram[target->file_lo], 1, length, fp);
+    fclose(fp);
+    if (written != length) {
+        if (error != NULL && error_size > 0) {
+            snprintf(
+                error,
+                error_size,
+                "short write to assembler output file %s",
+                target->file_path);
+        }
+        return false;
+    }
+    runtime_assembler_rescan_hostfs_for_path(target->machine, target->file_path);
+    return true;
+}
+
+static bool runtime_assembler_flush_files(
+    ASSEMBLER *assembler, char *error, size_t error_size)
+{
+    size_t i;
+
+    if (assembler == NULL) {
+        return false;
+    }
+    /* Index 0 is the host-owned default target; named redirects start at 1. */
+    for (i = 1; i < assembler->targets.items; i++) {
+        TARGET *target = *AM65_ARRAY_GET(&assembler->targets, TARGET *, i);
+        assembler_output_target *output;
+
+        if (target == NULL || target->ctx == NULL) {
+            continue;
+        }
+        output = (assembler_output_target *)target->ctx;
+        if (!runtime_assembler_flush_file_target(output, error, error_size)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static void runtime_assembler_import_symbol(
+    const char *name, uint16_t address, void *user)
+{
     assembler_symbol_import *import = (assembler_symbol_import *)user;
 
     if (symbol_table_add(
@@ -99,7 +420,9 @@ static void runtime_assembler_import_symbol(const char *name, uint16_t address, 
     }
 }
 
-static void runtime_assembler_format_errors(const ERRORLOG *log, char *error, size_t error_size) {
+static void runtime_assembler_format_errors(
+    const ERRORLOG *log, char *error, size_t error_size)
+{
     size_t written = 0;
 
     if (error == NULL || error_size == 0) {
@@ -145,7 +468,8 @@ static void runtime_assembler_format_adjustment(
     size_t target_index,
     const char *segment_name,
     uint16_t address,
-    void *user) {
+    void *user)
+{
     assembler_adjustment_format *format =
         (assembler_adjustment_format *)user;
     const char *name = segment_name && segment_name[0] ?
@@ -209,11 +533,13 @@ static bool c64_assemble_file_ex(
     char *notice,
     size_t notice_size,
     char *error,
-    size_t error_size) {
+    size_t error_size)
+{
     ERRORLOG log;
     ASSEMBLER assembler;
     assembler_output_stats output_stats;
-    assembler_output_ctx output_ctx;
+    assembler_output_target default_target;
+    assembler_host_ctx host_ctx;
     CB_ASM_CTX cb;
     bool ok = false;
     static const char *const destination_names[] = {"map"};
@@ -233,12 +559,17 @@ static bool c64_assemble_file_ex(
 
     errlog_init(&log);
     memset(&output_stats, 0, sizeof(output_stats));
-    memset(&output_ctx, 0, sizeof(output_ctx));
-    output_ctx.machine = machine;
-    output_ctx.stats = &output_stats;
+    memset(&default_target, 0, sizeof(default_target));
+    default_target.machine = machine;
+    default_target.write_memory = true;
+    default_target.stats = &output_stats;
+    memset(&host_ctx, 0, sizeof(host_ctx));
+    host_ctx.machine = machine;
+    host_ctx.stats = &output_stats;
+    host_ctx.source_path = path;
     memset(&cb, 0, sizeof(cb));
-    cb.user = &output_ctx;
-    cb.default_target = &output_ctx;
+    cb.user = &host_ctx;
+    cb.default_target = &default_target;
     cb.output_byte = runtime_assembler_output_byte;
     cb.target_open = runtime_assembler_target_open;
     cb.target_release = runtime_assembler_target_release;
@@ -254,7 +585,7 @@ static bool c64_assemble_file_ex(
         return false;
     }
 
-    // The C64 host deliberately starts at the smallest portable profile.
+    /* The C64 host deliberately starts at the smallest portable profile. */
     assembler_predefine(&assembler, "AM65", "0");
     assembler_predefine(&assembler, "C64", "1");
     assembler_set_cpu_profile(&assembler, ASM_CPU_6502);
@@ -264,17 +595,23 @@ static bool c64_assemble_file_ex(
 
     if (assembler_assemble(&assembler, path, address) == ASM_OK) {
         ok = true;
-        if (symbols != NULL) {
+        if (!runtime_assembler_flush_files(&assembler, error, error_size)) {
+            ok = false;
+        }
+        if (ok && symbols != NULL) {
             assembler_symbol_import import;
             import.symbols = symbols;
-            import.source_name = source_name != NULL && source_name[0] != '\0' ? source_name : path;
+            import.source_name =
+                source_name != NULL && source_name[0] != '\0' ? source_name : path;
             import.ok = true;
             symbol_table_remove_kind(symbols, SYMBOL_SOURCE_ASSEMBLER);
-            assembler_walk_symbols(&assembler, runtime_assembler_import_symbol, &import);
+            assembler_walk_symbols(
+                &assembler, runtime_assembler_import_symbol, &import);
             if (!import.ok) {
                 ok = false;
                 if (error != NULL && error_size > 0) {
-                    snprintf(error, error_size, "failed to import assembler symbols");
+                    snprintf(
+                        error, error_size, "failed to import assembler symbols");
                 }
             }
         }
@@ -318,7 +655,8 @@ bool c64_assemble_file(
     uint16_t address,
     const char *source_name,
     char *error,
-    size_t error_size) {
+    size_t error_size)
+{
     return c64_assemble_file_ex(
         machine,
         symbols,
@@ -342,8 +680,10 @@ bool runtime_assemble_file(
     uint16_t address,
     const char *source_name,
     char *error,
-    size_t error_size) {
-    return c64_assemble_file(machine, symbols, path, address, source_name, error, error_size);
+    size_t error_size)
+{
+    return c64_assemble_file(
+        machine, symbols, path, address, source_name, error, error_size);
 }
 
 bool runtime_assemble_file_ex(
@@ -356,7 +696,8 @@ bool runtime_assemble_file_ex(
     uint16_t *out_end_address,
     uint32_t *out_byte_count,
     char *error,
-    size_t error_size) {
+    size_t error_size)
+{
     return c64_assemble_file_ex(
         machine,
         symbols,
@@ -386,7 +727,8 @@ bool runtime_assemble_file_ex_options(
     char *notice,
     size_t notice_size,
     char *error,
-    size_t error_size) {
+    size_t error_size)
+{
     return c64_assemble_file_ex(
         machine,
         symbols,
