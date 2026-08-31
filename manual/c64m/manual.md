@@ -727,9 +727,24 @@ Devices 8 and 9 each show a row of controls followed by a disk selector:
 Each device maintains an ordered queue of D64/G64 images. At most one image is mounted at a
 time; the rest are queued for later use.
 
-**Soft power.** Each unit starts **off** (not stepped, not on the IEC bus) until something
-powers it on. That keeps free-run fast for PRG/CRT/BASIC and avoids an idle second drive
-answering ATN. Ejecting media alone does **not** power off.
+**Soft power.** Each unit starts **off** until something powers it on. The green LED /
+`powered` latch is independent of media. A unit sits on the IEC bus (1541 step and
+ATN acknowledge) only when it is powered **and** has an IMAGE (D64/G64) mounted -
+not when powered-empty, and not when a HostFS folder is mounted. That keeps free-run
+fast for PRG/CRT/BASIC and avoids an idle second drive answering ATN. Ejecting media
+alone does **not** power off.
+
+**HostFS (folder mount).** A directory path on `--disk N=<dir>` (or a future Use This
+Folder control) mounts that folder as a HostFS volume on device 8 or 9. The volume is
+trap-fast (not a 1541 on the IEC bus). Phase 0 guest I/O:
+
+- `LOAD "$",N` lists host `.prg` files and subdirectories (`DIR`), sorted by CBM name,
+  ending with `65535 BLOCKS FREE.`
+- `LOAD "NAME",N,1` / `LOAD "*",N,1` load PRGs (raw host `name.prg`; other extensions skipped)
+- `SAVE "NAME",N` creates `NAME.prg` (fails if the name already exists; no `@:` yet)
+- HostFS still traps when `emulate_1541=1` (real 1541 can stay on the other device)
+
+Subdirectory `CD` / FileBrowser navigation is not in Phase 0.
 
 A unit turns **on** when you:
 

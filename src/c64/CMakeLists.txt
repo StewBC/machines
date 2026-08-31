@@ -161,6 +161,18 @@ target_link_libraries(${test_c1541} PRIVATE
 
 leftover_add_test(NAME c1541 COMMAND ${test_c1541})
 
+leftover_exe(test_c64_hostfs_mount
+    ${MACHINES_ROOT}/tests/c64/machine/test_c64_hostfs_mount.c
+)
+
+target_compile_features(${test_c64_hostfs_mount} PRIVATE c_std_99)
+
+target_link_libraries(${test_c64_hostfs_mount} PRIVATE
+    ${machine}
+)
+
+leftover_add_test(NAME c64_hostfs_mount COMMAND ${test_c64_hostfs_mount})
+
 leftover_exe(test_c1541_gcr
     ${MACHINES_ROOT}/tests/c64/machine/test_c1541_gcr.c
 )

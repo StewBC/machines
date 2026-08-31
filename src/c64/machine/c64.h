@@ -116,8 +116,17 @@ uint32_t c64_config_cycles_per_frame(const c64_config *config);
 typedef enum c64_drive_image_kind {
     C64_DRIVE_IMAGE_NONE = 0,
     C64_DRIVE_IMAGE_D64,
-    C64_DRIVE_IMAGE_G64
+    C64_DRIVE_IMAGE_G64,
+    C64_DRIVE_IMAGE_HOSTFS
 } c64_drive_image_kind;
+
+/* Per-slot media backend. Soft-power `powered` is independent; IEC/1541 liveness
+   requires IMAGE + mounted (see c64_drive_iec_active). */
+typedef enum c64_drive_backend {
+    C64_DRIVE_BACKEND_NONE = 0,
+    C64_DRIVE_BACKEND_IMAGE, /* D64/G64 */
+    C64_DRIVE_BACKEND_HOSTFS
+} c64_drive_backend;
 
 typedef enum c64_drive_status_result {
     C64_DRIVE_STATUS_OK = 0,
@@ -148,6 +157,7 @@ typedef struct c64_drive_status {
     bool writable;
     bool dirty;
     c64_drive_image_kind image_kind;
+    c64_drive_backend backend;
     c64_drive_status_result last_result;
     char display_name[C64_DRIVE_DISPLAY_NAME_MAX];
     char disk_title[C64_DRIVE_DISK_TITLE_MAX];
@@ -159,8 +169,11 @@ typedef enum c64_drive_file_type {
     C64_DRIVE_FILE_PRG = 2,
     C64_DRIVE_FILE_USR = 3,
     C64_DRIVE_FILE_REL = 4,
+    C64_DRIVE_FILE_DIR = 5,
     C64_DRIVE_FILE_UNKNOWN = 255
 } c64_drive_file_type;
+
+struct c64_hostfs_volume;
 
 typedef struct c64_drive_directory_entry {
     uint8_t raw_type;
@@ -175,11 +188,12 @@ typedef struct c64_drive_directory_entry {
 typedef struct c64_drive_slot {
     bool mounted;
     /* Soft power switch: off until first mount / explicit power-on. Sticky across
-       eject. When false the unit is not stepped and does not pull the IEC bus. */
+       eject. UI LED follows this latch. IEC/1541 step+ATN require iec_active. */
     bool powered;
     bool writable;
     bool dirty;
     c64_drive_image_kind image_kind;
+    c64_drive_backend backend;
     c64_drive_status_result last_result;
     char display_name[C64_DRIVE_DISPLAY_NAME_MAX];
     char disk_title[C64_DRIVE_DISK_TITLE_MAX];
@@ -190,6 +204,7 @@ typedef struct c64_drive_slot {
     size_t image_size;
     c64_drive_directory_entry *entries;
     size_t entry_count;
+    struct c64_hostfs_volume *hostfs;
     /* UI disk LEDs: monotonic event counters; frontend holds on host time. */
     uint32_t led_read_seq;
     uint32_t led_write_seq;
@@ -665,17 +680,27 @@ c64_drive_status_result c64_mount_g64(
     const uint8_t *image_bytes,
     size_t image_size,
     const char *display_name);
+/* Mount a host directory as HostFS. Powers the UI latch; does not put a 1541
+   on the IEC bus. Guest LOAD/SAVE/$ for HostFS arrive in a later PR. */
+c64_drive_status_result c64_mount_hostfs(
+    c64_t *machine,
+    uint8_t device,
+    const char *root_path,
+    bool writable);
 bool c64_set_drive_writable(c64_t *machine, uint8_t device, bool writable);
 void c64_unmount_drive(c64_t *machine, uint8_t device);
 void c64_unmount_all_drives(c64_t *machine);
-/* Soft power: first transition to on resets the 1541 DOS ROM (if loaded) and
-   places the unit on the IEC bus. Mount paths call this automatically.
+/* Soft power UI latch. First transition to on may reset/place a 1541 on the bus
+   only when c64_drive_iec_active (IMAGE+mounted). Mount paths call this.
    Returns false if device is not 8/9. No-op success if already powered. */
 bool c64_power_on_drive(c64_t *machine, uint8_t device);
 /* Power off: if media is mounted, ejects it first, then clears soft power and
    removes the unit from the IEC bus. No-op success if already off. */
 bool c64_power_off_drive(c64_t *machine, uint8_t device);
 bool c64_drive_is_powered(const c64_t *machine, uint8_t device);
+/* True iff powered && backend==IMAGE && mounted. Gates 1541 step, bus pull,
+   and reset-for-IEC. HostFS and powered-empty units are never iec_active. */
+bool c64_drive_iec_active(const c64_t *machine, uint8_t device);
 bool c64_copy_drive_status(const c64_t *machine, uint8_t device, c64_drive_status *out_status);
 /* Pulse sticky disk activity LEDs (visible for ~0.35s after the last event). */
 void c64_disk_activity_read(c64_t *machine, int device_number);

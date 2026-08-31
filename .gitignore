@@ -31,3 +31,4 @@ samples/apple2/hostfs/
 
 # Local debugger symbol overlays
 symbols/*/USER.SYM
+test_hostfs_mount_*/

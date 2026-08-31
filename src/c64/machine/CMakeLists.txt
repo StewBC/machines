@@ -6,6 +6,7 @@ add_library(${machine} STATIC
     c1541_gcr.c
     c1541_media.c
     c64.c
+    c64_hostfs.c
     c64_bus.c
     c64_frame.c
     c64_rom.c

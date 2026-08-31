@@ -1,4 +1,5 @@
 #include "c64.h"
+#include "c64_hostfs.h"
 #include "d64.h"
 
 #include <assert.h>
@@ -38,6 +39,9 @@ static uint8_t c64_iec_line_mask(uint8_t lines) {
     return (uint8_t)(lines & (C64_IEC_ATN | C64_IEC_CLK | C64_IEC_DATA));
 }
 
+static void c64_refresh_iec_external_pull(c64_t *machine);
+static int c64_drive_slot_index(uint8_t device);
+
 static void c64_disk_activity_clear_all(c64_t *machine) {
     size_t i;
 
@@ -50,22 +54,56 @@ static void c64_disk_activity_clear_all(c64_t *machine) {
     }
 }
 
-/* Soft power: a unit only sits on the IEC bus once powered (first mount or
-   explicit power-on). An unpowered 1541 must not drive the bus: an idle 1541
-   still answers ATN by pulling DATA through the ATN acknowledge gate, which
-   corrupts loaders that use ATN as a transfer clock (Edge of Disgrace). This
-   matches leaving the drive's power switch off until the user engages that unit. */
+/* IEC/1541 presence: powered UI latch alone is not enough. An idle 1541 still
+   answers ATN by pulling DATA (Edge of Disgrace). HostFS and powered-empty
+   units must stay off the bus — see c64_drive_iec_active. */
 static uint8_t c64_drive_bus_pull(const c64_t *machine, int slot_index) {
+    uint8_t device;
+
     if (slot_index < 0 || slot_index >= C64_DRIVE_SLOT_COUNT) {
         return 0;
     }
-    if (!machine->drives[slot_index].powered) {
+    device = (uint8_t)(C64_DRIVE_MIN_DEVICE + slot_index);
+    if (!c64_drive_iec_active(machine, device)) {
         return 0;
     }
     if (slot_index == 0) {
         return machine->iec_external_pull_drive8;
     }
     return machine->iec_external_pull_drive9;
+}
+
+static bool c64_drive_slot_iec_active(const c64_t *machine, int slot_index) {
+    if (machine == NULL || slot_index < 0 || slot_index >= C64_DRIVE_SLOT_COUNT) {
+        return false;
+    }
+    return c64_drive_iec_active(
+        machine, (uint8_t)(C64_DRIVE_MIN_DEVICE + slot_index));
+}
+
+/* Reset the unit's 1541 when it has just become iec_active (IMAGE+mounted). */
+static void c64_drive_reset_1541_if_iec_active(c64_t *machine, uint8_t device) {
+    int slot_index;
+
+    if (!c64_drive_iec_active(machine, device)) {
+        return;
+    }
+    slot_index = c64_drive_slot_index(device);
+    if (slot_index < 0) {
+        return;
+    }
+    if (device == 8) {
+        if (machine->drive8.rom_loaded) {
+            c1541_reset(&machine->drive8);
+        }
+        machine->iec_external_pull_drive8 = 0;
+    } else if (device == 9) {
+        if (machine->drive9.rom_loaded) {
+            c1541_reset(&machine->drive9);
+        }
+        machine->iec_external_pull_drive9 = 0;
+    }
+    c64_refresh_iec_external_pull(machine);
 }
 
 static void c64_refresh_iec_external_pull(c64_t *machine) {
@@ -206,10 +244,11 @@ static void c64_drive_sync_to(c64_t *machine, uint64_t target_cycle) {
     }
     delta = target_cycle - machine->clock.drive_synced_cycle;
 
-    /* Soft-power cold path: neither 1541 is clocked. Advance the phase
-       accumulator in closed form so a later power-on resumes at the correct
-       fractional drive-cycle offset without per-cycle work. */
-    if (!machine->drives[0].powered && !machine->drives[1].powered) {
+    /* Cold path: neither IMAGE unit is on the bus. Advance the phase
+       accumulator in closed form so a later IEC activation resumes at the
+       correct fractional drive-cycle offset without per-cycle work. */
+    if (!c64_drive_slot_iec_active(machine, 0) &&
+        !c64_drive_slot_iec_active(machine, 1)) {
         uint64_t total = machine->clock.drive_accum + delta * 1000000ull;
         machine->clock.drive_accum = total % c64_hz;
         machine->clock.drive_synced_cycle = target_cycle;
@@ -221,10 +260,10 @@ static void c64_drive_sync_to(c64_t *machine, uint64_t target_cycle) {
         machine->clock.drive_accum += 1000000u;
         while (machine->clock.drive_accum >= c64_hz) {
             machine->clock.drive_accum -= c64_hz;
-            if (machine->drives[0].powered) {
+            if (c64_drive_slot_iec_active(machine, 0)) {
                 c1541_advance_one_cycle(&machine->drive8);
             }
-            if (machine->drives[1].powered) {
+            if (c64_drive_slot_iec_active(machine, 1)) {
                 c1541_advance_one_cycle(&machine->drive9);
             }
         }
@@ -712,6 +751,8 @@ static const char *c64_drive_file_type_text(c64_drive_file_type type) {
         return "USR";
     case C64_DRIVE_FILE_REL:
         return "REL";
+    case C64_DRIVE_FILE_DIR:
+        return "DIR";
     case C64_DRIVE_FILE_UNKNOWN:
     default:
         return "???";
@@ -924,6 +965,117 @@ static bool c64_drive_refresh_from_d64_image(c64_drive_slot *slot, const d64_ima
     return true;
 }
 
+static bool c64_hostfs_load_prg_bytes_to_memory(
+    c64_t *machine,
+    const uint8_t *data,
+    size_t data_size,
+    bool use_prg_address,
+    uint16_t *out_start_address,
+    uint16_t *out_end_address) {
+    uint16_t load_address;
+    uint16_t target_address;
+    size_t payload_off;
+    size_t i;
+
+    if (data == NULL || data_size < 2u || out_start_address == NULL ||
+        out_end_address == NULL) {
+        return false;
+    }
+    load_address = (uint16_t)data[0] | ((uint16_t)data[1] << 8);
+    target_address = use_prg_address ?
+        load_address :
+        c64_read_zp16(machine, C64_BASIC_START_POINTER);
+    payload_off = 2u;
+    for (i = payload_off; i < data_size; ++i) {
+        uint32_t addr = (uint32_t)target_address + (uint32_t)(i - payload_off);
+        if (addr > 0xffffu) {
+            return false;
+        }
+        c64_bus_write(&machine->bus, (uint16_t)addr, data[i]);
+    }
+    *out_start_address = target_address;
+    *out_end_address =
+        (uint16_t)(target_address + (uint16_t)(data_size - payload_off));
+    if (!use_prg_address) {
+        c64_write_zp16(machine, C64_BASIC_VARTAB_POINTER, *out_end_address);
+        c64_write_zp16(machine, C64_BASIC_ARYTAB_POINTER, *out_end_address);
+        c64_write_zp16(machine, C64_BASIC_STREND_POINTER, *out_end_address);
+    }
+    c64_write_zp16(machine, C64_ZP_EAL, *out_end_address);
+    return true;
+}
+
+static bool c64_try_hostfs_load_trap(
+    c64_t *machine,
+    uint8_t device,
+    c64_drive_slot *slot,
+    const uint8_t *filename,
+    uint8_t filename_length,
+    uint8_t secondary_address) {
+    const c64_drive_directory_entry *entry;
+    uint16_t start_address = 0;
+    uint16_t end_address = 0;
+    uint8_t *bytes = NULL;
+    size_t size = 0;
+    size_t index;
+    const char *host_path;
+
+    if (slot->hostfs == NULL) {
+        c64_kernal_load_return(machine, false, 0x05, 0);
+        return true;
+    }
+    if (!c64_hostfs_apply_catalog_to_slot(slot->hostfs, slot)) {
+        c64_kernal_load_return(machine, false, 0x05, 0);
+        return true;
+    }
+
+    if (filename_length == 1 && filename[0] == '$') {
+        start_address = c64_read_zp16(machine, C64_BASIC_START_POINTER);
+        if (!c64_drive_load_directory_to_memory(machine, slot, &end_address)) {
+            c64_kernal_load_return(machine, false, 0x05, 0);
+            return true;
+        }
+        c64_disk_activity_read(machine, (int)device);
+        c64_kernal_load_return(machine, true, 0, end_address);
+        c64_report_host_trap(
+            machine,
+            C64_CPU_OBSERVER_TRAP_KERNAL_LOAD,
+            start_address,
+            (uint32_t)(end_address - start_address));
+        return true;
+    }
+
+    entry = c64_drive_find_entry(slot, filename, filename_length);
+    if (entry == NULL || entry->type != C64_DRIVE_FILE_PRG) {
+        c64_kernal_load_return(machine, false, 0x04, 0);
+        return true;
+    }
+    index = (size_t)(entry - slot->entries);
+    host_path = c64_hostfs_entry_host_path(slot->hostfs, index);
+    if (host_path == NULL ||
+        !c64_hostfs_read_file(host_path, &bytes, &size) ||
+        !c64_hostfs_load_prg_bytes_to_memory(
+            machine,
+            bytes,
+            size,
+            secondary_address == 1,
+            &start_address,
+            &end_address)) {
+        free(bytes);
+        c64_kernal_load_return(machine, false, 0x05, 0);
+        return true;
+    }
+    free(bytes);
+    c64_disk_activity_read(machine, (int)device);
+    c64_kernal_load_return(machine, true, 0, end_address);
+    c64_report_host_trap(
+        machine,
+        C64_CPU_OBSERVER_TRAP_KERNAL_LOAD,
+        start_address,
+        (uint32_t)(end_address - start_address));
+    return true;
+}
+
 static bool c64_try_kernal_load_trap(c64_t *machine) {
     uint8_t device;
     uint8_t secondary_address;
@@ -943,6 +1095,30 @@ static bool c64_try_kernal_load_trap(c64_t *machine) {
     device = machine->bus.ram[C64_ZP_DEVICE_NUMBER];
     if (!c64_drive_device_supported(device)) {
         return false;
+    }
+
+    slot = &machine->drives[device - C64_DRIVE_MIN_DEVICE];
+
+    /* HostFS always traps (before emulate_1541 bail). */
+    if (slot->mounted && slot->backend == C64_DRIVE_BACKEND_HOSTFS) {
+        filename_length = machine->bus.ram[C64_ZP_FILENAME_LENGTH];
+        filename_pointer = c64_read_zp16(machine, C64_ZP_FILENAME_POINTER);
+        secondary_address = machine->bus.ram[C64_ZP_SECONDARY_ADDRESS];
+        if (machine->cpu.cpu.A != 0 ||
+            (secondary_address != 0 && secondary_address != 1)) {
+            c64_kernal_load_return(machine, false, 0x05, 0);
+            return true;
+        }
+        if (filename_length == 0 || filename_length > sizeof(filename)) {
+            c64_kernal_load_return(machine, false, 0x04, 0);
+            return true;
+        }
+        for (i = 0; i < filename_length; ++i) {
+            filename[i] =
+                c64_debug_read_cpu_map(machine, (uint16_t)(filename_pointer + i));
+        }
+        return c64_try_hostfs_load_trap(
+            machine, device, slot, filename, filename_length, secondary_address);
     }
 
     /* If the 1541 ROM is loaded and enabled for this device, let the real ROM
@@ -969,7 +1145,6 @@ static bool c64_try_kernal_load_trap(c64_t *machine) {
         filename[i] = c64_debug_read_cpu_map(machine, (uint16_t)(filename_pointer + i));
     }
 
-    slot = &machine->drives[device - C64_DRIVE_MIN_DEVICE];
     if (!slot->mounted || slot->image_kind != C64_DRIVE_IMAGE_D64 || slot->image_bytes == NULL) {
         c64_kernal_load_return(machine, false, 0x05, 0);
         return true;
@@ -1018,6 +1193,76 @@ static bool c64_try_kernal_load_trap(c64_t *machine) {
     return true;
 }
 
+static bool c64_try_hostfs_save_trap(
+    c64_t *machine,
+    uint8_t device,
+    c64_drive_slot *slot,
+    const uint8_t *filename,
+    uint8_t filename_length) {
+    uint8_t start_pointer_zp;
+    uint16_t start_address;
+    uint16_t end_address;
+    size_t data_len;
+    uint8_t *data;
+    size_t i;
+    c64_drive_status_result status;
+
+    if (slot->hostfs == NULL) {
+        c64_kernal_save_return(machine, false, 0x05);
+        return true;
+    }
+    if (!slot->writable) {
+        slot->last_result = C64_DRIVE_STATUS_WRITE_PROTECTED;
+        c64_kernal_save_return(machine, false, 0x05);
+        return true;
+    }
+    if (machine->replay_sealed) {
+        c64_kernal_save_return(machine, true, 0);
+        return true;
+    }
+
+    start_pointer_zp = machine->cpu.cpu.A;
+    machine->bus.ram[C64_ZP_EAL] = machine->cpu.cpu.X;
+    machine->bus.ram[(uint16_t)(C64_ZP_EAL + 1u)] = machine->cpu.cpu.Y;
+    start_address = (uint16_t)machine->bus.ram[start_pointer_zp] |
+        ((uint16_t)machine->bus.ram[(uint8_t)(start_pointer_zp + 1u)] << 8);
+    end_address = (uint16_t)machine->cpu.cpu.X | ((uint16_t)machine->cpu.cpu.Y << 8);
+    if (end_address < start_address) {
+        c64_kernal_save_return(machine, false, 0x05);
+        return true;
+    }
+
+    data_len = 2u + (size_t)(end_address - start_address);
+    data = (uint8_t *)malloc(data_len);
+    if (data == NULL) {
+        slot->last_result = C64_DRIVE_STATUS_OUT_OF_MEMORY;
+        c64_kernal_save_return(machine, false, 0x05);
+        return true;
+    }
+    data[0] = (uint8_t)(start_address & 0xffu);
+    data[1] = (uint8_t)(start_address >> 8);
+    for (i = 0; i < data_len - 2u; ++i) {
+        data[2u + i] =
+            c64_debug_read_cpu_map(machine, (uint16_t)(start_address + i));
+    }
+
+    if (!c64_hostfs_create_prg(
+            slot->hostfs, filename, filename_length, data, data_len, &status)) {
+        free(data);
+        slot->last_result = status;
+        c64_kernal_save_return(machine, false, 0x05);
+        return true;
+    }
+    free(data);
+    (void)c64_hostfs_apply_catalog_to_slot(slot->hostfs, slot);
+    slot->last_result = C64_DRIVE_STATUS_OK;
+    c64_disk_activity_write(machine, (int)device);
+    c64_kernal_save_return(machine, true, 0);
+    c64_report_host_trap(
+        machine, C64_CPU_OBSERVER_TRAP_KERNAL_SAVE, start_address, (uint32_t)data_len);
+    return true;
+}
+
 static bool c64_try_kernal_save_trap(c64_t *machine) {
     uint8_t device;
     uint8_t filename_length;
@@ -1044,16 +1289,22 @@ static bool c64_try_kernal_save_trap(c64_t *machine) {
         return false;
     }
 
-    if (device == 8 && machine->drive8.rom_loaded && machine->config.emulate_1541) {
-        return false;
-    }
-    if (device == 9 && machine->drive9.rom_loaded && machine->config.emulate_1541) {
-        return false;
-    }
+    slot = &machine->drives[device - C64_DRIVE_MIN_DEVICE];
 
     filename_length = machine->bus.ram[C64_ZP_FILENAME_LENGTH];
     filename_pointer = c64_read_zp16(machine, C64_ZP_FILENAME_POINTER);
     if (filename_length == 0 || filename_length > sizeof(filename)) {
+        /* HostFS and IMAGE both need a name before further routing. */
+        if (slot->mounted && slot->backend == C64_DRIVE_BACKEND_HOSTFS) {
+            c64_kernal_save_return(machine, false, 0x08);
+            return true;
+        }
+        if (device == 8 && machine->drive8.rom_loaded && machine->config.emulate_1541) {
+            return false;
+        }
+        if (device == 9 && machine->drive9.rom_loaded && machine->config.emulate_1541) {
+            return false;
+        }
         c64_kernal_save_return(machine, false, 0x08);
         return true;
     }
@@ -1061,7 +1312,18 @@ static bool c64_try_kernal_save_trap(c64_t *machine) {
         filename[i] = c64_debug_read_cpu_map(machine, (uint16_t)(filename_pointer + i));
     }
 
-    slot = &machine->drives[device - C64_DRIVE_MIN_DEVICE];
+    if (slot->mounted && slot->backend == C64_DRIVE_BACKEND_HOSTFS) {
+        return c64_try_hostfs_save_trap(
+            machine, device, slot, filename, filename_length);
+    }
+
+    if (device == 8 && machine->drive8.rom_loaded && machine->config.emulate_1541) {
+        return false;
+    }
+    if (device == 9 && machine->drive9.rom_loaded && machine->config.emulate_1541) {
+        return false;
+    }
+
     if (!slot->mounted || slot->image_kind != C64_DRIVE_IMAGE_D64 || slot->image_bytes == NULL) {
         c64_kernal_save_return(machine, false, 0x05);
         return true;
@@ -1928,11 +2190,11 @@ bool c64_reset(c64_t *machine, char *error, size_t error_size) {
     machine->iec_external_pull_drive9 = 0;
 
     c6510_reset(&machine->cpu);
-    /* Only reset powered 1541s; unpowered units stay cold until power-on. */
-    if (machine->drives[0].powered) {
+    /* Only reset iec_active 1541s; HostFS / powered-empty / unpowered stay cold. */
+    if (c64_drive_slot_iec_active(machine, 0)) {
         c1541_reset(&machine->drive8);
     }
-    if (machine->drives[1].powered) {
+    if (c64_drive_slot_iec_active(machine, 1)) {
         c1541_reset(&machine->drive9);
     }
     c64_disk_activity_clear_all(machine);
@@ -2690,32 +2952,42 @@ c64_drive_status_result c64_mount_d64_ex(
     slot = &machine->drives[slot_index];
     {
         bool was_powered = slot->powered;
+        bool iec_before = c64_drive_iec_active(machine, device);
+        if (slot->hostfs != NULL) {
+            c64_hostfs_eject(slot->hostfs);
+            slot->hostfs = NULL;
+        }
         free(slot->image_bytes);
         free(slot->entries);
         memset(slot, 0, sizeof(*slot));
         slot->powered = was_powered; /* remount must not cold-reset a live unit */
+        slot->mounted = true;
+        slot->writable = writable;
+        slot->dirty = false;
+        slot->image_kind = C64_DRIVE_IMAGE_D64;
+        slot->backend = C64_DRIVE_BACKEND_IMAGE;
+        slot->last_result = C64_DRIVE_STATUS_OK;
+        slot->image_bytes = copy;
+        slot->image_size = standard_image_size;
+        slot->entries = entry_copy;
+        slot->entry_count = entry_count;
+        c64_copy_text(slot->display_name, sizeof(slot->display_name), display_name);
+        c64_copy_text(slot->disk_title, sizeof(slot->disk_title), disk_title);
+        c64_copy_text(slot->disk_id, sizeof(slot->disk_id), disk_id);
+        c64_copy_text(slot->dos_type, sizeof(slot->dos_type), dos_type);
+        slot->free_blocks = free_blocks;
+        /* Force media rebuild for this device on next cycle. */
+        if (device == 8) {
+            c1541_media_invalidate(&machine->drive8.media);
+        } else if (device == 9) {
+            c1541_media_invalidate(&machine->drive9.media);
+        }
+        (void)c64_power_on_drive(machine, device);
+        /* Empty power-on no longer resets; becoming IMAGE+mounted must. */
+        if (!iec_before && c64_drive_iec_active(machine, device)) {
+            c64_drive_reset_1541_if_iec_active(machine, device);
+        }
     }
-    slot->mounted = true;
-    slot->writable = writable;
-    slot->dirty = false;
-    slot->image_kind = C64_DRIVE_IMAGE_D64;
-    slot->last_result = C64_DRIVE_STATUS_OK;
-    slot->image_bytes = copy;
-    slot->image_size = standard_image_size;
-    slot->entries = entry_copy;
-    slot->entry_count = entry_count;
-    c64_copy_text(slot->display_name, sizeof(slot->display_name), display_name);
-    c64_copy_text(slot->disk_title, sizeof(slot->disk_title), disk_title);
-    c64_copy_text(slot->disk_id, sizeof(slot->disk_id), disk_id);
-    c64_copy_text(slot->dos_type, sizeof(slot->dos_type), dos_type);
-    slot->free_blocks = free_blocks;
-    /* Force media rebuild for this device on next cycle. */
-    if (device == 8) {
-        c1541_media_invalidate(&machine->drive8.media);
-    } else if (device == 9) {
-        c1541_media_invalidate(&machine->drive9.media);
-    }
-    (void)c64_power_on_drive(machine, device);
     return C64_DRIVE_STATUS_OK;
 }
 
@@ -2753,32 +3025,105 @@ c64_drive_status_result c64_mount_g64(
     slot = &machine->drives[slot_index];
     {
         bool was_powered = slot->powered;
+        bool iec_before = c64_drive_iec_active(machine, device);
+        if (slot->hostfs != NULL) {
+            c64_hostfs_eject(slot->hostfs);
+            slot->hostfs = NULL;
+        }
         free(slot->image_bytes);
         free(slot->entries);
         memset(slot, 0, sizeof(*slot));
         slot->powered = was_powered;
+        slot->mounted = true;
+        slot->writable = false; /* RO by default; c64_set_drive_writable enables flux write-back */
+        slot->dirty = false;
+        slot->image_kind = C64_DRIVE_IMAGE_G64;
+        slot->backend = C64_DRIVE_BACKEND_IMAGE;
+        slot->last_result = C64_DRIVE_STATUS_OK;
+        slot->image_bytes = copy;
+        slot->image_size = image_size;
+        slot->entries = NULL;
+        slot->entry_count = 0;
+        c64_copy_text(slot->display_name, sizeof(slot->display_name), display_name);
+        c64_copy_text(slot->disk_title, sizeof(slot->disk_title), "");
+        c64_copy_text(slot->disk_id, sizeof(slot->disk_id), "");
+        c64_copy_text(slot->dos_type, sizeof(slot->dos_type), "");
+        slot->free_blocks = 0;
+
+        if (device == 8) {
+            c1541_media_invalidate(&machine->drive8.media);
+        } else if (device == 9) {
+            c1541_media_invalidate(&machine->drive9.media);
+        }
+        (void)c64_power_on_drive(machine, device);
+        if (!iec_before && c64_drive_iec_active(machine, device)) {
+            c64_drive_reset_1541_if_iec_active(machine, device);
+        }
+    }
+    return C64_DRIVE_STATUS_OK;
+}
+
+c64_drive_status_result c64_mount_hostfs(
+    c64_t *machine,
+    uint8_t device,
+    const char *root_path,
+    bool writable) {
+    int slot_index;
+    c64_drive_slot *slot;
+    c64_hostfs_volume *vol;
+    const char *title;
+
+    assert(machine);
+
+    slot_index = c64_drive_slot_index(device);
+    if (slot_index < 0) {
+        return C64_DRIVE_STATUS_INVALID_DEVICE;
+    }
+    if (root_path == NULL || root_path[0] == '\0' || !c64_hostfs_path_is_dir(root_path)) {
+        machine->drives[slot_index].last_result = C64_DRIVE_STATUS_IO_ERROR;
+        return C64_DRIVE_STATUS_IO_ERROR;
+    }
+
+    vol = c64_hostfs_mount(root_path, writable);
+    if (vol == NULL) {
+        machine->drives[slot_index].last_result = C64_DRIVE_STATUS_IO_ERROR;
+        return C64_DRIVE_STATUS_IO_ERROR;
+    }
+
+    /* Replace any prior media (image or HostFS). */
+    if (machine->drives[slot_index].mounted) {
+        c64_unmount_drive(machine, device);
+    }
+
+    slot = &machine->drives[slot_index];
+    {
+        bool was_powered = slot->powered;
+        memset(slot, 0, sizeof(*slot));
+        slot->powered = was_powered;
     }
     slot->mounted = true;
-    slot->writable = false; /* RO by default; c64_set_drive_writable enables flux write-back */
+    slot->writable = writable;
     slot->dirty = false;
-    slot->image_kind = C64_DRIVE_IMAGE_G64;
+    slot->image_kind = C64_DRIVE_IMAGE_HOSTFS;
+    slot->backend = C64_DRIVE_BACKEND_HOSTFS;
     slot->last_result = C64_DRIVE_STATUS_OK;
-    slot->image_bytes = copy;
-    slot->image_size = image_size;
-    slot->entries = NULL;
-    slot->entry_count = 0;
-    c64_copy_text(slot->display_name, sizeof(slot->display_name), display_name);
-    c64_copy_text(slot->disk_title, sizeof(slot->disk_title), "");
-    c64_copy_text(slot->disk_id, sizeof(slot->disk_id), "");
-    c64_copy_text(slot->dos_type, sizeof(slot->dos_type), "");
-    slot->free_blocks = 0;
-
-    if (device == 8) {
-        c1541_media_invalidate(&machine->drive8.media);
-    } else if (device == 9) {
-        c1541_media_invalidate(&machine->drive9.media);
+    slot->hostfs = vol;
+    title = c64_hostfs_display_name(vol);
+    c64_copy_text(slot->display_name, sizeof(slot->display_name), title);
+    if (!c64_hostfs_apply_catalog_to_slot(vol, slot)) {
+        c64_hostfs_eject(vol);
+        slot->hostfs = NULL;
+        slot->mounted = false;
+        slot->backend = C64_DRIVE_BACKEND_NONE;
+        slot->image_kind = C64_DRIVE_IMAGE_NONE;
+        slot->last_result = C64_DRIVE_STATUS_OUT_OF_MEMORY;
+        return C64_DRIVE_STATUS_OUT_OF_MEMORY;
     }
+    c64_copy_text(slot->display_name, sizeof(slot->display_name), title);
+
     (void)c64_power_on_drive(machine, device);
+    /* HostFS is never iec_active — no 1541 reset. */
+    c64_refresh_iec_external_pull(machine);
     return C64_DRIVE_STATUS_OK;
 }
 
@@ -2791,9 +3136,13 @@ bool c64_set_drive_writable(c64_t *machine, uint8_t device, bool writable) {
     if (slot_index < 0 || !machine->drives[slot_index].mounted) {
         return false;
     }
-    /* D64 and G64 both support the writable flag. G64 writes require media_1541
-       (physical Port-A path); without media, WPS still follows the flag. */
+    /* D64, G64, and HostFS support the writable flag. G64 writes require
+       media_1541 (physical Port-A path); without media, WPS still follows. */
     machine->drives[slot_index].writable = writable;
+    if (machine->drives[slot_index].backend == C64_DRIVE_BACKEND_HOSTFS &&
+        machine->drives[slot_index].hostfs != NULL) {
+        c64_hostfs_set_writable(machine->drives[slot_index].hostfs, writable);
+    }
     return true;
 }
 
@@ -2820,15 +3169,22 @@ void c64_unmount_drive(c64_t *machine, uint8_t device) {
 
     slot = &machine->drives[slot_index];
     keep_powered = slot->powered;
+    if (slot->hostfs != NULL) {
+        c64_hostfs_eject(slot->hostfs);
+        slot->hostfs = NULL;
+    }
     free(slot->image_bytes);
     free(slot->entries);
     memset(slot, 0, sizeof(*slot));
     slot->last_result = C64_DRIVE_STATUS_NOT_MOUNTED;
+    slot->backend = C64_DRIVE_BACKEND_NONE;
     slot->powered = keep_powered; /* eject is not power-off */
+    c64_refresh_iec_external_pull(machine);
 }
 
 bool c64_power_on_drive(c64_t *machine, uint8_t device) {
     int slot_index;
+    bool iec_before;
 
     assert(machine);
 
@@ -2840,20 +3196,31 @@ bool c64_power_on_drive(c64_t *machine, uint8_t device) {
         return true;
     }
 
+    iec_before = c64_drive_iec_active(machine, device);
     machine->drives[slot_index].powered = true;
-    if (device == 8) {
-        if (machine->drive8.rom_loaded) {
-            c1541_reset(&machine->drive8);
-        }
-        machine->iec_external_pull_drive8 = 0;
-    } else if (device == 9) {
-        if (machine->drive9.rom_loaded) {
-            c1541_reset(&machine->drive9);
-        }
-        machine->iec_external_pull_drive9 = 0;
+    /* Reset/clear pull only when this transition makes the unit iec_active
+       (already IMAGE+mounted). Empty and HostFS power-on are UI-only. */
+    if (!iec_before && c64_drive_iec_active(machine, device)) {
+        c64_drive_reset_1541_if_iec_active(machine, device);
+    } else {
+        c64_refresh_iec_external_pull(machine);
     }
-    c64_refresh_iec_external_pull(machine);
     return true;
+}
+
+bool c64_drive_iec_active(const c64_t *machine, uint8_t device) {
+    int slot_index;
+    const c64_drive_slot *slot;
+
+    if (machine == NULL) {
+        return false;
+    }
+    slot_index = c64_drive_slot_index(device);
+    if (slot_index < 0) {
+        return false;
+    }
+    slot = &machine->drives[slot_index];
+    return slot->powered && slot->backend == C64_DRIVE_BACKEND_IMAGE && slot->mounted;
 }
 
 bool c64_power_off_drive(c64_t *machine, uint8_t device) {
@@ -2932,6 +3299,7 @@ bool c64_copy_drive_status(const c64_t *machine, uint8_t device, c64_drive_statu
     out_status->writable = slot->writable;
     out_status->dirty = slot->dirty;
     out_status->image_kind = slot->image_kind;
+    out_status->backend = slot->backend;
     out_status->last_result = slot->last_result;
     c64_copy_text(out_status->display_name, sizeof(out_status->display_name), slot->display_name);
     c64_copy_text(out_status->disk_title, sizeof(out_status->disk_title), slot->disk_title);

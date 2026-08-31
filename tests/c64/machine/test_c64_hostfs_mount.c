@@ -1,0 +1,412 @@
+#include "c1541.h"
+#include "c64.h"
+#include "c64_hostfs.h"
+#include "c64_rom.h"
+
+#include <errno.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/stat.h>
+
+#if defined(_WIN32)
+#include <direct.h>
+#define HOSTFS_TEST_MKDIR(path) _mkdir(path)
+#else
+#include <unistd.h>
+#define HOSTFS_TEST_MKDIR(path) mkdir((path), 0755)
+#endif
+
+static void fail(const char *msg) {
+    fprintf(stderr, "FAIL: %s\n", msg);
+    exit(1);
+}
+
+static void expect_true(const char *name, int cond) {
+    if (!cond) {
+        fprintf(stderr, "FAIL: %s\n", name);
+        exit(1);
+    }
+}
+
+static void load_nop_rom(c1541 *drive) {
+    memset(drive->rom, 0xEA, C1541_ROM_SIZE);
+    drive->rom_loaded = 1;
+}
+
+static void make_tmpdir(char *out, size_t out_size) {
+    static int seq;
+    snprintf(out, out_size, "test_hostfs_mount_%d", ++seq);
+    if (HOSTFS_TEST_MKDIR(out) != 0 && errno != EEXIST) {
+        fail("mkdir tmpdir");
+    }
+}
+
+static uint8_t *make_blank_d64(void) {
+    return (uint8_t *)calloc(1, C64_DRIVE_D64_STANDARD_SIZE);
+}
+
+/* Assert ATN-ack DATA pull is absent after settling a VIA poke on drive 8. */
+static void expect_no_atn_ack(c64_t *c64, c1541 *drive, const char *label) {
+    c64->cia2.registers[0x00] = 0x08u;
+    c64->cia2.registers[0x02] = 0x08u;
+    drive->via1.ddrb = 0x10u;
+    drive->via1.orb = 0x00u;
+    c1541_advance_one_cycle(drive);
+    c1541_advance_one_cycle(drive);
+    c1541_advance_one_cycle(drive);
+    if (c64->iec_external_pull & C64_IEC_DATA) {
+        fprintf(stderr, "FAIL: %s: unexpected ATN-ack DATA pull\n", label);
+        exit(1);
+    }
+}
+
+static void test_mount_hostfs_basics(void) {
+    static c64_t c64;
+    char dir[128];
+    c64_drive_status st;
+
+    make_tmpdir(dir, sizeof(dir));
+    c64_init(&c64);
+    expect_true(
+        "mount hostfs",
+        c64_mount_hostfs(&c64, 8, dir, true) == C64_DRIVE_STATUS_OK);
+    expect_true("iec inactive", !c64_drive_iec_active(&c64, 8));
+    expect_true("copy status", c64_copy_drive_status(&c64, 8, &st));
+    expect_true("mounted", st.mounted);
+    expect_true("powered", st.powered);
+    expect_true("backend hostfs", st.backend == C64_DRIVE_BACKEND_HOSTFS);
+    expect_true("kind hostfs", st.image_kind == C64_DRIVE_IMAGE_HOSTFS);
+    expect_true("writable", st.writable);
+    c64_unmount_drive(&c64, 8);
+    expect_true("copy after eject", c64_copy_drive_status(&c64, 8, &st));
+    expect_true("eject unmounted", !st.mounted);
+    expect_true("eject backend none", st.backend == C64_DRIVE_BACKEND_NONE);
+    expect_true("eject keeps power", st.powered);
+    expect_true("eject still not iec", !c64_drive_iec_active(&c64, 8));
+    printf("PASS: test_mount_hostfs_basics\n");
+}
+
+static void test_hostfs_no_atn_ack(void) {
+    static c64_t c64;
+    static c1541 drive;
+    char dir[128];
+
+    make_tmpdir(dir, sizeof(dir));
+    c64_init(&c64);
+    c1541_init(&drive, &c64, 8);
+    load_nop_rom(&drive);
+    c1541_reset(&drive);
+    expect_true(
+        "mount hostfs for atn",
+        c64_mount_hostfs(&c64, 8, dir, true) == C64_DRIVE_STATUS_OK);
+    /* ROM may be loaded on machine->drive8 as well; HostFS must still isolate. */
+    load_nop_rom(&c64.drive8);
+    expect_no_atn_ack(&c64, &drive, "hostfs mounted");
+    printf("PASS: test_hostfs_no_atn_ack\n");
+}
+
+static void test_powered_empty_no_atn_ack(void) {
+    static c64_t c64;
+    static c1541 drive;
+
+    c64_init(&c64);
+    c1541_init(&drive, &c64, 9);
+    load_nop_rom(&drive);
+    c1541_reset(&drive);
+    load_nop_rom(&c64.drive9);
+    expect_true("power empty 9", c64_power_on_drive(&c64, 9));
+    expect_true("powered empty", c64_drive_is_powered(&c64, 9));
+    expect_true("not mounted", !c64.drives[1].mounted);
+    expect_true("backend none", c64.drives[1].backend == C64_DRIVE_BACKEND_NONE);
+    expect_true("not iec", !c64_drive_iec_active(&c64, 9));
+    expect_no_atn_ack(&c64, &drive, "powered-empty");
+    printf("PASS: test_powered_empty_no_atn_ack\n");
+}
+
+static void test_image_mount_still_atn_acks(void) {
+    static c64_t c64;
+    static c1541 drive;
+    uint8_t *img = make_blank_d64();
+
+    expect_true("alloc d64", img != NULL);
+    c64_init(&c64);
+    c1541_init(&drive, &c64, 8);
+    load_nop_rom(&drive);
+    c1541_reset(&drive);
+    expect_true(
+        "mount d64",
+        c64_mount_d64(&c64, 8, img, C64_DRIVE_D64_STANDARD_SIZE, NULL, 0, "t", "", "", "", 0) ==
+            C64_DRIVE_STATUS_OK);
+    free(img);
+    expect_true("iec active", c64_drive_iec_active(&c64, 8));
+
+    c64.cia2.registers[0x00] = 0x08u;
+    c64.cia2.registers[0x02] = 0x08u;
+    drive.via1.ddrb = 0x10u;
+    drive.via1.orb = 0x00u;
+    c1541_advance_one_cycle(&drive);
+    c1541_advance_one_cycle(&drive);
+    c1541_advance_one_cycle(&drive);
+    expect_true("image atn ack", (c64.iec_external_pull & C64_IEC_DATA) != 0);
+    printf("PASS: test_image_mount_still_atn_acks\n");
+}
+
+static void test_remount_image_over_hostfs(void) {
+    static c64_t c64;
+    char dir[128];
+    uint8_t *img = make_blank_d64();
+    c64_drive_status st;
+
+    expect_true("alloc d64", img != NULL);
+    make_tmpdir(dir, sizeof(dir));
+    c64_init(&c64);
+    expect_true(
+        "hostfs first",
+        c64_mount_hostfs(&c64, 8, dir, true) == C64_DRIVE_STATUS_OK);
+    expect_true(
+        "d64 replaces hostfs",
+        c64_mount_d64(&c64, 8, img, C64_DRIVE_D64_STANDARD_SIZE, NULL, 0, "t", "", "", "", 0) ==
+            C64_DRIVE_STATUS_OK);
+    free(img);
+    expect_true("copy", c64_copy_drive_status(&c64, 8, &st));
+    expect_true("backend image", st.backend == C64_DRIVE_BACKEND_IMAGE);
+    expect_true("kind d64", st.image_kind == C64_DRIVE_IMAGE_D64);
+    expect_true("iec after replace", c64_drive_iec_active(&c64, 8));
+    expect_true("no hostfs handle", c64.drives[0].hostfs == NULL);
+    printf("PASS: test_remount_image_over_hostfs\n");
+}
+
+static void test_path_is_dir(void) {
+    char dir[128];
+    make_tmpdir(dir, sizeof(dir));
+    expect_true("dir is dir", c64_hostfs_path_is_dir(dir));
+    expect_true("missing not dir", !c64_hostfs_path_is_dir("test_hostfs_no_such_path"));
+    printf("PASS: test_path_is_dir\n");
+}
+
+enum {
+    TEST_RETURN_ADDRESS = 0x1233,
+    TEST_FILENAME_BUFFER = 0x0200,
+    TEST_RESET_VECTOR = 0xe000
+};
+
+static void reset_machine(c64_t *machine) {
+    c64_rom_set roms;
+    char error[256];
+
+    c64_rom_set_init(&roms);
+    roms.has_basic = true;
+    roms.has_kernal = true;
+    roms.has_character = true;
+    memset(roms.basic, 0xea, sizeof(roms.basic));
+    memset(roms.kernal, 0xea, sizeof(roms.kernal));
+    memset(roms.character, 0, sizeof(roms.character));
+    roms.kernal[0x1ffc] = (uint8_t)(TEST_RESET_VECTOR & 0xff);
+    roms.kernal[0x1ffd] = (uint8_t)(TEST_RESET_VECTOR >> 8);
+    c64_init(machine);
+    expect_true("install ROMs", c64_install_roms(machine, &roms, error, sizeof(error)));
+    expect_true("reset machine", c64_reset(machine, error, sizeof(error)));
+}
+
+static void write_host_prg(const char *dir, const char *basename, uint16_t load_addr, const uint8_t *body, size_t body_len) {
+    char path[512];
+    FILE *f;
+    uint8_t hdr[2];
+
+    snprintf(path, sizeof(path), "%s/%s", dir, basename);
+    f = fopen(path, "wb");
+    expect_true("open prg", f != NULL);
+    hdr[0] = (uint8_t)(load_addr & 0xffu);
+    hdr[1] = (uint8_t)(load_addr >> 8);
+    expect_true("write hdr", fwrite(hdr, 1, 2, f) == 2);
+    if (body_len > 0) {
+        expect_true("write body", fwrite(body, 1, body_len, f) == body_len);
+    }
+    fclose(f);
+}
+
+static void setup_load_call(c64_t *machine, const char *name, uint8_t device, uint8_t secondary) {
+    size_t length = strlen(name);
+    size_t i;
+
+    machine->cpu.cpu.pc = 0xffd5;
+    machine->cpu.cpu.sp = 0x01fd;
+    machine->bus.ram[0x01fe] = (uint8_t)(TEST_RETURN_ADDRESS & 0xff);
+    machine->bus.ram[0x01ff] = (uint8_t)(TEST_RETURN_ADDRESS >> 8);
+    machine->cpu.cpu.A = 0;
+    machine->cpu.cpu.flags |= 0x01;
+    machine->bus.ram[0xba] = device;
+    machine->bus.ram[0xb9] = secondary;
+    machine->bus.ram[0xb7] = (uint8_t)length;
+    machine->bus.ram[0xbb] = (uint8_t)(TEST_FILENAME_BUFFER & 0xff);
+    machine->bus.ram[0xbc] = (uint8_t)(TEST_FILENAME_BUFFER >> 8);
+    for (i = 0; i < length; ++i) {
+        machine->bus.ram[TEST_FILENAME_BUFFER + i] = (uint8_t)name[i];
+    }
+    machine->bus.ram[0x2b] = 0x01;
+    machine->bus.ram[0x2c] = 0x08;
+}
+
+static void setup_save_call(
+    c64_t *machine, const char *name, uint8_t device, uint16_t start, uint16_t end) {
+    size_t length = strlen(name);
+    size_t i;
+
+    machine->cpu.cpu.pc = 0xffd8;
+    machine->cpu.cpu.sp = 0x01fd;
+    machine->bus.ram[0x01fe] = (uint8_t)(TEST_RETURN_ADDRESS & 0xff);
+    machine->bus.ram[0x01ff] = (uint8_t)(TEST_RETURN_ADDRESS >> 8);
+    machine->cpu.cpu.A = 0xc1;
+    machine->cpu.cpu.X = (uint8_t)(end & 0xffu);
+    machine->cpu.cpu.Y = (uint8_t)(end >> 8);
+    machine->cpu.cpu.flags |= 0x01;
+    machine->bus.ram[0xc1] = (uint8_t)(start & 0xffu);
+    machine->bus.ram[0xc2] = (uint8_t)(start >> 8);
+    machine->bus.ram[0xba] = device;
+    machine->bus.ram[0xb7] = (uint8_t)length;
+    machine->bus.ram[0xbb] = (uint8_t)(TEST_FILENAME_BUFFER & 0xff);
+    machine->bus.ram[0xbc] = (uint8_t)(TEST_FILENAME_BUFFER >> 8);
+    for (i = 0; i < length; ++i) {
+        machine->bus.ram[TEST_FILENAME_BUFFER + i] = (uint8_t)name[i];
+    }
+}
+
+static void expect_success_return(const c64_t *machine) {
+    expect_true("carry clear", (machine->cpu.cpu.flags & 0x01u) == 0);
+    expect_true("status clear", machine->bus.ram[0x90] == 0);
+}
+
+static void test_hostfs_load_save_traps(void) {
+    static c64_t c64;
+    char dir[128];
+    char path[512];
+    char error[128];
+    const uint8_t body[] = {0xA9, 0x01, 0x60}; /* LDA #$01 / RTS */
+    struct stat st;
+    FILE *f;
+    uint8_t check[8];
+
+    make_tmpdir(dir, sizeof(dir));
+    write_host_prg(dir, "hello.prg", 0xC000u, body, sizeof(body));
+    /* Extra files: a dir and a skipped .txt */
+    snprintf(path, sizeof(path), "%s/sub", dir);
+    expect_true("mkdir sub", HOSTFS_TEST_MKDIR(path) == 0 || errno == EEXIST);
+    snprintf(path, sizeof(path), "%s/notes.txt", dir);
+    f = fopen(path, "wb");
+    expect_true("notes", f != NULL);
+    fputs("x", f);
+    fclose(f);
+
+    reset_machine(&c64);
+    expect_true(
+        "mount",
+        c64_mount_hostfs(&c64, 9, dir, true) == C64_DRIVE_STATUS_OK);
+    expect_true("catalog has entries", c64.drives[1].entry_count >= 2);
+
+    /* LOAD "$",9 */
+    setup_load_call(&c64, "$", 9, 0);
+    expect_true("step $", c64_step_instruction(&c64, error, sizeof(error)));
+    expect_success_return(&c64);
+
+    /* LOAD "HELLO",9,1 */
+    setup_load_call(&c64, "HELLO", 9, 1);
+    expect_true("step HELLO", c64_step_instruction(&c64, error, sizeof(error)));
+    expect_success_return(&c64);
+    expect_true("loaded LDA", c64_debug_read_ram(&c64, 0xC000) == 0xA9);
+    expect_true("loaded imm", c64_debug_read_ram(&c64, 0xC001) == 0x01);
+
+    /* LOAD "*",9,1 — first PRG in sorted catalog */
+    setup_load_call(&c64, "*", 9, 1);
+    expect_true("step *", c64_step_instruction(&c64, error, sizeof(error)));
+    expect_success_return(&c64);
+
+    /* SAVE "GAME",9 */
+    c64.bus.ram[0x4000] = 0xEE;
+    c64.bus.ram[0x4001] = 0xFF;
+    setup_save_call(&c64, "GAME", 9, 0x4000, 0x4002);
+    expect_true("step SAVE", c64_step_instruction(&c64, error, sizeof(error)));
+    expect_success_return(&c64);
+    snprintf(path, sizeof(path), "%s/GAME.prg", dir);
+    expect_true("GAME.prg exists", stat(path, &st) == 0);
+    f = fopen(path, "rb");
+    expect_true("open GAME", f != NULL);
+    expect_true("read GAME", fread(check, 1, 4, f) == 4);
+    fclose(f);
+    expect_true("GAME load lo", check[0] == 0x00);
+    expect_true("GAME load hi", check[1] == 0x40);
+    expect_true("GAME data0", check[2] == 0xEE);
+    expect_true("GAME data1", check[3] == 0xFF);
+
+    /* Second SAVE same name → file exists fail */
+    setup_save_call(&c64, "GAME", 9, 0x4000, 0x4002);
+    expect_true("step SAVE exists", c64_step_instruction(&c64, error, sizeof(error)));
+    expect_true("carry set on exists", (c64.cpu.cpu.flags & 0x01u) != 0);
+    expect_true(
+        "status file exists",
+        c64.drives[1].last_result == C64_DRIVE_STATUS_FILE_EXISTS);
+
+    printf("PASS: test_hostfs_load_save_traps\n");
+}
+
+static void test_hostfs_traps_with_emulate_1541(void) {
+    static c64_t c64;
+    char dir[128];
+    char error[128];
+    const uint8_t body[] = {0x60};
+    c64_config cfg;
+
+    make_tmpdir(dir, sizeof(dir));
+    write_host_prg(dir, "demo.prg", 0x8000u, body, sizeof(body));
+    reset_machine(&c64);
+    cfg = c64.config;
+    cfg.emulate_1541 = 1;
+    c64_set_config(&c64, &cfg);
+    load_nop_rom(&c64.drive8);
+    load_nop_rom(&c64.drive9);
+    expect_true(
+        "mount hostfs on 9",
+        c64_mount_hostfs(&c64, 9, dir, true) == C64_DRIVE_STATUS_OK);
+
+    setup_load_call(&c64, "DEMO", 9, 1);
+    expect_true("step despite emulate_1541", c64_step_instruction(&c64, error, sizeof(error)));
+    expect_success_return(&c64);
+    expect_true("demo byte", c64_debug_read_ram(&c64, 0x8000) == 0x60);
+    printf("PASS: test_hostfs_traps_with_emulate_1541\n");
+}
+
+static void test_hostfs_save_sealed(void) {
+    static c64_t c64;
+    char dir[128];
+    char path[512];
+    char error[128];
+    struct stat st;
+
+    make_tmpdir(dir, sizeof(dir));
+    reset_machine(&c64);
+    expect_true(
+        "mount",
+        c64_mount_hostfs(&c64, 8, dir, true) == C64_DRIVE_STATUS_OK);
+    c64_set_replay_sealed(&c64, true);
+    c64.bus.ram[0x3000] = 0x11;
+    setup_save_call(&c64, "SEAL", 8, 0x3000, 0x3001);
+    expect_true("sealed save step", c64_step_instruction(&c64, error, sizeof(error)));
+    expect_success_return(&c64);
+    snprintf(path, sizeof(path), "%s/SEAL.prg", dir);
+    expect_true("no host file", stat(path, &st) != 0);
+    printf("PASS: test_hostfs_save_sealed\n");
+}
+
+int main(void) {
+    test_path_is_dir();
+    test_mount_hostfs_basics();
+    test_hostfs_no_atn_ack();
+    test_powered_empty_no_atn_ack();
+    test_image_mount_still_atn_acks();
+    test_remount_image_over_hostfs();
+    test_hostfs_load_save_traps();
+    test_hostfs_traps_with_emulate_1541();
+    test_hostfs_save_sealed();
+    printf("All HostFS mount/trap tests passed.\n");
+    return 0;
+}

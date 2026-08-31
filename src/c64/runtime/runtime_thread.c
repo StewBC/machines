@@ -3,6 +3,7 @@
 #include "audio_buffer.h"
 #include "basic_v2.h"
 #include "c64.h"
+#include "c64_hostfs.h"
 #include "c64_snapshot.h"
 #include "message_queue.h"
 #include "runtime_breakpoint_ini.h"
@@ -1029,6 +1030,32 @@ static void runtime_mount_d64(runtime *rt, const runtime_command *command) {
     }
 
     if (!runtime_flush_disk_slot(rt, command->data.mount_d64.device, true)) {
+        return;
+    }
+
+    /* Path kind: directory → HostFS (trap-fast folder volume). Guest LOAD/SAVE
+       for HostFS lands in a later PR; mount + IEC isolation are live now. */
+    if (c64_hostfs_path_is_dir(command->data.mount_d64.path)) {
+        int slot_index = (int)(command->data.mount_d64.device - C64_DRIVE_MIN_DEVICE);
+        status_result = c64_mount_hostfs(
+            &rt->machine,
+            command->data.mount_d64.device,
+            command->data.mount_d64.path,
+            command->data.mount_d64.writable != 0);
+        if (status_result == C64_DRIVE_STATUS_OK) {
+            if (slot_index >= 0 && slot_index < C64_DRIVE_SLOT_COUNT) {
+                snprintf(
+                    rt->mounted_disk_paths[slot_index],
+                    sizeof(rt->mounted_disk_paths[slot_index]),
+                    "%s",
+                    command->data.mount_d64.path);
+            }
+            runtime_inspector_on_history_invalidate(rt);
+        } else if (slot_index >= 0 && slot_index < C64_DRIVE_SLOT_COUNT) {
+            rt->machine.drives[slot_index].last_result = status_result;
+        }
+        runtime_publish_drive_status(rt, command->data.mount_d64.device);
+        /* HostFS is not a floppy bootstrap target; do not arm autorun. */
         return;
     }
 

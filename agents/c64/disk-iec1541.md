@@ -3,10 +3,12 @@
 ## Formats
 
 Parsers in `src/tools/d64`, `t64`, `g64`, `crt`. Machine/runtime integration
-in `c64.c`, `c1541.c`, `c1541_media.c`, runtime disk code.
+in `c64.c`, `c1541.c`, `c1541_media.c`, `c64_hostfs.c`, runtime disk code.
 
 - D64: 35-track, error tails, BAM/directory, PRG extract/write, wildcards,
   `@:` replacement.
+- HostFS: host directory as volume (`c64_mount_hostfs` / `--disk N=<dir>`).
+  Trap-fast `$` / LOAD PRG / SAVE create-or-file-exists; no IEC ATN.
 - Devices 8 and 9 have independent ordered disk queues. Images are
   read-only by default. Writable KERNAL SAVE updates the in-memory image;
   runtime flushes to the host path. Failed flushes leave the image dirty.
@@ -17,14 +19,15 @@ in `c64.c`, `c1541.c`, `c1541_media.c`, runtime disk code.
 Runtime owns host flushing. Machine mutates the in-memory image and marks
 the slot dirty. Devices other than 8 and 9 must be rejected.
 
-Entry points: `c64_mount_d64_ex()`, `c64_mount_g64()`,
+Entry points: `c64_mount_d64_ex()`, `c64_mount_g64()`, `c64_mount_hostfs()`,
 `c64_set_drive_writable()`, `c64_unmount_drive()`, `c64_copy_drive_status()`,
 matching `runtime_client_*`.
 
 ## Three load paths
 
 1. **KERNAL trap** at `$FFD5`/`$FFD8` when `emulate_1541` is off or no 1541
-   ROM is loaded. D64 PRG (and `$` directory) only. G64 has no trap path.
+   ROM is loaded (**or** always for `backend==HOSTFS`, before the emulate
+   bail). D64 PRG/`$`, or HostFS PRG/`$`. G64 has no trap path.
 2. **Real 1541 ROM + IEC** when `[disk] emulate_1541=1` and a 16 KiB DOS 2.6
    ROM is present (`[roms] 1541` or `1541.rom` next to the binary / in
    `rom` / `roms`). Drive 6502, RAM, two VIAs, IEC, fractional 1.000 MHz
@@ -43,21 +46,33 @@ load-to-game. That is not broad commercial coverage.
 
 ## Soft power
 
-Each unit has a sticky `c64_drive_slot.powered` latch.
+Each unit has a sticky `c64_drive_slot.powered` latch (UI green LED /
+`power-drive`). That latch is **not** the same as sitting on the IEC bus.
+
+**IEC / 1541 eligibility** (`c64_drive_iec_active`):
+
+```text
+powered && backend == IMAGE && mounted
+```
+
+Step (`c64_drive_sync_to`), bus pull / ATN-ack, and reset-for-IEC use this
+predicate. HostFS mounts and powered-empty units (`[8]`/`[9]` then cancel,
+eject-with-power-held, `--disk N=`) keep the LED on but **do not** ATN-ack.
 
 | Event | Effect |
 |-------|--------|
 | Cold start | Off: not stepped, does not pull IEC |
-| First successful D64/G64 mount | Powers on (DOS reset if ROM loaded) |
-| Explicit power-on (UI / `power-drive` / CLI `-d N=`) | On, even without media |
-| Eject / unmount | Media cleared; **stays powered** |
+| First successful D64/G64 mount | `backend=IMAGE`, powers on, DOS reset if ROM loaded |
+| Directory `--disk` / HostFS mount | `backend=HOSTFS`, powers on; **not** iec_active |
+| Explicit power-on (UI / `power-drive` / CLI `-d N=`) | On, even without media; empty → not iec_active |
+| Eject / unmount | Media cleared, `backend=NONE`; **stays powered** |
 | Power-off | Ejects media, then powers off |
 
-Loading a 1541 ROM is not power-on. An idle powered 1541 still answers ATN
-by pulling DATA (`DATA = PB1 | (ATN XOR ATNA)`). A drive the user never
-asked for therefore clamps DATA on every ATN, which destroyed Edge of
-Disgrace's post-swap streaming depacker. Keep unused units (especially
-device 9) cold.
+Loading a 1541 ROM is not power-on. An idle **iec_active** 1541 still answers
+ATN by pulling DATA (`DATA = PB1 | (ATN XOR ATNA)`). Historically, a
+powered-empty unit did the same and destroyed Edge of Disgrace's post-swap
+streaming depacker — hence soft power and the powered-empty tightening above.
+Keep unused units cold when possible.
 
 ## G64 write-back
 

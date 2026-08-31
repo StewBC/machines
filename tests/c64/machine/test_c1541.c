@@ -151,6 +151,22 @@ static void test_debug_read_map(void) {
 /* Phase 3A: IEC bus wiring                                            */
 /* ------------------------------------------------------------------ */
 
+/* Soft power alone no longer places a unit on the IEC bus. These unit tests
+   poke a standalone c1541 while writing through c64_set_iec_drive_pull; the
+   slot must be IMAGE+mounted so c64_drive_bus_pull includes that pull. */
+static void arm_slot_for_iec(c64_t *c64, uint8_t device) {
+    int slot = (int)(device - C64_DRIVE_MIN_DEVICE);
+    c64_drive_slot *s;
+    if (slot < 0 || slot >= C64_DRIVE_SLOT_COUNT) {
+        return;
+    }
+    s = &c64->drives[slot];
+    s->powered = true;
+    s->mounted = true;
+    s->backend = C64_DRIVE_BACKEND_IMAGE;
+    s->image_kind = C64_DRIVE_IMAGE_D64;
+}
+
 /* Advancing one cycle with ROM loaded synchronises serial VIA output → C64 pull.
    VIA1 PB1 = DATA out; DDRB=0x02 (output), ORB bit 1 high → 1541 pulls DATA.
    After advance, c64.iec_external_pull should have C64_IEC_DATA set. */
@@ -161,7 +177,8 @@ static void test_iec_drive_pulls_data(void) {
     c1541_init(&drive, &c64, 8);
     load_nop_rom(&drive);
     c1541_reset(&drive);
-    (void)c64_power_on_drive(&c64, 8); /* unit must be powered to sit on IEC */
+    (void)c64_power_on_drive(&c64, 8);
+    arm_slot_for_iec(&c64, 8);
 
     drive.via1.ddrb = 0x02u; /* bit 1 = DATA output */
     drive.via1.orb  = 0x02u; /* bit 1 = 1 → pulls DATA low */
@@ -190,6 +207,7 @@ static void test_iec_drive_releases_data(void) {
     load_nop_rom(&drive);
     c1541_reset(&drive);
     (void)c64_power_on_drive(&c64, 8);
+    arm_slot_for_iec(&c64, 8);
 
     drive.via1.ddrb = 0x02u; /* bit 1 = DATA output */
     drive.via1.orb  = 0x00u; /* bit 1 = 0 → not driving DATA low */
@@ -293,6 +311,8 @@ static void test_iec_two_drive_pull_aggregation(void) {
     c1541_reset(&d9);
     (void)c64_power_on_drive(&c64, 8);
     (void)c64_power_on_drive(&c64, 9);
+    arm_slot_for_iec(&c64, 8);
+    arm_slot_for_iec(&c64, 9);
 
     d8.via1.ddrb = 0x02u; /* bit 1 = DATA output */
     d8.via1.orb  = 0x02u; /* drive 8 pulls DATA low */
@@ -353,6 +373,7 @@ static void test_iec_atn_ack_pulls_data(void) {
     load_nop_rom(&drive);
     c1541_reset(&drive);
     (void)c64_power_on_drive(&c64, 8);
+    arm_slot_for_iec(&c64, 8);
 
     /* CIA2 PA3 output high asserts ATN; serial VIA PB4 low acknowledges ATN by
        pulling DATA even if PB1 is not yet set by the firmware IRQ handler. */

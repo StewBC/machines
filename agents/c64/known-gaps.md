@@ -64,7 +64,9 @@ These were decided with measurements. A new brief needs new evidence.
 - Over-border graphics data is zero, not the `$3FFF` ghost byte.
 - `xscroll_pipe` samples `$D016` only on g-access cycles 15..54.
 - EOF resets only `VC`/`VCBASE`; `RC`, `VMLI`, and display state carry.
-- Unpowered 1541s must not sit on IEC (ATN acknowledge clamps DATA).
+- Unpowered 1541s must not sit on IEC (ATN acknowledge clamps DATA). Powered-empty
+  and HostFS units also stay off the bus (`c64_drive_iec_active` =
+  powered && IMAGE && mounted).
 - Media-on EXECUTE is not synthetic `format_track()`.
 - Max (turbo 2 / `max`) keeps live paint and is the correctness and throughput
   bar. Turbo `3` is hard-rejected. Breakpoint FAST remains the paint-off path.
