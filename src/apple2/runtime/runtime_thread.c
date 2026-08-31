@@ -2428,6 +2428,47 @@ static bool runtime_pause_if_breakpoint_pending(runtime *rt)
     return true;
 }
 
+/* Free-run BRK auto-pause is opt-in (Config -> Machine -> "Pause on BRK").
+   Off by default so code that hits a BRK intentionally still runs through it
+   like hardware; single-step always executes BRK. */
+static bool runtime_pause_on_brk_enabled(const runtime *rt)
+{
+    return rt != NULL && rt->config.machine_config.pause_on_brk;
+}
+
+static bool runtime_brk_pending(runtime *rt)
+{
+    if (!runtime_pause_on_brk_enabled(rt)) {
+        return false;
+    }
+    if (rt->suppress_execute_bp) {
+        return false;
+    }
+    /* Only at an instruction boundary: mid-instruction PC can address operand
+       bytes that happen to be $00 without being a BRK opcode. */
+    if (!runtime_at_instruction_boundary(rt)) {
+        return false;
+    }
+    return apple2_debug_read(&rt->machine, rt->machine.cpu.cpu.pc) == 0x00u;
+}
+
+static void runtime_pause_for_brk(runtime *rt)
+{
+    rt->breakpoint_hit_pending = false;
+    rt->suppress_execute_bp = true;
+    rt->temp_bp_active = false;
+    rt->temp_bp_skip_current = false;
+    rt->exec_state = RUNTIME_EXEC_PAUSED;
+    rt->last_stop_reason = RUNTIME_STOP_REASON_BRK;
+    runtime_publish_machine(rt);
+    runtime_publish_simple(rt, RUNTIME_EVENT_PAUSED);
+    runtime_publish_cpu(rt, 0u);
+    runtime_publish_presented_frame(rt);
+    if (rt->inspecting) {
+        rt->machine.video.paint_enabled = true;
+    }
+}
+
 static void runtime_pause_for_step(runtime *rt)
 {
     runtime_event event;
@@ -2662,6 +2703,10 @@ static void runtime_free_run_max_quantum(runtime *rt)
                     runtime_pause_for_breakpoint(rt);
                     return;
                 }
+            }
+            if (runtime_brk_pending(rt)) {
+                runtime_pause_for_brk(rt);
+                return;
             }
 
             ran = apple2_step_instruction_max(&rt->machine);
@@ -3363,6 +3408,10 @@ static void runtime_step_over(runtime *rt, bool *alive)
             runtime_pause_for_breakpoint(rt);
             return;
         }
+        if (runtime_brk_pending(rt)) {
+            runtime_pause_for_brk(rt);
+            return;
+        }
         opcode = apple2_debug_read(&rt->machine, rt->machine.cpu.cpu.pc);
         (void)runtime_exec_step_instruction(rt);
         runtime_maybe_frame(rt);
@@ -3408,6 +3457,10 @@ static void runtime_step_out(runtime *rt, bool *alive)
     for (;;) {
         if (!rt->suppress_execute_bp && runtime_breakpoint_matches_pc(rt)) {
             runtime_pause_for_breakpoint(rt);
+            return;
+        }
+        if (runtime_brk_pending(rt)) {
+            runtime_pause_for_brk(rt);
             return;
         }
         opcode = apple2_debug_read(&rt->machine, rt->machine.cpu.cpu.pc);
@@ -3462,6 +3515,10 @@ static void runtime_run_to_cursor(runtime *rt, uint16_t address, bool *alive)
                 runtime_pause_for_breakpoint(rt);
                 return;
             }
+        }
+        if (runtime_brk_pending(rt)) {
+            runtime_pause_for_brk(rt);
+            return;
         }
         (void)runtime_exec_step_instruction(rt);
         runtime_maybe_frame(rt);
@@ -3911,6 +3968,8 @@ static void runtime_process_command(runtime *rt, const runtime_command *cmd, boo
             runtime_publish_error(rt, "invalid slot card configuration");
             break;
         }
+        /* Live toggles (e.g. Pause on BRK) apply even when slots/model are unchanged. */
+        rt->config.machine_config.pause_on_brk = config->pause_on_brk;
         if (cmd->data.apply_machine_config.turbo_speed_count > 0u) {
             runtime_install_turbo_ladder(
                 rt,
@@ -4051,6 +4110,10 @@ static void runtime_process_command(runtime *rt, const runtime_command *cmd, boo
                 runtime_pause_for_breakpoint(rt);
                 return;
             }
+            if (runtime_brk_pending(rt)) {
+                runtime_pause_for_brk(rt);
+                return;
+            }
             if (!runtime_advance_live_finite_cycle(rt)) {
                 break;
             }
@@ -4087,6 +4150,10 @@ static void runtime_process_command(runtime *rt, const runtime_command *cmd, boo
                 runtime_at_instruction_boundary(rt) &&
                 runtime_breakpoint_matches_pc(rt)) {
                 runtime_pause_for_breakpoint(rt);
+                return;
+            }
+            if (runtime_brk_pending(rt)) {
+                runtime_pause_for_brk(rt);
                 return;
             }
             if (!runtime_exec_step_instruction(rt)) {
@@ -4744,6 +4811,10 @@ static void runtime_free_run_batch(runtime *rt)
                 runtime_pause_for_breakpoint(rt);
                 return;
             }
+        }
+        if (runtime_brk_pending(rt)) {
+            runtime_pause_for_brk(rt);
+            return;
         }
         c0 = apple2_cycles(&rt->machine);
         if (!rt->inspecting && !runtime_turbo_is_free_run(rt)) {

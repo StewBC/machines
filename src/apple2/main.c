@@ -2608,22 +2608,28 @@ static bool apply_options_to_runtime_config(const app_options *options, runtime_
         rt_config->start_running = true;
     }
     rt_config->apple_model = options->apple_model;
+    rt_config->machine_config.pause_on_brk = options->pause_on_brk;
+    rt_config->machine_config.apple_model = (uint8_t)options->apple_model;
     rt_config->mb_slot = 0;
     for (i = 1; i <= 7; ++i) {
         switch (options->slot_cards[i]) {
         case APP_SLOT_CARD_DISKII:
             rt_config->slot_cards[i] = RUNTIME_SLOT_CARD_DISKII;
+            rt_config->machine_config.slot_cards[i] = RUNTIME_SLOT_CARD_DISKII;
             break;
         case APP_SLOT_CARD_SMARTPORT:
             rt_config->slot_cards[i] = RUNTIME_SLOT_CARD_SMARTPORT;
+            rt_config->machine_config.slot_cards[i] = RUNTIME_SLOT_CARD_SMARTPORT;
             break;
         case APP_SLOT_CARD_MOCKINGBOARD:
             rt_config->slot_cards[i] = RUNTIME_SLOT_CARD_MOCKINGBOARD;
+            rt_config->machine_config.slot_cards[i] = RUNTIME_SLOT_CARD_MOCKINGBOARD;
             rt_config->mb_slot = i;
             break;
         case APP_SLOT_CARD_EMPTY:
         default:
             rt_config->slot_cards[i] = RUNTIME_SLOT_CARD_EMPTY;
+            rt_config->machine_config.slot_cards[i] = RUNTIME_SLOT_CARD_EMPTY;
             break;
         }
     }

@@ -25,7 +25,8 @@ enum {
 };
 
 typedef struct runtime_machine_config {
-    bool pause_on_brk; /* reserved */
+    /* When true, free-run / run-N / step-over/out auto-pause before executing BRK. */
+    bool pause_on_brk;
     uint8_t apple_model; /* 0 = //e Enhanced, 1 = ][+ */
     runtime_slot_card_type slot_cards[RUNTIME_APPLE_SLOT_COUNT];
 } runtime_machine_config;

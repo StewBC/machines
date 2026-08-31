@@ -362,6 +362,13 @@ target_compile_features(${test_runtime_breakpoint} PRIVATE c_std_99)
 target_link_libraries(${test_runtime_breakpoint} PRIVATE ${runtime} SDL2::SDL2)
 leftover_add_test(NAME runtime_breakpoint COMMAND ${test_runtime_breakpoint})
 
+leftover_exe(test_runtime_brk
+    ${MACHINES_ROOT}/tests/apple2/runtime/test_runtime_brk.c
+)
+target_compile_features(${test_runtime_brk} PRIVATE c_std_99)
+target_link_libraries(${test_runtime_brk} PRIVATE ${runtime} SDL2::SDL2)
+leftover_add_test(NAME runtime_brk COMMAND ${test_runtime_brk})
+
 leftover_exe(test_runtime_breakpoint_ini
     ${MACHINES_ROOT}/tests/apple2/runtime/test_runtime_breakpoint_ini.c
 )

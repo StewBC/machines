@@ -895,6 +895,23 @@ breakpoint is present. **[New]** opens the Breakpoint Editor.
 | Read | CPU reads from the address or range |
 | Write | CPU writes to the address or range |
 
+### BRK
+
+When **Pause on BRK** is enabled (Configure -> Machine, or `[config] pause_on_brk`), a
+`BRK` opcode (`$00`) pauses the emulator with no breakpoint needed. The CPU does not
+execute it; the instruction is intercepted before the stack is touched, and the window
+title (see **Window Title**) ends with `Paused (BRK)`.
+
+This usually means execution has reached uninitialized memory, passed the end of a
+program, or followed a corrupted jump. Letting BRK execute can push repeatedly onto the
+stack and wrap the stack pointer through `$0100-$01FF`. Pausing at the first BRK lets you
+inspect the failure before the stack is overwritten.
+
+**Pause on BRK is off by default.** Turn it on when you want the crash aid above. A
+single explicit step (**F11**) always executes a BRK normally, since you asked for that
+exact instruction; when the pause is on, it also applies to free-running execution (Run,
+Step Over, Step Out, and run-N commands).
+
 ### Breakpoint List Format
 
 Each entry in the list shows a label and action buttons:
@@ -1523,6 +1540,7 @@ below the tab body on every tab.
 | Turbo | Comma-separated ladder, e.g. `1,max` or `1,4,8,max` |
 | History off on max | Pause only the CPU flight recorder while turbo is `max` (faster free-run) |
 | Inspector off on max (wipe Record) | When on: wipe Inspector Record (+ film) on enter `max`; restore empty Record on leave if it was on (default off) |
+| Pause on BRK | Auto-pause free-run at the next `BRK` (`$00`) as a crash aid; off by default; applies live |
 | Show disk LEDs | Draw green (Disk II motor-on) and red (write activity) LEDs in the window corner |
 
 The Keyboard Joystick stick selector matches the runtime **Shift+Opt+1** /
@@ -1634,6 +1652,7 @@ Default layout: slot 4 Mockingboard, slot 6 Disk II, slot 7 SmartPort, others em
 | `scroll_wheel_lines` | Integer; lines scrolled per wheel click |
 | `original_del` | `true`/`false`; Backspace sends `$7F` instead of `$08` |
 | `symbol_files` | Comma-separated list of symbol file paths |
+| `pause_on_brk` | `true`/`false`; when true, free-run auto-pauses at the next `BRK` (`$00`). Absent/false (default) executes BRK like hardware |
 | `disk_leds` | `true`/`false`; show disk activity LEDs (also written as `[disk] show_disk_leds`) |
 
 ### [Video]
