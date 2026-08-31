@@ -2,7 +2,7 @@
 
 | Field | Value |
 |-------|--------|
-| Status | **Draft** (rev 4 — final decisions locked) |
+| Status | **Landed** (rev 4 — final decisions locked; PR train 1-6) |
 | Author | _(author)_ |
 | Date | 2026-08-31 |
 | Audience | senior engineers working in `machines` (a2m / c64m / `src/shell`) |

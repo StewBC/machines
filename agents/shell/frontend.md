@@ -59,6 +59,14 @@ Stage 7 client subset and Stage 5 memory-source table, not `apple2.h` /
 - Help: Opt+H. Modal while open (Quit still works). May stack over Forensics
   (CRT underlay; returns to Forensics on close). Generated from that binary's
   `manual/*/manual.md`.
+- Symbol Lookup / Filter live in `symbol_lookup_view.*` (both products). Opt+S
+  opens Lookup; footer **[Filter][Close]**. Filter is a sibling window drawn
+  **after** Lookup (File Browser stacking precedent). Enable toggles use chrome-
+  cached snapshot `source_id` values only -- never UI-local `symbol_table_add`
+  ids -- via `symbol_lookup_ops.set_source_enabled` -> product debugger intent ->
+  runtime `SET_SYMBOL_SOURCE_ENABLED`. Soft-disable is session-only (not INI).
+  `SOURCE` / Filter labels are basename-only (no kind prefix). ESC closes Filter
+  first, then Lookup. `frontend_any_dialog_open` includes both.
 
 ## ASCII-only UI
 

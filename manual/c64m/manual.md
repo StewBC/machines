@@ -543,9 +543,10 @@ of jump as entering the writer PC with `Opt+A`.
 
 **Opt+S** opens the Symbol Lookup dialog while the Disassembly view is active.
 
-The dialog shows a searchable, sortable table of all symbols known to the debugger,
-including labels exported from the assembler and symbols loaded from external symbol
-files.
+The dialog shows a searchable, sortable table of **enabled** symbols known to the
+debugger: labels exported from the assembler and symbols loaded from Configure
+**Symbol Files** / `symbol_files`. Soft-disabled sources are omitted from this list,
+from Disassembly labels, and from control `find-symbol`.
 
 **Columns:**
 
@@ -554,7 +555,7 @@ files.
 | `ADDR`  | Symbol address in hex (`XXXX`)                                    |
 | `SCOPE` | Assembler scope path, e.g. `anon_0001` (up to 32 characters)     |
 | `LABEL` | Symbol name (leaf portion, up to 32 characters)                   |
-| `SOURCE`| File basename (no extension), or `assembler` for inline assembly  |
+| `SOURCE`| Basename of the symbol source path (no extension). Assembler exports use the assembled file path; file-backed symbols use the symbol file path |
 
 **Search:** the field at the top has focus when the dialog opens. Type to filter the
 list. The pattern is matched against a combined string `"XXXX scope label source"` for
@@ -575,10 +576,25 @@ ascending.
 | `Enter`                 | Commit selected row (table focus)                      |
 | Click a row             | Commit that row                                        |
 | Click a column header   | Sort by that column (toggle direction)                 |
-| **[Close]** or `ESC`    | Dismiss without navigating                             |
+| **[Filter]**            | Open the Symbol Filter window (disabled when no sources are loaded) |
+| **[Close]** or `ESC`    | Dismiss without navigating (`ESC` closes Symbol Filter first if it is open) |
 
 **On commit:** the Disassembly view cursor jumps to the symbol's address, equivalent to
 entering the address with `Opt+A`.
+
+### Symbol Filter
+
+**[Filter]** on Symbol Lookup opens a sibling **Symbol Filter** window (drawn after
+Lookup, same stacking idea as File Browser over Load/Save). Each row is one loaded
+symbol source, labeled with the same basename as the Lookup `SOURCE` column.
+
+Uncheck a source to soft-disable it for the rest of the session: records stay loaded,
+but that source is omitted from Disassembly labels, Symbol Lookup, and control
+`find-symbol`. Check it again to restore. Toggles apply immediately; they are
+**not** written to the INI. A process restart, Config reload of `symbol_files`, or a
+fresh assemble loads sources enabled again.
+
+`ESC` closes Symbol Filter first while it is open, then Symbol Lookup.
 
 ## Memory View
 
@@ -1619,7 +1635,7 @@ other Machine settings apply immediately when you press **[OK]** or **[Save INI 
 | Control           | Effect |
 |-------------------|--------|
 | Scroll Wheel Speed| Number of rows scrolled per wheel click (1-100) |
-| Symbol Files      | Add symbol files and display the comma-separated list of selected files |
+| Symbol Files      | Add symbol files and display the comma-separated list of selected files. Paths load at startup and again when Configure applies a changed list; labels appear in Disassembly / Symbol Lookup after the next symbol poll (no assemble required) |
 | True Aspect Ratio | Show the geometry a real TV showed, using the VIC-II pixel aspect ratio (PAL 0.9365, NTSC 0.7500); off stretches the picture to fill the view |
 | CRT Smoothing     | Filter the picture instead of showing hard pixel edges; forced on by CRT Scanlines and CRT Curvature |
 | CRT Scanlines     | Simulate the dark gap between raster lines; the slider sets strength from 1-100% |
@@ -1717,7 +1733,7 @@ emulator removes comments.
 | `Save`            | `yes` -- save INI on quit                               |
 | `scroll_wheel_lines` | Integer; lines scrolled per wheel click             |
 | `log_level`       | `all`, `warn` (default), `error`, or `none`; host log policy (also `--log-level`). Does not mute CLI/usage errors on stderr. |
-| `symbol_files`    | Comma-separated list of symbol file paths              |
+| `symbol_files`    | Comma-separated list of symbol file paths (loaded at startup and when Configure applies a changed list) |
 | `turbo_speeds`    | Comma-separated turbo modes, e.g. `1,max` (1=normal, 2/`max`=max; `3` rejected) |
 | `pause_on_brk`    | `true`/`false`; when true, free-run auto-pauses at the next `BRK` (`$00`). Absent/false (default) executes BRK like hardware so carts that hit a KERNAL-handled BRK during boot keep running |
 
@@ -2612,7 +2628,7 @@ tab, so a script can build code, find where a routine landed, and set a breakpoi
 | Command | Meaning |
 |---------|---------|
 | `assemble [address=<hex>] [run-address=<hex>] [auto-run=0\|1] [reset=0\|1] <source-path>` | Assemble a source file into the machine |
-| `find-symbol <name>` | Resolve a label from the most recent assembly |
+| `find-symbol <name>` | Resolve a label from the published enabled symbol set |
 
 The optional `key=value` settings precede the source path and may appear in any order.
 Any token that is not a recognized option begins the source path, which runs to the end
@@ -2647,8 +2663,10 @@ On failure the reply is an error whose message is the assembler diagnostic:
 2 error assemble-error File: badsource.asm L:00001 C:012: Unexpected token after expression
 ```
 
-A successful assembly publishes the resolved symbol table. `find-symbol` resolves a label
-from that table by exact name:
+A successful assembly publishes the resolved symbol table. Symbol files from
+`symbol_files` / Configure **Symbol Files** also publish into the same table.
+`find-symbol` resolves a label from the **enabled** published set by exact name
+(Symbol Filter soft-disables omit that source):
 
 ```text
 3 find-symbol loop
@@ -2656,9 +2674,9 @@ from that table by exact name:
 ```
 
 If the name is not present the reply is `error not-found`. If no assembly (or symbol file)
-has published symbols yet, the reply is `error not-ready`. Symbols are also published when
-a symbol file is loaded, and in the GUI a successful remote assembly refreshes the
-debugger's Disasm and Symbol Lookup views just as the Assembler tab does.
+has published symbols yet, the reply is `error not-ready`. In the GUI a successful remote
+assembly or file load refreshes Disassembly and Symbol Lookup just as the Assembler tab
+and Configure symbol reload do.
 
 A typical automation sequence assembles, locates a routine, breakpoints it, and runs:
 
