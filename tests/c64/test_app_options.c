@@ -1,5 +1,7 @@
 #include "app_options.h"
 
+#include <dirent.h>
+#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -10,13 +12,122 @@
 #define c64m_getcwd _getcwd
 #define c64m_mkdir(path, mode) _mkdir(path)
 #define c64m_rmdir _rmdir
+#define c64m_isdir(mode) (((mode) & _S_IFMT) == _S_IFDIR)
 #else
 #include <unistd.h>
 #define c64m_chdir chdir
 #define c64m_getcwd getcwd
 #define c64m_mkdir(path, mode) mkdir(path, mode)
 #define c64m_rmdir rmdir
+#define c64m_isdir(mode) S_ISDIR(mode)
 #endif
+
+enum { C64M_SCRATCH_PATH_MAX = 1024 };
+
+static void remove_tree(const char *path)
+{
+    DIR *dir;
+    struct dirent *de;
+    char child[C64M_SCRATCH_PATH_MAX];
+
+    if (path == NULL || path[0] == '\0') {
+        return;
+    }
+    dir = opendir(path);
+    if (dir == NULL) {
+        (void)remove(path);
+        return;
+    }
+    while ((de = readdir(dir)) != NULL) {
+        struct stat st;
+        if (strcmp(de->d_name, ".") == 0 || strcmp(de->d_name, "..") == 0) {
+            continue;
+        }
+        if ((size_t)snprintf(
+                child, sizeof(child), "%s/%s", path, de->d_name) >= sizeof(child)) {
+            closedir(dir);
+            fprintf(stderr, "remove_tree path too long\n");
+            exit(1);
+        }
+        if (stat(child, &st) != 0) {
+            continue;
+        }
+        if (c64m_isdir(st.st_mode)) {
+            remove_tree(child);
+        } else {
+            (void)remove(child);
+        }
+    }
+    closedir(dir);
+    if (c64m_rmdir(path) != 0) {
+        fprintf(stderr, "warning: rmdir %s: %s\n", path, strerror(errno));
+    }
+}
+
+/* Isolate cwd-relative scratch (roms/, test_noini_*, *.ini) under TMPDIR. */
+static void enter_scratch(char *home, size_t home_size, char *scratch, size_t scratch_size)
+{
+    const char *base;
+    char tmpl[C64M_SCRATCH_PATH_MAX];
+
+    if (c64m_getcwd(home, home_size) == NULL) {
+        fprintf(stderr, "failed to read cwd\n");
+        exit(1);
+    }
+    base = getenv("TMPDIR");
+    if (base == NULL || base[0] == '\0') {
+        base = "/tmp";
+    }
+    if ((size_t)snprintf(
+            tmpl, sizeof(tmpl), "%s/c64m-appopt-XXXXXX", base) >= sizeof(tmpl)) {
+        fprintf(stderr, "scratch template too long\n");
+        exit(1);
+    }
+#if defined(_WIN32)
+    {
+        static int seq;
+        for (;;) {
+            if ((size_t)snprintf(
+                    scratch, scratch_size, "%s/c64m-appopt-%d", base, ++seq) >=
+                scratch_size) {
+                fprintf(stderr, "scratch path too long\n");
+                exit(1);
+            }
+            if (c64m_mkdir(scratch, 0777) == 0) {
+                break;
+            }
+            if (errno != EEXIST || seq > 100000) {
+                fprintf(stderr, "mkdir scratch failed\n");
+                exit(1);
+            }
+        }
+    }
+#else
+    if (mkdtemp(tmpl) == NULL) {
+        fprintf(stderr, "mkdtemp scratch failed\n");
+        exit(1);
+    }
+    if (strlen(tmpl) + 1u > scratch_size) {
+        remove_tree(tmpl);
+        fprintf(stderr, "scratch path too long\n");
+        exit(1);
+    }
+    snprintf(scratch, scratch_size, "%s", tmpl);
+#endif
+    if (c64m_chdir(scratch) != 0) {
+        fprintf(stderr, "failed to enter scratch %s\n", scratch);
+        exit(1);
+    }
+}
+
+static void leave_scratch(const char *home, const char *scratch)
+{
+    if (c64m_chdir(home) != 0) {
+        fprintf(stderr, "failed to restore cwd %s\n", home);
+        exit(1);
+    }
+    remove_tree(scratch);
+}
 
 /* Several tests below build "%s/literal/suffix" paths from a 1024-byte cwd
  * buffer into another 1024-byte buffer. GCC can't prove the real cwd stays
@@ -1902,6 +2013,12 @@ static void test_assembler_auto_adjust_segments_ini(void) {
 #endif
 
 int main(void) {
+    char home[C64M_SCRATCH_PATH_MAX];
+    char scratch[C64M_SCRATCH_PATH_MAX];
+
+    /* Keep cwd-relative mkdir/ini scratch out of the repo / build tree. */
+    enter_scratch(home, sizeof(home), scratch, sizeof(scratch));
+
     test_rom_paths_from_ini();
     test_rom_paths_relative_to_ini_from_foreign_cwd();
     test_rom_discovery_beside_exe();
@@ -1938,5 +2055,7 @@ int main(void) {
     test_keyboard_joystick_defaults_and_overrides();
     test_keyboard_joystick_saved_to_ini();
     test_assembler_auto_adjust_segments_ini();
+
+    leave_scratch(home, scratch);
     return 0;
 }

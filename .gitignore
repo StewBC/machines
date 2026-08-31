@@ -31,4 +31,16 @@ samples/apple2/hostfs/
 
 # Local debugger symbol overlays
 symbols/*/USER.SYM
+# Legacy CWD scratch from older HostFS / app_options test runs (now use TMPDIR)
 test_hostfs_mount_*/
+test_noini_empty/
+test_noini_discovery/
+test_missing_ini_discovery/
+test_rom_foreign/
+test_rom_exe/
+test_rom_abs/
+test_rom_far/
+test_rom_under/
+test_symbol_ini/
+test_disk_rel_ini/
+test_disk_save_rel/

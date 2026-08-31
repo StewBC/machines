@@ -4,6 +4,7 @@
 #include "c64_rom.h"
 #include "d64.h"
 
+#include <dirent.h>
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -13,10 +14,16 @@
 #if defined(_WIN32)
 #include <direct.h>
 #define HOSTFS_TEST_MKDIR(path) _mkdir(path)
+#define HOSTFS_TEST_RMDIR(path) _rmdir(path)
+#define HOSTFS_TEST_ISDIR(mode) (((mode) & _S_IFMT) == _S_IFDIR)
 #else
 #include <unistd.h>
 #define HOSTFS_TEST_MKDIR(path) mkdir((path), 0755)
+#define HOSTFS_TEST_RMDIR(path) rmdir(path)
+#define HOSTFS_TEST_ISDIR(mode) S_ISDIR(mode)
 #endif
+
+enum { HOSTFS_TEST_PATH_MAX = 512 };
 
 static void fail(const char *msg) {
     fprintf(stderr, "FAIL: %s\n", msg);
@@ -35,22 +42,89 @@ static void load_nop_rom(c1541 *drive) {
     drive->rom_loaded = 1;
 }
 
-static void make_tmpdir(char *out, size_t out_size) {
-    static int seq;
-    /* Never reuse an existing directory: leftover GAME.prg from a prior run
-       makes SAVE "create-or-file-exists" fail under ctest's sticky cwd. */
-    for (;;) {
-        snprintf(out, out_size, "test_hostfs_mount_%d", ++seq);
-        if (HOSTFS_TEST_MKDIR(out) == 0) {
-            return;
+/* Recursively delete a scratch tree created under the system temp dir. */
+static void remove_tree(const char *path)
+{
+    DIR *dir;
+    struct dirent *de;
+    char child[HOSTFS_TEST_PATH_MAX];
+
+    if (path == NULL || path[0] == '\0') {
+        return;
+    }
+    dir = opendir(path);
+    if (dir == NULL) {
+        (void)remove(path);
+        return;
+    }
+    while ((de = readdir(dir)) != NULL) {
+        struct stat st;
+        if (strcmp(de->d_name, ".") == 0 || strcmp(de->d_name, "..") == 0) {
+            continue;
         }
-        if (errno != EEXIST) {
-            fail("mkdir tmpdir");
+        if ((size_t)snprintf(
+                child, sizeof(child), "%s/%s", path, de->d_name) >= sizeof(child)) {
+            closedir(dir);
+            fail("remove_tree path too long");
         }
-        if (seq > 100000) {
-            fail("mkdir tmpdir exhausted");
+        if (stat(child, &st) != 0) {
+            continue;
+        }
+        if (HOSTFS_TEST_ISDIR(st.st_mode)) {
+            remove_tree(child);
+        } else {
+            (void)remove(child);
         }
     }
+    closedir(dir);
+    if (HOSTFS_TEST_RMDIR(path) != 0) {
+        fprintf(stderr, "warning: rmdir %s failed: %s\n", path, strerror(errno));
+    }
+}
+
+/* Unique directory under TMPDIR (or /tmp). Caller must remove_tree(). */
+static void make_tmpdir(char *out, size_t out_size)
+{
+    const char *base;
+    char tmpl[HOSTFS_TEST_PATH_MAX];
+
+    base = getenv("TMPDIR");
+    if (base == NULL || base[0] == '\0') {
+        base = "/tmp";
+    }
+    if ((size_t)snprintf(
+            tmpl, sizeof(tmpl), "%s/c64m-hostfs-XXXXXX", base) >= sizeof(tmpl)) {
+        fail("tmpdir template too long");
+    }
+#if defined(_WIN32)
+    {
+        static int seq;
+        for (;;) {
+            if ((size_t)snprintf(
+                    out, out_size, "%s/c64m-hostfs-%d", base, ++seq) >= out_size) {
+                fail("tmpdir path too long");
+            }
+            if (HOSTFS_TEST_MKDIR(out) == 0) {
+                return;
+            }
+            if (errno != EEXIST) {
+                fail("mkdir tmpdir");
+            }
+            if (seq > 100000) {
+                fail("mkdir tmpdir exhausted");
+            }
+        }
+    }
+#else
+    if (mkdtemp(tmpl) == NULL) {
+        fail("mkdtemp tmpdir");
+    }
+    if (strlen(tmpl) + 1u > out_size) {
+        remove_tree(tmpl);
+        fail("tmpdir path too long for caller buffer");
+    }
+    snprintf(out, out_size, "%s", tmpl);
+#endif
 }
 
 static uint8_t sectors_on_track(uint8_t track) {
@@ -207,7 +281,7 @@ static void expect_no_atn_ack(c64_t *c64, c1541 *drive, const char *label) {
 
 static void test_mount_hostfs_basics(void) {
     static c64_t c64;
-    char dir[128];
+    char dir[HOSTFS_TEST_PATH_MAX];
     c64_drive_status st;
 
     make_tmpdir(dir, sizeof(dir));
@@ -228,13 +302,14 @@ static void test_mount_hostfs_basics(void) {
     expect_true("eject backend none", st.backend == C64_DRIVE_BACKEND_NONE);
     expect_true("eject keeps power", st.powered);
     expect_true("eject still not iec", !c64_drive_iec_active(&c64, 8));
+    remove_tree(dir);
     printf("PASS: test_mount_hostfs_basics\n");
 }
 
 static void test_hostfs_no_atn_ack(void) {
     static c64_t c64;
     static c1541 drive;
-    char dir[128];
+    char dir[HOSTFS_TEST_PATH_MAX];
 
     make_tmpdir(dir, sizeof(dir));
     c64_init(&c64);
@@ -247,6 +322,7 @@ static void test_hostfs_no_atn_ack(void) {
     /* ROM may be loaded on machine->drive8 as well; HostFS must still isolate. */
     load_nop_rom(&c64.drive8);
     expect_no_atn_ack(&c64, &drive, "hostfs mounted");
+    remove_tree(dir);
     printf("PASS: test_hostfs_no_atn_ack\n");
 }
 
@@ -298,7 +374,7 @@ static void test_image_mount_still_atn_acks(void) {
 
 static void test_remount_image_over_hostfs(void) {
     static c64_t c64;
-    char dir[128];
+    char dir[HOSTFS_TEST_PATH_MAX];
     uint8_t *img = make_blank_d64();
     c64_drive_status st;
 
@@ -318,14 +394,16 @@ static void test_remount_image_over_hostfs(void) {
     expect_true("kind d64", st.image_kind == C64_DRIVE_IMAGE_D64);
     expect_true("iec after replace", c64_drive_iec_active(&c64, 8));
     expect_true("no hostfs handle", c64.drives[0].hostfs == NULL);
+    remove_tree(dir);
     printf("PASS: test_remount_image_over_hostfs\n");
 }
 
 static void test_path_is_dir(void) {
-    char dir[128];
+    char dir[HOSTFS_TEST_PATH_MAX];
     make_tmpdir(dir, sizeof(dir));
     expect_true("dir is dir", c64_hostfs_path_is_dir(dir));
     expect_true("missing not dir", !c64_hostfs_path_is_dir("test_hostfs_no_such_path"));
+    remove_tree(dir);
     printf("PASS: test_path_is_dir\n");
 }
 
@@ -423,7 +501,7 @@ static void expect_success_return(const c64_t *machine) {
 
 static void test_hostfs_load_save_traps(void) {
     static c64_t c64;
-    char dir[128];
+    char dir[HOSTFS_TEST_PATH_MAX];
     char path[512];
     char error[128];
     const uint8_t body[] = {0xA9, 0x01, 0x60}; /* LDA #$01 / RTS */
@@ -549,12 +627,13 @@ static void test_hostfs_load_save_traps(void) {
         "status file exists",
         c64.drives[1].last_result == C64_DRIVE_STATUS_FILE_EXISTS);
 
+    remove_tree(dir);
     printf("PASS: test_hostfs_load_save_traps\n");
 }
 
 static void test_hostfs_traps_with_emulate_1541(void) {
     static c64_t c64;
-    char dir[128];
+    char dir[HOSTFS_TEST_PATH_MAX];
     char error[128];
     const uint8_t body[] = {0x60};
     c64_config cfg;
@@ -575,12 +654,13 @@ static void test_hostfs_traps_with_emulate_1541(void) {
     expect_true("step despite emulate_1541", c64_step_instruction(&c64, error, sizeof(error)));
     expect_success_return(&c64);
     expect_true("demo byte", c64_debug_read_ram(&c64, 0x8000) == 0x60);
+    remove_tree(dir);
     printf("PASS: test_hostfs_traps_with_emulate_1541\n");
 }
 
 static void test_hostfs_save_sealed(void) {
     static c64_t c64;
-    char dir[128];
+    char dir[HOSTFS_TEST_PATH_MAX];
     char path[512];
     char error[128];
     struct stat st;
@@ -597,6 +677,7 @@ static void test_hostfs_save_sealed(void) {
     expect_success_return(&c64);
     snprintf(path, sizeof(path), "%s/SEAL.prg", dir);
     expect_true("no host file", stat(path, &st) != 0);
+    remove_tree(dir);
     printf("PASS: test_hostfs_save_sealed\n");
 }
 
@@ -635,7 +716,7 @@ static void setup_close_call(c64_t *machine, uint8_t la)
 static void test_hostfs_cd_channel(void)
 {
     static c64_t c64;
-    char dir[128];
+    char dir[HOSTFS_TEST_PATH_MAX];
     char path[512];
     char error[128];
     const uint8_t body[] = {0xA9, 0x55, 0x60};
@@ -757,12 +838,13 @@ static void test_hostfs_cd_channel(void)
     status = c64_hostfs_status(c64.drives[1].hostfs);
     expect_true("syntax status", status != NULL && status[0] == '3' && status[1] == '0');
 
+    remove_tree(dir);
     printf("PASS: test_hostfs_cd_channel\n");
 }
 
 static void test_hostfs_cd_into_d64(void) {
     static c64_t c64;
-    char dir[128];
+    char dir[HOSTFS_TEST_PATH_MAX];
     char path[512];
     char error[128];
     const uint8_t inside_body[] = {0xA9, 0x42, 0x60};
@@ -937,6 +1019,7 @@ static void test_hostfs_cd_into_d64(void) {
     setup_close_call(&c64, 1);
     expect_true("close g64", c64_step_instruction(&c64, error, sizeof(error)));
 
+    remove_tree(dir);
     printf("PASS: test_hostfs_cd_into_d64\n");
 }
 
@@ -978,7 +1061,7 @@ static void write_host_p00(
 
 static void test_hostfs_p00_load(void) {
     static c64_t c64;
-    char dir[128];
+    char dir[HOSTFS_TEST_PATH_MAX];
     char error[128];
     const uint8_t body[] = {0xA9, 0x77, 0x60};
     size_t i;
@@ -1022,6 +1105,7 @@ static void test_hostfs_p00_load(void) {
     /* Must not have loaded 'C''6' from the PC64 magic as the load address. */
     expect_true("not loaded at 3643", c64_debug_read_ram(&c64, 0x3643) != 0xA9);
 
+    remove_tree(dir);
     printf("PASS: test_hostfs_p00_load\n");
 }
 
