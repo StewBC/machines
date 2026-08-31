@@ -679,6 +679,14 @@ leftover_add_test(
         -o ${CMAKE_BINARY_DIR}/am65_cli_search_fail.bin
 )
 set_tests_properties(${MACHINES_TEST_NS}.am65_cli_search_without_I_fails PROPERTIES WILL_FAIL TRUE)
+leftover_add_test(
+    NAME am65_cli_prg
+    COMMAND ${CMAKE_COMMAND}
+        -DAM65=$<TARGET_FILE:am65>
+        -DASM=${MACHINES_ROOT}/tests/apple2/fixtures/am65_prg.asm
+        -DOUT=${CMAKE_BINARY_DIR}/am65_cli_prg.prg
+        -P ${MACHINES_ROOT}/tests/apple2/fixtures/am65_prg_check.cmake
+)
 
 # frontend_help.c was replaced by help_view + generated content in the wholesale
 # shell; re-add a dedicated help unit test when the public help API stabilizes.

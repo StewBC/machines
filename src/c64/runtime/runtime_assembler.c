@@ -55,20 +55,24 @@ static void *runtime_assembler_target_open(
     void *user,
     const char *name,
     int name_len,
-    const char *file,
-    int file_len,
+    const char *path,
+    int path_len,
     const char *dest,
-    int dest_len) {
+    int dest_len,
+    assembler_output_format format) {
     assembler_output_ctx *host = (assembler_output_ctx *)user;
     assembler_output_ctx *target =
         (assembler_output_ctx *)calloc(1, sizeof(*target));
 
     (void)name;
     (void)name_len;
-    (void)file;
-    (void)file_len;
+    (void)path;
+    (void)path_len;
     (void)dest;
     (void)dest_len;
+    (void)format;
+    /* c64m ignores host-file redirects (file=/prg=); dest= is accepted for
+       shared source but bytes always go to RAM via the default/output ctx. */
     if (target != NULL) {
         target->machine = host->machine;
         target->stats = host->stats;

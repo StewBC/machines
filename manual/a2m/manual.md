@@ -1210,7 +1210,7 @@ The ternary form is `condition ? true-expr : false-expr`.
 | `.macro name [args]` | Define a macro with optional parameter list |
 | `.endmacro` | End of macro definition |
 | `.local name` | Macro-local label; expanded to a unique name at call time |
-| `.scope [name] [file="f"] [dest="d"]` | Open a scope namespace; anonymous if no name given. `name` may be a bare identifier or a quoted identifier (`"name"`). `file=`/`dest=` create a host-resolved output target |
+| `.scope [name] [file="f"\|prg="f"] [dest="d"]` | Open a scope namespace; anonymous if no name given. `name` may be a bare identifier or a quoted identifier (`"name"`). `file=` (raw) / `prg=` (Commodore PRG) / `dest=` create a host-resolved output target; `file=` and `prg=` are mutually exclusive |
 | `.endscope` | Close the innermost scope (and end any output redirect) |
 | `.proc name` | Open a named procedure (a named scope) |
 | `.endproc` | Close the innermost proc |
@@ -1403,28 +1403,31 @@ main:
 .endscope
 ```
 
-Everything between the named `.scope file="..."` and its `.endscope` is assembled into
-its own output image; code outside goes to the default output. Labels remain visible
-across files through the normal scope rules (`game::main`), so the loader can reference
-addresses in the game and vice versa.
+Everything between the named `.scope file="..."` / `prg="..."` and its `.endscope` is
+assembled into its own output image; code outside goes to the default output. Labels
+remain visible across files through the normal scope rules (`game::main`), so the
+loader can reference addresses in the game and vice versa. `file=` writes a raw image;
+`prg=` writes a Commodore PRG (little-endian load address = lowest address emitted for
+that target, then the payload). `file=` and `prg=` are mutually exclusive.
 
-The assembler core passes `file=` and `dest=` to its host. Command-line `am65` uses
-`file=` to create a separate binary and accepts but ignores `dest=`. A `dest=`-only
-scope therefore continues writing into its parent file image.
+The assembler core passes the host-file path, write format, and `dest=` to its host.
+Command-line `am65` uses `file=` / `prg=` to create a separate binary and accepts but
+ignores `dest=`. A `dest=`-only scope therefore continues writing into its parent file
+image. Pass `--prg` on the CLI to apply the same PRG header to the default `-o` output.
 
 In the emulator the attributes are orthogonal:
 
 | Attributes | Effect |
 |---|---|
 | `dest=` only | Write bytes into the named memory bank(s) |
-| `file=` only | Write a host file beside the assembled source; do not poke memory |
+| `file=` / `prg=` only | Write a host file beside the assembled source (raw vs PRG); do not poke memory |
 | both | Write memory and a host file |
 | neither | Default unnamed output (current map view) |
 
 Valid Apple II destinations are `map`, `main`, `aux`, `lc1`, and `lc2`
 (case-insensitive), and independent selections may be combined, for example
-`dest="aux,lc2"`. Unsupported names are assembly errors. Relative `file=` paths
-resolve against the directory of the assembled source. If that directory is also
+`dest="aux,lc2"`. Unsupported names are assembly errors. Relative `file=` / `prg=`
+paths resolve against the directory of the assembled source. If that directory is also
 a HostFS mount root (or under one), the volume is rescanned so the guest sees the
 new file.
 
@@ -1449,10 +1452,12 @@ Additional build flags can be injected from the command line with `-D name[=valu
 ### Command-Line Assembler (am65)
 
 `am65` is a standalone build of the same assembler, for use in scripts and makefiles.
-It writes raw binary files rather than poking live memory.
+By default it writes raw binary files rather than poking live memory. Pass `--prg` (or
+use `.scope ... prg="..."`) to write Commodore PRG files with a two-byte load-address
+header.
 
 ```
-am65 -i <infile> [-o <outfile>] [-a <addr>] [-s <symfile|->]
+am65 -i <infile> [-o <outfile>] [--prg] [-a <addr>] [-s <symfile|->]
      [-C <6502|65c02|rockwell|wdc>] [-D name[=value]]...
      [-I <dir>]... [--auto-adjust-segments] [-v] [-h]
 ```
@@ -1461,7 +1466,8 @@ am65 -i <infile> [-o <outfile>] [-a <addr>] [-s <symfile|->]
 |--------|--------|
 | `-i <infile>` | Assembly source to assemble (required) |
 | `-o <outfile>` | Binary output for the default (unnamed) target |
-| `-a <addr>` | Origin/load address of the default target (default `$0000`; accepts `$hex`, `0xhex`, or decimal). Not needed if the source sets its own origin with `* =` / `.org` |
+| `--prg` | Write `-o` as a Commodore PRG: 2-byte LE load address = lowest address emitted, then the payload. Named scopes use `file=` (raw) or `prg=` (PRG) instead |
+| `-a <addr>` | Assembly origin of the default target (default `$0000`; accepts `$hex`, `0xhex`, or decimal). Not needed if the source sets its own origin with `* =` / `.org` / `.segdef` |
 | `-s <symfile\|->` | Write a symbol + segment listing; `-` sends it to stdout |
 | `-C`, `--cpu <name>` | Select the initial CPU profile (default `6502`) |
 | `-D name[=value]` | Predefine a text define (value defaults to `1`); repeatable |
@@ -1470,16 +1476,18 @@ am65 -i <infile> [-o <outfile>] [-a <addr>] [-s <symfile|->]
 | `-v` | Verbose: hex-dump each target's emitted bytes |
 | `-h` | Show usage |
 
-Each output file contains exactly the range of addresses the source emitted into.
-Named `.scope file="..."` targets are written to their own files. Relative `file=`
-and `-o` paths are relative to the current working directory; absolute paths are
-unchanged. (In the emulator Assembler tab, relative `file=` still resolves beside
-the assembled source -- see above.) `dest=` is accepted but ignored. `AM65` is
-predefined to `1`; no emulator machine symbol is predefined.
+Each output file contains exactly the range of addresses the source emitted into
+(plus a 2-byte PRG header when `--prg` / `prg=` is used). Named `.scope file="..."` /
+`prg="..."` targets are written to their own files. Relative `file=` / `prg=` and `-o`
+paths are relative to the current working directory; absolute paths are unchanged.
+(In the emulator Assembler tab, relative `file=` / `prg=` still resolve beside the
+assembled source -- see above.) `dest=` is accepted but ignored. `AM65` is predefined
+to `1`; no emulator machine symbol is predefined.
 
 ```
 am65 -i alt/root.asm -I shared -o out.bin
 am65 -i demo.asm -o loader.bin -a $0800 -D VERSION=3 -s symbols.txt
+am65 -i demo.asm -o loader.prg --prg
 ```
 
 Sample sources live in `samples/apple2/`.

@@ -21,6 +21,7 @@
 typedef struct FILE_TARGET {
     char *file_name;   // output path (NULL => not written, e.g. dest-only scope)
     struct FILE_TARGET *sink; // destination-only scopes emit into their parent target
+    assembler_output_format format; // RAW image, or Commodore PRG (LE load addr + image)
     int wrote_any;     // set once a byte lands in this target
     uint32_t lo;       // lowest address written (valid when wrote_any)
     uint32_t hi;       // one past highest address written (valid when wrote_any)
@@ -39,7 +40,8 @@ static char *dup_str(const char *s, int len) {
     return out;
 }
 
-static FILE_TARGET *file_target_new(const char *file, int file_len, FILE_TARGET *sink) {
+static FILE_TARGET *file_target_new(const char *file, int file_len, FILE_TARGET *sink,
+                                    assembler_output_format format) {
     FILE_TARGET *ft = calloc(1, sizeof(*ft));
     if(!ft) {
         return NULL;
@@ -51,6 +53,7 @@ static FILE_TARGET *file_target_new(const char *file, int file_len, FILE_TARGET 
             return NULL;
         }
     }
+    ft->format = format;
     ft->sink = sink ? sink : ft;
     return ft;
 }
@@ -87,8 +90,9 @@ static void cli_output_byte(void *target, uint16_t addr, uint8_t val) {
 }
 
 static void *cli_target_open(void *user, const char *name, int name_len,
-                             const char *file, int file_len,
-                             const char *dest, int dest_len) {
+                             const char *path, int path_len,
+                             const char *dest, int dest_len,
+                             assembler_output_format format) {
     ASSEMBLER *as = (ASSEMBLER *)user;
     FILE_TARGET *parent = as && as->active_target ?
         (FILE_TARGET *)as->active_target->ctx : NULL;
@@ -96,10 +100,10 @@ static void *cli_target_open(void *user, const char *name, int name_len,
     (void)name_len;
     (void)dest;
     (void)dest_len;
-    // The standalone assembler interprets file= and deliberately ignores
+    // The standalone assembler interprets file=/prg= and deliberately ignores
     // dest=. A destination-only scope therefore inherits its parent's output
     // image rather than silently discarding its bytes.
-    return file_target_new(file, file_len, file_len > 0 ? NULL : parent);
+    return file_target_new(path, path_len, path_len > 0 ? NULL : parent, format);
 }
 
 static void cli_target_release(void *user, void *target) {
@@ -111,6 +115,7 @@ static void cli_target_release(void *user, void *target) {
 // Write a target's emitted bytes to its file, as a contiguous image spanning the
 // actual range of addresses the source emitted into (lowest..highest). Interior
 // gaps are written as they stand in the flat 64K image (zero unless emitted).
+// ASM_OUTPUT_PRG prefixes the image with the Commodore LE load address (ft->lo).
 static int write_target_file(TARGET *target, int verbose) {
     FILE_TARGET *ft = (FILE_TARGET *)target->ctx;
     if(!ft || !ft->file_name) {
@@ -129,15 +134,36 @@ static int write_target_file(TARGET *target, int verbose) {
         return 0;
     }
     size_t length = (size_t)(ft->hi - ft->lo);
-    size_t written = fwrite(&ft->ram[ft->lo], 1, length, fp);
+    size_t written = 0;
+    size_t header_bytes = 0;
+    if(ft->format == ASM_OUTPUT_PRG) {
+        uint8_t header[2] = {
+            (uint8_t)(ft->lo & 0xFFu),
+            (uint8_t)((ft->lo >> 8) & 0xFFu),
+        };
+        written = fwrite(header, 1, sizeof(header), fp);
+        header_bytes = sizeof(header);
+        if(written != header_bytes) {
+            fclose(fp);
+            fprintf(stderr, "Short write to %s (%zu of %zu header bytes)\n",
+                    ft->file_name, written, header_bytes);
+            return 0;
+        }
+    }
+    written = fwrite(&ft->ram[ft->lo], 1, length, fp);
     fclose(fp);
     if(written != length) {
         fprintf(stderr, "Short write to %s (%zu of %zu bytes)\n", ft->file_name, written, length);
         return 0;
     }
     if(verbose) {
-        fprintf(stderr, "Wrote %s: $%04X-$%04X (%zu bytes)\n",
-                ft->file_name, ft->lo, ft->hi, length);
+        if(header_bytes) {
+            fprintf(stderr, "Wrote %s: PRG $%04X + $%04X-$%04X (%zu+2 bytes)\n",
+                    ft->file_name, ft->lo, ft->lo, ft->hi, length);
+        } else {
+            fprintf(stderr, "Wrote %s: $%04X-$%04X (%zu bytes)\n",
+                    ft->file_name, ft->lo, ft->hi, length);
+        }
     }
     return 1;
 }
@@ -293,14 +319,18 @@ static void usage(const char *program) {
         }
     }
     fprintf(stderr,
-        "Usage: %s -i <infile> [-o <outfile>] [-a <addr>] [-s <symfile|->]\n"
+        "Usage: %s -i <infile> [-o <outfile>] [--prg] [-a <addr>] [-s <symfile|->]\n"
         "               [-C <6502|65c02|rockwell|wdc>] [-D name[=value]]...\n"
         "               [-I <dir>]... [--auto-adjust-segments] [-v] [-h]\n"
         "\n"
         "  -i <infile>        assembly source to assemble (required)\n"
         "  -o <outfile>       binary output for the default (unnamed) target\n"
-        "  -a <addr>          origin/load address of the default target (default $0000;\n"
-        "                     accepts $hex, 0xhex or decimal)\n"
+        "  --prg              write -o as a Commodore PRG (2-byte LE load address =\n"
+        "                     lowest address emitted, then the payload). Named scopes\n"
+        "                     use file=\"...\" (raw) or prg=\"...\" (PRG) instead\n"
+        "  -a <addr>          assembly origin of the default target (default $0000;\n"
+        "                     accepts $hex, 0xhex or decimal). Not needed if the source\n"
+        "                     sets its own origin with * = / .org / .segdef\n"
         "  -s <symfile|->     write a symbol + segment listing ('-' = stdout)\n"
         "  -C, --cpu <name>   initial CPU profile (default 6502); source may switch\n"
         "                     profiles with .6502, .65c02, .rockwell, or .wdc\n"
@@ -312,10 +342,10 @@ static void usage(const char *program) {
         "  -v                 verbose: hex-dump each target's output\n"
         "  -h                 show this help\n"
         "\n"
-        "A named `.scope name file=\"path\"` inside the source assembles into its own\n"
-        "output file, so one source can produce several binaries (loader, overlays...).\n"
-        "The standalone tool accepts but ignores dest=; a dest=-only scope continues\n"
-        "emitting into its parent output target.\n"
+        "A named `.scope name file=\"path\"` or `.scope name prg=\"path\"` inside the\n"
+        "source assembles into its own output file (raw vs Commodore PRG). file= and\n"
+        "prg= are mutually exclusive. The standalone tool accepts but ignores dest=;\n"
+        "a dest=-only scope continues emitting into its parent output target.\n"
         "The define AM65 is predefined to 1 so source can detect the CLI build with\n"
         "`.if AM65`. No emulator machine symbol is predefined.\n",
         base);
@@ -395,6 +425,7 @@ int main(int argc, char **argv) {
         cpu_text = arg_value(argc, argv, "--cpu");
     }
     int verbose = arg_flag(argc, argv, "-v");
+    int write_prg = arg_flag(argc, argv, "--prg");
     int auto_adjust_segments =
         arg_flag(argc, argv, "-A") ||
         arg_flag(argc, argv, "--auto-adjust-segments");
@@ -428,6 +459,7 @@ int main(int argc, char **argv) {
             return 1;
         }
     }
+    default_target->format = write_prg ? ASM_OUTPUT_PRG : ASM_OUTPUT_RAW;
     default_target->sink = default_target;
 
     ERRORLOG log;

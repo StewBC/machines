@@ -24,22 +24,33 @@
 
 #define ASM_MAX_LINE 1024
 
+// Host-file write format for a named `.scope` redirect (and, on the CLI, for -o).
+// RAW is a contiguous image of emitted bytes. PRG prefixes that image with the
+// Commodore little-endian load address (lowest address emitted for the target).
+typedef enum {
+    ASM_OUTPUT_RAW = 0,
+    ASM_OUTPUT_PRG = 1,
+} assembler_output_format;
+
 // Emit one assembled byte. `target` is the per-target context: for the default
-// (unnamed) output it is CB_ASM_CTX.default_target; for a named `.scope file="..."`
-// redirect it is whatever target_open returned.
+// (unnamed) output it is CB_ASM_CTX.default_target; for a named `.scope file=` /
+// `prg=` redirect it is whatever target_open returned.
 typedef void (*asm_output_byte_fn)(void *target, uint16_t addr, uint8_t val);
 
-// Open an output redirect for a named `.scope name file="..." dest="..."`.
-// Returns an opaque per-target context (passed back to output_byte / target_release),
-// or NULL to signal the redirect could not be honoured. May be NULL in the callback
-// struct, in which case `.scope` with file=/dest= is rejected with an error.
-// Hosts decide how file= and dest= compose (CLI: file= only; a2m emulator: each
+// Open an output redirect for a named `.scope name file|prg="..." dest="..."`.
+// `path` comes from file= (RAW) or prg= (PRG); those attributes are mutually
+// exclusive in the source. `dest=` stays orthogonal. Returns an opaque per-target
+// context (passed back to output_byte / target_release), or NULL to signal the
+// redirect could not be honoured. May be NULL in the callback struct, in which
+// case `.scope` with file=/prg=/dest= is rejected with an error.
+// Hosts decide how path and dest compose (CLI: path only; a2m emulator: each
 // independently selects a file write and/or a memory bank).
 typedef void *(*asm_target_open_fn)(
     void *user,
     const char *name, int name_len,
-    const char *file, int file_len,
-    const char *dest, int dest_len);
+    const char *path, int path_len,
+    const char *dest, int dest_len,
+    assembler_output_format format);
 
 // Release a context previously returned by target_open. May be NULL.
 typedef void (*asm_target_release_fn)(void *user, void *target);
@@ -48,7 +59,7 @@ typedef struct {
     void *user;                            // host context, passed to target_open/target_release
     void *default_target;                  // per-target context for the initial unnamed target
     asm_output_byte_fn output_byte;        // required
-    asm_target_open_fn target_open;        // optional (NULL => .scope file=/dest= unsupported)
+    asm_target_open_fn target_open;        // optional (NULL => .scope file=/prg=/dest= unsupported)
     asm_target_release_fn target_release;  // optional
     // Optional, case-insensitive destination vocabulary. When non-empty, every
     // comma-separated name in dest="..." must occur here before target_open is

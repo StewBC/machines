@@ -14,6 +14,7 @@
 typedef struct {
     char name[64];
     char file[64];
+    assembler_output_format format;
     uint8_t ram[65536];
     int wrote_any;
     uint32_t lo;
@@ -49,8 +50,9 @@ static void host_output_byte(void *target, uint16_t addr, uint8_t val) {
 }
 
 static void *host_target_open(void *user, const char *name, int name_len,
-                              const char *file, int file_len,
-                              const char *dest, int dest_len) {
+                              const char *path, int path_len,
+                              const char *dest, int dest_len,
+                              assembler_output_format format) {
     target_host *host = (target_host *)user;
     (void)dest;
     (void)dest_len;
@@ -61,9 +63,10 @@ static void *host_target_open(void *user, const char *name, int name_len,
     if(name_len > 0 && name_len < (int)sizeof(img->name)) {
         memcpy(img->name, name, (size_t)name_len);
     }
-    if(file && file_len > 0 && file_len < (int)sizeof(img->file)) {
-        memcpy(img->file, file, (size_t)file_len);
+    if(path && path_len > 0 && path_len < (int)sizeof(img->file)) {
+        memcpy(img->file, path, (size_t)path_len);
     }
+    img->format = format;
     if(host->opened_count < 8) {
         host->opened[host->opened_count++] = img;
     }
@@ -193,6 +196,75 @@ static int test_named_scope_to_file(void) {
     return failures;
 }
 
+// prg= opens a separate target with ASM_OUTPUT_PRG (host writes the header).
+static int test_named_scope_to_prg(void) {
+    target_host host;
+    target_image def;
+    ERRORLOG log;
+    int failures = 0;
+
+    memset(&host, 0, sizeof(host));
+    memset(&def, 0, sizeof(def));
+    host.def = &def;
+
+    const char *source =
+        "* = $0801\n"
+        "    .byte $aa\n"
+        ".scope game prg=\"game.prg\"\n"
+        "    * = $c000\n"
+        "    .byte $01, $02, $03\n"
+        ".endscope\n";
+
+    errlog_init(&log);
+    if(assemble(source, &host, &log, 1, NULL, NULL) != ASM_OK) {
+        fprintf(stderr, "named-scope prg= assembly failed with %zu errors\n", log.log_array.items);
+        failures++;
+    }
+
+    target_image *game = host_find(&host, "game.prg");
+    if(!game) {
+        fprintf(stderr, "game.prg target was not opened\n");
+        failures++;
+    } else if(game->format != ASM_OUTPUT_PRG) {
+        fprintf(stderr, "game.prg expected ASM_OUTPUT_PRG, got %d\n", (int)game->format);
+        failures++;
+    } else if(!game->wrote_any || game->lo != 0xC000 ||
+              game->ram[0xC000] != 0x01 || game->ram[0xC001] != 0x02 ||
+              game->ram[0xC002] != 0x03) {
+        fprintf(stderr, "game.prg payload mismatch (lo=$%04X)\n", game->lo);
+        failures++;
+    }
+
+    errlog_shutdown(&log);
+    return failures;
+}
+
+// file= and prg= on the same scope must be rejected.
+static int test_scope_file_prg_exclusive(void) {
+    target_host host;
+    target_image def;
+    ERRORLOG log;
+    int failures = 0;
+
+    memset(&host, 0, sizeof(host));
+    memset(&def, 0, sizeof(def));
+    host.def = &def;
+
+    const char *source =
+        ".scope game file=\"a.bin\" prg=\"a.prg\"\n"
+        "    .byte $01\n"
+        ".endscope\n";
+
+    errlog_init(&log);
+    if(assemble(source, &host, &log, 1, NULL, NULL) != ASM_ERR ||
+       log.log_array.items == 0 || host.opened_count != 0) {
+        fprintf(stderr, "file= + prg= was not rejected\n");
+        failures++;
+    }
+    errlog_shutdown(&log);
+    return failures;
+}
+
 // A host without target_open must reject .scope file= rather than mis-route bytes.
 static int test_scope_file_unsupported(void) {
     target_host host;
@@ -317,6 +389,8 @@ int main(void) {
     int failures = 0;
 
     failures += test_named_scope_to_file();
+    failures += test_named_scope_to_prg();
+    failures += test_scope_file_prg_exclusive();
     failures += test_scope_file_unsupported();
     failures += test_destination_vocabulary();
     failures += test_predefine_detection();

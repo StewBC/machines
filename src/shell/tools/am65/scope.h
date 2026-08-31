@@ -23,7 +23,7 @@ typedef struct SCOPE {
     char *scope_name;
     struct SCOPE *parent_scope;
     AM65_DYNARRAY *symbol_table;
-    TARGET *output_target;   // redirect target for a named .scope file=/dest= (persists across passes)
+    TARGET *output_target;   // redirect target for a named .scope file=/prg=/dest= (persists across passes)
 } SCOPE;
 
 #define ASM_SCOPE_TYPEDEF

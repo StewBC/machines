@@ -22,13 +22,15 @@ typedef struct assembler_output_stats {
     bool has_output;
 } assembler_output_stats;
 
-/* Per-target host context. dest= selects a memory bank; file= buffers bytes and
-   writes them beside the source after a successful assemble. Both may be set. */
+/* Per-target host context. dest= selects a memory bank; file=/prg= buffers bytes
+   and writes them beside the source after a successful assemble. Both may be set.
+   prg= uses ASM_OUTPUT_PRG (Commodore LE load-address header). */
 typedef struct assembler_output_target {
     apple2_t *machine;
     view_flags_t view;
     bool write_memory;
     bool write_file;
+    assembler_output_format file_format;
     char *file_path;
     uint8_t *ram;
     int wrote_file_any;
@@ -232,14 +234,15 @@ static void *runtime_assembler_target_open(
     void *user,
     const char *name,
     int name_len,
-    const char *file,
-    int file_len,
+    const char *path,
+    int path_len,
     const char *dest,
-    int dest_len) {
+    int dest_len,
+    assembler_output_format format) {
     assembler_host_ctx *host = (assembler_host_ctx *)user;
     assembler_output_target *target;
     bool write_memory = dest != NULL && dest_len > 0;
-    bool write_file = file != NULL && file_len > 0;
+    bool write_file = path != NULL && path_len > 0;
     view_flags_t view = 0;
     char resolved[RUNTIME_ASSEMBLER_PATH_MAX];
 
@@ -255,7 +258,7 @@ static void *runtime_assembler_target_open(
     }
     if (write_file &&
         !runtime_assembler_resolve_output_path(
-            host->source_path, file, file_len, resolved, sizeof(resolved))) {
+            host->source_path, path, path_len, resolved, sizeof(resolved))) {
         return NULL;
     }
 
@@ -267,6 +270,7 @@ static void *runtime_assembler_target_open(
     target->view = view;
     target->write_memory = write_memory;
     target->write_file = write_file;
+    target->file_format = write_file ? format : ASM_OUTPUT_RAW;
     target->stats = host->stats;
 
     if (write_file) {
@@ -359,6 +363,24 @@ static bool runtime_assembler_flush_file_target(
         return false;
     }
     length = (size_t)(target->file_hi - target->file_lo);
+    if (target->file_format == ASM_OUTPUT_PRG) {
+        uint8_t header[2] = {
+            (uint8_t)(target->file_lo & 0xFFu),
+            (uint8_t)((target->file_lo >> 8) & 0xFFu),
+        };
+        written = fwrite(header, 1, sizeof(header), fp);
+        if (written != sizeof(header)) {
+            fclose(fp);
+            if (error != NULL && error_size > 0) {
+                snprintf(
+                    error,
+                    error_size,
+                    "short write to assembler output file %s",
+                    target->file_path);
+            }
+            return false;
+        }
+    }
     written = fwrite(&target->ram[target->file_lo], 1, length, fp);
     fclose(fp);
     if (written != length) {

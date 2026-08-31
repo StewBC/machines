@@ -57,21 +57,33 @@ main:
 .word game::main
 ```
 
-A named scope becomes a separate output target when it has `file=` or `dest=`:
+A named scope becomes a separate output target when it has `file=`, `prg=`, or
+`dest=`:
 
 ```asm
 .scope game file="game.bin" dest="map"
     .org $6000
     ; ...
 .endscope
+
+.scope overlay prg="overlay.prg"
+    .org $C000
+    ; ...
+.endscope
 ```
 
-The assembler core passes both attributes to its host. Standalone `am65` uses
-`file=` to create a binary and accepts but ignores `dest=`. Emulator hosts
-advertise and validate their own destination names. In a2m the attributes are
-orthogonal: `dest=` writes machine memory, `file=` writes a host file beside the
-source, and both together do both. A `file=`-only scope does not poke memory.
-This keeps machine banking out of the shared assembler.
+`file=` and `prg=` are mutually exclusive host-file paths. `file=` writes a raw
+contiguous image; `prg=` writes a Commodore PRG (little-endian load address =
+lowest address emitted for that target, then the payload). Standalone `am65`
+honours both and accepts but ignores `dest=`. Pass `--prg` to apply the same PRG
+header to the default `-o` output.
+
+Emulator hosts advertise and validate their own destination names. In a2m the
+attributes are orthogonal: `dest=` writes machine memory, `file=`/`prg=` write a
+host file beside the source (raw vs PRG), and both together do both. A
+file-only / prg-only scope does not poke memory. c64m ignores host-file
+redirects and keeps writing RAM. This keeps machine banking out of the shared
+assembler.
 
 Standalone `am65` predefines `AM65=1` and no machine symbol. Emulator hosts
 predefine `AM65=0` plus their machine symbol, currently `APPLE2=1` in a2m and
