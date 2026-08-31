@@ -1,4 +1,5 @@
 #include "c64_snapshot.h"
+#include "c64_hostfs.h"
 #include "c64_rom.h"
 
 #include <stdbool.h>
@@ -6,6 +7,14 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
+
+#if defined(_WIN32)
+#include <direct.h>
+#include <windows.h>
+#else
+#include <unistd.h>
+#endif
 
 #ifndef C64M_SOURCE_DIR
 #define C64M_SOURCE_DIR "."
@@ -1176,6 +1185,117 @@ static void test_load_clears_host_micro_state(void) {
     c64_unmount_all_drives(&target);
 }
 
+static void test_hostfs_path_cwd_round_trip(void) {
+    c64_t source;
+    c64_t target;
+    uint8_t *snapshot;
+    size_t snapshot_size;
+    char dir[160];
+    char sub[180];
+    char path[200];
+    FILE *fp;
+    const char *cwd;
+    const char *root;
+
+#if defined(_WIN32)
+    snprintf(dir, sizeof(dir), "c64m_snap_hostfs_%u", (unsigned)GetTickCount());
+    expect_true("mkdir root", _mkdir(dir) == 0);
+#else
+    snprintf(dir, sizeof(dir), "/tmp/c64m_snap_hostfs_XXXXXX");
+    expect_true("mkdtemp", mkdtemp(dir) != NULL);
+#endif
+    snprintf(sub, sizeof(sub), "%s/sub", dir);
+#if defined(_WIN32)
+    expect_true("mkdir sub", _mkdir(sub) == 0);
+#else
+    expect_true("mkdir sub", mkdir(sub, 0755) == 0);
+#endif
+    snprintf(path, sizeof(path), "%s/hello.prg", sub);
+    fp = fopen(path, "wb");
+    expect_true("write prg", fp != NULL);
+    {
+        uint8_t bytes[] = {0x00, 0xc0, 0x60};
+        expect_true("prg bytes", fwrite(bytes, 1, sizeof(bytes), fp) == sizeof(bytes));
+    }
+    fclose(fp);
+
+    init_ready_machine(&source);
+    init_ready_machine(&target);
+    expect_true(
+        "mount hostfs",
+        c64_mount_hostfs(&source, 9, dir, true) == C64_DRIVE_STATUS_OK);
+    expect_true("set cwd sub", c64_hostfs_set_cwd(source.drives[1].hostfs, sub));
+    (void)c64_hostfs_apply_catalog_to_slot(source.drives[1].hostfs, &source.drives[1]);
+    c64_hostfs_set_writable(source.drives[1].hostfs, false);
+    source.drives[1].writable = false;
+
+    snapshot = save_snapshot(&source, &snapshot_size);
+    expect_true(
+        "version 14",
+        read_le32(snapshot + 4) == C64_SNAPSHOT_VERSION);
+
+    /* Different mount on target first — load must replace with snapshotted HostFS. */
+    expect_true(
+        "target other mount",
+        c64_mount_hostfs(&target, 9, dir, true) == C64_DRIVE_STATUS_OK);
+    expect_true("load hostfs snap", c64_snapshot_load(&target, snapshot, snapshot_size));
+
+    expect_true("target hostfs mounted", target.drives[1].mounted);
+    expect_true(
+        "target backend hostfs",
+        target.drives[1].backend == C64_DRIVE_BACKEND_HOSTFS);
+    expect_true("target hostfs handle", target.drives[1].hostfs != NULL);
+    expect_false("writable restored", target.drives[1].writable);
+    root = c64_hostfs_root_path(target.drives[1].hostfs);
+    cwd = c64_hostfs_cwd_path(target.drives[1].hostfs);
+    expect_true("root restored", root != NULL && strcmp(root, dir) == 0);
+    expect_true("cwd restored", cwd != NULL && strcmp(cwd, sub) == 0);
+    expect_true("catalog has entry", target.drives[1].entry_count >= 1);
+
+    /* Missing path → powered-empty, not a failed load. */
+    {
+        char gone[180];
+        uint8_t *snap2;
+        size_t snap2_size;
+        snprintf(gone, sizeof(gone), "%s-gone", dir);
+#if defined(_WIN32)
+        expect_true("rename gone", rename(dir, gone) == 0);
+#else
+        expect_true("rename gone", rename(dir, gone) == 0);
+#endif
+        snap2 = save_snapshot(&source, &snap2_size);
+        /* source still has live hostfs on old path name — remount from snap after rename */
+        c64_unmount_all_drives(&source);
+        expect_true(
+            "load missing path",
+            c64_snapshot_load(&target, snap2, snap2_size));
+        expect_true("powered after missing", target.drives[1].powered);
+        expect_false("unmounted missing path", target.drives[1].mounted);
+        expect_true(
+            "backend none",
+            target.drives[1].backend == C64_DRIVE_BACKEND_NONE);
+        free(snap2);
+#if defined(_WIN32)
+        (void)rename(gone, dir);
+#else
+        (void)rename(gone, dir);
+#endif
+    }
+
+    free(snapshot);
+    c64_unmount_all_drives(&source);
+    c64_unmount_all_drives(&target);
+    remove(path);
+#if defined(_WIN32)
+    _rmdir(sub);
+    _rmdir(dir);
+#else
+    rmdir(sub);
+    rmdir(dir);
+#endif
+    printf("PASS: test_hostfs_path_cwd_round_trip\n");
+}
+
 int main(void) {
     test_round_trip();
     test_ignores_unknown_chunk();
@@ -1189,5 +1309,6 @@ int main(void) {
     test_synthetic_deferred_resets_drives();
     test_cia2_nmi_line_stable_across_load();
     test_load_clears_host_micro_state();
+    test_hostfs_path_cwd_round_trip();
     return 0;
 }

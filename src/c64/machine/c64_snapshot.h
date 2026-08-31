@@ -9,7 +9,8 @@
 #define C64_SNAPSHOT_MAGIC 0x63363453u
 /* v13: CART includes hardware type, multi-bank ROML storage, Magic Desk latch.
    Pre-v13 files are sunset (v12 had single ROML/ROMH only). */
-#define C64_SNAPSHOT_VERSION 13u
+#define C64_SNAPSHOT_VERSION 14u
+/* v13: drive chunk without HostFS path meta. v14: backend/writable + HostFS paths. */
 #define C64_SNAPSHOT_VERSION_MIN 13u
 
 typedef enum c64_snapshot_content_mode {

@@ -27,7 +27,9 @@ in `c64.c`, `c1541.c`, `c1541_media.c`, `c64_hostfs.c`, runtime disk code.
   `00 OK`, `26 WRITE PROTECT`, `30 SYNTAX ERROR`, `62 FILE NOT FOUND`,
   `63 FILE EXISTS`, `74 DRIVE NOT READY`. Regression:
   `test_hostfs_cd_into_d64` / `test_hostfs_scratch_and_seq` in
-  `tests/c64/machine/test_c64_hostfs_mount.c`.
+  `tests/c64/machine/test_c64_hostfs_mount.c`. Snapshots (v14+) persist HostFS
+  root + cwd + writable (+ nested `.d64` path); load remounts if the host path
+  still exists, else powered-empty. Do not embed the host tree.
 - Devices 8 and 9 have independent ordered disk queues. Images are
   read-only by default. Writable KERNAL SAVE updates the in-memory image;
   runtime flushes to the host path. Failed flushes leave the image dirty.
@@ -125,8 +127,8 @@ no empty-slot grow / format rebuild.
 - While PC is in drive RAM and no job is queued, VIA2 T1 is acked so
   custom code is not stolen by `$F2B0` (Robocop). Intentional, not
   hardware-accurate.
-- Full drive-object save-state is snapshot v13 `DR8C`/`DR9C` for **powered**
-  units only.
+- Full drive-object save-state is snapshot v14 `DRV*` + `DR8C`/`DR9C` for
+  **powered** units only (`DR8C`/`DR9C` since v13). HostFS path meta is v14.
 
 When a real-1541 load fails, inspect `get-drive-cpu`, ROM-loaded and media
 state, and whether the KERNAL trap ran. Do not infer success from a host

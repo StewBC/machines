@@ -751,6 +751,7 @@ HostFS volume. The volume is trap-fast (not a 1541 on the IEC bus). Advertise as
 | `$` identity | Host folder title = mangled **mount-root** basename; ID `00`; DOS `2A`; `65535 BLOCKS FREE.` Nested D64 uses BAM title/id/DOS/free. |
 | Status | `OPEN 1,N,15` then `CHKIN`/`CHRIN`: `00, OK,00,00` or DOS error text (`26`/`30`/`62`/`63`/`74`) |
 | Coexistence | HostFS traps even with `emulate_1541=1`; sibling unit may run a real 1541 IMAGE |
+| Snapshots | `.c64state` stores HostFS root + cwd + writable (and nested `.d64` path if entered). Load remounts when the host path still exists; otherwise the unit stays powered-empty. The host tree is not embedded. |
 
 **CBM FileBrowser 1.6** / `fb64` navigates with the `CD` + `LOAD "$"` path above (no SEQ
 required for that oracle), including entering `.d64` images listed as directories.

@@ -40,6 +40,12 @@ bool c64_hostfs_writable(const c64_hostfs_volume *vol);
 void c64_hostfs_set_writable(c64_hostfs_volume *vol, bool writable);
 /* True while CD has entered a .d64 sub-volume (still backend=HOSTFS). */
 bool c64_hostfs_in_d64(const c64_hostfs_volume *vol);
+/* Absolute host path of the nested .d64, or NULL if not in a D64 overlay. */
+const char *c64_hostfs_d64_path(const c64_hostfs_volume *vol);
+/* Snapshot restore: set cwd to an absolute path under the mount root. */
+bool c64_hostfs_set_cwd(c64_hostfs_volume *vol, const char *cwd_path);
+/* Snapshot restore: re-enter a .d64 listed under the current host cwd. */
+bool c64_hostfs_reenter_d64(c64_hostfs_volume *vol, const char *d64_host_path);
 
 /* DOS status channel string, e.g. "00, OK,00,00\r". */
 const char *c64_hostfs_status(const c64_hostfs_volume *vol);

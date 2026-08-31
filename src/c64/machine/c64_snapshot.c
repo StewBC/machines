@@ -1,5 +1,7 @@
 #include "c64_snapshot.h"
 
+#include "c64_hostfs.h"
+
 #include <assert.h>
 #include <stdlib.h>
 #include <string.h>
@@ -565,9 +567,26 @@ static void write_cart(snapshot_writer *w, const c64_t *m) {
     end_chunk(w, chunk);
 }
 
+static void w_path(snapshot_writer *w, const char *path)
+{
+    size_t n = 0;
+
+    if (path != NULL) {
+        n = strlen(path);
+        if (n >= (size_t)C64_HOSTFS_PATH_MAX) {
+            n = (size_t)C64_HOSTFS_PATH_MAX - 1u;
+        }
+    }
+    w_size(w, n);
+    if (n > 0u) {
+        w_bytes(w, path, n);
+    }
+}
+
 static void write_drive(snapshot_writer *w, uint32_t tag, const c64_drive_slot *slot) {
     size_t i;
     size_t chunk;
+    bool hostfs = slot->backend == C64_DRIVE_BACKEND_HOSTFS;
 
     begin_chunk(w, tag, &chunk);
     /* Powered first: an off unit is a one-byte stub. Power-off ejects media, so
@@ -586,20 +605,39 @@ static void write_drive(snapshot_writer *w, uint32_t tag, const c64_drive_slot *
     w_bytes(w, slot->disk_id, sizeof(slot->disk_id));
     w_bytes(w, slot->dos_type, sizeof(slot->dos_type));
     w_u16(w, slot->free_blocks);
-    w_size(w, slot->image_size);
-    if (slot->image_size > 0 && slot->image_bytes != NULL) {
-        w_bytes(w, slot->image_bytes, slot->image_size);
+    /* HostFS: do not embed host tree or catalog; path meta follows (v14). */
+    if (hostfs) {
+        w_size(w, 0);
+        w_size(w, 0);
+    } else {
+        w_size(w, slot->image_size);
+        if (slot->image_size > 0 && slot->image_bytes != NULL) {
+            w_bytes(w, slot->image_bytes, slot->image_size);
+        }
+        w_size(w, slot->entry_count);
+        for (i = 0; i < slot->entry_count; ++i) {
+            const c64_drive_directory_entry *e = &slot->entries[i];
+            w_u8(w, e->raw_type);
+            w_u32(w, (uint32_t)e->type);
+            w_u8(w, e->first_track);
+            w_u8(w, e->first_sector);
+            w_bytes(w, e->filename, sizeof(e->filename));
+            w_size(w, e->filename_length);
+            w_u16(w, e->block_count);
+        }
     }
-    w_size(w, slot->entry_count);
-    for (i = 0; i < slot->entry_count; ++i) {
-        const c64_drive_directory_entry *e = &slot->entries[i];
-        w_u8(w, e->raw_type);
-        w_u32(w, (uint32_t)e->type);
-        w_u8(w, e->first_track);
-        w_u8(w, e->first_sector);
-        w_bytes(w, e->filename, sizeof(e->filename));
-        w_size(w, e->filename_length);
-        w_u16(w, e->block_count);
+    /* v14: backend + writable + HostFS root/cwd/nested-d64 paths. */
+    w_u32(w, (uint32_t)slot->backend);
+    w_bool(w, slot->writable);
+    if (hostfs && slot->mounted && slot->hostfs != NULL) {
+        const char *d64 = c64_hostfs_d64_path(slot->hostfs);
+        w_path(w, c64_hostfs_root_path(slot->hostfs));
+        w_path(w, c64_hostfs_cwd_path(slot->hostfs));
+        w_path(w, d64 != NULL ? d64 : "");
+    } else {
+        w_path(w, "");
+        w_path(w, "");
+        w_path(w, "");
     }
     end_chunk(w, chunk);
 }
@@ -1125,20 +1163,61 @@ static void read_cart(snapshot_reader *r, c64_t *m) {
 }
 
 static void clear_drive_slot(c64_drive_slot *slot) {
+    if (slot->hostfs != NULL) {
+        c64_hostfs_eject(slot->hostfs);
+        slot->hostfs = NULL;
+    }
     free(slot->image_bytes);
     free(slot->entries);
     memset(slot, 0, sizeof(*slot));
     slot->last_result = C64_DRIVE_STATUS_NOT_MOUNTED;
 }
 
-static void read_drive(snapshot_reader *r, c64_drive_slot *slot) {
+static void r_path(snapshot_reader *r, char *out, size_t out_size)
+{
+    size_t n;
+
+    if (out == NULL || out_size == 0) {
+        r->ok = false;
+        return;
+    }
+    out[0] = '\0';
+    n = r_size(r);
+    if (!r->ok) {
+        return;
+    }
+    if (n >= out_size || n >= (size_t)C64_HOSTFS_PATH_MAX) {
+        r->ok = false;
+        return;
+    }
+    if (n > 0u) {
+        r_bytes(r, out, n);
+    }
+    if (r->ok) {
+        out[n] = '\0';
+    }
+}
+
+static void read_drive(
+    snapshot_reader *r,
+    c64_t *machine,
+    uint8_t device,
+    uint32_t version)
+{
     size_t i;
     size_t image_size;
     size_t entry_count;
     uint8_t *image = NULL;
     c64_drive_directory_entry *entries = NULL;
     bool powered;
+    c64_drive_slot *slot;
+    int slot_index = (device == 8) ? 0 : (device == 9) ? 1 : -1;
 
+    if (machine == NULL || slot_index < 0) {
+        r->ok = false;
+        return;
+    }
+    slot = &machine->drives[slot_index];
     clear_drive_slot(slot);
     powered = r_bool(r);
     if (!r->ok) {
@@ -1201,6 +1280,77 @@ static void read_drive(snapshot_reader *r, c64_drive_slot *slot) {
         free(entries);
         return;
     }
+
+    if (version >= 14u) {
+        char root[C64_HOSTFS_PATH_MAX];
+        char cwd[C64_HOSTFS_PATH_MAX];
+        char d64_path[C64_HOSTFS_PATH_MAX];
+        c64_drive_backend backend =
+            (c64_drive_backend)r_u32(r);
+        bool writable = r_bool(r);
+
+        r_path(r, root, sizeof(root));
+        r_path(r, cwd, sizeof(cwd));
+        r_path(r, d64_path, sizeof(d64_path));
+        if (!r->ok) {
+            free(image);
+            free(entries);
+            return;
+        }
+
+        if (backend == C64_DRIVE_BACKEND_HOSTFS && slot->mounted) {
+            free(image);
+            free(entries);
+            image = NULL;
+            entries = NULL;
+            /* Remount from host paths; missing root → powered-empty. */
+            if (root[0] == '\0' ||
+                c64_mount_hostfs(machine, device, root, writable) !=
+                    C64_DRIVE_STATUS_OK) {
+                clear_drive_slot(slot);
+                slot->powered = true;
+                slot->last_result = C64_DRIVE_STATUS_NOT_MOUNTED;
+                return;
+            }
+            if (cwd[0] != '\0' &&
+                strcmp(cwd, c64_hostfs_cwd_path(slot->hostfs)) != 0) {
+                (void)c64_hostfs_set_cwd(slot->hostfs, cwd);
+                (void)c64_hostfs_apply_catalog_to_slot(slot->hostfs, slot);
+            }
+            if (d64_path[0] != '\0') {
+                (void)c64_hostfs_reenter_d64(slot->hostfs, d64_path);
+                (void)c64_hostfs_apply_catalog_to_slot(slot->hostfs, slot);
+            }
+            return;
+        }
+
+        slot->backend = backend;
+        slot->writable = writable;
+        if (backend == C64_DRIVE_BACKEND_NONE && !slot->mounted) {
+            free(image);
+            free(entries);
+            return;
+        }
+        if (backend == C64_DRIVE_BACKEND_IMAGE ||
+            (slot->mounted && slot->image_kind != C64_DRIVE_IMAGE_HOSTFS &&
+             slot->image_kind != C64_DRIVE_IMAGE_NONE)) {
+            slot->backend = C64_DRIVE_BACKEND_IMAGE;
+        }
+    } else {
+        /* v13: infer backend; HostFS without paths cannot remount. */
+        if (slot->image_kind == C64_DRIVE_IMAGE_HOSTFS) {
+            free(image);
+            free(entries);
+            clear_drive_slot(slot);
+            slot->powered = true;
+            slot->last_result = C64_DRIVE_STATUS_NOT_MOUNTED;
+            return;
+        }
+        if (slot->mounted) {
+            slot->backend = C64_DRIVE_BACKEND_IMAGE;
+        }
+    }
+
     slot->image_bytes = image;
     slot->image_size = image_size;
     slot->entries = entries;
@@ -1701,11 +1851,11 @@ static bool read_snapshot_into_temp(
             seen.cart = chunk.ok;
             break;
         case TAG_DRV8:
-            read_drive(&chunk, &temp->drives[0]);
+            read_drive(&chunk, temp, 8, version);
             seen.drv8 = chunk.ok;
             break;
         case TAG_DRV9:
-            read_drive(&chunk, &temp->drives[1]);
+            read_drive(&chunk, temp, 9, version);
             seen.drv9 = chunk.ok;
             break;
         case TAG_DR8C:

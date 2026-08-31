@@ -2,7 +2,7 @@
 
 | Field | Value |
 |-------|--------|
-| Status | **Active** (Phase 0–3 / PR1–PR8 landed; PR9 snapshot remain) |
+| Status | **Landed** (Phase 0–3 / PR1–PR9 complete) |
 | Author | design brief session |
 | Date | 2026-08-30 |
 | Audience | Senior engineers / agents expanding phases into implementation plans |
@@ -633,9 +633,10 @@ Incremental, independently reviewable PRs. **Ordering invariant:** PR1 owns Host
 - **Changes:** Stop ignoring `file=`/`prg=`; rescan when output under HostFS root
 - **Landed:** a2m-shaped per-target file buffer + flush; HostFS rescan/apply on path-under-root; tests `test_assemble_named_map_targets` / `test_assemble_hostfs_refresh`
 
-### PR9 — Snapshot HostFS path+cwd
+### PR9 — Snapshot HostFS path+cwd — **landed**
 
 - **Title:** `c64m: snapshot HostFS path+cwd`
 - **Files/components:** `c64_snapshot.c`, tests
 - **Depends on:** PR1–PR2; after PR5 if cwd persistence matters for CD
 - **Changes:** Persist mount path + cwd + writable; restore remount; sealed write-through already required in PR2 — this PR adds durable meta only
+- **Landed:** snapshot v14 drive trailer (`backend`/`writable` + HostFS root/cwd/nested-`.d64` paths); remount on load; missing path → powered-empty; `test_hostfs_path_cwd_round_trip`

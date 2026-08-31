@@ -60,6 +60,10 @@ struct c64_hostfs_volume {
 
 static unsigned char c64_hostfs_upper(unsigned char c);
 static void c64_hostfs_channel_clear(c64_hostfs_channel *ch);
+static bool c64_hostfs_path_under_root(
+    const c64_hostfs_volume *vol, const char *path);
+static bool c64_hostfs_cd_enter_d64(
+    c64_hostfs_volume *vol, const char *host_path);
 
 static void c64_hostfs_leave_d64(c64_hostfs_volume *vol)
 {
@@ -745,6 +749,43 @@ const char *c64_hostfs_root_path(const c64_hostfs_volume *vol)
 const char *c64_hostfs_cwd_path(const c64_hostfs_volume *vol)
 {
     return vol != NULL ? vol->cwd_path : NULL;
+}
+
+const char *c64_hostfs_d64_path(const c64_hostfs_volume *vol)
+{
+    if (vol == NULL || vol->d64 == NULL || vol->d64_host_path[0] == '\0') {
+        return NULL;
+    }
+    return vol->d64_host_path;
+}
+
+bool c64_hostfs_set_cwd(c64_hostfs_volume *vol, const char *cwd_path)
+{
+    if (vol == NULL || cwd_path == NULL || cwd_path[0] == '\0') {
+        return false;
+    }
+    if (!c64_hostfs_path_is_dir(cwd_path) ||
+        !c64_hostfs_path_under_root(vol, cwd_path)) {
+        return false;
+    }
+    c64_hostfs_leave_d64(vol);
+    snprintf(vol->cwd_path, sizeof(vol->cwd_path), "%s", cwd_path);
+    if (!c64_hostfs_rescan(vol)) {
+        return false;
+    }
+    c64_hostfs_set_status_ok(vol);
+    return true;
+}
+
+bool c64_hostfs_reenter_d64(c64_hostfs_volume *vol, const char *d64_host_path)
+{
+    if (vol == NULL || d64_host_path == NULL || d64_host_path[0] == '\0') {
+        return false;
+    }
+    if (!c64_hostfs_path_under_root(vol, d64_host_path)) {
+        return false;
+    }
+    return c64_hostfs_cd_enter_d64(vol, d64_host_path);
 }
 
 const char *c64_hostfs_display_name(const c64_hostfs_volume *vol)
