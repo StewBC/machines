@@ -5491,6 +5491,44 @@ static const uint8_t *frontend_memview_search_plane(
     return frontend_debug_memory_source(&debug->debug_memory, (runtime_memory_mode)source_id);
 }
 
+static void frontend_memview_fill_search_pane(frontend *ui, memview_pane_state *pane)
+{
+    int v;
+
+    memset(pane, 0, sizeof(*pane));
+    pane->search = ui->memory_search;
+    pane->view_count = ui->memory_view_count;
+    pane->active_index = ui->memory_active_view_index;
+    for (v = 0; v < ui->memory_view_count && v < MEMVIEW_PANE_VIEW_MAX; v++) {
+        const frontend_memory_view_state *src = &ui->memory_views[v];
+        memview_pane_view *dst = &pane->views[v];
+        dst->view_address = src->view_address;
+        dst->cursor_address = src->cursor_address;
+        dst->source_id = (uint32_t)src->mode;
+        dst->edit_field = (memview_pane_edit_field)src->edit_field;
+        dst->columns = src->columns;
+        dst->rows = src->rows;
+        dst->initialized = src->initialized;
+        dst->request_pending = src->request_pending;
+        dst->highbit_ascii = false;
+    }
+}
+
+static void frontend_memview_apply_search_pane(frontend *ui, const memview_pane_state *pane)
+{
+    int idx;
+
+    ui->memory_search = pane->search;
+    idx = pane->active_index;
+    if (idx < 0 || idx >= ui->memory_view_count || idx >= MEMVIEW_PANE_VIEW_MAX) {
+        return;
+    }
+    ui->memory_views[idx].cursor_address = pane->views[idx].cursor_address;
+    ui->memory_views[idx].view_address = pane->views[idx].view_address;
+    ui->memory_views[idx].request_pending = pane->views[idx].request_pending;
+}
+
+
 static float frontend_memview_char_width_ops(void *ctx)
 {
     return frontend_memory_char_width((frontend *)ctx);
@@ -9864,19 +9902,20 @@ void frontend_render(frontend *ui, bool ui_visible, const frontend_debug_state *
                 symbol_lookup_ops ops = frontend_symbol_lookup_ops(ui);
                 symbol_lookup_view_render(ui->ctx, &ui->symbol_lookup, &ops, width, height);
             }
-            {
+            if (ui->memory_search.open) {
                 memview_pane_state search_pane;
                 memview_pane_ops search_ops;
-                memset(&search_pane, 0, sizeof(search_pane));
-                search_pane.search = ui->memory_search;
+                ui->memview_debug = debug_state;
+                frontend_memview_fill_search_pane(ui, &search_pane);
                 memset(&search_ops, 0, sizeof(search_ops));
                 search_ops.ctx = ui;
                 search_ops.search_plane = frontend_memview_search_plane;
-                ui->memview_debug = debug_state;
-                memview_pane_draw_search(ui->ctx, width, height, &search_pane,
-                    debug_state != NULL && debug_state->runtime_state == FRONTEND_RUNTIME_STATE_RUNNING,
+                memview_pane_draw_search(
+                    ui->ctx, width, height, &search_pane,
+                    debug_state != NULL &&
+                        debug_state->runtime_state == FRONTEND_RUNTIME_STATE_RUNNING,
                     &search_ops);
-                ui->memory_search = search_pane.search;
+                frontend_memview_apply_search_pane(ui, &search_pane);
             }
             frontend_draw_file_browser(ui, width, height);
             if (inspect_style) {

@@ -125,18 +125,6 @@ typedef struct frontend_memory_view_state {
     bool apple_ascii;
 } frontend_memory_view_state;
 
-typedef struct frontend_memory_search_state {
-    bool open;
-    bool just_opened;
-    bool ignore_case;
-    bool has_pattern;
-    memory_search_mode mode;
-    char query[MEMORY_SEARCH_QUERY_MAX + 1];
-    memory_search_pattern pattern;
-    uint16_t last_found_address;
-    char status[96];
-} frontend_memory_search_state;
-
 typedef debugger_context_popup frontend_context_popup_state;
 
 enum {
@@ -404,7 +392,7 @@ struct frontend {
     bool input_focus_initialized;
     frontend_register_view_state registers;
     frontend_memory_view_state memory_views[MEMORY_VIEW_MAX];
-    frontend_memory_search_state memory_search;
+    memview_pane_search memory_search;
     int memory_view_count;
     int memory_active_view_index;
     int memory_context_menu_view_index;
@@ -3351,6 +3339,11 @@ static const uint8_t *frontend_debug_memory_valid_source(
     }
 }
 
+static bool frontend_memory_search_run(
+    frontend *ui,
+    const frontend_debug_state *debug_state,
+    bool reverse);
+
 static void frontend_memory_search_open(frontend *ui)
 {
     frontend_memory_view_state *memory;
@@ -3365,49 +3358,6 @@ static void frontend_memory_search_open(frontend *ui)
     ui->memory_search.status[0] = '\0';
 }
 
-static bool frontend_memory_search_run(
-    frontend *ui,
-    const frontend_debug_state *debug_state,
-    bool reverse)
-{
-    frontend_memory_view_state *memory;
-    const uint8_t *bytes;
-    const uint8_t *valid;
-    uint16_t found;
-
-    if (ui == NULL || ui->memory_view_count <= 0 || !ui->memory_search.has_pattern) {
-        return false;
-    }
-    if (debug_state == NULL || !debug_state->has_debug_memory) {
-        snprintf(ui->memory_search.status, sizeof(ui->memory_search.status),
-            "Memory snapshot unavailable");
-        return false;
-    }
-
-    memory = &ui->memory_views[ui->memory_active_view_index];
-    bytes = frontend_debug_memory_source(&debug_state->debug_memory, memory->mode);
-    valid = frontend_debug_memory_valid_source(&debug_state->debug_memory, memory->mode);
-    if (!memory_search_find(
-            bytes,
-            valid,
-            &ui->memory_search.pattern,
-            ui->memory_search.last_found_address,
-            reverse,
-            &found)) {
-        snprintf(ui->memory_search.status, sizeof(ui->memory_search.status), "Not found");
-        return false;
-    }
-
-    ui->memory_search.last_found_address = found;
-    snprintf(ui->memory_search.status, sizeof(ui->memory_search.status),
-        "Found: %04X", found);
-    memory->cursor_address = found;
-    memory->view_address = found;
-    memory->edit_field = FRONTEND_MEMORY_EDIT_HEX;
-    memory->active_nibble = 0u;
-    memory->request_pending = false;
-    return true;
-}
 
 static void frontend_disasm_cache_replace(
     frontend_disasm_cache *cache,
@@ -6006,6 +5956,70 @@ static const uint8_t *frontend_memview_search_plane(
     return frontend_debug_memory_source(&debug->debug_memory, (runtime_memory_mode)source_id);
 }
 
+static void frontend_memview_fill_search_pane(frontend *ui, memview_pane_state *pane)
+{
+    int v;
+
+    memset(pane, 0, sizeof(*pane));
+    pane->search = ui->memory_search;
+    pane->view_count = ui->memory_view_count;
+    pane->active_index = ui->memory_active_view_index;
+    for (v = 0; v < ui->memory_view_count && v < MEMVIEW_PANE_VIEW_MAX; v++) {
+        const frontend_memory_view_state *src = &ui->memory_views[v];
+        memview_pane_view *dst = &pane->views[v];
+        dst->view_address = src->view_address;
+        dst->cursor_address = src->cursor_address;
+        dst->source_id = (uint32_t)src->mode;
+        dst->edit_field = (memview_pane_edit_field)src->edit_field;
+        dst->columns = src->columns;
+        dst->rows = src->rows;
+        dst->initialized = src->initialized;
+        dst->request_pending = src->request_pending;
+        dst->highbit_ascii = src->apple_ascii;
+    }
+}
+
+static void frontend_memview_apply_search_pane(frontend *ui, const memview_pane_state *pane)
+{
+    int idx;
+
+    ui->memory_search = pane->search;
+    idx = pane->active_index;
+    if (idx < 0 || idx >= ui->memory_view_count || idx >= MEMVIEW_PANE_VIEW_MAX) {
+        return;
+    }
+    ui->memory_views[idx].cursor_address = pane->views[idx].cursor_address;
+    ui->memory_views[idx].view_address = pane->views[idx].view_address;
+    ui->memory_views[idx].request_pending = pane->views[idx].request_pending;
+}
+
+static bool frontend_memory_search_run(
+    frontend *ui,
+    const frontend_debug_state *debug_state,
+    bool reverse)
+{
+    memview_pane_state pane;
+    memview_pane_ops ops;
+    bool ok;
+
+    if (ui == NULL || ui->memory_view_count <= 0 || !ui->memory_search.has_pattern) {
+        return false;
+    }
+    ui->memview_debug = debug_state;
+    frontend_memview_fill_search_pane(ui, &pane);
+    memset(&ops, 0, sizeof(ops));
+    ops.ctx = ui;
+    ops.search_plane = frontend_memview_search_plane;
+    ok = memview_pane_search_run(&pane, reverse, &ops);
+    frontend_memview_apply_search_pane(ui, &pane);
+    if (ok) {
+        frontend_memory_view_state *memory = &ui->memory_views[ui->memory_active_view_index];
+        memory->edit_field = FRONTEND_MEMORY_EDIT_HEX;
+        memory->active_nibble = 0u;
+    }
+    return ok;
+}
+
 static float frontend_memview_char_width_ops(void *ctx)
 {
     return frontend_memory_char_width((frontend *)ctx);
@@ -6155,15 +6169,7 @@ static void frontend_draw_memory(frontend *ui, struct nk_rect bounds, const fron
     pane.view_count = ui->memory_view_count;
     pane.active_index = ui->memory_active_view_index;
     memcpy(pane.color_slot_used, ui->memory_color_slot_used, sizeof(pane.color_slot_used));
-    pane.search.open = ui->memory_search.open;
-    pane.search.just_opened = ui->memory_search.just_opened;
-    pane.search.ignore_case = ui->memory_search.ignore_case;
-    pane.search.has_pattern = ui->memory_search.has_pattern;
-    pane.search.mode = ui->memory_search.mode;
-    memcpy(pane.search.query, ui->memory_search.query, sizeof(pane.search.query));
-    pane.search.pattern = ui->memory_search.pattern;
-    pane.search.last_found_address = ui->memory_search.last_found_address;
-    memcpy(pane.search.status, ui->memory_search.status, sizeof(pane.search.status));
+    pane.search = ui->memory_search;
     for (v = 0; v < ui->memory_view_count && v < MEMVIEW_PANE_VIEW_MAX; v++) {
         const frontend_memory_view_state *src = &ui->memory_views[v];
         memview_pane_view *dst = &pane.views[v];
@@ -6205,15 +6211,7 @@ static void frontend_draw_memory(frontend *ui, struct nk_rect bounds, const fron
     ui->memory_view_count = pane.view_count;
     ui->memory_active_view_index = pane.active_index;
     memcpy(ui->memory_color_slot_used, pane.color_slot_used, sizeof(ui->memory_color_slot_used));
-    ui->memory_search.open = pane.search.open;
-    ui->memory_search.just_opened = pane.search.just_opened;
-    ui->memory_search.ignore_case = pane.search.ignore_case;
-    ui->memory_search.has_pattern = pane.search.has_pattern;
-    ui->memory_search.mode = pane.search.mode;
-    memcpy(ui->memory_search.query, pane.search.query, sizeof(ui->memory_search.query));
-    ui->memory_search.pattern = pane.search.pattern;
-    ui->memory_search.last_found_address = pane.search.last_found_address;
-    memcpy(ui->memory_search.status, pane.search.status, sizeof(ui->memory_search.status));
+    ui->memory_search = pane.search;
     for (v = 0; v < pane.view_count && v < MEMORY_VIEW_MAX; v++) {
         frontend_memory_view_state *dst = &ui->memory_views[v];
         const memview_pane_view *src = &pane.views[v];
@@ -9551,86 +9549,6 @@ static void frontend_draw_file_browser(frontend *ui, int width, int height)
     }
 }
 
-static void frontend_draw_memory_search(
-    frontend *ui,
-    int width,
-    int height,
-    const frontend_debug_state *debug_state)
-{
-    frontend_memory_search_state *search;
-    struct nk_context *ctx;
-    struct nk_rect bounds;
-    nk_flags edit_result;
-    bool submit = false;
-
-    if (ui == NULL || !ui->memory_search.open || ui->ctx == NULL) {
-        return;
-    }
-    search = &ui->memory_search;
-    ctx = ui->ctx;
-    bounds = nk_rect((float)(width - 440) * 0.5f, (float)(height - 180) * 0.5f,
-        440.0f, 180.0f);
-
-    if (nk_begin(ctx, "Find Memory", bounds,
-            NK_WINDOW_BORDER | NK_WINDOW_TITLE | NK_WINDOW_MOVABLE | NK_WINDOW_CLOSABLE)) {
-        nk_layout_row_dynamic(ctx, 22.0f, 3);
-        if (nk_option_label(ctx, "String", search->mode == MEMORY_SEARCH_STRING)) {
-            search->mode = MEMORY_SEARCH_STRING;
-            search->status[0] = '\0';
-        }
-        if (nk_option_label(ctx, "Hex", search->mode == MEMORY_SEARCH_HEX)) {
-            search->mode = MEMORY_SEARCH_HEX;
-            search->status[0] = '\0';
-        }
-        if (search->mode != MEMORY_SEARCH_STRING) nk_widget_disable_begin(ctx);
-        frontend_checkbox_bool(ctx, "Ignore case", &search->ignore_case);
-        if (search->mode != MEMORY_SEARCH_STRING) nk_widget_disable_end(ctx);
-
-        nk_layout_row_begin(ctx, NK_DYNAMIC, 26.0f, 2);
-        nk_layout_row_push(ctx, 0.18f);
-        nk_label(ctx, search->mode == MEMORY_SEARCH_STRING ? "String" : "Hex bytes", NK_TEXT_LEFT);
-        nk_layout_row_push(ctx, 0.82f);
-        if (search->just_opened) {
-            nk_edit_focus(ctx, 0);
-            search->just_opened = false;
-        }
-        edit_result = frontend_edit_replace(
-            ctx,
-            (nk_flags)NK_EDIT_FIELD | NK_EDIT_SELECTABLE | NK_EDIT_CLIPBOARD | NK_EDIT_SIG_ENTER,
-            search->query,
-            sizeof(search->query),
-            nk_filter_default);
-        nk_layout_row_end(ctx);
-        submit = (edit_result & NK_EDIT_COMMITED) != 0;
-
-        nk_layout_row_dynamic(ctx, 18.0f, 1);
-        nk_label(ctx, search->status[0] != '\0' ? search->status :
-            (search->mode == MEMORY_SEARCH_HEX ? "Example: DE AD BE EF" : "Searches the active memory view"),
-            NK_TEXT_LEFT);
-
-        nk_layout_row_dynamic(ctx, 26.0f, 2);
-        if (nk_button_label(ctx, "Find")) submit = true;
-        if (nk_button_label(ctx, "Cancel")) search->open = false;
-
-        if (submit) {
-            if (memory_search_parse(
-                    search->query,
-                    search->mode,
-                    search->ignore_case,
-                    &search->pattern,
-                    search->status,
-                    sizeof(search->status))) {
-                search->has_pattern = true;
-                (void)frontend_memory_search_run(ui, debug_state, false);
-                search->open = false;
-            }
-        }
-    }
-    nk_end(ctx);
-    if ((search->open) && nk_window_is_hidden(ctx, "Find Memory")) {
-        search->open = false;
-    }
-}
 
 static void frontend_draw_load_bin_dialog(frontend *ui, int width, int height)
 {
@@ -10186,7 +10104,21 @@ void frontend_render(frontend *ui, bool ui_visible, const frontend_debug_state *
             frontend_draw_load_bin_dialog(ui, width, height);
             frontend_draw_save_bin_dialog(ui, width, height);
             frontend_draw_assembler_error_dialog(ui, width, height);
-            frontend_draw_memory_search(ui, width, height, debug_state);
+            if (ui->memory_search.open) {
+                memview_pane_state search_pane;
+                memview_pane_ops search_ops;
+                ui->memview_debug = debug_state;
+                frontend_memview_fill_search_pane(ui, &search_pane);
+                memset(&search_ops, 0, sizeof(search_ops));
+                search_ops.ctx = ui;
+                search_ops.search_plane = frontend_memview_search_plane;
+                memview_pane_draw_search(
+                    ui->ctx, width, height, &search_pane,
+                    debug_state != NULL &&
+                        debug_state->runtime_state == FRONTEND_RUNTIME_STATE_RUNNING,
+                    &search_ops);
+                frontend_memview_apply_search_pane(ui, &search_pane);
+            }
             {
                 symbol_lookup_ops ops = frontend_symbol_lookup_ops(ui);
                 symbol_lookup_view_render(ui->ctx, &ui->symbol_lookup, &ops, width, height);

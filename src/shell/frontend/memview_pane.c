@@ -188,7 +188,7 @@ static uint8_t memview_ops_read(
     return value;
 }
 
-static bool memview_search_run(memview_pane_state *state, bool reverse, const memview_pane_ops *ops)
+bool memview_pane_search_run(memview_pane_state *state, bool reverse, const memview_pane_ops *ops)
 {
     memview_pane_view *view = memview_active(state);
     const uint8_t *bytes;
@@ -953,11 +953,6 @@ void memview_pane_draw_search(
             "Find Memory",
             bounds,
             NK_WINDOW_BORDER | NK_WINDOW_TITLE | NK_WINDOW_MOVABLE | NK_WINDOW_CLOSABLE)) {
-        if (nk_window_is_closed(ctx, "Find Memory")) {
-            search->open = false;
-            nk_end(ctx);
-            return;
-        }
         nk_layout_row_dynamic(ctx, 22.0f, 3);
         if (nk_option_label(ctx, "String", search->mode == MEMORY_SEARCH_STRING)) {
             search->mode = MEMORY_SEARCH_STRING;
@@ -1018,12 +1013,13 @@ void memview_pane_draw_search(
                     search->status,
                     sizeof(search->status))) {
                 search->has_pattern = true;
-                (void)memview_search_run(state, false, ops);
+                (void)memview_pane_search_run(state, false, ops);
                 search->open = false;
             }
         }
-    } else if (nk_window_is_closed(ctx, "Find Memory")) {
-        search->open = false;
     }
     nk_end(ctx);
+    if (search->open && nk_window_is_hidden(ctx, "Find Memory")) {
+        search->open = false;
+    }
 }

@@ -110,6 +110,12 @@ void memview_pane_draw_search(
     bool running,
     const memview_pane_ops *ops);
 
+/* Find next/prev in the active view using state->search.pattern. */
+bool memview_pane_search_run(
+    memview_pane_state *state,
+    bool reverse,
+    const memview_pane_ops *ops);
+
 #ifdef __cplusplus
 }
 #endif
