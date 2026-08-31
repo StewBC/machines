@@ -736,19 +736,27 @@ alone does **not** power off.
 
 **HostFS (folder mount).** A directory path on `--disk N=<dir>`, or **Use This Folder**
 in the disk file browser after clicking **[8]** / **[9]**, mounts that folder as a
-HostFS volume. The volume is trap-fast (not a 1541 on the IEC bus). Phase 0 guest I/O:
+HostFS volume. The volume is trap-fast (not a 1541 on the IEC bus). Guest I/O:
 
 - `LOAD "$",N` lists host `.prg` files and subdirectories (`DIR`), sorted by CBM name,
   ending with `65535 BLOCKS FREE.`
 - `LOAD "NAME",N,1` / `LOAD "*",N,1` load PRGs (raw host `name.prg`; other extensions skipped)
-- `SAVE "NAME",N` creates `NAME.prg` (fails if the name already exists; no `@:` yet)
+- `SAVE "NAME",N` creates `NAME.prg` in the current directory (fails if the name already
+  exists; no `@:` yet)
+- Command channel 15 `CD` (SD2IEC-shaped subset) for subdirectory navigation, enough for
+  **CBM FileBrowser 1.6** / `fb64`:
+  - `OPEN 1,N,15,"CD:SUB":CLOSE 1` enters a listed `DIR`
+  - `OPEN 1,N,15,"CD:←":CLOSE 1` (left arrow / `$5F`) goes to the parent
+  - `OPEN 1,N,15,"CD//":CLOSE 1` returns to the mount root
+  - After `CD`, `LOAD "$",N` lists the new cwd; status reads as `00, OK,00,00` (or a DOS
+    error such as `62, FILE NOT FOUND,00,00`)
 - HostFS still traps when `emulate_1541=1` (real 1541 can stay on the other device)
 
 HostFS is a single mount (no multi-image queue / Swap). Opening a `.d64`/`.g64` or
 Shift+adding an image while HostFS is mounted replaces HostFS with an IMAGE queue.
 Folders are never enqueued.
 
-Subdirectory `CD` / FileBrowser navigation is not in Phase 0.
+SEQ file I/O, Scratch/`@:`, and partitions are not in this HostFS subset yet.
 
 A unit turns **on** when you:
 

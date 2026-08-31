@@ -10,14 +10,24 @@
 
 enum {
     C64_VICII_REG_MEMORY_POINTER = 0x18,
+    C64_KERNAL_OPEN_ENTRY = 0xffc0,
+    C64_KERNAL_CLOSE_ENTRY = 0xffc3,
+    C64_KERNAL_CHKIN_ENTRY = 0xffc6,
+    C64_KERNAL_CHRIN_ENTRY = 0xffcf,
     C64_KERNAL_LOAD_ENTRY = 0xffd5,
     C64_KERNAL_SAVE_ENTRY = 0xffd8,
     C64_ZP_STATUS = 0x90,
+    C64_ZP_LDTND = 0x98,
+    C64_ZP_DFLTN = 0x99,
     C64_ZP_EAL = 0xae,
+    C64_ZP_LOGICAL_FILE = 0xb8,
     C64_ZP_FILENAME_LENGTH = 0xb7,
     C64_ZP_SECONDARY_ADDRESS = 0xb9,
     C64_ZP_DEVICE_NUMBER = 0xba,
     C64_ZP_FILENAME_POINTER = 0xbb,
+    C64_RAM_LAT = 0x0259,
+    C64_RAM_FAT = 0x0263,
+    C64_RAM_SAT = 0x026d,
     C64_BASIC_START_POINTER = 0x2b,
     C64_BASIC_VARTAB_POINTER = 0x2d,
     C64_BASIC_ARYTAB_POINTER = 0x2f,
@@ -630,6 +640,324 @@ static void c64_kernal_save_return(c64_t *machine, bool success, uint8_t a) {
     hi = machine->bus.ram[machine->cpu.cpu.sp];
     return_address = (uint16_t)lo | ((uint16_t)hi << 8);
     machine->cpu.cpu.pc = (uint16_t)(return_address + 1u);
+}
+
+/* Pop JSR return and set carry/ST like a successful or failed KERNAL call. */
+static void c64_kernal_rts_return(c64_t *machine, bool success, uint8_t a)
+{
+    uint8_t lo;
+    uint8_t hi;
+    uint16_t return_address;
+
+    machine->cpu.cpu.A = a;
+    if (success) {
+        machine->cpu.cpu.flags &= (uint8_t)~0x01u;
+        machine->bus.ram[C64_ZP_STATUS] = 0;
+    } else {
+        machine->cpu.cpu.flags |= 0x01u;
+        machine->bus.ram[C64_ZP_STATUS] = a == 0 ? 0x40 : a;
+    }
+
+    machine->cpu.cpu.sp++;
+    if (machine->cpu.cpu.sp >= 0x200) {
+        machine->cpu.cpu.sp = 0x100;
+    }
+    lo = machine->bus.ram[machine->cpu.cpu.sp];
+    machine->cpu.cpu.sp++;
+    if (machine->cpu.cpu.sp >= 0x200) {
+        machine->cpu.cpu.sp = 0x100;
+    }
+    hi = machine->bus.ram[machine->cpu.cpu.sp];
+    return_address = (uint16_t)lo | ((uint16_t)hi << 8);
+    machine->cpu.cpu.pc = (uint16_t)(return_address + 1u);
+}
+
+static bool c64_kernal_file_table_add(
+    c64_t *machine, uint8_t la, uint8_t fa, uint8_t sa)
+{
+    uint8_t n = machine->bus.ram[C64_ZP_LDTND];
+    uint8_t i;
+
+    if (n >= 10u) {
+        return false;
+    }
+    for (i = 0; i < n; i++) {
+        if (machine->bus.ram[C64_RAM_LAT + i] == la) {
+            return false;
+        }
+    }
+    machine->bus.ram[C64_RAM_LAT + n] = la;
+    machine->bus.ram[C64_RAM_FAT + n] = fa;
+    machine->bus.ram[C64_RAM_SAT + n] = sa;
+    machine->bus.ram[C64_ZP_LDTND] = (uint8_t)(n + 1u);
+    return true;
+}
+
+static bool c64_kernal_file_table_remove(c64_t *machine, uint8_t la)
+{
+    uint8_t n = machine->bus.ram[C64_ZP_LDTND];
+    uint8_t i;
+    uint8_t j;
+
+    for (i = 0; i < n; i++) {
+        if (machine->bus.ram[C64_RAM_LAT + i] != la) {
+            continue;
+        }
+        for (j = i + 1u; j < n; j++) {
+            machine->bus.ram[C64_RAM_LAT + j - 1u] = machine->bus.ram[C64_RAM_LAT + j];
+            machine->bus.ram[C64_RAM_FAT + j - 1u] = machine->bus.ram[C64_RAM_FAT + j];
+            machine->bus.ram[C64_RAM_SAT + j - 1u] = machine->bus.ram[C64_RAM_SAT + j];
+        }
+        machine->bus.ram[C64_ZP_LDTND] = (uint8_t)(n - 1u);
+        return true;
+    }
+    return false;
+}
+
+static int c64_kernal_file_table_find(const c64_t *machine, uint8_t la)
+{
+    uint8_t n = machine->bus.ram[C64_ZP_LDTND];
+    uint8_t i;
+    for (i = 0; i < n; i++) {
+        if (machine->bus.ram[C64_RAM_LAT + i] == la) {
+            return (int)i;
+        }
+    }
+    return -1;
+}
+
+static bool c64_try_hostfs_open_trap(c64_t *machine)
+{
+    uint8_t device;
+    uint8_t la;
+    uint8_t sa;
+    uint8_t filename_length;
+    uint16_t filename_pointer;
+    uint8_t filename[48];
+    c64_drive_slot *slot;
+    size_t i;
+    c64_drive_status_result st = C64_DRIVE_STATUS_OK;
+
+    if (machine->cpu.cpu.pc != C64_KERNAL_OPEN_ENTRY) {
+        return false;
+    }
+
+    device = machine->bus.ram[C64_ZP_DEVICE_NUMBER];
+    if (!c64_drive_device_supported(device)) {
+        return false;
+    }
+    slot = &machine->drives[device - C64_DRIVE_MIN_DEVICE];
+    if (!slot->mounted || slot->backend != C64_DRIVE_BACKEND_HOSTFS ||
+        slot->hostfs == NULL) {
+        return false;
+    }
+
+    la = machine->bus.ram[C64_ZP_LOGICAL_FILE];
+    sa = machine->bus.ram[C64_ZP_SECONDARY_ADDRESS];
+    /* Phase 1: only command channel (SA 15). */
+    if ((sa & 0x0fu) != 15u) {
+        return false;
+    }
+
+    filename_length = machine->bus.ram[C64_ZP_FILENAME_LENGTH];
+    filename_pointer = c64_read_zp16(machine, C64_ZP_FILENAME_POINTER);
+    if (filename_length > sizeof(filename)) {
+        c64_hostfs_set_status(slot->hostfs, 30, "SYNTAX ERROR");
+        c64_kernal_rts_return(machine, false, 0x05);
+        return true;
+    }
+    for (i = 0; i < filename_length; i++) {
+        filename[i] =
+            c64_debug_read_cpu_map(machine, (uint16_t)(filename_pointer + i));
+    }
+
+    if (!c64_kernal_file_table_add(machine, la, device, sa)) {
+        c64_kernal_rts_return(machine, false, 0x01); /* too many files / already open */
+        return true;
+    }
+
+    (void)c64_hostfs_command(slot->hostfs, filename, filename_length, &st);
+    slot->last_result = st;
+    slot->hostfs_cmd_open = true;
+    slot->hostfs_cmd_la = la;
+    slot->hostfs_status_chkin = false;
+    slot->hostfs_status_pos = 0;
+    /* Refresh slot catalog after possible CD. */
+    (void)c64_hostfs_apply_catalog_to_slot(slot->hostfs, slot);
+    c64_disk_activity_read(machine, (int)device);
+    c64_kernal_rts_return(machine, true, 0);
+    return true;
+}
+
+static bool c64_try_hostfs_close_trap(c64_t *machine)
+{
+    uint8_t la;
+    int idx;
+    uint8_t device;
+    c64_drive_slot *slot;
+
+    if (machine->cpu.cpu.pc != C64_KERNAL_CLOSE_ENTRY) {
+        return false;
+    }
+
+    la = machine->cpu.cpu.X;
+    idx = c64_kernal_file_table_find(machine, la);
+    if (idx < 0) {
+        return false;
+    }
+    device = machine->bus.ram[C64_RAM_FAT + idx];
+    if (!c64_drive_device_supported(device)) {
+        return false;
+    }
+    slot = &machine->drives[device - C64_DRIVE_MIN_DEVICE];
+    if (!slot->mounted || slot->backend != C64_DRIVE_BACKEND_HOSTFS) {
+        return false;
+    }
+
+    (void)c64_kernal_file_table_remove(machine, la);
+    if (slot->hostfs_cmd_open && slot->hostfs_cmd_la == la) {
+        slot->hostfs_cmd_open = false;
+        slot->hostfs_status_chkin = false;
+        slot->hostfs_status_pos = 0;
+    }
+    if (machine->bus.ram[C64_ZP_DFLTN] == la) {
+        machine->bus.ram[C64_ZP_DFLTN] = 0; /* keyboard */
+    }
+    c64_kernal_rts_return(machine, true, 0);
+    return true;
+}
+
+static bool c64_try_hostfs_chkin_trap(c64_t *machine)
+{
+    uint8_t la;
+    int idx;
+    uint8_t device;
+    uint8_t sa;
+    c64_drive_slot *slot;
+
+    if (machine->cpu.cpu.pc != C64_KERNAL_CHKIN_ENTRY) {
+        return false;
+    }
+
+    la = machine->cpu.cpu.X;
+    idx = c64_kernal_file_table_find(machine, la);
+    if (idx < 0) {
+        return false;
+    }
+    device = machine->bus.ram[C64_RAM_FAT + idx];
+    sa = machine->bus.ram[C64_RAM_SAT + idx];
+    if (!c64_drive_device_supported(device)) {
+        return false;
+    }
+    slot = &machine->drives[device - C64_DRIVE_MIN_DEVICE];
+    if (!slot->mounted || slot->backend != C64_DRIVE_BACKEND_HOSTFS ||
+        slot->hostfs == NULL) {
+        return false;
+    }
+    if ((sa & 0x0fu) != 15u) {
+        return false;
+    }
+
+    machine->bus.ram[C64_ZP_DFLTN] = la;
+    slot->hostfs_status_chkin = true;
+    slot->hostfs_status_pos = 0;
+    c64_kernal_rts_return(machine, true, 0);
+    return true;
+}
+
+static bool c64_try_hostfs_chrin_trap(c64_t *machine)
+{
+    uint8_t la;
+    int idx;
+    uint8_t device;
+    c64_drive_slot *slot;
+    const char *status;
+    size_t status_len;
+    uint8_t byte;
+
+    if (machine->cpu.cpu.pc != C64_KERNAL_CHRIN_ENTRY) {
+        return false;
+    }
+
+    la = machine->bus.ram[C64_ZP_DFLTN];
+    if (la == 0) {
+        return false; /* keyboard — leave to KERNAL */
+    }
+    idx = c64_kernal_file_table_find(machine, la);
+    if (idx < 0) {
+        return false;
+    }
+    device = machine->bus.ram[C64_RAM_FAT + idx];
+    if (!c64_drive_device_supported(device)) {
+        return false;
+    }
+    slot = &machine->drives[device - C64_DRIVE_MIN_DEVICE];
+    if (!slot->mounted || slot->backend != C64_DRIVE_BACKEND_HOSTFS ||
+        slot->hostfs == NULL || !slot->hostfs_status_chkin ||
+        slot->hostfs_cmd_la != la) {
+        return false;
+    }
+
+    status = c64_hostfs_status(slot->hostfs);
+    status_len = c64_hostfs_status_length(slot->hostfs);
+    if (status == NULL || status_len == 0u) {
+        c64_hostfs_set_status_ok(slot->hostfs);
+        status = c64_hostfs_status(slot->hostfs);
+        status_len = c64_hostfs_status_length(slot->hostfs);
+    }
+
+    if (slot->hostfs_status_pos >= status_len) {
+        byte = 0x0d;
+        machine->bus.ram[C64_ZP_STATUS] = 0x40; /* EOI */
+        c64_hostfs_set_status_ok(slot->hostfs);
+        slot->hostfs_status_pos = 0;
+    } else {
+        byte = (uint8_t)status[slot->hostfs_status_pos++];
+        if (slot->hostfs_status_pos >= status_len) {
+            machine->bus.ram[C64_ZP_STATUS] = 0x40; /* EOI on last */
+            c64_hostfs_set_status_ok(slot->hostfs);
+        } else {
+            machine->bus.ram[C64_ZP_STATUS] = 0;
+        }
+    }
+    machine->cpu.cpu.A = byte;
+    machine->cpu.cpu.flags &= (uint8_t)~0x01u;
+    {
+        uint8_t lo;
+        uint8_t hi;
+        uint16_t return_address;
+        machine->cpu.cpu.sp++;
+        if (machine->cpu.cpu.sp >= 0x200) {
+            machine->cpu.cpu.sp = 0x100;
+        }
+        lo = machine->bus.ram[machine->cpu.cpu.sp];
+        machine->cpu.cpu.sp++;
+        if (machine->cpu.cpu.sp >= 0x200) {
+            machine->cpu.cpu.sp = 0x100;
+        }
+        hi = machine->bus.ram[machine->cpu.cpu.sp];
+        return_address = (uint16_t)lo | ((uint16_t)hi << 8);
+        machine->cpu.cpu.pc = (uint16_t)(return_address + 1u);
+    }
+    return true;
+}
+
+static bool c64_try_kernal_channel_traps(c64_t *machine)
+{
+    uint16_t pc = machine->cpu.cpu.pc;
+    if (pc == (uint16_t)C64_KERNAL_OPEN_ENTRY) {
+        return c64_try_hostfs_open_trap(machine);
+    }
+    if (pc == (uint16_t)C64_KERNAL_CLOSE_ENTRY) {
+        return c64_try_hostfs_close_trap(machine);
+    }
+    if (pc == (uint16_t)C64_KERNAL_CHKIN_ENTRY) {
+        return c64_try_hostfs_chkin_trap(machine);
+    }
+    if (pc == (uint16_t)C64_KERNAL_CHRIN_ENTRY) {
+        return c64_try_hostfs_chrin_trap(machine);
+    }
+    return false;
 }
 
 static void c64_report_host_trap(
@@ -1738,11 +2066,16 @@ static bool c64_step_cycle_internal(c64_t *machine) {
     if (machine->cpu_deferred_interrupt == C6510_INTERRUPT_NONE &&
         !machine->pending_cpu_trace_active && !machine->cpu.micro_active) {
         uint16_t pc = machine->cpu.cpu.pc;
-        /* LOAD/SAVE traps are rare; gate the heavy handlers on PC first. */
+        /* HostFS / disk traps are rare; gate the heavy handlers on PC first. */
         if ((pc == (uint16_t)C64_KERNAL_LOAD_ENTRY ||
-             pc == (uint16_t)C64_KERNAL_SAVE_ENTRY) &&
+             pc == (uint16_t)C64_KERNAL_SAVE_ENTRY ||
+             pc == (uint16_t)C64_KERNAL_OPEN_ENTRY ||
+             pc == (uint16_t)C64_KERNAL_CLOSE_ENTRY ||
+             pc == (uint16_t)C64_KERNAL_CHKIN_ENTRY ||
+             pc == (uint16_t)C64_KERNAL_CHRIN_ENTRY) &&
             (c64_try_kernal_load_trap(machine) ||
-             c64_try_kernal_save_trap(machine))) {
+             c64_try_kernal_save_trap(machine) ||
+             c64_try_kernal_channel_traps(machine))) {
             machine->instruction_complete = true;
             machine->clock.cpu_cycles++;
             machine->cpu_prev_between_stall = false;
@@ -2299,9 +2632,14 @@ static void c64_step_cycle_between_hot(c64_t *machine) {
     if (machine->cpu_deferred_interrupt == C6510_INTERRUPT_NONE) {
         uint16_t pc = machine->cpu.cpu.pc;
         if ((pc == (uint16_t)C64_KERNAL_LOAD_ENTRY ||
-             pc == (uint16_t)C64_KERNAL_SAVE_ENTRY) &&
+             pc == (uint16_t)C64_KERNAL_SAVE_ENTRY ||
+             pc == (uint16_t)C64_KERNAL_OPEN_ENTRY ||
+             pc == (uint16_t)C64_KERNAL_CLOSE_ENTRY ||
+             pc == (uint16_t)C64_KERNAL_CHKIN_ENTRY ||
+             pc == (uint16_t)C64_KERNAL_CHRIN_ENTRY) &&
             (c64_try_kernal_load_trap(machine) ||
-             c64_try_kernal_save_trap(machine))) {
+             c64_try_kernal_save_trap(machine) ||
+             c64_try_kernal_channel_traps(machine))) {
             machine->instruction_complete = true;
             machine->clock.cpu_cycles++;
             machine->cpu_prev_between_stall = false;
@@ -3179,6 +3517,9 @@ void c64_unmount_drive(c64_t *machine, uint8_t device) {
     slot->last_result = C64_DRIVE_STATUS_NOT_MOUNTED;
     slot->backend = C64_DRIVE_BACKEND_NONE;
     slot->powered = keep_powered; /* eject is not power-off */
+    slot->hostfs_cmd_open = false;
+    slot->hostfs_status_chkin = false;
+    slot->hostfs_status_pos = 0;
     c64_refresh_iec_external_pull(machine);
 }
 

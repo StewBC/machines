@@ -1,4 +1,4 @@
-/* c64 HostFS — host directory volume + Phase 0 catalog / PRG I/O. */
+/* c64 HostFS — host directory volume + catalog / PRG I/O + CD. */
 #include "c64_hostfs.h"
 
 #include <ctype.h>
@@ -24,12 +24,48 @@ typedef struct c64_hostfs_cat_entry {
 
 struct c64_hostfs_volume {
     char root_path[C64_HOSTFS_PATH_MAX];
+    char cwd_path[C64_HOSTFS_PATH_MAX];
     char display_name[C64_HOSTFS_NAME_MAX];
+    char status[C64_HOSTFS_STATUS_MAX];
+    size_t status_length;
     bool writable;
     c64_hostfs_cat_entry *catalog;
     size_t catalog_count;
     size_t catalog_cap;
 };
+
+void c64_hostfs_set_status(
+    c64_hostfs_volume *vol, int code, const char *message)
+{
+    if (vol == NULL) {
+        return;
+    }
+    if (message == NULL) {
+        message = "OK";
+    }
+    snprintf(
+        vol->status,
+        sizeof(vol->status),
+        "%02d, %s,00,00\r",
+        code,
+        message);
+    vol->status_length = strlen(vol->status);
+}
+
+void c64_hostfs_set_status_ok(c64_hostfs_volume *vol)
+{
+    c64_hostfs_set_status(vol, 0, "OK");
+}
+
+const char *c64_hostfs_status(const c64_hostfs_volume *vol)
+{
+    return vol != NULL ? vol->status : NULL;
+}
+
+size_t c64_hostfs_status_length(const c64_hostfs_volume *vol)
+{
+    return vol != NULL ? vol->status_length : 0u;
+}
 
 bool c64_hostfs_path_is_dir(const char *path)
 {
@@ -247,7 +283,7 @@ bool c64_hostfs_rescan(c64_hostfs_volume *vol)
     vol->catalog_count = 0;
     vol->catalog_cap = 0;
 
-    dir = opendir(vol->root_path);
+    dir = opendir(vol->cwd_path);
     if (dir == NULL) {
         return false;
     }
@@ -266,7 +302,7 @@ bool c64_hostfs_rescan(c64_hostfs_volume *vol)
         if (name_len == 0) {
             continue;
         }
-        if ((size_t)snprintf(full, sizeof(full), "%s/%s", vol->root_path, name) >=
+        if ((size_t)snprintf(full, sizeof(full), "%s/%s", vol->cwd_path, name) >=
             sizeof(full)) {
             continue;
         }
@@ -344,12 +380,14 @@ c64_hostfs_volume *c64_hostfs_mount(const char *root_path, bool writable)
         return NULL;
     }
     snprintf(vol->root_path, sizeof(vol->root_path), "%s", root_path);
+    snprintf(vol->cwd_path, sizeof(vol->cwd_path), "%s", root_path);
     base = c64_hostfs_basename(vol->root_path);
     c64_hostfs_mangle_cbm(base, vol->display_name, sizeof(vol->display_name), NULL);
     if (vol->display_name[0] == '\0') {
         snprintf(vol->display_name, sizeof(vol->display_name), "HOSTFS");
     }
     vol->writable = writable;
+    c64_hostfs_set_status_ok(vol);
     if (!c64_hostfs_rescan(vol)) {
         c64_hostfs_eject(vol);
         return NULL;
@@ -369,6 +407,11 @@ void c64_hostfs_eject(c64_hostfs_volume *vol)
 const char *c64_hostfs_root_path(const c64_hostfs_volume *vol)
 {
     return vol != NULL ? vol->root_path : NULL;
+}
+
+const char *c64_hostfs_cwd_path(const c64_hostfs_volume *vol)
+{
+    return vol != NULL ? vol->cwd_path : NULL;
 }
 
 const char *c64_hostfs_display_name(const c64_hostfs_volume *vol)
@@ -528,9 +571,9 @@ bool c64_hostfs_create_prg(
         }
         return false;
     }
-    /* Host basename: CBM name + .prg */
+    /* Host basename: CBM name + .prg under cwd. */
     snprintf(host_name, sizeof(host_name), "%s.prg", cbm);
-    if ((size_t)snprintf(full, sizeof(full), "%s/%s", vol->root_path, host_name) >=
+    if ((size_t)snprintf(full, sizeof(full), "%s/%s", vol->cwd_path, host_name) >=
         sizeof(full)) {
         return false;
     }
@@ -548,5 +591,290 @@ bool c64_hostfs_create_prg(
         *out_status = C64_DRIVE_STATUS_OK;
     }
     (void)c64_hostfs_rescan(vol);
+    return true;
+}
+
+static bool c64_hostfs_path_under_root(
+    const c64_hostfs_volume *vol, const char *path)
+{
+    size_t root_len;
+
+    if (vol == NULL || path == NULL) {
+        return false;
+    }
+    root_len = strlen(vol->root_path);
+    if (root_len == 0) {
+        return false;
+    }
+    if (strncmp(path, vol->root_path, root_len) != 0) {
+        return false;
+    }
+    if (path[root_len] != '\0' && path[root_len] != '/' && path[root_len] != '\\') {
+        return false;
+    }
+    return true;
+}
+
+static bool c64_hostfs_parent_path(const char *path, char *out, size_t out_size)
+{
+    char tmp[C64_HOSTFS_PATH_MAX];
+    char *slash;
+    size_t len;
+
+    if (path == NULL || out == NULL || out_size == 0) {
+        return false;
+    }
+    snprintf(tmp, sizeof(tmp), "%s", path);
+    len = strlen(tmp);
+    while (len > 1u && (tmp[len - 1u] == '/' || tmp[len - 1u] == '\\')) {
+        tmp[--len] = '\0';
+    }
+    slash = strrchr(tmp, '/');
+#if defined(_WIN32)
+    {
+        char *bslash = strrchr(tmp, '\\');
+        if (bslash != NULL && (slash == NULL || bslash > slash)) {
+            slash = bslash;
+        }
+    }
+#endif
+    if (slash == NULL) {
+        return false;
+    }
+    if (slash == tmp) {
+        snprintf(out, out_size, "/");
+        return true;
+    }
+    *slash = '\0';
+    snprintf(out, out_size, "%s", tmp);
+    return true;
+}
+
+static unsigned char c64_hostfs_upper(unsigned char c)
+{
+    if (c >= 'a' && c <= 'z') {
+        return (unsigned char)(c - 'a' + 'A');
+    }
+    return c;
+}
+
+static bool c64_hostfs_name_eq(
+    const uint8_t *a, size_t a_len, const char *b, size_t b_len)
+{
+    size_t i;
+    if (a_len != b_len) {
+        return false;
+    }
+    for (i = 0; i < a_len; i++) {
+        if (c64_hostfs_upper(a[i]) != c64_hostfs_upper((unsigned char)b[i])) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static bool c64_hostfs_cd_root(c64_hostfs_volume *vol)
+{
+    snprintf(vol->cwd_path, sizeof(vol->cwd_path), "%s", vol->root_path);
+    if (!c64_hostfs_rescan(vol)) {
+        c64_hostfs_set_status(vol, 74, "DRIVE NOT READY");
+        return false;
+    }
+    c64_hostfs_set_status_ok(vol);
+    return true;
+}
+
+static bool c64_hostfs_cd_parent(c64_hostfs_volume *vol)
+{
+    char parent[C64_HOSTFS_PATH_MAX];
+
+    if (strcmp(vol->cwd_path, vol->root_path) == 0) {
+        c64_hostfs_set_status_ok(vol);
+        return true;
+    }
+    if (!c64_hostfs_parent_path(vol->cwd_path, parent, sizeof(parent)) ||
+        !c64_hostfs_path_under_root(vol, parent)) {
+        snprintf(vol->cwd_path, sizeof(vol->cwd_path), "%s", vol->root_path);
+    } else {
+        snprintf(vol->cwd_path, sizeof(vol->cwd_path), "%s", parent);
+    }
+    if (!c64_hostfs_rescan(vol)) {
+        c64_hostfs_set_status(vol, 74, "DRIVE NOT READY");
+        return false;
+    }
+    c64_hostfs_set_status_ok(vol);
+    return true;
+}
+
+static bool c64_hostfs_cd_enter_name(
+    c64_hostfs_volume *vol, const uint8_t *name, size_t name_len)
+{
+    size_t i;
+    const char *host;
+
+    if (name_len == 0 || name_len > 16u) {
+        c64_hostfs_set_status(vol, 62, "FILE NOT FOUND");
+        return false;
+    }
+    if (!c64_hostfs_rescan(vol)) {
+        c64_hostfs_set_status(vol, 74, "DRIVE NOT READY");
+        return false;
+    }
+    for (i = 0; i < vol->catalog_count; i++) {
+        const c64_drive_directory_entry *e = &vol->catalog[i].dir;
+        if (e->type != C64_DRIVE_FILE_DIR) {
+            continue;
+        }
+        if (!c64_hostfs_name_eq(name, name_len, (const char *)e->filename, e->filename_length)) {
+            continue;
+        }
+        host = vol->catalog[i].host_path;
+        if (host == NULL || !c64_hostfs_path_is_dir(host) ||
+            !c64_hostfs_path_under_root(vol, host)) {
+            c64_hostfs_set_status(vol, 62, "FILE NOT FOUND");
+            return false;
+        }
+        snprintf(vol->cwd_path, sizeof(vol->cwd_path), "%s", host);
+        if (!c64_hostfs_rescan(vol)) {
+            c64_hostfs_set_status(vol, 74, "DRIVE NOT READY");
+            return false;
+        }
+        c64_hostfs_set_status_ok(vol);
+        return true;
+    }
+    c64_hostfs_set_status(vol, 62, "FILE NOT FOUND");
+    return false;
+}
+
+static void c64_hostfs_trim_slashes(uint8_t *s, size_t *len)
+{
+    while (*len > 0u && (s[*len - 1u] == '/' || s[*len - 1u] == '\\')) {
+        (*len)--;
+        s[*len] = '\0';
+    }
+}
+
+bool c64_hostfs_command(
+    c64_hostfs_volume *vol,
+    const uint8_t *name,
+    size_t name_length,
+    c64_drive_status_result *out_status)
+{
+    uint8_t buf[48];
+    size_t len;
+    size_t i;
+    bool ok;
+
+    if (out_status != NULL) {
+        *out_status = C64_DRIVE_STATUS_OK;
+    }
+    if (vol == NULL) {
+        if (out_status != NULL) {
+            *out_status = C64_DRIVE_STATUS_IO_ERROR;
+        }
+        return false;
+    }
+
+    /* Empty name: open command/status channel only. */
+    if (name == NULL || name_length == 0) {
+        c64_hostfs_set_status_ok(vol);
+        return true;
+    }
+    if (name_length >= sizeof(buf)) {
+        c64_hostfs_set_status(vol, 30, "SYNTAX ERROR");
+        if (out_status != NULL) {
+            *out_status = C64_DRIVE_STATUS_IO_ERROR;
+        }
+        return true;
+    }
+    memcpy(buf, name, name_length);
+    buf[name_length] = '\0';
+    len = name_length;
+
+    /* Uppercase ASCII letters for parsing; keep $5F left-arrow. */
+    for (i = 0; i < len; i++) {
+        buf[i] = c64_hostfs_upper(buf[i]);
+    }
+
+    /* Require CD…, or bare // / _ shorthands. */
+    {
+        bool is_cd = (len >= 2u && buf[0] == 'C' && buf[1] == 'D');
+        bool bare_root = (len == 2u && buf[0] == '/' && buf[1] == '/') ||
+            (len == 1u && buf[0] == '/');
+        bool bare_parent =
+            (len == 1u && buf[0] == (uint8_t)C64_HOSTFS_PETSCII_LEFT_ARROW);
+        if (!is_cd && !bare_root && !bare_parent) {
+            c64_hostfs_set_status(vol, 30, "SYNTAX ERROR");
+            if (out_status != NULL) {
+                *out_status = C64_DRIVE_STATUS_IO_ERROR;
+            }
+            return true;
+        }
+        if (is_cd) {
+            memmove(buf, buf + 2, len - 2u);
+            len -= 2u;
+            buf[len] = '\0';
+            if (len > 0u && buf[0] == ':') {
+                memmove(buf, buf + 1, len - 1u);
+                len -= 1u;
+                buf[len] = '\0';
+            }
+        }
+    }
+
+    c64_hostfs_trim_slashes(buf, &len);
+
+    /* Root: empty after CD, or "//", or "/" */
+    if (len == 0u || (len == 1u && buf[0] == '/') ||
+        (len == 2u && buf[0] == '/' && buf[1] == '/')) {
+        ok = c64_hostfs_cd_root(vol);
+        if (out_status != NULL) {
+            *out_status = ok ? C64_DRIVE_STATUS_OK : C64_DRIVE_STATUS_IO_ERROR;
+        }
+        return true;
+    }
+
+    /* Parent: "_" / left-arrow, or ".." */
+    if ((len == 1u && buf[0] == (uint8_t)C64_HOSTFS_PETSCII_LEFT_ARROW) ||
+        (len == 2u && buf[0] == '.' && buf[1] == '.')) {
+        ok = c64_hostfs_cd_parent(vol);
+        if (out_status != NULL) {
+            *out_status = ok ? C64_DRIVE_STATUS_OK : C64_DRIVE_STATUS_IO_ERROR;
+        }
+        return true;
+    }
+
+    /* Absolute-from-root: "//NAME" or "/NAME" */
+    if (buf[0] == '/') {
+        size_t start = 1u;
+        while (start < len && buf[start] == '/') {
+            start++;
+        }
+        ok = c64_hostfs_cd_root(vol);
+        if (!ok) {
+            if (out_status != NULL) {
+                *out_status = C64_DRIVE_STATUS_IO_ERROR;
+            }
+            return true;
+        }
+        if (start >= len) {
+            if (out_status != NULL) {
+                *out_status = C64_DRIVE_STATUS_OK;
+            }
+            return true;
+        }
+        /* Single path component for v1 (FB enters one level at a time). */
+        ok = c64_hostfs_cd_enter_name(vol, buf + start, len - start);
+        if (out_status != NULL) {
+            *out_status = ok ? C64_DRIVE_STATUS_OK : C64_DRIVE_STATUS_IO_ERROR;
+        }
+        return true;
+    }
+
+    /* Relative NAME (FB CD:NAME). */
+    ok = c64_hostfs_cd_enter_name(vol, buf, len);
+    if (out_status != NULL) {
+        *out_status = ok ? C64_DRIVE_STATUS_OK : C64_DRIVE_STATUS_IO_ERROR;
+    }
     return true;
 }

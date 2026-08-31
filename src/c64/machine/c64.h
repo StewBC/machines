@@ -205,6 +205,11 @@ typedef struct c64_drive_slot {
     c64_drive_directory_entry *entries;
     size_t entry_count;
     struct c64_hostfs_volume *hostfs;
+    /* HostFS command-channel (SA 15) KERNAL bookkeeping. */
+    bool hostfs_cmd_open;
+    uint8_t hostfs_cmd_la;
+    bool hostfs_status_chkin;
+    size_t hostfs_status_pos;
     /* UI disk LEDs: monotonic event counters; frontend holds on host time. */
     uint32_t led_read_seq;
     uint32_t led_write_seq;

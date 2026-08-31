@@ -8,7 +8,9 @@ in `c64.c`, `c1541.c`, `c1541_media.c`, `c64_hostfs.c`, runtime disk code.
 - D64: 35-track, error tails, BAM/directory, PRG extract/write, wildcards,
   `@:` replacement.
 - HostFS: host directory as volume (`c64_mount_hostfs` / `--disk N=<dir>`).
-  Trap-fast `$` / LOAD PRG / SAVE create-or-file-exists; no IEC ATN.
+  Trap-fast `$` / LOAD PRG / SAVE create-or-file-exists; channel-15 `CD` via
+  OPEN/CLOSE (+ status CHKIN/CHRIN); no IEC ATN. Spike:
+  `design/c64/hostfs-phase1-fb64-spike.md`.
 - Devices 8 and 9 have independent ordered disk queues. Images are
   read-only by default. Writable KERNAL SAVE updates the in-memory image;
   runtime flushes to the host path. Failed flushes leave the image dirty.

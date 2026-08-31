@@ -407,6 +407,156 @@ static void test_hostfs_save_sealed(void) {
     printf("PASS: test_hostfs_save_sealed\n");
 }
 
+static void setup_open_call(
+    c64_t *machine, const char *name, uint8_t la, uint8_t device, uint8_t sa)
+{
+    size_t length = strlen(name);
+    size_t i;
+
+    machine->cpu.cpu.pc = 0xffc0;
+    machine->cpu.cpu.sp = 0x01fd;
+    machine->bus.ram[0x01fe] = (uint8_t)(TEST_RETURN_ADDRESS & 0xff);
+    machine->bus.ram[0x01ff] = (uint8_t)(TEST_RETURN_ADDRESS >> 8);
+    machine->cpu.cpu.flags |= 0x01;
+    machine->bus.ram[0xb8] = la;
+    machine->bus.ram[0xba] = device;
+    machine->bus.ram[0xb9] = sa;
+    machine->bus.ram[0xb7] = (uint8_t)length;
+    machine->bus.ram[0xbb] = (uint8_t)(TEST_FILENAME_BUFFER & 0xff);
+    machine->bus.ram[0xbc] = (uint8_t)(TEST_FILENAME_BUFFER >> 8);
+    for (i = 0; i < length; ++i) {
+        machine->bus.ram[TEST_FILENAME_BUFFER + i] = (uint8_t)name[i];
+    }
+}
+
+static void setup_close_call(c64_t *machine, uint8_t la)
+{
+    machine->cpu.cpu.pc = 0xffc3;
+    machine->cpu.cpu.sp = 0x01fd;
+    machine->bus.ram[0x01fe] = (uint8_t)(TEST_RETURN_ADDRESS & 0xff);
+    machine->bus.ram[0x01ff] = (uint8_t)(TEST_RETURN_ADDRESS >> 8);
+    machine->cpu.cpu.X = la;
+    machine->cpu.cpu.flags |= 0x01;
+}
+
+static void test_hostfs_cd_channel(void)
+{
+    static c64_t c64;
+    char dir[128];
+    char path[512];
+    char error[128];
+    const uint8_t body[] = {0xA9, 0x55, 0x60};
+    const char *status;
+    char parent_cmd[8];
+    size_t i;
+
+    make_tmpdir(dir, sizeof(dir));
+    snprintf(path, sizeof(path), "%s/sub", dir);
+    expect_true("mkdir sub", HOSTFS_TEST_MKDIR(path) == 0 || errno == EEXIST);
+    write_host_prg(path, "nested.prg", 0xC000u, body, sizeof(body));
+    write_host_prg(dir, "root.prg", 0x8000u, body, sizeof(body));
+
+    reset_machine(&c64);
+    expect_true(
+        "mount",
+        c64_mount_hostfs(&c64, 9, dir, true) == C64_DRIVE_STATUS_OK);
+
+    /* OPEN 1,9,15,"CD:SUB":CLOSE 1 */
+    setup_open_call(&c64, "CD:SUB", 1, 9, 15);
+    expect_true("open CD:SUB", c64_step_instruction(&c64, error, sizeof(error)));
+    expect_success_return(&c64);
+    setup_close_call(&c64, 1);
+    expect_true("close after CD", c64_step_instruction(&c64, error, sizeof(error)));
+    expect_success_return(&c64);
+
+    /* LOAD "$",9 should list NESTED not ROOT */
+    setup_load_call(&c64, "$", 9, 0);
+    expect_true("load $ in sub", c64_step_instruction(&c64, error, sizeof(error)));
+    expect_success_return(&c64);
+    expect_true("cwd catalog has nested", c64.drives[1].entry_count >= 1);
+    {
+        int found_nested = 0;
+        int found_root = 0;
+        for (i = 0; i < c64.drives[1].entry_count; i++) {
+            char name[17];
+            size_t n = c64.drives[1].entries[i].filename_length;
+            if (n > 16u) {
+                n = 16u;
+            }
+            memcpy(name, c64.drives[1].entries[i].filename, n);
+            name[n] = '\0';
+            if (strcmp(name, "NESTED") == 0) {
+                found_nested = 1;
+            }
+            if (strcmp(name, "ROOT") == 0) {
+                found_root = 1;
+            }
+        }
+        expect_true("lists NESTED", found_nested);
+        expect_true("no ROOT in sub", !found_root);
+    }
+
+    setup_load_call(&c64, "NESTED", 9, 1);
+    expect_true("load nested", c64_step_instruction(&c64, error, sizeof(error)));
+    expect_success_return(&c64);
+    expect_true("nested byte", c64_debug_read_ram(&c64, 0xC000) == 0xA9);
+
+    /* Parent CD:_ (left arrow $5F) */
+    parent_cmd[0] = 'C';
+    parent_cmd[1] = 'D';
+    parent_cmd[2] = ':';
+    parent_cmd[3] = (char)0x5f;
+    parent_cmd[4] = '\0';
+    setup_open_call(&c64, parent_cmd, 1, 9, 15);
+    expect_true("open CD:parent", c64_step_instruction(&c64, error, sizeof(error)));
+    expect_success_return(&c64);
+    setup_close_call(&c64, 1);
+    expect_true("close parent", c64_step_instruction(&c64, error, sizeof(error)));
+    expect_success_return(&c64);
+
+    setup_load_call(&c64, "ROOT", 9, 1);
+    expect_true("load root after parent", c64_step_instruction(&c64, error, sizeof(error)));
+    expect_success_return(&c64);
+
+    /* CD// back to root (already there) then missing dir */
+    setup_open_call(&c64, "CD//", 1, 9, 15);
+    expect_true("open CD//", c64_step_instruction(&c64, error, sizeof(error)));
+    expect_success_return(&c64);
+    setup_close_call(&c64, 1);
+    expect_true("close root", c64_step_instruction(&c64, error, sizeof(error)));
+    expect_success_return(&c64);
+
+    setup_open_call(&c64, "CD:NOPE", 1, 9, 15);
+    expect_true("open missing", c64_step_instruction(&c64, error, sizeof(error)));
+    expect_success_return(&c64); /* OPEN succeeds; DOS status carries the error */
+    status = c64_hostfs_status(c64.drives[1].hostfs);
+    expect_true("status set", status != NULL && status[0] == '6' && status[1] == '2');
+    setup_close_call(&c64, 1);
+    expect_true("close missing", c64_step_instruction(&c64, error, sizeof(error)));
+    expect_success_return(&c64);
+
+    /* Status read via OPEN/CHKIN/CHRIN */
+    setup_open_call(&c64, "", 1, 9, 15);
+    expect_true("open status", c64_step_instruction(&c64, error, sizeof(error)));
+    expect_success_return(&c64);
+    c64.cpu.cpu.pc = 0xffc6;
+    c64.cpu.cpu.sp = 0x01fd;
+    c64.bus.ram[0x01fe] = (uint8_t)(TEST_RETURN_ADDRESS & 0xff);
+    c64.bus.ram[0x01ff] = (uint8_t)(TEST_RETURN_ADDRESS >> 8);
+    c64.cpu.cpu.X = 1;
+    c64.cpu.cpu.flags |= 0x01;
+    expect_true("chkin", c64_step_instruction(&c64, error, sizeof(error)));
+    expect_success_return(&c64);
+    c64.cpu.cpu.pc = 0xffcf;
+    c64.cpu.cpu.sp = 0x01fd;
+    c64.bus.ram[0x01fe] = (uint8_t)(TEST_RETURN_ADDRESS & 0xff);
+    c64.bus.ram[0x01ff] = (uint8_t)(TEST_RETURN_ADDRESS >> 8);
+    expect_true("chrin", c64_step_instruction(&c64, error, sizeof(error)));
+    expect_true("status first '0'", c64.cpu.cpu.A == '0');
+
+    printf("PASS: test_hostfs_cd_channel\n");
+}
+
 int main(void) {
     test_path_is_dir();
     test_mount_hostfs_basics();
@@ -417,6 +567,7 @@ int main(void) {
     test_hostfs_load_save_traps();
     test_hostfs_traps_with_emulate_1541();
     test_hostfs_save_sealed();
+    test_hostfs_cd_channel();
     printf("All HostFS mount/trap tests passed.\n");
     return 0;
 }
