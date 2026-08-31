@@ -25,7 +25,6 @@ The agents index points here: [`agents/README.md`](../agents/README.md) → Desi
 
 | Design | Status | Last worked on | Path |
 |--------|--------|----------------|------|
-| Control-port Inspector land + a2m sealed step | landed | 2026-08-30 | [`control-inspector-land.md`](control-inspector-land.md) |
 | c64m turbo/max vs VICE perf gap | landed | 2026-08-29 | [`c64/turbo-max-vice-perf-gap.md`](c64/turbo-max-vice-perf-gap.md) |
 
 ## Conventions
