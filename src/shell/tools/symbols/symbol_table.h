@@ -57,6 +57,34 @@ symbol_result symbol_table_remove_kind(
     symbol_table *table,
     symbol_source_kind source_kind);
 
+/* Raw slot count (includes tombstones). Iterate 0 .. slot_count-1 and skip
+ * name == NULL; there is no dense get_source(i). */
+size_t symbol_table_source_slot_count(const symbol_table *table);
+
+/* Number of non-tombstone sources (informational / UI caps only). */
+size_t symbol_table_source_count(const symbol_table *table);
+
+/* Look up one raw slot. SYMBOL_NOT_FOUND for OOR or tombstone. */
+symbol_result symbol_table_get_source_at(
+    const symbol_table *table,
+    uint32_t source_id,
+    symbol_source_kind *out_kind,
+    const char **out_name,
+    bool *out_enabled);
+
+/* Soft-disable / re-enable. SYMBOL_NOT_FOUND for tombstones and OOR. */
+symbol_result symbol_table_set_source_enabled_at(
+    symbol_table *table,
+    uint32_t source_id,
+    bool enabled);
+
+/* Resolve (kind, name) -> raw source_id. Skips tombstones. */
+symbol_result symbol_table_find_source_id(
+    const symbol_table *table,
+    symbol_source_kind kind,
+    const char *source_name,
+    uint32_t *out_source_id);
+
 symbol_result symbol_table_find_by_address(
     const symbol_table *table,
     uint16_t address,
@@ -74,7 +102,10 @@ symbol_result symbol_table_find_nearest_before(
     symbol_info *out_symbol,
     uint16_t *out_offset);
 
+/* All loaded symbol records, including those whose source is disabled. */
 size_t symbol_table_count(const symbol_table *table);
+/* Records whose source is live and enabled (publish / resolve view size). */
+size_t symbol_table_count_enabled(const symbol_table *table);
 symbol_result symbol_table_get(
     const symbol_table *table,
     size_t index,

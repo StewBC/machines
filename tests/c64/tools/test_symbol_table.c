@@ -1,6 +1,7 @@
 #include "symbol_table.h"
 #include "../test_file.h"
 
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -317,6 +318,16 @@ static int test_source_removal_clear_and_nearest(void)
         fprintf(stderr, "expected two symbols after source removal, got %zu\n", symbol_table_count(table));
         failures++;
     }
+    if (symbol_table_source_count(table) != 2) {
+        fprintf(stderr, "expected two live sources after remove_source, got %zu\n",
+            symbol_table_source_count(table));
+        failures++;
+    }
+    if (symbol_table_source_slot_count(table) < 3) {
+        fprintf(stderr, "expected tombstone hole to keep slot_count >= 3, got %zu\n",
+            symbol_table_source_slot_count(table));
+        failures++;
+    }
 
     failures += expect_result(
         symbol_table_remove_kind(table, SYMBOL_SOURCE_FILE),
@@ -330,10 +341,164 @@ static int test_source_removal_clear_and_nearest(void)
         symbol_table_find_by_name(table, "BASIC_START", &info),
         SYMBOL_OK,
         "kept builtin after kind removal");
+    if (symbol_table_source_count(table) != 1) {
+        fprintf(stderr, "expected one live source after remove_kind FILE, got %zu\n",
+            symbol_table_source_count(table));
+        failures++;
+    }
 
     symbol_table_clear(table);
     if (symbol_table_count(table) != 0) {
         fprintf(stderr, "expected zero symbols after clear, got %zu\n", symbol_table_count(table));
+        failures++;
+    }
+    if (symbol_table_source_count(table) != 0 || symbol_table_source_slot_count(table) != 0) {
+        fprintf(stderr, "expected empty sources after clear\n");
+        failures++;
+    }
+
+    symbol_table_destroy(table);
+    return failures;
+}
+
+static int test_source_enable_and_tombstone_reuse(void)
+{
+    int failures = 0;
+    symbol_table *table;
+    symbol_info info;
+    uint32_t asm_id = UINT32_MAX;
+    uint32_t file_id = UINT32_MAX;
+    uint32_t reused_id = UINT32_MAX;
+    uint32_t surviving_id = UINT32_MAX;
+    symbol_source_kind kind = SYMBOL_SOURCE_FILE;
+    const char *name = NULL;
+    bool enabled = false;
+
+    table = symbol_table_create();
+    if (table == NULL) {
+        fprintf(stderr, "symbol_table_create failed\n");
+        return 1;
+    }
+
+    failures += expect_result(
+        symbol_table_add(table, 0x1000, "A_LABEL", SYMBOL_SOURCE_ASSEMBLER, "prog_a", false),
+        SYMBOL_OK,
+        "add prog_a");
+    failures += expect_result(
+        symbol_table_add(table, 0x2000, "B_LABEL", SYMBOL_SOURCE_FILE, "prog_b.sym", false),
+        SYMBOL_OK,
+        "add prog_b");
+    failures += expect_result(
+        symbol_table_find_source_id(table, SYMBOL_SOURCE_ASSEMBLER, "prog_a", &asm_id),
+        SYMBOL_OK,
+        "find prog_a id");
+    failures += expect_result(
+        symbol_table_find_source_id(table, SYMBOL_SOURCE_FILE, "prog_b.sym", &file_id),
+        SYMBOL_OK,
+        "find prog_b id");
+    surviving_id = file_id;
+
+    if (symbol_table_count(table) != 2 || symbol_table_count_enabled(table) != 2) {
+        fprintf(stderr, "expected count==enabled==2 before disable\n");
+        failures++;
+    }
+
+    failures += expect_result(
+        symbol_table_set_source_enabled_at(table, asm_id, false),
+        SYMBOL_OK,
+        "disable prog_a");
+    failures += expect_result(
+        symbol_table_find_by_name(table, "A_LABEL", &info),
+        SYMBOL_NOT_FOUND,
+        "disabled prog_a not resolvable by name");
+    failures += expect_result(
+        symbol_table_find_by_address(table, 0x1000, &info),
+        SYMBOL_NOT_FOUND,
+        "disabled prog_a not resolvable by address");
+    failures += expect_result(
+        symbol_table_find_by_name(table, "B_LABEL", &info),
+        SYMBOL_OK,
+        "enabled prog_b still resolvable");
+    if (symbol_table_count(table) != 2) {
+        fprintf(stderr, "disable must keep records loaded, count=%zu\n", symbol_table_count(table));
+        failures++;
+    }
+    if (symbol_table_count_enabled(table) != 1) {
+        fprintf(stderr, "expected one enabled symbol after disable, got %zu\n",
+            symbol_table_count_enabled(table));
+        failures++;
+    }
+    failures += expect_result(
+        symbol_table_get_source_at(table, asm_id, &kind, &name, &enabled),
+        SYMBOL_OK,
+        "get disabled source");
+    if (enabled || kind != SYMBOL_SOURCE_ASSEMBLER || name == NULL || strcmp(name, "prog_a") != 0) {
+        fprintf(stderr, "disabled source metadata wrong\n");
+        failures++;
+    }
+
+    failures += expect_result(
+        symbol_table_set_source_enabled_at(table, asm_id, true),
+        SYMBOL_OK,
+        "re-enable prog_a");
+    failures += expect_result(
+        symbol_table_find_by_name(table, "A_LABEL", &info),
+        SYMBOL_OK,
+        "re-enabled prog_a resolvable");
+    if (symbol_table_count_enabled(table) != 2) {
+        fprintf(stderr, "expected two enabled after re-enable, got %zu\n",
+            symbol_table_count_enabled(table));
+        failures++;
+    }
+
+    /* Removing a different source must not remap surviving ids. */
+    failures += expect_result(
+        symbol_table_remove_source(table, SYMBOL_SOURCE_ASSEMBLER, "prog_a"),
+        SYMBOL_OK,
+        "tombstone prog_a");
+    failures += expect_result(
+        symbol_table_get_source_at(table, asm_id, &kind, &name, &enabled),
+        SYMBOL_NOT_FOUND,
+        "tombstone slot not enumerable");
+    failures += expect_result(
+        symbol_table_set_source_enabled_at(table, asm_id, true),
+        SYMBOL_NOT_FOUND,
+        "cannot enable tombstone");
+    failures += expect_result(
+        symbol_table_get_source_at(table, surviving_id, &kind, &name, &enabled),
+        SYMBOL_OK,
+        "surviving id stable after other remove");
+    if (kind != SYMBOL_SOURCE_FILE || name == NULL || strcmp(name, "prog_b.sym") != 0 || !enabled) {
+        fprintf(stderr, "surviving source metadata changed after tombstone\n");
+        failures++;
+    }
+    if (symbol_table_source_count(table) != 1) {
+        fprintf(stderr, "expected one live source after tombstone, got %zu\n",
+            symbol_table_source_count(table));
+        failures++;
+    }
+
+    /* Re-add should reuse the tombstone slot. */
+    failures += expect_result(
+        symbol_table_add(table, 0x3000, "C_LABEL", SYMBOL_SOURCE_ASSEMBLER, "prog_c", false),
+        SYMBOL_OK,
+        "add prog_c into tombstone");
+    failures += expect_result(
+        symbol_table_find_source_id(table, SYMBOL_SOURCE_ASSEMBLER, "prog_c", &reused_id),
+        SYMBOL_OK,
+        "find reused id");
+    if (reused_id != asm_id) {
+        fprintf(stderr, "expected tombstone reuse id %u, got %u\n", asm_id, reused_id);
+        failures++;
+    }
+    if (symbol_table_source_slot_count(table) != 2) {
+        fprintf(stderr, "tombstone reuse should not grow slot_count, got %zu\n",
+            symbol_table_source_slot_count(table));
+        failures++;
+    }
+    if (symbol_table_source_count(table) != 2) {
+        fprintf(stderr, "expected two live sources after reuse, got %zu\n",
+            symbol_table_source_count(table));
         failures++;
     }
 
@@ -469,6 +634,7 @@ int main(void)
     failures += test_scoped_names_and_display_resolver();
     failures += test_conflicts_and_overwrite();
     failures += test_source_removal_clear_and_nearest();
+    failures += test_source_enable_and_tombstone_reuse();
     failures += test_symbol_file_best_effort_load();
     failures += test_symbol_file_allows_duplicate_names();
 

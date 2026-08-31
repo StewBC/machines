@@ -11,7 +11,8 @@
 
 typedef struct symbol_source_record {
     symbol_source_kind kind;
-    char *name;
+    char *name;   /* NULL = tombstone; skipped by live-source APIs */
+    bool enabled; /* meaningful only when name != NULL; default true */
 } symbol_source_record;
 
 typedef struct symbol_record {
@@ -96,6 +97,26 @@ static void symbol_split_name(
     *out_display_name_offset = (uint16_t)(last_sep + 2);
 }
 
+static bool symbol_source_is_live(const symbol_source_record *source)
+{
+    return source != NULL && source->name != NULL;
+}
+
+static bool symbol_source_is_enabled(const symbol_source_record *source)
+{
+    return symbol_source_is_live(source) && source->enabled;
+}
+
+static void symbol_source_tombstone(symbol_source_record *source)
+{
+    if (source == NULL) {
+        return;
+    }
+    free(source->name);
+    source->name = NULL;
+    source->enabled = false;
+}
+
 static int symbol_find_source_id(
     const symbol_table *table,
     symbol_source_kind kind,
@@ -111,11 +132,32 @@ static int symbol_find_source_id(
     count = arrlen(table->sources);
     for (i = 0; i < count; ++i) {
         const symbol_source_record *source = &table->sources[i];
+        if (!symbol_source_is_live(source)) {
+            continue;
+        }
         if (source->kind == kind && strcmp(source->name, source_name) == 0) {
             return i;
         }
     }
 
+    return -1;
+}
+
+static int symbol_find_tombstone_slot(const symbol_table *table)
+{
+    int count;
+    int i;
+
+    if (table == NULL) {
+        return -1;
+    }
+
+    count = arrlen(table->sources);
+    for (i = 0; i < count; ++i) {
+        if (!symbol_source_is_live(&table->sources[i])) {
+            return i;
+        }
+    }
     return -1;
 }
 
@@ -126,7 +168,8 @@ static symbol_result symbol_get_or_add_source_id(
     uint32_t *out_source_id)
 {
     int source_id;
-    symbol_source_record source;
+    int tombstone;
+    char *name;
 
     source_id = symbol_find_source_id(table, kind, source_name);
     if (source_id >= 0) {
@@ -134,14 +177,28 @@ static symbol_result symbol_get_or_add_source_id(
         return SYMBOL_OK;
     }
 
-    source.kind = kind;
-    source.name = symbol_strdup(source_name);
-    if (source.name == NULL) {
+    name = symbol_strdup(source_name);
+    if (name == NULL) {
         return SYMBOL_OUT_OF_MEMORY;
     }
 
-    arrput(table->sources, source);
-    *out_source_id = (uint32_t)(arrlen(table->sources) - 1);
+    tombstone = symbol_find_tombstone_slot(table);
+    if (tombstone >= 0) {
+        table->sources[tombstone].kind = kind;
+        table->sources[tombstone].name = name;
+        table->sources[tombstone].enabled = true;
+        *out_source_id = (uint32_t)tombstone;
+        return SYMBOL_OK;
+    }
+
+    {
+        symbol_source_record source;
+        source.kind = kind;
+        source.name = name;
+        source.enabled = true;
+        arrput(table->sources, source);
+        *out_source_id = (uint32_t)(arrlen(table->sources) - 1);
+    }
     return SYMBOL_OK;
 }
 
@@ -179,6 +236,15 @@ static void symbol_rebuild_indexes(symbol_table *table)
     count = arrlen(table->entries);
     for (i = 0; i < count; ++i) {
         symbol_record *entry = &table->entries[i];
+        const symbol_source_record *source;
+
+        if (entry->source_id >= (uint32_t)arrlen(table->sources)) {
+            continue;
+        }
+        source = &table->sources[entry->source_id];
+        if (!symbol_source_is_enabled(source)) {
+            continue;
+        }
         table->primary_by_address[entry->address] = (uint32_t)i;
         shput(table->name_map, entry->name, (uint32_t)i);
     }
@@ -326,7 +392,6 @@ symbol_result symbol_table_remove_source(
     const char *source_name)
 {
     int source_id;
-    int removed;
     int i;
 
     if (table == NULL || source_name == NULL || !symbol_source_kind_valid(source_kind)) {
@@ -338,22 +403,17 @@ symbol_result symbol_table_remove_source(
         return SYMBOL_NOT_FOUND;
     }
 
-    removed = 0;
     for (i = 0; i < arrlen(table->entries);) {
         symbol_record *entry = &table->entries[i];
         if (entry->source_id == (uint32_t)source_id) {
             symbol_free_entry(entry);
             arrdel(table->entries, i);
-            removed = 1;
             continue;
         }
         ++i;
     }
 
-    if (!removed) {
-        return SYMBOL_NOT_FOUND;
-    }
-
+    symbol_source_tombstone(&table->sources[source_id]);
     symbol_rebuild_indexes(table);
     return SYMBOL_OK;
 }
@@ -371,7 +431,14 @@ symbol_result symbol_table_remove_kind(
 
     for (i = 0; i < arrlen(table->entries);) {
         symbol_record *entry = &table->entries[i];
-        if (table->sources[entry->source_id].kind == source_kind) {
+        const symbol_source_record *source;
+
+        if (entry->source_id >= (uint32_t)arrlen(table->sources)) {
+            ++i;
+            continue;
+        }
+        source = &table->sources[entry->source_id];
+        if (symbol_source_is_live(source) && source->kind == source_kind) {
             symbol_free_entry(entry);
             arrdel(table->entries, i);
             removed = 1;
@@ -380,11 +447,124 @@ symbol_result symbol_table_remove_kind(
         ++i;
     }
 
+    for (i = 0; i < arrlen(table->sources); ++i) {
+        symbol_source_record *source = &table->sources[i];
+        if (symbol_source_is_live(source) && source->kind == source_kind) {
+            symbol_source_tombstone(source);
+            removed = 1;
+        }
+    }
+
     if (!removed) {
         return SYMBOL_NOT_FOUND;
     }
 
     symbol_rebuild_indexes(table);
+    return SYMBOL_OK;
+}
+
+size_t symbol_table_source_slot_count(const symbol_table *table)
+{
+    return table == NULL ? 0u : (size_t)arrlen(table->sources);
+}
+
+size_t symbol_table_source_count(const symbol_table *table)
+{
+    size_t count = 0;
+    int i;
+
+    if (table == NULL) {
+        return 0u;
+    }
+
+    for (i = 0; i < arrlen(table->sources); ++i) {
+        if (symbol_source_is_live(&table->sources[i])) {
+            count++;
+        }
+    }
+    return count;
+}
+
+symbol_result symbol_table_get_source_at(
+    const symbol_table *table,
+    uint32_t source_id,
+    symbol_source_kind *out_kind,
+    const char **out_name,
+    bool *out_enabled)
+{
+    const symbol_source_record *source;
+
+    if (table == NULL) {
+        return SYMBOL_INVALID;
+    }
+    if (source_id >= (uint32_t)arrlen(table->sources)) {
+        return SYMBOL_NOT_FOUND;
+    }
+
+    source = &table->sources[source_id];
+    if (!symbol_source_is_live(source)) {
+        return SYMBOL_NOT_FOUND;
+    }
+
+    if (out_kind != NULL) {
+        *out_kind = source->kind;
+    }
+    if (out_name != NULL) {
+        *out_name = source->name;
+    }
+    if (out_enabled != NULL) {
+        *out_enabled = source->enabled;
+    }
+    return SYMBOL_OK;
+}
+
+symbol_result symbol_table_set_source_enabled_at(
+    symbol_table *table,
+    uint32_t source_id,
+    bool enabled)
+{
+    symbol_source_record *source;
+
+    if (table == NULL) {
+        return SYMBOL_INVALID;
+    }
+    if (source_id >= (uint32_t)arrlen(table->sources)) {
+        return SYMBOL_NOT_FOUND;
+    }
+
+    source = &table->sources[source_id];
+    if (!symbol_source_is_live(source)) {
+        return SYMBOL_NOT_FOUND;
+    }
+
+    if (source->enabled == enabled) {
+        return SYMBOL_OK;
+    }
+
+    source->enabled = enabled;
+    symbol_rebuild_indexes(table);
+    return SYMBOL_OK;
+}
+
+symbol_result symbol_table_find_source_id(
+    const symbol_table *table,
+    symbol_source_kind kind,
+    const char *source_name,
+    uint32_t *out_source_id)
+{
+    int source_id;
+
+    if (table == NULL || source_name == NULL || out_source_id == NULL ||
+        !symbol_source_kind_valid(kind)) {
+        return SYMBOL_INVALID;
+    }
+
+    source_id = symbol_find_source_id(table, kind, source_name);
+    if (source_id < 0) {
+        return SYMBOL_NOT_FOUND;
+    }
+
+    *out_source_id = (uint32_t)source_id;
     return SYMBOL_OK;
 }
 
@@ -463,6 +643,27 @@ size_t symbol_table_count(const symbol_table *table)
     return table == NULL ? 0u : (size_t)arrlen(table->entries);
 }
 
+size_t symbol_table_count_enabled(const symbol_table *table)
+{
+    size_t count = 0;
+    int i;
+
+    if (table == NULL) {
+        return 0u;
+    }
+
+    for (i = 0; i < arrlen(table->entries); ++i) {
+        const symbol_record *entry = &table->entries[i];
+        if (entry->source_id >= (uint32_t)arrlen(table->sources)) {
+            continue;
+        }
+        if (symbol_source_is_enabled(&table->sources[entry->source_id])) {
+            count++;
+        }
+    }
+    return count;
+}
+
 symbol_result symbol_table_get(
     const symbol_table *table,
     size_t index,
@@ -527,28 +728,36 @@ static size_t symbol_resolver_enumerate(
     size_t max_entries)
 {
     symbol_table *table = (symbol_table *)userdata;
-    size_t count;
-    size_t copy_count;
-    size_t i;
+    size_t enabled_count;
+    size_t written = 0;
+    int i;
 
-    count = symbol_table_count(table);
-    copy_count = count < max_entries ? count : max_entries;
+    enabled_count = symbol_table_count_enabled(table);
 
     if (out_entries != NULL) {
-        for (i = 0; i < copy_count; ++i) {
-            out_entries[i].label = table->entries[i].name;
-            out_entries[i].scope_path = table->entries[i].scope_path_length > 0 ?
-                table->entries[i].name :
+        for (i = 0; i < arrlen(table->entries) && written < max_entries; ++i) {
+            const symbol_record *entry = &table->entries[i];
+            if (entry->source_id >= (uint32_t)arrlen(table->sources)) {
+                continue;
+            }
+            if (!symbol_source_is_enabled(&table->sources[entry->source_id])) {
+                continue;
+            }
+            out_entries[written].label = entry->name;
+            out_entries[written].scope_path = entry->scope_path_length > 0 ?
+                entry->name :
                 "";
-            out_entries[i].display_name =
-                table->entries[i].name + table->entries[i].display_name_offset;
-            out_entries[i].scope_path_length = table->entries[i].scope_path_length;
-            out_entries[i].display_name_length = strlen(out_entries[i].display_name);
-            out_entries[i].address = table->entries[i].address;
+            out_entries[written].display_name =
+                entry->name + entry->display_name_offset;
+            out_entries[written].scope_path_length = entry->scope_path_length;
+            out_entries[written].display_name_length =
+                strlen(out_entries[written].display_name);
+            out_entries[written].address = entry->address;
+            written++;
         }
     }
 
-    return count;
+    return enabled_count;
 }
 
 void symbol_table_make_resolver(symbol_table *table, symbol_resolver *resolver)
