@@ -734,15 +734,19 @@ not when powered-empty, and not when a HostFS folder is mounted. That keeps free
 fast for PRG/CRT/BASIC and avoids an idle second drive answering ATN. Ejecting media
 alone does **not** power off.
 
-**HostFS (folder mount).** A directory path on `--disk N=<dir>` (or a future Use This
-Folder control) mounts that folder as a HostFS volume on device 8 or 9. The volume is
-trap-fast (not a 1541 on the IEC bus). Phase 0 guest I/O:
+**HostFS (folder mount).** A directory path on `--disk N=<dir>`, or **Use This Folder**
+in the disk file browser after clicking **[8]** / **[9]**, mounts that folder as a
+HostFS volume. The volume is trap-fast (not a 1541 on the IEC bus). Phase 0 guest I/O:
 
 - `LOAD "$",N` lists host `.prg` files and subdirectories (`DIR`), sorted by CBM name,
   ending with `65535 BLOCKS FREE.`
 - `LOAD "NAME",N,1` / `LOAD "*",N,1` load PRGs (raw host `name.prg`; other extensions skipped)
 - `SAVE "NAME",N` creates `NAME.prg` (fails if the name already exists; no `@:` yet)
 - HostFS still traps when `emulate_1541=1` (real 1541 can stay on the other device)
+
+HostFS is a single mount (no multi-image queue / Swap). Opening a `.d64`/`.g64` or
+Shift+adding an image while HostFS is mounted replaces HostFS with an IMAGE queue.
+Folders are never enqueued.
 
 Subdirectory `CD` / FileBrowser navigation is not in Phase 0.
 
@@ -759,12 +763,14 @@ A unit turns **off** when you:
 - Click the **green** power LED (ejects any media / clears the queue, then powers off)
 - Use control-port `power-drive 8 off`
 
-**[8] / [9]** - Soft power-on for that unit, then open a file browser. Selecting an image
-**replaces** the entire queue with that one disk and mounts it immediately.
+**[8] / [9]** - Soft power-on for that unit, then open a file browser (**Mount Disk /
+HostFS**). **Open** mounts a selected image and replaces the queue; **Use This Folder**
+mounts the shown directory as HostFS (also replaces any queue).
 
 **Shift+[8] / Shift+[9]** - Soft power-on, then open a file browser to **add** an image
-into the queue immediately after the currently mounted disk (same as the former **[Add]**
-button). If the drive is empty, the image is added and mounted.
+into the IMAGE queue after the current disk. If the unit is empty, the image is added
+and mounted. While HostFS is mounted, Shift+add replaces HostFS with that image (HostFS
+is never a queue entry).
 
 **(LED)** - Power **switch** for that unit: **green** = powered (click to eject media and
 power off), **red** = off (click to power on). Separate from the corner activity LEDs

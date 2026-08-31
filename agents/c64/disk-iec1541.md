@@ -109,5 +109,10 @@ RUN log.
 
 ```sh
 ./build/c64m --disk 8=path/to/game.d64 --autorun
+./build/c64m --disk 9=path/to/host/folder
 ./build/c64m --crt path/to/cart.crt
 ```
+
+Machine UI: **[8]/[9]** opens **Mount Disk / HostFS** with **Open** (image) and
+**Use This Folder** (HostFS). HostFS has no multi-image queue; Shift+add while
+HostFS is mounted replaces it with the chosen image.

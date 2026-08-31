@@ -403,6 +403,8 @@ typedef struct frontend_file_browser_state {
     float list_visible_h;       /* measured inner height of the list group, in px */
     int browse_slot;            /* frontend_browse_slot for this session, -1 = none */
     bool pick_dir;              /* folder-select mode: commit the current directory */
+    /* Disk Mount: also offer Use This Folder beside Open (HostFS). */
+    bool allow_folder_mount;
 } frontend_file_browser_state;
 
 struct frontend {
@@ -5680,6 +5682,24 @@ static void frontend_draw_memory(frontend *ui, struct nk_rect bounds, const fron
     }
 }
 
+static bool frontend_disk_slot_is_hostfs(
+    const frontend_debug_state *debug_state,
+    int drv,
+    const app_disk_slot *slot)
+{
+    if (debug_state != NULL && drv >= 0 && drv < 2 &&
+        debug_state->has_disk_status[drv] &&
+        debug_state->disk_status[drv].mounted != 0 &&
+        debug_state->disk_status[drv].image_kind == C64_DRIVE_IMAGE_HOSTFS) {
+        return true;
+    }
+    if (slot != NULL && slot->count == 1 && slot->paths[0] != NULL &&
+        platform_fs_is_dir(slot->paths[0])) {
+        return true;
+    }
+    return false;
+}
+
 static const char *frontend_disk_label(const frontend_debug_state *debug_state, uint8_t device)
 {
     size_t index;
@@ -5848,9 +5868,16 @@ static void frontend_draw_misc_programs(frontend *ui, const frontend_debug_state
                     device);
             }
 
-            /* Disk name selector: combo when queue has entries, plain label otherwise */
+            /* Disk name selector: combo for IMAGE queues; HostFS is a single
+               mount (no Swap / queue combo). */
             nk_layout_row_push(ctx, 0.44f);
-            if (slot->count > 0) {
+            if (frontend_disk_slot_is_hostfs(debug_state, drv, slot)) {
+                const char *label = frontend_disk_label(debug_state, device);
+                if (slot->count > 0 && slot->paths[0] != NULL) {
+                    label = path_basename(slot->paths[0]);
+                }
+                nk_label(ctx, label != NULL ? label : "HostFS", NK_TEXT_LEFT);
+            } else if (slot->count > 0) {
                 const char *labels[C64M_DRIVE_COUNT];
                 int label_count = slot->count < C64M_DRIVE_COUNT ? slot->count : C64M_DRIVE_COUNT;
                 int i;
@@ -8871,6 +8898,9 @@ void frontend_open_file_browser(
     dlg->disk_device = disk_device;
     dlg->selected = -1;
     dlg->pick_dir = (purpose == FRONTEND_DEBUGGER_INTENT_CONFIG_PICK_PATH_DIALOG);
+    /* Replace-mount only — Shift+Add must not enqueue folders. */
+    dlg->allow_folder_mount =
+        (purpose == FRONTEND_DEBUGGER_INTENT_DISK_MOUNT_DIALOG);
 
     if (save_mode && dlg->default_extension[0] != '\0') {
         snprintf(dlg->filename, sizeof(dlg->filename), "untitled.%s", dlg->default_extension);
@@ -8929,6 +8959,20 @@ static void frontend_file_browser_activate(frontend *ui, frontend_file_browser_s
 
     frontend_file_browser_remember_dir(ui, dlg);
     frontend_push_file_browser_result_intent(ui, dlg->purpose, joined, dlg->disk_device);
+    dlg->open = false;
+}
+
+/* Commit the directory currently shown (Paths pick_dir, or disk HostFS mount). */
+static void frontend_file_browser_commit_folder(
+    frontend *ui, frontend_file_browser_state *dlg)
+{
+    if (dlg->current_dir[0] == '\0') {
+        snprintf(dlg->error, sizeof(dlg->error), "No folder to select");
+        return;
+    }
+    frontend_file_browser_remember_dir(ui, dlg);
+    frontend_push_file_browser_result_intent(
+        ui, dlg->purpose, dlg->current_dir, dlg->disk_device);
     dlg->open = false;
 }
 
@@ -9254,21 +9298,34 @@ static void frontend_draw_file_browser(frontend *ui, int width, int height)
             nk_spacing(ctx, 1);
         }
 
-        nk_layout_row_dynamic(ctx, 24.0f, 2);
-        if (nk_button_label(ctx, "Cancel")) {
-            dlg->open = false;
-        }
-        if (nk_button_label(ctx, dlg->pick_dir ? "Use This Folder" :
-                (dlg->save_mode ? "Save" : "Open"))) {
-            if (dlg->pick_dir) {
-                /* Return the currently shown directory, not a file. */
-                frontend_push_file_browser_result_intent(ui, dlg->purpose,
-                    dlg->current_dir, dlg->disk_device);
+        /* Paths: Cancel | Use This Folder.
+           Disk Mount: Cancel | Use This Folder | Open (image or HostFS).
+           Everything else: Cancel | Open/Save. */
+        if (dlg->allow_folder_mount && !dlg->pick_dir && !dlg->save_mode) {
+            nk_layout_row_dynamic(ctx, 24.0f, 3);
+            if (nk_button_label(ctx, "Cancel")) {
                 dlg->open = false;
-            } else if (dlg->save_mode) {
-                frontend_file_browser_commit_save(ui, dlg);
-            } else {
+            }
+            if (nk_button_label(ctx, "Use This Folder")) {
+                frontend_file_browser_commit_folder(ui, dlg);
+            }
+            if (nk_button_label(ctx, "Open")) {
                 frontend_file_browser_activate(ui, dlg, dlg->selected);
+            }
+        } else {
+            nk_layout_row_dynamic(ctx, 24.0f, 2);
+            if (nk_button_label(ctx, "Cancel")) {
+                dlg->open = false;
+            }
+            if (nk_button_label(ctx, dlg->pick_dir ? "Use This Folder" :
+                    (dlg->save_mode ? "Save" : "Open"))) {
+                if (dlg->pick_dir) {
+                    frontend_file_browser_commit_folder(ui, dlg);
+                } else if (dlg->save_mode) {
+                    frontend_file_browser_commit_save(ui, dlg);
+                } else {
+                    frontend_file_browser_activate(ui, dlg, dlg->selected);
+                }
             }
         }
 
@@ -9331,14 +9388,13 @@ static void frontend_draw_file_browser(frontend *ui, int width, int height)
                     sel_entry = &dlg->listing.entries[dlg->filtered[dlg->selected]];
                 }
                 /* A highlighted folder is always entered (like a double-click).
-                   Otherwise Enter mirrors the footer button: pick the folder in
-                   folder-select mode, Save in save mode, Open/mount otherwise. */
+                   Otherwise Enter mirrors the primary footer action. Disk Mount's
+                   Use This Folder is button-only so Enter never mounts a parent
+                   while browsing into a HostFS tree. */
                 if (sel_entry != NULL && sel_entry->is_dir) {
                     frontend_file_browser_activate(ui, dlg, dlg->selected);
                 } else if (dlg->pick_dir) {
-                    frontend_push_file_browser_result_intent(ui, dlg->purpose,
-                        dlg->current_dir, dlg->disk_device);
-                    dlg->open = false;
+                    frontend_file_browser_commit_folder(ui, dlg);
                 } else if (dlg->save_mode) {
                     frontend_file_browser_commit_save(ui, dlg);
                 } else {

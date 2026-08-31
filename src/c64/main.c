@@ -10,6 +10,7 @@
 #include "paste_parser.h"
 #include "platform.h"
 #include "platform_audio.h"
+#include "platform_fs.h"
 #include "runtime.h"
 #include "runtime_client.h"
 #include "runtime_history_wire.h"
@@ -4564,17 +4565,19 @@ static void dispatch_debugger_intents(
 
             case FRONTEND_DEBUGGER_INTENT_DISK_MOUNT_DIALOG:
                 if (intent.disk_device == 8 || intent.disk_device == 9) {
-                    /* Device button = soft power switch + replace-mount flow. */
+                    /* Device button = soft power switch + replace-mount flow.
+                       Browser offers Open (image) and Use This Folder (HostFS). */
                     (void)runtime_client_power_on_drive(client, intent.disk_device);
-                    /* Empty filter: show .d64 and .g64 (and other files). */
                     frontend_open_file_browser(ui, FRONTEND_DEBUGGER_INTENT_DISK_MOUNT_DIALOG,
-                        "Mount Disk Image", false, "", NULL, intent.disk_device);
+                        "Mount Disk / HostFS", false, "", NULL, intent.disk_device);
                 }
                 break;
 
             case FRONTEND_DEBUGGER_INTENT_DISK_ADD_DIALOG:
                 if (intent.disk_device == 8 || intent.disk_device == 9) {
                     (void)runtime_client_power_on_drive(client, intent.disk_device);
+                    /* IMAGE queue only — folders are not enqueued (Use This Folder
+                       on the replace-mount dialog / path-kind replace instead). */
                     frontend_open_file_browser(ui, FRONTEND_DEBUGGER_INTENT_DISK_ADD_DIALOG,
                         "Add Disk Image", false, "", NULL, intent.disk_device);
                 }
@@ -4903,6 +4906,8 @@ static void dispatch_debugger_intents(
                         break;
 
                     case FRONTEND_DEBUGGER_INTENT_DISK_MOUNT_DIALOG:
+                        /* Path kind: file → IMAGE, directory → HostFS. Always
+                           replaces the unit's queue with this single path. */
                         sent = runtime_client_mount_d64_ex(
                             client, intent.disk_device, intent.file_browser_path, false);
                         if (sent) {
@@ -4915,18 +4920,38 @@ static void dispatch_debugger_intents(
                     case FRONTEND_DEBUGGER_INTENT_DISK_ADD_DIALOG:
                         {
                             app_disk_slot *slot = &options->disk_slots[intent.disk_device];
-                            bool was_empty = slot->count == 0;
-                            if (app_disk_slot_add_after_current(slot, intent.file_browser_path)) {
-                                if (was_empty) {
-                                    sent = runtime_client_mount_d64_ex(
-                                        client,
-                                        intent.disk_device,
-                                        slot->paths[0],
-                                        app_disk_slot_current_writable(slot));
-                                } else {
-                                    sent = true;
+                            bool path_is_dir = platform_fs_is_dir(intent.file_browser_path);
+                            bool hostfs_mounted =
+                                slot->count == 1 && slot->paths[0] != NULL &&
+                                platform_fs_is_dir(slot->paths[0]);
+
+                            /* HostFS is never a queue entry: folder picks and
+                               Shift+add while HostFS is mounted both replace. */
+                            if (path_is_dir || hostfs_mounted) {
+                                sent = runtime_client_mount_d64_ex(
+                                    client,
+                                    intent.disk_device,
+                                    intent.file_browser_path,
+                                    false);
+                                if (sent) {
+                                    app_disk_slot_set(slot, intent.file_browser_path);
+                                    frontend_set_disk_queue(ui, intent.disk_device, slot);
                                 }
-                                frontend_set_disk_queue(ui, intent.disk_device, slot);
+                            } else {
+                                bool was_empty = slot->count == 0;
+                                if (app_disk_slot_add_after_current(
+                                        slot, intent.file_browser_path)) {
+                                    if (was_empty) {
+                                        sent = runtime_client_mount_d64_ex(
+                                            client,
+                                            intent.disk_device,
+                                            slot->paths[0],
+                                            app_disk_slot_current_writable(slot));
+                                    } else {
+                                        sent = true;
+                                    }
+                                    frontend_set_disk_queue(ui, intent.disk_device, slot);
+                                }
                             }
                         }
                         break;
