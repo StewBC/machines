@@ -741,9 +741,9 @@ HostFS volume. The volume is trap-fast (not a 1541 on the IEC bus). Advertise as
 
 | Feature | Behavior |
 |---------|----------|
-| `LOAD "$",N` | Lists host `.prg` as `PRG` and subdirs as `DIR` (sorted CBM names); ends with `65535 BLOCKS FREE.` |
-| `LOAD "NAME",N` / `,N,1` | Load PRG from cwd (`name.prg`; other extensions skipped) |
-| `LOAD "*",N` | First PRG in sorted catalog order |
+| `LOAD "$",N` | Lists cwd files (sorted CBM names); ends with `65535 BLOCKS FREE.` Dirs=`DIR`; `.seq`=`SEQ`; `.prg` and all other regular files=`PRG` (extensionless names like `fb64` included). Dotfiles hidden. |
+| `LOAD "NAME",N` / `,N,1` | Load a PRG-typed catalog entry from cwd (host path may be `name`, `name.prg`, or another basename) |
+| `LOAD "*",N` | First PRG-typed entry in sorted catalog order |
 | `SAVE "NAME",N` | Create `NAME.prg` in cwd if new; fail if name exists (no `@:` yet) |
 | `CD` (channel 15) | `CD:SUB`, `CD:_` (left-arrow `$5F`), `CD//` (and `CD//NAME/` / `CD/NAME/` forms) via `OPEN 1,N,15,"...":CLOSE 1` |
 | Status | `OPEN 1,N,15` then `CHKIN`/`CHRIN`: `00, OK,00,00` or DOS error text (e.g. `62, FILE NOT FOUND,00,00`) |

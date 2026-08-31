@@ -299,7 +299,7 @@ static void test_hostfs_load_save_traps(void) {
 
     make_tmpdir(dir, sizeof(dir));
     write_host_prg(dir, "hello.prg", 0xC000u, body, sizeof(body));
-    /* Extra files: a dir and a skipped .txt */
+    /* Extra: dir, unknown-ext file (listed as PRG), extensionless PRG, dotfile (hidden). */
     snprintf(path, sizeof(path), "%s/sub", dir);
     expect_true("mkdir sub", HOSTFS_TEST_MKDIR(path) == 0 || errno == EEXIST);
     snprintf(path, sizeof(path), "%s/notes.txt", dir);
@@ -307,12 +307,46 @@ static void test_hostfs_load_save_traps(void) {
     expect_true("notes", f != NULL);
     fputs("x", f);
     fclose(f);
+    write_host_prg(dir, "fb64", 0xC100u, body, sizeof(body));
+    snprintf(path, sizeof(path), "%s/.DS_Store", dir);
+    f = fopen(path, "wb");
+    expect_true("dotfile", f != NULL);
+    fputs("x", f);
+    fclose(f);
 
     reset_machine(&c64);
     expect_true(
         "mount",
         c64_mount_hostfs(&c64, 9, dir, true) == C64_DRIVE_STATUS_OK);
-    expect_true("catalog has entries", c64.drives[1].entry_count >= 2);
+    /* HELLO, NOTES.TXT, FB64, SUB — not .DS_Store */
+    expect_true("catalog has entries", c64.drives[1].entry_count >= 4);
+    {
+        int found_fb64 = 0;
+        int found_notes = 0;
+        int found_dot = 0;
+        size_t i;
+        for (i = 0; i < c64.drives[1].entry_count; i++) {
+            char name[17];
+            size_t n = c64.drives[1].entries[i].filename_length;
+            if (n > 16u) {
+                n = 16u;
+            }
+            memcpy(name, c64.drives[1].entries[i].filename, n);
+            name[n] = '\0';
+            if (strcmp(name, "FB64") == 0) {
+                found_fb64 = 1;
+            }
+            if (strcmp(name, "NOTES.TXT") == 0) {
+                found_notes = 1;
+            }
+            if (name[0] == '.') {
+                found_dot = 1;
+            }
+        }
+        expect_true("lists extensionless FB64", found_fb64);
+        expect_true("lists NOTES.TXT as PRG name", found_notes);
+        expect_true("hides dotfiles", !found_dot);
+    }
 
     /* LOAD "$",9 */
     setup_load_call(&c64, "$", 9, 0);
@@ -325,6 +359,12 @@ static void test_hostfs_load_save_traps(void) {
     expect_success_return(&c64);
     expect_true("loaded LDA", c64_debug_read_ram(&c64, 0xC000) == 0xA9);
     expect_true("loaded imm", c64_debug_read_ram(&c64, 0xC001) == 0x01);
+
+    /* LOAD "FB64",9,1 — extensionless host file */
+    setup_load_call(&c64, "FB64", 9, 1);
+    expect_true("step FB64", c64_step_instruction(&c64, error, sizeof(error)));
+    expect_success_return(&c64);
+    expect_true("fb64 LDA", c64_debug_read_ram(&c64, 0xC100) == 0xA9);
 
     /* LOAD "*",9,1 — first PRG in sorted catalog */
     setup_load_call(&c64, "*", 9, 1);

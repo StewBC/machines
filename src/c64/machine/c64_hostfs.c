@@ -298,6 +298,10 @@ bool c64_hostfs_rescan(c64_hostfs_volume *vol)
         if (strcmp(name, ".") == 0 || strcmp(name, "..") == 0) {
             continue;
         }
+        /* Dotfiles (.DS_Store, .git, …) stay host-only. */
+        if (name[0] == '.') {
+            continue;
+        }
         name_len = strlen(name);
         if (name_len == 0) {
             continue;
@@ -322,30 +326,50 @@ bool c64_hostfs_rescan(c64_hostfs_volume *vol)
         if (!C64_HOSTFS_ISREG(st.st_mode)) {
             continue;
         }
-        /* Phase 0: only .prg (case-insensitive). */
-        if (name_len < 5 || name[name_len - 4] != '.' ||
-            (name[name_len - 3] != 'p' && name[name_len - 3] != 'P') ||
-            (name[name_len - 2] != 'r' && name[name_len - 2] != 'R') ||
-            (name[name_len - 1] != 'g' && name[name_len - 1] != 'G')) {
-            fprintf(stderr, "HostFS: skip (not .prg): %s\n", name);
-            continue;
-        }
+        /*
+         * Catalog policy: every regular non-dotfile is visible.
+         *   .prg  → PRG, CBM name = stem (SAVE round-trip)
+         *   .seq  → SEQ, CBM name = stem (I/O still deferred)
+         *   else  → PRG, CBM name = full basename (fb64, xxx.txt, …)
+         */
         {
             char stem[C64_HOSTFS_BASENAME_MAX];
-            size_t stem_len = name_len - 4u;
-            if (stem_len >= sizeof(stem)) {
-                stem_len = sizeof(stem) - 1u;
+            const char *mangle_src = name;
+            c64_drive_file_type ftype = C64_DRIVE_FILE_PRG;
+            size_t ext = 0;
+
+            if (name_len >= 4u && name[name_len - 4u] == '.') {
+                char e0 = name[name_len - 3u];
+                char e1 = name[name_len - 2u];
+                char e2 = name[name_len - 1u];
+                if ((e0 == 'p' || e0 == 'P') && (e1 == 'r' || e1 == 'R') &&
+                    (e2 == 'g' || e2 == 'G')) {
+                    ext = 4u;
+                    ftype = C64_DRIVE_FILE_PRG;
+                } else if (
+                    (e0 == 's' || e0 == 'S') && (e1 == 'e' || e1 == 'E') &&
+                    (e2 == 'q' || e2 == 'Q')) {
+                    ext = 4u;
+                    ftype = C64_DRIVE_FILE_SEQ;
+                }
             }
-            memcpy(stem, name, stem_len);
-            stem[stem_len] = '\0';
-            c64_hostfs_mangle_cbm(stem, cbm, sizeof(cbm), &cbm_len);
+            if (ext != 0u) {
+                size_t stem_len = name_len - ext;
+                if (stem_len >= sizeof(stem)) {
+                    stem_len = sizeof(stem) - 1u;
+                }
+                memcpy(stem, name, stem_len);
+                stem[stem_len] = '\0';
+                mangle_src = stem;
+            }
+            c64_hostfs_mangle_cbm(mangle_src, cbm, sizeof(cbm), &cbm_len);
             c64_hostfs_unique_cbm(vol, cbm, sizeof(cbm), &cbm_len);
             if (!c64_hostfs_catalog_push(
                     vol,
                     full,
                     cbm,
                     cbm_len,
-                    C64_DRIVE_FILE_PRG,
+                    ftype,
                     c64_hostfs_blocks_for_size((size_t)st.st_size))) {
                 closedir(dir);
                 return false;
