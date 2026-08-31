@@ -13,12 +13,16 @@ enum {
     C64_KERNAL_OPEN_ENTRY = 0xffc0,
     C64_KERNAL_CLOSE_ENTRY = 0xffc3,
     C64_KERNAL_CHKIN_ENTRY = 0xffc6,
+    C64_KERNAL_CHKOUT_ENTRY = 0xffc9,
     C64_KERNAL_CHRIN_ENTRY = 0xffcf,
+    C64_KERNAL_CHROUT_ENTRY = 0xffd2,
     C64_KERNAL_LOAD_ENTRY = 0xffd5,
     C64_KERNAL_SAVE_ENTRY = 0xffd8,
+    C64_KERNAL_CLALL_ENTRY = 0xffe7,
     C64_ZP_STATUS = 0x90,
     C64_ZP_LDTND = 0x98,
     C64_ZP_DFLTN = 0x99,
+    C64_ZP_DFLTO = 0x9a,
     C64_ZP_EAL = 0xae,
     C64_ZP_LOGICAL_FILE = 0xb8,
     C64_ZP_FILENAME_LENGTH = 0xb7,
@@ -754,10 +758,6 @@ static bool c64_try_hostfs_open_trap(c64_t *machine)
 
     la = machine->bus.ram[C64_ZP_LOGICAL_FILE];
     sa = machine->bus.ram[C64_ZP_SECONDARY_ADDRESS];
-    /* Phase 1: only command channel (SA 15). */
-    if ((sa & 0x0fu) != 15u) {
-        return false;
-    }
 
     filename_length = machine->bus.ram[C64_ZP_FILENAME_LENGTH];
     filename_pointer = c64_read_zp16(machine, C64_ZP_FILENAME_POINTER);
@@ -776,15 +776,48 @@ static bool c64_try_hostfs_open_trap(c64_t *machine)
         return true;
     }
 
-    (void)c64_hostfs_command(slot->hostfs, filename, filename_length, &st);
-    slot->last_result = st;
-    slot->hostfs_cmd_open = true;
-    slot->hostfs_cmd_la = la;
-    slot->hostfs_status_chkin = false;
-    slot->hostfs_status_pos = 0;
-    /* Refresh slot catalog after possible CD. */
-    (void)c64_hostfs_apply_catalog_to_slot(slot->hostfs, slot);
-    c64_disk_activity_read(machine, (int)device);
+    if ((sa & 0x0fu) == 15u) {
+        (void)c64_hostfs_command(slot->hostfs, filename, filename_length, &st);
+        slot->last_result = st;
+        slot->hostfs_cmd_open = true;
+        slot->hostfs_cmd_la = la;
+        slot->hostfs_status_chkin = false;
+        slot->hostfs_status_pos = 0;
+        (void)c64_hostfs_apply_catalog_to_slot(slot->hostfs, slot);
+        c64_disk_activity_read(machine, (int)device);
+        c64_kernal_rts_return(machine, true, 0);
+        return true;
+    }
+
+    /* Data channel: SEQ read/write (host cwd only). */
+    if (machine->replay_sealed) {
+        /* Treat sealed open as success without host mutation (writes no-op later). */
+        if (!c64_hostfs_open_seq(
+                slot->hostfs, la, sa, filename, filename_length, &st)) {
+            /* Still allow a sealed write open to succeed as empty channel? Fail soft. */
+            (void)c64_kernal_file_table_remove(machine, la);
+            slot->last_result = st;
+            c64_kernal_rts_return(machine, false, 0x05);
+            return true;
+        }
+        slot->last_result = C64_DRIVE_STATUS_OK;
+        c64_kernal_rts_return(machine, true, 0);
+        return true;
+    }
+
+    if (!c64_hostfs_open_seq(
+            slot->hostfs, la, sa, filename, filename_length, &st)) {
+        (void)c64_kernal_file_table_remove(machine, la);
+        slot->last_result = st;
+        c64_kernal_rts_return(machine, false, 0x05);
+        return true;
+    }
+    slot->last_result = C64_DRIVE_STATUS_OK;
+    if (c64_hostfs_channel_is_seq_write(slot->hostfs, la)) {
+        c64_disk_activity_write(machine, (int)device);
+    } else {
+        c64_disk_activity_read(machine, (int)device);
+    }
     c64_kernal_rts_return(machine, true, 0);
     return true;
 }
@@ -820,8 +853,19 @@ static bool c64_try_hostfs_close_trap(c64_t *machine)
         slot->hostfs_status_chkin = false;
         slot->hostfs_status_pos = 0;
     }
+    if (slot->hostfs != NULL) {
+        if (machine->replay_sealed) {
+            (void)c64_hostfs_discard_la(slot->hostfs, la);
+        } else {
+            (void)c64_hostfs_close_la(slot->hostfs, la);
+        }
+        (void)c64_hostfs_apply_catalog_to_slot(slot->hostfs, slot);
+    }
     if (machine->bus.ram[C64_ZP_DFLTN] == la) {
         machine->bus.ram[C64_ZP_DFLTN] = 0; /* keyboard */
+    }
+    if (machine->bus.ram[C64_ZP_DFLTO] == la) {
+        machine->bus.ram[C64_ZP_DFLTO] = 3; /* screen */
     }
     c64_kernal_rts_return(machine, true, 0);
     return true;
@@ -854,13 +898,53 @@ static bool c64_try_hostfs_chkin_trap(c64_t *machine)
         slot->hostfs == NULL) {
         return false;
     }
-    if ((sa & 0x0fu) != 15u) {
+
+    if ((sa & 0x0fu) == 15u) {
+        machine->bus.ram[C64_ZP_DFLTN] = la;
+        slot->hostfs_status_chkin = true;
+        slot->hostfs_status_pos = 0;
+        c64_kernal_rts_return(machine, true, 0);
+        return true;
+    }
+
+    if (!c64_hostfs_channel_is_seq_read(slot->hostfs, la)) {
+        return false;
+    }
+    machine->bus.ram[C64_ZP_DFLTN] = la;
+    slot->hostfs_status_chkin = false;
+    c64_kernal_rts_return(machine, true, 0);
+    return true;
+}
+
+static bool c64_try_hostfs_chkout_trap(c64_t *machine)
+{
+    uint8_t la;
+    int idx;
+    uint8_t device;
+    c64_drive_slot *slot;
+
+    if (machine->cpu.cpu.pc != C64_KERNAL_CHKOUT_ENTRY) {
         return false;
     }
 
-    machine->bus.ram[C64_ZP_DFLTN] = la;
-    slot->hostfs_status_chkin = true;
-    slot->hostfs_status_pos = 0;
+    la = machine->cpu.cpu.A;
+    idx = c64_kernal_file_table_find(machine, la);
+    if (idx < 0) {
+        return false;
+    }
+    device = machine->bus.ram[C64_RAM_FAT + idx];
+    if (!c64_drive_device_supported(device)) {
+        return false;
+    }
+    slot = &machine->drives[device - C64_DRIVE_MIN_DEVICE];
+    if (!slot->mounted || slot->backend != C64_DRIVE_BACKEND_HOSTFS ||
+        slot->hostfs == NULL) {
+        return false;
+    }
+    if (!c64_hostfs_channel_is_seq_write(slot->hostfs, la)) {
+        return false;
+    }
+    machine->bus.ram[C64_ZP_DFLTO] = la;
     c64_kernal_rts_return(machine, true, 0);
     return true;
 }
@@ -870,10 +954,12 @@ static bool c64_try_hostfs_chrin_trap(c64_t *machine)
     uint8_t la;
     int idx;
     uint8_t device;
+    uint8_t sa;
     c64_drive_slot *slot;
     const char *status;
     size_t status_len;
     uint8_t byte;
+    bool eoi = false;
 
     if (machine->cpu.cpu.pc != C64_KERNAL_CHRIN_ENTRY) {
         return false;
@@ -888,40 +974,73 @@ static bool c64_try_hostfs_chrin_trap(c64_t *machine)
         return false;
     }
     device = machine->bus.ram[C64_RAM_FAT + idx];
+    sa = machine->bus.ram[C64_RAM_SAT + idx];
     if (!c64_drive_device_supported(device)) {
         return false;
     }
     slot = &machine->drives[device - C64_DRIVE_MIN_DEVICE];
     if (!slot->mounted || slot->backend != C64_DRIVE_BACKEND_HOSTFS ||
-        slot->hostfs == NULL || !slot->hostfs_status_chkin ||
-        slot->hostfs_cmd_la != la) {
+        slot->hostfs == NULL) {
         return false;
     }
 
-    status = c64_hostfs_status(slot->hostfs);
-    status_len = c64_hostfs_status_length(slot->hostfs);
-    if (status == NULL || status_len == 0u) {
-        c64_hostfs_set_status_ok(slot->hostfs);
+    if ((sa & 0x0fu) == 15u && slot->hostfs_status_chkin &&
+        slot->hostfs_cmd_la == la) {
         status = c64_hostfs_status(slot->hostfs);
         status_len = c64_hostfs_status_length(slot->hostfs);
+        if (status == NULL || status_len == 0u) {
+            c64_hostfs_set_status_ok(slot->hostfs);
+            status = c64_hostfs_status(slot->hostfs);
+            status_len = c64_hostfs_status_length(slot->hostfs);
+        }
+
+        if (slot->hostfs_status_pos >= status_len) {
+            byte = 0x0d;
+            machine->bus.ram[C64_ZP_STATUS] = 0x40; /* EOI */
+            c64_hostfs_set_status_ok(slot->hostfs);
+            slot->hostfs_status_pos = 0;
+        } else {
+            byte = (uint8_t)status[slot->hostfs_status_pos++];
+            if (slot->hostfs_status_pos >= status_len) {
+                machine->bus.ram[C64_ZP_STATUS] = 0x40; /* EOI on last */
+                c64_hostfs_set_status_ok(slot->hostfs);
+            } else {
+                machine->bus.ram[C64_ZP_STATUS] = 0;
+            }
+        }
+        machine->cpu.cpu.A = byte;
+        machine->cpu.cpu.flags &= (uint8_t)~0x01u;
+        {
+            uint8_t lo;
+            uint8_t hi;
+            uint16_t return_address;
+            machine->cpu.cpu.sp++;
+            if (machine->cpu.cpu.sp >= 0x200) {
+                machine->cpu.cpu.sp = 0x100;
+            }
+            lo = machine->bus.ram[machine->cpu.cpu.sp];
+            machine->cpu.cpu.sp++;
+            if (machine->cpu.cpu.sp >= 0x200) {
+                machine->cpu.cpu.sp = 0x100;
+            }
+            hi = machine->bus.ram[machine->cpu.cpu.sp];
+            return_address = (uint16_t)lo | ((uint16_t)hi << 8);
+            machine->cpu.cpu.pc = (uint16_t)(return_address + 1u);
+        }
+        return true;
     }
 
-    if (slot->hostfs_status_pos >= status_len) {
-        byte = 0x0d;
-        machine->bus.ram[C64_ZP_STATUS] = 0x40; /* EOI */
-        c64_hostfs_set_status_ok(slot->hostfs);
-        slot->hostfs_status_pos = 0;
-    } else {
-        byte = (uint8_t)status[slot->hostfs_status_pos++];
-        if (slot->hostfs_status_pos >= status_len) {
-            machine->bus.ram[C64_ZP_STATUS] = 0x40; /* EOI on last */
-            c64_hostfs_set_status_ok(slot->hostfs);
-        } else {
-            machine->bus.ram[C64_ZP_STATUS] = 0;
-        }
+    if (!c64_hostfs_channel_is_seq_read(slot->hostfs, la)) {
+        return false;
+    }
+    if (!c64_hostfs_seq_read_byte(slot->hostfs, la, &byte, &eoi)) {
+        c64_kernal_rts_return(machine, false, 0x05);
+        return true;
     }
     machine->cpu.cpu.A = byte;
     machine->cpu.cpu.flags &= (uint8_t)~0x01u;
+    machine->bus.ram[C64_ZP_STATUS] = eoi ? 0x40u : 0u;
+    c64_disk_activity_read(machine, (int)device);
     {
         uint8_t lo;
         uint8_t hi;
@@ -942,6 +1061,117 @@ static bool c64_try_hostfs_chrin_trap(c64_t *machine)
     return true;
 }
 
+static bool c64_try_hostfs_chrout_trap(c64_t *machine)
+{
+    uint8_t la;
+    int idx;
+    uint8_t device;
+    c64_drive_slot *slot;
+    uint8_t byte;
+
+    if (machine->cpu.cpu.pc != C64_KERNAL_CHROUT_ENTRY) {
+        return false;
+    }
+
+    la = machine->bus.ram[C64_ZP_DFLTO];
+    /* Default output 0/3 is keyboard/screen only when no LAT entry claims it.
+       Logical file 3 is a valid HostFS SEQ channel. */
+    idx = c64_kernal_file_table_find(machine, la);
+    if (idx < 0) {
+        return false;
+    }
+    device = machine->bus.ram[C64_RAM_FAT + idx];
+    if (!c64_drive_device_supported(device)) {
+        return false;
+    }
+    slot = &machine->drives[device - C64_DRIVE_MIN_DEVICE];
+    if (!slot->mounted || slot->backend != C64_DRIVE_BACKEND_HOSTFS ||
+        slot->hostfs == NULL) {
+        return false;
+    }
+    if (!c64_hostfs_channel_is_seq_write(slot->hostfs, la)) {
+        return false;
+    }
+
+    byte = machine->cpu.cpu.A;
+    if (machine->replay_sealed) {
+        c64_kernal_rts_return(machine, true, 0);
+        return true;
+    }
+    if (!c64_hostfs_seq_write_byte(slot->hostfs, la, byte)) {
+        c64_kernal_rts_return(machine, false, 0x05);
+        return true;
+    }
+    c64_disk_activity_write(machine, (int)device);
+    c64_kernal_rts_return(machine, true, 0);
+    return true;
+}
+
+static bool c64_try_hostfs_clall_trap(c64_t *machine)
+{
+    size_t i;
+
+    if (machine->cpu.cpu.pc != C64_KERNAL_CLALL_ENTRY) {
+        return false;
+    }
+
+    /* Only claim CLALL when at least one HostFS device is mounted. */
+    {
+        bool any_hostfs = false;
+        for (i = 0; i < C64_DRIVE_SLOT_COUNT; i++) {
+            if (machine->drives[i].mounted &&
+                machine->drives[i].backend == C64_DRIVE_BACKEND_HOSTFS &&
+                machine->drives[i].hostfs != NULL) {
+                any_hostfs = true;
+                break;
+            }
+        }
+        if (!any_hostfs) {
+            return false;
+        }
+    }
+
+    /* Close every LAT entry that maps to a HostFS device. */
+    while (machine->bus.ram[C64_ZP_LDTND] > 0) {
+        uint8_t n = machine->bus.ram[C64_ZP_LDTND];
+        uint8_t la = machine->bus.ram[C64_RAM_LAT];
+        uint8_t device = machine->bus.ram[C64_RAM_FAT];
+        c64_drive_slot *slot;
+
+        if (!c64_drive_device_supported(device)) {
+            (void)c64_kernal_file_table_remove(machine, la);
+            continue;
+        }
+        slot = &machine->drives[device - C64_DRIVE_MIN_DEVICE];
+        if (slot->mounted && slot->backend == C64_DRIVE_BACKEND_HOSTFS &&
+            slot->hostfs != NULL) {
+            if (slot->hostfs_cmd_open && slot->hostfs_cmd_la == la) {
+                slot->hostfs_cmd_open = false;
+                slot->hostfs_status_chkin = false;
+                slot->hostfs_status_pos = 0;
+            }
+            (void)c64_hostfs_close_la(slot->hostfs, la);
+            (void)c64_kernal_file_table_remove(machine, la);
+        } else {
+            /* Leave non-HostFS files alone — fall through to KERNAL. */
+            return false;
+        }
+        (void)n;
+    }
+
+    for (i = 0; i < C64_DRIVE_SLOT_COUNT; i++) {
+        if (machine->drives[i].hostfs != NULL) {
+            c64_hostfs_close_all(machine->drives[i].hostfs);
+            (void)c64_hostfs_apply_catalog_to_slot(
+                machine->drives[i].hostfs, &machine->drives[i]);
+        }
+    }
+    machine->bus.ram[C64_ZP_DFLTN] = 0;
+    machine->bus.ram[C64_ZP_DFLTO] = 3;
+    c64_kernal_rts_return(machine, true, 0);
+    return true;
+}
+
 static bool c64_try_kernal_channel_traps(c64_t *machine)
 {
     uint16_t pc = machine->cpu.cpu.pc;
@@ -954,8 +1184,17 @@ static bool c64_try_kernal_channel_traps(c64_t *machine)
     if (pc == (uint16_t)C64_KERNAL_CHKIN_ENTRY) {
         return c64_try_hostfs_chkin_trap(machine);
     }
+    if (pc == (uint16_t)C64_KERNAL_CHKOUT_ENTRY) {
+        return c64_try_hostfs_chkout_trap(machine);
+    }
     if (pc == (uint16_t)C64_KERNAL_CHRIN_ENTRY) {
         return c64_try_hostfs_chrin_trap(machine);
+    }
+    if (pc == (uint16_t)C64_KERNAL_CHROUT_ENTRY) {
+        return c64_try_hostfs_chrout_trap(machine);
+    }
+    if (pc == (uint16_t)C64_KERNAL_CLALL_ENTRY) {
+        return c64_try_hostfs_clall_trap(machine);
     }
     return false;
 }
@@ -1552,6 +1791,8 @@ static bool c64_try_hostfs_save_trap(
     }
     if (!slot->writable) {
         slot->last_result = C64_DRIVE_STATUS_WRITE_PROTECTED;
+        c64_hostfs_apply_drive_status(
+            slot->hostfs, C64_DRIVE_STATUS_WRITE_PROTECTED);
         c64_kernal_save_return(machine, false, 0x05);
         return true;
     }
@@ -1575,6 +1816,8 @@ static bool c64_try_hostfs_save_trap(
     data = (uint8_t *)malloc(data_len);
     if (data == NULL) {
         slot->last_result = C64_DRIVE_STATUS_OUT_OF_MEMORY;
+        c64_hostfs_apply_drive_status(
+            slot->hostfs, C64_DRIVE_STATUS_OUT_OF_MEMORY);
         c64_kernal_save_return(machine, false, 0x05);
         return true;
     }
@@ -1589,6 +1832,7 @@ static bool c64_try_hostfs_save_trap(
             slot->hostfs, filename, filename_length, data, data_len, &status)) {
         free(data);
         slot->last_result = status;
+        /* create_prg already set DOS status for exists/protect/io. */
         c64_kernal_save_return(machine, false, 0x05);
         return true;
     }
@@ -2083,7 +2327,10 @@ static bool c64_step_cycle_internal(c64_t *machine) {
              pc == (uint16_t)C64_KERNAL_OPEN_ENTRY ||
              pc == (uint16_t)C64_KERNAL_CLOSE_ENTRY ||
              pc == (uint16_t)C64_KERNAL_CHKIN_ENTRY ||
-             pc == (uint16_t)C64_KERNAL_CHRIN_ENTRY) &&
+             pc == (uint16_t)C64_KERNAL_CHKOUT_ENTRY ||
+             pc == (uint16_t)C64_KERNAL_CHRIN_ENTRY ||
+             pc == (uint16_t)C64_KERNAL_CHROUT_ENTRY ||
+             pc == (uint16_t)C64_KERNAL_CLALL_ENTRY) &&
             (c64_try_kernal_load_trap(machine) ||
              c64_try_kernal_save_trap(machine) ||
              c64_try_kernal_channel_traps(machine))) {
@@ -2647,7 +2894,10 @@ static void c64_step_cycle_between_hot(c64_t *machine) {
              pc == (uint16_t)C64_KERNAL_OPEN_ENTRY ||
              pc == (uint16_t)C64_KERNAL_CLOSE_ENTRY ||
              pc == (uint16_t)C64_KERNAL_CHKIN_ENTRY ||
-             pc == (uint16_t)C64_KERNAL_CHRIN_ENTRY) &&
+             pc == (uint16_t)C64_KERNAL_CHKOUT_ENTRY ||
+             pc == (uint16_t)C64_KERNAL_CHRIN_ENTRY ||
+             pc == (uint16_t)C64_KERNAL_CHROUT_ENTRY ||
+             pc == (uint16_t)C64_KERNAL_CLALL_ENTRY) &&
             (c64_try_kernal_load_trap(machine) ||
              c64_try_kernal_save_trap(machine) ||
              c64_try_kernal_channel_traps(machine))) {

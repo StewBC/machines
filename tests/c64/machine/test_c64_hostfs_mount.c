@@ -626,6 +626,31 @@ static void test_hostfs_load_save_traps(void) {
     expect_true(
         "status file exists",
         c64.drives[1].last_result == C64_DRIVE_STATUS_FILE_EXISTS);
+    {
+        const char *dos = c64_hostfs_status(c64.drives[1].hostfs);
+        expect_true("dos 63", dos != NULL && dos[0] == '6' && dos[1] == '3');
+    }
+
+    /* @: overwrite */
+    c64.bus.ram[0x4000] = 0x11;
+    c64.bus.ram[0x4001] = 0x22;
+    setup_save_call(&c64, "@:GAME", 9, 0x4000, 0x4002);
+    expect_true("step SAVE @:", c64_step_instruction(&c64, error, sizeof(error)));
+    expect_success_return(&c64);
+    f = fopen(path, "rb");
+    expect_true("reopen GAME", f != NULL);
+    expect_true("read GAME @:", fread(check, 1, 4, f) == 4);
+    fclose(f);
+    expect_true("GAME @ data0", check[2] == 0x11);
+    expect_true("GAME @ data1", check[3] == 0x22);
+
+    /* Identity freeze: $ header title / 00 / 2A / 65535 */
+    expect_true("disk id 00", strcmp(c64.drives[1].disk_id, "00") == 0);
+    expect_true("dos type 2A", strcmp(c64.drives[1].dos_type, "2A") == 0);
+    expect_true("free 65535", c64.drives[1].free_blocks == 65535u);
+    expect_true(
+        "title non-empty",
+        c64.drives[1].disk_title[0] != '\0');
 
     remove_tree(dir);
     printf("PASS: test_hostfs_load_save_traps\n");
@@ -711,6 +736,52 @@ static void setup_close_call(c64_t *machine, uint8_t la)
     machine->bus.ram[0x01ff] = (uint8_t)(TEST_RETURN_ADDRESS >> 8);
     machine->cpu.cpu.X = la;
     machine->cpu.cpu.flags |= 0x01;
+}
+
+static void setup_chkin_call(c64_t *machine, uint8_t la)
+{
+    machine->cpu.cpu.pc = 0xffc6;
+    machine->cpu.cpu.sp = 0x01fd;
+    machine->bus.ram[0x01fe] = (uint8_t)(TEST_RETURN_ADDRESS & 0xff);
+    machine->bus.ram[0x01ff] = (uint8_t)(TEST_RETURN_ADDRESS >> 8);
+    machine->cpu.cpu.X = la;
+    machine->cpu.cpu.flags |= 0x01;
+}
+
+static void setup_chkout_call(c64_t *machine, uint8_t la)
+{
+    machine->cpu.cpu.pc = 0xffc9;
+    machine->cpu.cpu.sp = 0x01fd;
+    machine->bus.ram[0x01fe] = (uint8_t)(TEST_RETURN_ADDRESS & 0xff);
+    machine->bus.ram[0x01ff] = (uint8_t)(TEST_RETURN_ADDRESS >> 8);
+    machine->cpu.cpu.A = la;
+    machine->cpu.cpu.flags |= 0x01;
+}
+
+static void setup_chrin_call(c64_t *machine)
+{
+    machine->cpu.cpu.pc = 0xffcf;
+    machine->cpu.cpu.sp = 0x01fd;
+    machine->bus.ram[0x01fe] = (uint8_t)(TEST_RETURN_ADDRESS & 0xff);
+    machine->bus.ram[0x01ff] = (uint8_t)(TEST_RETURN_ADDRESS >> 8);
+}
+
+static void setup_chrout_call(c64_t *machine, uint8_t byte)
+{
+    machine->cpu.cpu.pc = 0xffd2;
+    machine->cpu.cpu.sp = 0x01fd;
+    machine->bus.ram[0x01fe] = (uint8_t)(TEST_RETURN_ADDRESS & 0xff);
+    machine->bus.ram[0x01ff] = (uint8_t)(TEST_RETURN_ADDRESS >> 8);
+    machine->cpu.cpu.A = byte;
+    machine->cpu.cpu.flags |= 0x01;
+}
+
+static void setup_clall_call(c64_t *machine)
+{
+    machine->cpu.cpu.pc = 0xffe7;
+    machine->cpu.cpu.sp = 0x01fd;
+    machine->bus.ram[0x01fe] = (uint8_t)(TEST_RETURN_ADDRESS & 0xff);
+    machine->bus.ram[0x01ff] = (uint8_t)(TEST_RETURN_ADDRESS >> 8);
 }
 
 static void test_hostfs_cd_channel(void)
@@ -831,9 +902,18 @@ static void test_hostfs_cd_channel(void)
     expect_true("close status", c64_step_instruction(&c64, error, sizeof(error)));
     expect_success_return(&c64);
 
-    /* Non-CD command → syntax error status */
+    /* Scratch missing name → 62 FILE NOT FOUND */
     setup_open_call(&c64, "S:FOO", 1, 9, 15);
-    expect_true("open scratch unsupported", c64_step_instruction(&c64, error, sizeof(error)));
+    expect_true("open scratch missing", c64_step_instruction(&c64, error, sizeof(error)));
+    expect_success_return(&c64);
+    status = c64_hostfs_status(c64.drives[1].hostfs);
+    expect_true("scratch missing 62", status != NULL && status[0] == '6' && status[1] == '2');
+    setup_close_call(&c64, 1);
+    expect_true("close scratch missing", c64_step_instruction(&c64, error, sizeof(error)));
+
+    /* Unknown command still → 30 */
+    setup_open_call(&c64, "I", 1, 9, 15);
+    expect_true("open unknown cmd", c64_step_instruction(&c64, error, sizeof(error)));
     expect_success_return(&c64);
     status = c64_hostfs_status(c64.drives[1].hostfs);
     expect_true("syntax status", status != NULL && status[0] == '3' && status[1] == '0');
@@ -1109,6 +1189,200 @@ static void test_hostfs_p00_load(void) {
     printf("PASS: test_hostfs_p00_load\n");
 }
 
+static void test_hostfs_scratch_and_seq(void)
+{
+    static c64_t c64;
+    char dir[HOSTFS_TEST_PATH_MAX];
+    char path[512];
+    char error[128];
+    FILE *f;
+    struct stat st;
+    const char *status;
+    const uint8_t seq_bytes[] = { 'H', 'I', '!', 0x0d };
+    size_t i;
+
+    make_tmpdir(dir, sizeof(dir));
+    snprintf(path, sizeof(path), "%s/NOTE.seq", dir);
+    f = fopen(path, "wb");
+    expect_true("write NOTE.seq", f != NULL);
+    expect_true(
+        "seq payload",
+        fwrite(seq_bytes, 1, sizeof(seq_bytes), f) == sizeof(seq_bytes));
+    fclose(f);
+    write_host_prg(dir, "KEEP.prg", 0x8000u, (const uint8_t *)"\x60", 1);
+
+    reset_machine(&c64);
+    expect_true(
+        "mount",
+        c64_mount_hostfs(&c64, 9, dir, true) == C64_DRIVE_STATUS_OK);
+
+    /* SEQ read: OPEN 2,9,2,"NOTE,S,R" */
+    setup_open_call(&c64, "NOTE,S,R", 2, 9, 2);
+    expect_true("open seq read", c64_step_instruction(&c64, error, sizeof(error)));
+    expect_success_return(&c64);
+    setup_chkin_call(&c64, 2);
+    expect_true("chkin seq", c64_step_instruction(&c64, error, sizeof(error)));
+    expect_success_return(&c64);
+    for (i = 0; i < sizeof(seq_bytes); i++) {
+        setup_chrin_call(&c64);
+        expect_true("chrin seq", c64_step_instruction(&c64, error, sizeof(error)));
+        expect_true("seq byte", c64.cpu.cpu.A == seq_bytes[i]);
+        if (i + 1u == sizeof(seq_bytes)) {
+            expect_true("seq eoi", (c64.bus.ram[0x90] & 0x40u) != 0);
+        }
+    }
+    setup_close_call(&c64, 2);
+    expect_true("close seq read", c64_step_instruction(&c64, error, sizeof(error)));
+    expect_success_return(&c64);
+
+    /* SEQ write: OPEN 3,9,3,"OUT,S,W" */
+    setup_open_call(&c64, "OUT,S,W", 4, 9, 4);
+    expect_true("open seq write", c64_step_instruction(&c64, error, sizeof(error)));
+    expect_success_return(&c64);
+    setup_chkout_call(&c64, 4);
+    expect_true("chkout seq", c64_step_instruction(&c64, error, sizeof(error)));
+    expect_success_return(&c64);
+    setup_chrout_call(&c64, 'A');
+    expect_true("chrout A", c64_step_instruction(&c64, error, sizeof(error)));
+    expect_success_return(&c64);
+    setup_chrout_call(&c64, 'B');
+    expect_true("chrout B", c64_step_instruction(&c64, error, sizeof(error)));
+    expect_success_return(&c64);
+    setup_close_call(&c64, 4);
+    expect_true("close seq write", c64_step_instruction(&c64, error, sizeof(error)));
+    expect_success_return(&c64);
+    snprintf(path, sizeof(path), "%s/OUT.seq", dir);
+    expect_true("OUT.seq exists", stat(path, &st) == 0);
+    f = fopen(path, "rb");
+    expect_true("open OUT.seq", f != NULL);
+    {
+        char buf[8];
+        expect_true("read OUT", fread(buf, 1, 2, f) == 2);
+        expect_true("OUT A", buf[0] == 'A');
+        expect_true("OUT B", buf[1] == 'B');
+    }
+    fclose(f);
+
+    /* Duplicate SEQ write without @: → 63 */
+    setup_open_call(&c64, "OUT,S,W", 4, 9, 4);
+    expect_true("open seq exists", c64_step_instruction(&c64, error, sizeof(error)));
+    expect_true("seq exists carry", (c64.cpu.cpu.flags & 0x01u) != 0);
+    status = c64_hostfs_status(c64.drives[1].hostfs);
+    expect_true("seq exists 63", status != NULL && status[0] == '6' && status[1] == '3');
+
+    /* @: replace SEQ */
+    setup_open_call(&c64, "@:OUT,S,W", 4, 9, 4);
+    expect_true("open seq @:", c64_step_instruction(&c64, error, sizeof(error)));
+    expect_success_return(&c64);
+    setup_chkout_call(&c64, 4);
+    expect_true("chkout @:", c64_step_instruction(&c64, error, sizeof(error)));
+    setup_chrout_call(&c64, 'Z');
+    expect_true("chrout Z", c64_step_instruction(&c64, error, sizeof(error)));
+    setup_close_call(&c64, 4);
+    expect_true("close seq @:", c64_step_instruction(&c64, error, sizeof(error)));
+
+    /* Scratch KEEP.prg */
+    setup_open_call(&c64, "S:KEEP", 1, 9, 15);
+    expect_true("scratch KEEP", c64_step_instruction(&c64, error, sizeof(error)));
+    expect_success_return(&c64);
+    status = c64_hostfs_status(c64.drives[1].hostfs);
+    expect_true("scratch ok", status != NULL && status[0] == '0' && status[1] == '0');
+    setup_close_call(&c64, 1);
+    expect_true("close scratch", c64_step_instruction(&c64, error, sizeof(error)));
+    snprintf(path, sizeof(path), "%s/KEEP.prg", dir);
+    expect_true("KEEP removed", stat(path, &st) != 0);
+
+    /* Scratch DIR refused */
+    snprintf(path, sizeof(path), "%s/sub", dir);
+    expect_true("mkdir sub", HOSTFS_TEST_MKDIR(path) == 0 || errno == EEXIST);
+    (void)c64_hostfs_rescan(c64.drives[1].hostfs);
+    (void)c64_hostfs_apply_catalog_to_slot(c64.drives[1].hostfs, &c64.drives[1]);
+    setup_open_call(&c64, "S:SUB", 1, 9, 15);
+    expect_true("scratch dir", c64_step_instruction(&c64, error, sizeof(error)));
+    status = c64_hostfs_status(c64.drives[1].hostfs);
+    expect_true("scratch dir 62", status != NULL && status[0] == '6' && status[1] == '2');
+    setup_close_call(&c64, 1);
+    expect_true("close scratch dir", c64_step_instruction(&c64, error, sizeof(error)));
+
+    /* Scratch read-only */
+    c64_hostfs_set_writable(c64.drives[1].hostfs, false);
+    setup_open_call(&c64, "S:NOTE", 1, 9, 15);
+    expect_true("scratch ro", c64_step_instruction(&c64, error, sizeof(error)));
+    status = c64_hostfs_status(c64.drives[1].hostfs);
+    expect_true("scratch ro 26", status != NULL && status[0] == '2' && status[1] == '6');
+    c64_hostfs_set_writable(c64.drives[1].hostfs, true);
+    setup_close_call(&c64, 1);
+    expect_true("close scratch ro", c64_step_instruction(&c64, error, sizeof(error)));
+
+    /* CLALL after opening status channel */
+    setup_open_call(&c64, "", 1, 9, 15);
+    expect_true("open status for clall", c64_step_instruction(&c64, error, sizeof(error)));
+    setup_clall_call(&c64);
+    expect_true("clall", c64_step_instruction(&c64, error, sizeof(error)));
+    expect_success_return(&c64);
+    expect_true("ldtnd cleared", c64.bus.ram[0x98] == 0);
+
+    remove_tree(dir);
+    printf("PASS: test_hostfs_scratch_and_seq\n");
+}
+
+static void test_hostfs_scratch_in_d64(void)
+{
+    static c64_t c64;
+    char dir[HOSTFS_TEST_PATH_MAX];
+    char path[512];
+    char error[128];
+    const char *status;
+    size_t i;
+    int found;
+
+    make_tmpdir(dir, sizeof(dir));
+    write_host_d64_with_prg(
+        dir, "GAME.d64", "KILLME", 0xC000u, (const uint8_t *)"\xA9\x01", 2);
+
+    reset_machine(&c64);
+    expect_true(
+        "mount",
+        c64_mount_hostfs(&c64, 9, dir, true) == C64_DRIVE_STATUS_OK);
+    setup_open_call(&c64, "CD:GAME.D64", 1, 9, 15);
+    expect_true("enter d64", c64_step_instruction(&c64, error, sizeof(error)));
+    setup_close_call(&c64, 1);
+    expect_true("close enter", c64_step_instruction(&c64, error, sizeof(error)));
+    expect_true("in d64", c64_hostfs_in_d64(c64.drives[1].hostfs));
+
+    setup_open_call(&c64, "S:KILLME", 1, 9, 15);
+    expect_true("scratch in d64", c64_step_instruction(&c64, error, sizeof(error)));
+    expect_success_return(&c64);
+    status = c64_hostfs_status(c64.drives[1].hostfs);
+    expect_true("scratch d64 ok", status != NULL && status[0] == '0');
+    setup_close_call(&c64, 1);
+    expect_true("close scratch d64", c64_step_instruction(&c64, error, sizeof(error)));
+
+    (void)c64_hostfs_apply_catalog_to_slot(c64.drives[1].hostfs, &c64.drives[1]);
+    found = 0;
+    for (i = 0; i < c64.drives[1].entry_count; i++) {
+        char name[17];
+        size_t n = c64.drives[1].entries[i].filename_length;
+        if (n > 16u) {
+            n = 16u;
+        }
+        memcpy(name, c64.drives[1].entries[i].filename, n);
+        name[n] = '\0';
+        if (strcmp(name, "KILLME") == 0) {
+            found = 1;
+        }
+    }
+    expect_true("KILLME gone", !found);
+    snprintf(path, sizeof(path), "%s/GAME.d64", dir);
+    {
+        struct stat st;
+        expect_true("host d64 still there", stat(path, &st) == 0);
+    }
+
+    remove_tree(dir);
+    printf("PASS: test_hostfs_scratch_in_d64\n");
+}
+
 int main(void) {
     test_path_is_dir();
     test_mount_hostfs_basics();
@@ -1122,6 +1396,8 @@ int main(void) {
     test_hostfs_cd_channel();
     test_hostfs_cd_into_d64();
     test_hostfs_p00_load();
+    test_hostfs_scratch_and_seq();
+    test_hostfs_scratch_in_d64();
     printf("All HostFS mount/trap tests passed.\n");
     return 0;
 }

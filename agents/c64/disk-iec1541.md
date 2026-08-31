@@ -8,23 +8,26 @@ in `c64.c`, `c1541.c`, `c1541_media.c`, `c64_hostfs.c`, runtime disk code.
 - D64: 35-track, error tails, BAM/directory, PRG extract/write, wildcards,
   `@:` replacement.
 - HostFS: host directory as volume (`c64_mount_hostfs` / `--disk N=<dir>`).
-  Trap-fast `$` / LOAD PRG / SAVE create-or-file-exists; channel-15 `CD` via
-  OPEN/CLOSE (+ status CHKIN/CHRIN); no IEC ATN. Product name **"HostFS"**
-  (provisional identity string). Spike:
-  `design/c64/hostfs-phase1-fb64-spike.md`.
+  Trap-fast `$` / LOAD PRG / SAVE create-or-`@:`-replace; channel-15 `CD` +
+  Scratch `S:NAME` via OPEN/CLOSE (+ status CHKIN/CHRIN); host-cwd SEQ via
+  OPEN SA≠15 + CHKIN/CHRIN or CHKOUT/CHROUT (+ CLALL); no IEC ATN. Product name
+  **"HostFS"**. Spike: `design/c64/hostfs-phase1-fb64-spike.md`.
   Catalog: all non-dotfile regular files are visible (`.prg`/extensionless/other
   → `PRG`, `.seq` → `SEQ`, dirs → `DIR`, `.d64` → `DIR` with `.D64` kept in the
   listed name, `.P00`-`.P99` → `PRG` with the PC64 header CBM name and a 26-byte
   unwrap on LOAD).
   Do **not** require a `.prg` suffix — CBM tools like `fb64` ship extensionless.
-  `CD` into a `.d64` opens an owned `d64_image` overlay on the HostFS volume
-  (still `backend=HOSTFS`; never `c64_mount_d64` / never iec_active). Nested `$`
-  uses BAM title/id/DOS/`free_blocks`; LOAD extracts PRG; SAVE (when writable)
-  uses `d64_image_write_prg` + flush to the host `.d64`. Parent/`CD//` leave the
-  image. `.g64` stays non-enterable. DOS status subset: `00 OK`,
-  `30 SYNTAX ERROR`, `62 FILE NOT FOUND`, `74 DRIVE NOT READY`. SEQ channel I/O
-  / `@:` / Scratch are **out** (listing `.seq` as type only). Regression:
-  `test_hostfs_cd_into_d64` in `tests/c64/machine/test_c64_hostfs_mount.c`.
+  `$` identity (host cwd): mangled **mount-root** basename, ID `00`, DOS `2A`,
+  `65535 BLOCKS FREE.` (frozen). `CD` into a `.d64` opens an owned `d64_image`
+  overlay on the HostFS volume (still `backend=HOSTFS`; never `c64_mount_d64` /
+  never iec_active). Nested `$` uses BAM title/id/DOS/`free_blocks`; LOAD
+  extracts PRG; SAVE/`@:` (when writable) uses `d64_image_write_prg` + flush;
+  Scratch uses `d64_image_scratch` + flush. Parent/`CD//` leave the image.
+  `.g64` stays non-enterable. Nested D64 SEQ I/O is out. DOS status subset:
+  `00 OK`, `26 WRITE PROTECT`, `30 SYNTAX ERROR`, `62 FILE NOT FOUND`,
+  `63 FILE EXISTS`, `74 DRIVE NOT READY`. Regression:
+  `test_hostfs_cd_into_d64` / `test_hostfs_scratch_and_seq` in
+  `tests/c64/machine/test_c64_hostfs_mount.c`.
 - Devices 8 and 9 have independent ordered disk queues. Images are
   read-only by default. Writable KERNAL SAVE updates the in-memory image;
   runtime flushes to the host path. Failed flushes leave the image dirty.

@@ -25,7 +25,7 @@ The agents index points here: [`agents/README.md`](../agents/README.md) → Desi
 
 | Design | Status | Last worked on | Path |
 |--------|--------|----------------|------|
-| c64m HostFS (SD2IEC-shaped folder volume) | active (Phase 0–2 / PR1–PR7 landed; Phase 3 assembler + PR9 snapshot remain) | 2026-08-30 | [`c64/hostfs-sd2iec-folder-volume.md`](c64/hostfs-sd2iec-folder-volume.md) |
+| c64m HostFS (SD2IEC-shaped folder volume) | active (Phase 0–2 / PR1–PR7 + PR6 polish landed; Phase 3 assembler + PR9 snapshot remain) | 2026-08-31 | [`c64/hostfs-sd2iec-folder-volume.md`](c64/hostfs-sd2iec-folder-volume.md) |
 | c64m HostFS Phase 1 fb64 spike | landed | 2026-08-30 | [`c64/hostfs-phase1-fb64-spike.md`](c64/hostfs-phase1-fb64-spike.md) |
 | c64m turbo/max vs VICE perf gap | landed | 2026-08-29 | [`c64/turbo-max-vice-perf-gap.md`](c64/turbo-max-vice-perf-gap.md) |
 

@@ -326,6 +326,47 @@ static int test_write_prg_replace_and_duplicate(void)
     return failures;
 }
 
+static int test_scratch_prg(void)
+{
+    int failures = 0;
+    uint8_t *bytes;
+    d64_result result;
+    d64_image *image;
+    d64_directory_entry entry;
+    uint8_t payload[] = {0x01, 0x08, 0xaa};
+
+    bytes = make_empty_image();
+    if (bytes == NULL) {
+        return 1;
+    }
+    image = d64_image_create(bytes, D64_STANDARD_IMAGE_SIZE, &result);
+    failures += expect_result(result, D64_OK, "scratch image parse");
+    if (image != NULL) {
+        failures += expect_result(
+            d64_image_write_prg(
+                image, (const uint8_t *)"TEMP", 4, payload, sizeof(payload), false),
+            D64_OK,
+            "write temp");
+        failures += expect_result(
+            d64_image_find_entry_ascii(image, "TEMP", &entry), D64_OK, "find temp");
+        failures += expect_result(
+            d64_image_scratch(image, (const uint8_t *)"TEMP", 4),
+            D64_OK,
+            "scratch temp");
+        failures += expect_result(
+            d64_image_find_entry_ascii(image, "TEMP", &entry),
+            D64_FILE_NOT_FOUND,
+            "temp gone");
+        failures += expect_result(
+            d64_image_scratch(image, (const uint8_t *)"NOPE", 4),
+            D64_FILE_NOT_FOUND,
+            "scratch missing");
+    }
+    d64_image_destroy(image);
+    free(bytes);
+    return failures;
+}
+
 static int test_geometry_and_size(void)
 {
     int failures = 0;
@@ -671,6 +712,7 @@ int main(void)
     failures += test_short_prg();
     failures += test_write_prg_round_trip();
     failures += test_write_prg_replace_and_duplicate();
+    failures += test_scratch_prg();
 
     if (failures != 0) {
         return 1;

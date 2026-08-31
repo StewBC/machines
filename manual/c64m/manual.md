@@ -744,15 +744,18 @@ HostFS volume. The volume is trap-fast (not a 1541 on the IEC bus). Advertise as
 | `LOAD "$",N` | Lists cwd files (sorted CBM names); ends with `65535 BLOCKS FREE.` Dirs=`DIR`; `.d64` files=`DIR` with the `.D64` suffix kept in the listed name (e.g. `GAME.D64`); `.P00`-`.P99` (PC64) =`PRG` using the name inside the 26-byte header; `.seq`=`SEQ`; `.prg` and all other regular files=`PRG` (extensionless names like `fb64` included; `.g64` stays `PRG` and is not enterable). Dotfiles hidden. |
 | `LOAD "NAME",N` / `,N,1` | Load a PRG-typed catalog entry from cwd (host path may be `name`, `name.prg`, or another basename). `.Pxx` files unwrap the PC64 header and load the embedded PRG. Inside a nested `.d64`, loads from the image directory. |
 | `LOAD "*",N` | First PRG-typed entry in catalog order |
-| `SAVE "NAME",N` | Create `NAME.prg` in a host cwd if new; fail if name exists (no `@:` yet). Inside a nested `.d64`, creates a PRG in the image when Write is enabled and flushes the host `.d64`; read-only / write-protect otherwise. |
+| `SAVE "NAME",N` | Create `NAME.prg` in a host cwd if new; fail if name exists (`63 FILE EXISTS`). `SAVE "@:NAME",N` overwrites. Inside a nested `.d64`, creates/replaces a PRG when Write is enabled and flushes the host `.d64`; read-only → `26 WRITE PROTECT`. |
 | `CD` (channel 15) | `CD:SUB`, `CD:_` (left-arrow `$5F`), `CD//` (and `CD//NAME/` / `CD/NAME/` forms) via `OPEN 1,N,15,"...":CLOSE 1`. `CD` into a `.d64` listed as `DIR` opens that image as a sub-volume (still HostFS traps; not a 1541). Parent / root leave the image and return to the host folder. |
-| Status | `OPEN 1,N,15` then `CHKIN`/`CHRIN`: `00, OK,00,00` or DOS error text (e.g. `62, FILE NOT FOUND,00,00`) |
+| Scratch `S:` | `OPEN 1,N,15,"S:NAME"` deletes an exact catalog file (host file or nested-D64 PRG). Dirs / `.d64` listings refused (`62`). |
+| SEQ channel I/O | Host cwd only: `OPEN lf,N,sa,"NAME,S,R"` / `",S,W"` (optional `@:`), then `CHKIN`/`CHRIN` or `CHKOUT`/`CHROUT`, `CLOSE`. Nested D64 SEQ I/O is out. |
+| `$` identity | Host folder title = mangled **mount-root** basename; ID `00`; DOS `2A`; `65535 BLOCKS FREE.` Nested D64 uses BAM title/id/DOS/free. |
+| Status | `OPEN 1,N,15` then `CHKIN`/`CHRIN`: `00, OK,00,00` or DOS error text (`26`/`30`/`62`/`63`/`74`) |
 | Coexistence | HostFS traps even with `emulate_1541=1`; sibling unit may run a real 1541 IMAGE |
 
 **CBM FileBrowser 1.6** / `fb64` navigates with the `CD` + `LOAD "$"` path above (no SEQ
 required for that oracle), including entering `.d64` images listed as directories.
 
-**Not in this subset:** SEQ file I/O, Scratch `S:`, `@:` overwrite, partitions (`$=P`),
+**Not in this subset:** SEQ inside nested `.d64`, Scratch wildcards, partitions (`$=P`),
 MD/RD, timestamps, `CD` into `.G64` images, fastloaders on HostFS.
 
 HostFS is a single mount (no multi-image queue / Swap). Opening a `.d64`/`.g64` or

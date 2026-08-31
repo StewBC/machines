@@ -100,13 +100,13 @@ Existing Phase 0 traps remain: LOAD `$FFD5`, SAVE `$FFD8`.
 
 ---
 
-## Open follow-ups for PR6
+## Open follow-ups for PR6 — **done (2026-08-31)**
 
-1. **SEQ** as needed by the `fb64` oracle (design Open Question / Phase 1 polish).
-2. **CHKOUT** / **CLALL** if any non-CD FB path or status-write path requires them.
-3. Full **DOS error subset** + status channel polish beyond the cheap `00, OK,00,00` read path.
-4. Open Question **C**: `@:` overwrite and Scratch `S:` timing.
-5. Open Question **A**: identity / `$` header string freeze (else keep Phase 0 provisional).
-6. Manual subset freeze + `agents/c64/disk-iec1541.md` / `design/README.md` status updates.
-7. Confirm whether interactive FB needs SEQ for any navigation path beyond CD + `$` + PRG LOAD.
+1. **SEQ** host-cwd channel I/O landed (fb64 itself still navigates CD/`$`/PRG only).
+2. **CHKOUT** / **CHROUT** / **CLALL** landed for SEQ write + cleanup.
+3. DOS subset now includes `26` / `63` alongside `00` / `30` / `62` / `74`.
+4. Open Question **C**: `@:` + Scratch `S:` landed.
+5. Open Question **A**: Phase 0 provisional identity frozen.
+6. Manual / agents / design index updated.
+7. Confirmed: interactive FB does **not** need SEQ for navigation beyond CD + `$` + PRG LOAD.
 `)

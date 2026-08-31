@@ -105,4 +105,9 @@ d64_result d64_image_write_prg(
     size_t data_len,
     bool replace);
 
+/* Delete a directory entry by name (Scratch). Frees the file chain + clears the
+   slot. Name may include a leading "@:" (ignored). Exact match only. */
+d64_result d64_image_scratch(
+    d64_image *image, const uint8_t *name, size_t name_len);
+
 void d64_file_data_free(d64_file_data *file);

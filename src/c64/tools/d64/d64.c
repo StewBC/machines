@@ -1215,3 +1215,62 @@ rollback:
     (void)d64_reparse(image);
     return result;
 }
+
+d64_result d64_image_scratch(
+    d64_image *image, const uint8_t *name, size_t name_len)
+{
+    uint8_t normalized[D64_DIRECTORY_NAME_SIZE];
+    size_t normalized_len = 0;
+    bool name_replace = false;
+    uint8_t *backup;
+    uint8_t *dir_slot = NULL;
+    d64_directory_entry existing;
+    d64_result result;
+
+    if (image == NULL || name == NULL) {
+        return D64_INVALID_ARGUMENT;
+    }
+
+    result = d64_normalize_name(
+        name, name_len, normalized, &normalized_len, &name_replace);
+    if (result != D64_OK) {
+        return result;
+    }
+    (void)name_replace;
+
+    backup = (uint8_t *)malloc(D64_STANDARD_IMAGE_SIZE);
+    if (backup == NULL) {
+        return D64_OUT_OF_MEMORY;
+    }
+    memcpy(backup, image->bytes, D64_STANDARD_IMAGE_SIZE);
+
+    result = d64_find_directory_slot(
+        image, normalized, normalized_len, &dir_slot, &existing);
+    if (result == D64_FILE_NOT_FOUND) {
+        free(backup);
+        return D64_FILE_NOT_FOUND;
+    }
+    if (result != D64_FILE_EXISTS) {
+        free(backup);
+        return result;
+    }
+
+    result = d64_free_file_chain(image, existing.first_track, existing.first_sector);
+    if (result != D64_OK) {
+        memcpy(image->bytes, backup, D64_STANDARD_IMAGE_SIZE);
+        free(backup);
+        (void)d64_reparse(image);
+        return result;
+    }
+    d64_clear_directory_entry_slot(image, dir_slot);
+
+    result = d64_reparse(image);
+    if (result != D64_OK) {
+        memcpy(image->bytes, backup, D64_STANDARD_IMAGE_SIZE);
+        free(backup);
+        (void)d64_reparse(image);
+        return result;
+    }
+    free(backup);
+    return D64_OK;
+}

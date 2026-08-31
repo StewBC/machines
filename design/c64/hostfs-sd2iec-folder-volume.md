@@ -2,7 +2,7 @@
 
 | Field | Value |
 |-------|--------|
-| Status | **Active** (Phase 0–2 / PR1–PR7 landed; Phase 3 assembler + PR9 snapshot remain) |
+| Status | **Active** (Phase 0–2 / PR1–PR7 + PR6 polish landed; Phase 3 assembler + PR9 snapshot remain) |
 | Author | design brief session |
 | Date | 2026-08-30 |
 | Audience | Senior engineers / agents expanding phases into implementation plans |
@@ -116,10 +116,10 @@ The product goal is fast in-guest navigation of project/sample trees (Bitsy Bye�
 | Topic | Value | Owner |
 |-------|--------|-------|
 | Devices in docs | Neutral 8 or 9 (both first-class) | **Accepted** |
-| Identity / `$` header title | Disk title = folder basename (mangled/uppercased, ≤16); ID `00`; DOS type `2A`; product name in docs **"HostFS"** (not "SD2IEC") | Provisional (still open) |
+| Identity / `$` header title | Disk title = **mount-root** basename (mangled/uppercased, ≤16); ID `00`; DOS type `2A`; product name in docs **"HostFS"** (not "SD2IEC") | **Frozen** 2026-08-31 |
 | File types in `$` | Directories → `DIR`; `.d64` → `DIR` (name keeps `.D64`); `.P00`-`.P99` → `PRG` (header CBM name); `.prg` → `PRG` (stem); `.seq` → `SEQ` (stem); all other regular files → `PRG` (full basename); dotfiles omitted | **Revised** 2026-08-31 |
-| SEQ | **Not** in Phase 0; Phase 1 with CD/FB | **Accepted** |
-| SAVE / `@:` / Scratch `S:` | Phase 0: SAVE **creates** if CBM name is new; **file-exists** if name already in catalog — **no silent overwrite**. `@:` / Scratch **not** in Phase 0 | Phase 0 locked; `@:`/Scratch timing still open |
+| SEQ | **Not** in Phase 0; Phase 1 host-cwd channel I/O | **Landed** (nested D64 SEQ still out) |
+| SAVE / `@:` / Scratch `S:` | Phase 0: SAVE **creates** if CBM name is new; **file-exists** if name already in catalog — **no silent overwrite**. `@:` / Scratch landed in PR6 | **Landed** 2026-08-31 |
 | Writable | **writable=true** by default; UI **Write** checkbox can force read-only | **Accepted** |
 | Phase 1 FB oracle | **CBM FileBrowser 1.6** / `fb64` | **Accepted** |
 | Symlinks | Follow only if canonicalized target stays **under mount root**; else skip/refuse | Provisional (still open) |
@@ -237,7 +237,7 @@ Advertise as **"c64m HostFS"** (CMD/SD2IEC-*shaped*), not full SD2IEC.
 | `LOAD "NAME",N` / `,N,1` | 0 | Load PRG from cwd; SA=0 relocates to BASIC start; SA=1 uses file load address |
 | `SAVE "NAME",N` | 0 | Create PRG in cwd (PETSCII→host name mapping) if the CBM name is **new**; if the name already exists in the catalog → **file-exists failure** (no silent overwrite). No `@:` in Phase 0 |
 | Wildcards `*` | 0 | `LOAD "*",N` = first **PRG** in sorted catalog order |
-| SEQ | 1 | **Deferred** — fb64 oracle navigates with LOAD/`CD` only (no SEQ); reopen if a later oracle needs it |
+| SEQ | 1 | Host-cwd channel I/O (`OPEN` SA≠15 + CHK*/CHR*); nested D64 SEQ I/O still out |
 | Command channel 15 `CD` | 1 | `CD//`, `CD//DIR/`, `CD/DIR/`, `CD:←` (left arrow parent) — enough for FB (**landed**) |
 | Status `00, OK,00,00` | 1 | Read channel 15 after commands (**landed**; also `30`/`62`/`74`) |
 | `CD` into `.D64` | 2 | Treat image as sub-volume; parent `CD` exits |
@@ -542,9 +542,9 @@ No network exposure beyond existing control-port localhost model.
 
 | # | Question | Interim / locked where noted |
 |---|----------|------------------------------|
-| A | **Device identity / `$` header string** — keep Phase 0 provisional (`HOSTFS` docs name, folder basename title, ID `00`, DOS `2A`), or customize? | Ship Phase 0 provisional until answered |
+| A | **Device identity / `$` header string** — keep Phase 0 provisional (`HOSTFS` docs name, folder basename title, ID `00`, DOS `2A`), or customize? | **Answered 2026-08-31:** freeze Phase 0 provisional (mount-root title, `00`/`2A`/`65535`) |
 | B | **Unhandled-extension alternative** — keep skip (accepted for v1), or later show as PRG/USR? | v1 = skip; reopen only for a later brief |
-| C | **`@:` overwrite and Scratch `S:`** — add in Phase 1 polish (PR6)? | Phase 0 create-or-file-exists is locked |
+| C | **`@:` overwrite and Scratch `S:`** — add in Phase 1 polish (PR6)? | **Answered 2026-08-31:** yes — `@:` SAVE + `S:NAME` Scratch (exact name) landed in PR6 |
 | D | **Symlinks** — confirm follow-within-root? | Provisional follow-within-root |
 | E | **Phase 2 image types** — D64 only, or also D71/D81 later? | Phase 2 = D64 only until answered |
 | F | **Control verb naming** — overload `mount-d64` vs `mount-hostfs` / `mount-disk`? | CLI path-kind works regardless |
@@ -608,12 +608,13 @@ Incremental, independently reviewable PRs. **Ordering invariant:** PR1 owns Host
 - **Depends on:** PR2; PR4 preferred before claiming mixed-demo docs
 - **Changes / exit:** Spike artifact first (oracle = **CBM FileBrowser 1.6** / `fb64`); then documented `CD` subset; status `00, OK,00,00`; that FB enters subdirs
 
-### PR6 — Phase 1 polish: SEQ + errors + manual subset freeze
+### PR6 — Phase 1 polish: SEQ + errors + manual subset freeze — **landed**
 
 - **Title:** `c64m: HostFS SEQ and DOS error subset`
 - **Files/components:** HostFS module, traps, `manual/c64m/manual.md`, `agents/c64/disk-iec1541.md`, `design/README.md` status
 - **Depends on:** PR5
-- **Changes:** SEQ as needed by **fb64** oracle; Scratch/`@:` if Open Question C answered; identity string freeze if Open Question A answered (else keep Phase 0 provisional)
+- **Changes:** Host-cwd SEQ channel I/O; Scratch `S:` + `@:` overwrite; DOS `26`/`63`; identity freeze (OQ A/C answered)
+- **Landed:** `d64_image_scratch`; HostFS channels + CHKOUT/CHROUT/CLALL traps; tests `test_hostfs_scratch_and_seq` / `test_hostfs_scratch_in_d64`
 
 ### PR7 — Phase 2: `CD` into D64 sub-volume — **landed**
 

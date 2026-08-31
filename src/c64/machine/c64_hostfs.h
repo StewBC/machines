@@ -17,7 +17,8 @@ enum {
     C64_HOSTFS_NAME_MAX = 17, /* CBM title + NUL */
     C64_HOSTFS_BASENAME_MAX = 256,
     C64_HOSTFS_STATUS_MAX = 64,
-    C64_HOSTFS_CWD_DEPTH_MAX = 32
+    C64_HOSTFS_CWD_DEPTH_MAX = 32,
+    C64_HOSTFS_MAX_CHANNELS = 10
 };
 
 /* PETSCII left-arrow / parent marker used by FB (`CD:_`). */
@@ -46,8 +47,11 @@ size_t c64_hostfs_status_length(const c64_hostfs_volume *vol);
 void c64_hostfs_set_status_ok(c64_hostfs_volume *vol);
 void c64_hostfs_set_status(
     c64_hostfs_volume *vol, int code, const char *message);
+/* Map drive status enum → DOS channel string (00/26/62/63/74…). */
+void c64_hostfs_apply_drive_status(
+    c64_hostfs_volume *vol, c64_drive_status_result status);
 
-/* Rescan cwd. Builds sorted PRG/DIR catalog. */
+/* Rescan cwd. Builds sorted PRG/DIR/SEQ catalog. */
 bool c64_hostfs_rescan(c64_hostfs_volume *vol);
 
 size_t c64_hostfs_entry_count(const c64_hostfs_volume *vol);
@@ -62,8 +66,9 @@ bool c64_hostfs_apply_catalog_to_slot(c64_hostfs_volume *vol, c64_drive_slot *sl
  * Execute a command-channel name buffer (OPEN SA=15 filename).
  * Accepts FB/SD2IEC-shaped CD forms: CD//, CD:_ / CD:←, CD:NAME, CD//NAME/,
  * CD/NAME/, and bare // / _ where unambiguous. Empty name is a no-op OK
- * (open status channel). CD:NAME may enter a host directory or a .d64 listed
- * as DIR; parent/root leave a nested D64 without mounting IMAGE/1541.
+ * (open status channel). Scratch `S:NAME` / `S0:NAME` (exact name).
+ * CD:NAME may enter a host directory or a .d64 listed as DIR; parent/root
+ * leave a nested D64 without mounting IMAGE/1541.
  * Host .Pxx (PC64) files catalog/LOAD as PRG using the header CBM name.
  * Returns true if the command was handled (including DOS errors that still
  * "handled" the OPEN); false if not a recognized cmd.
@@ -85,8 +90,8 @@ bool c64_hostfs_read_entry_prg(
     uint8_t **out_bytes,
     size_t *out_size);
 
-/* Create PRG in cwd: host `<cbm>.prg`, or into a nested D64 (flush host file).
-   Fails if the CBM name already exists (no overwrite / no @:). */
+/* Create or `@:`-replace PRG in cwd: host `<cbm>.prg`, or into a nested D64.
+   Leading "@:" enables overwrite. Sets DOS status on the volume. */
 bool c64_hostfs_create_prg(
     c64_hostfs_volume *vol,
     const uint8_t *cbm_name,
@@ -94,6 +99,39 @@ bool c64_hostfs_create_prg(
     const uint8_t *data,
     size_t data_size,
     c64_drive_status_result *out_status);
+
+/* Scratch exact CBM name (host file or nested D64 entry). DIR refused. */
+bool c64_hostfs_scratch(
+    c64_hostfs_volume *vol,
+    const uint8_t *cbm_name,
+    size_t cbm_name_length,
+    c64_drive_status_result *out_status);
+
+/*
+ * Open a host-cwd SEQ data channel (SA 0–14). Nested D64 SEQ I/O is out of
+ * scope. Name may include "@:" and ",S,R"/",S,W" (or ",R"/",W") suffixes.
+ */
+bool c64_hostfs_open_seq(
+    c64_hostfs_volume *vol,
+    uint8_t la,
+    uint8_t sa,
+    const uint8_t *name,
+    size_t name_length,
+    c64_drive_status_result *out_status);
+
+bool c64_hostfs_channel_is_seq_read(const c64_hostfs_volume *vol, uint8_t la);
+bool c64_hostfs_channel_is_seq_write(const c64_hostfs_volume *vol, uint8_t la);
+
+bool c64_hostfs_seq_read_byte(
+    c64_hostfs_volume *vol, uint8_t la, uint8_t *out_byte, bool *out_eoi);
+bool c64_hostfs_seq_write_byte(
+    c64_hostfs_volume *vol, uint8_t la, uint8_t byte);
+
+/* Close one LA (flushes SEQ write). Returns true if a HostFS channel was open. */
+bool c64_hostfs_close_la(c64_hostfs_volume *vol, uint8_t la);
+/* Drop channel without flushing (sealed replay). */
+bool c64_hostfs_discard_la(c64_hostfs_volume *vol, uint8_t la);
+void c64_hostfs_close_all(c64_hostfs_volume *vol);
 
 #ifdef __cplusplus
 }
