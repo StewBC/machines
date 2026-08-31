@@ -13,7 +13,8 @@ in `c64.c`, `c1541.c`, `c1541_media.c`, `c64_hostfs.c`, runtime disk code.
   (provisional identity string). Spike:
   `design/c64/hostfs-phase1-fb64-spike.md`.
   Catalog: all non-dotfile regular files are visible (`.prg`/extensionless/other
-  → `PRG`, `.seq` → `SEQ`, dirs → `DIR`, `.d64` → `DIR` with stem name).
+  → `PRG`, `.seq` → `SEQ`, dirs → `DIR`, `.d64` → `DIR` with `.D64` kept in the
+  listed name).
   Do **not** require a `.prg` suffix — CBM tools like `fb64` ship extensionless.
   `CD` into a `.d64` opens an owned `d64_image` overlay on the HostFS volume
   (still `backend=HOSTFS`; never `c64_mount_d64` / never iec_active). Nested `$`

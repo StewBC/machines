@@ -95,7 +95,7 @@ The product goal is fast in-guest navigation of project/sample trees (Bitsy Bye�
 | Soft power (UI) | Folder mount sets slot **powered** (green LED / power-off verbs) like D64/G64; eject keeps power; power-off ejects | Existing chrome contract |
 | Soft power / IEC (normative) | **Eligibility predicate:** 1541 step, `c1541_reset` on power/mount, and IEC bus pull / ATN ack run **only** when `powered && backend==IMAGE && mounted`. Otherwise (unpowered, `backend==NONE`, `backend==HOSTFS`, or powered-empty) → no step, no reset-for-IEC, no ATN-ack. UI `powered` remains independent (green LED after `[8]`/`[9]` / eject-with-power-held). Eject media → `backend=NONE` (power latch unchanged). This is a **deliberate soft-power tightening** vs today (`powered` alone steps/pulls): powered-empty units must not ATN-ack. | Dual ROM load + today’s `powered`-only gate ATN-acks empty units and would break demos if HostFS/power-on reused it (Edge of Disgrace / `agents/c64/known-gaps.md`) |
 | HostFS trap eligibility | In LOAD/SAVE (and later OPEN/…) traps, check `backend==HOSTFS` **before** the `rom_loaded && emulate_1541` bail; HostFS always traps for that device | Otherwise HostFS is dead whenever demos enable `emulate_1541` |
-| Naming (v1) | **Raw** host basenames mangled to CBM 16-char PETSCII; dirs→`DIR`; `.prg`→PRG (stem); `.seq`→SEQ (stem); **all other regular files→PRG** (full basename, including extensionless `fb64`); **dotfiles skipped**; no P00 | Revised 2026-08-30 (was skip-unknown) |
+| Naming (v1) | **Raw** host basenames mangled to CBM 16-char PETSCII; dirs→`DIR`; `.d64`→`DIR` with `.D64` kept in the listed name; `.prg`→PRG (stem); `.seq`→SEQ (stem); **all other regular files→PRG** (full basename, including extensionless `fb64`); **dotfiles skipped**; no P00 | Revised 2026-08-31 (`.d64` keeps extension for FB) |
 | SEQ timing | **Phase 1** with CD/FB (not Phase 0) | Owner-accepted 2026-08-30 |
 | Writable UI | HostFS **writable by default** + Machine **Write** checkbox to force read-only | Owner-accepted 2026-08-30 |
 | Phase 1 FB oracle | **CBM FileBrowser 1.6** / `fb64` (named acceptance binary) | Owner-accepted 2026-08-30 |
@@ -117,7 +117,7 @@ The product goal is fast in-guest navigation of project/sample trees (Bitsy Bye�
 |-------|--------|-------|
 | Devices in docs | Neutral 8 or 9 (both first-class) | **Accepted** |
 | Identity / `$` header title | Disk title = folder basename (mangled/uppercased, ≤16); ID `00`; DOS type `2A`; product name in docs **"HostFS"** (not "SD2IEC") | Provisional (still open) |
-| File types in `$` | Directories → `DIR`; `.prg` → `PRG` (stem); `.seq` → `SEQ` (stem); all other regular files → `PRG` (full basename); dotfiles omitted; no P00 | **Revised** 2026-08-30 |
+| File types in `$` | Directories → `DIR`; `.d64` → `DIR` (name keeps `.D64`); `.prg` → `PRG` (stem); `.seq` → `SEQ` (stem); all other regular files → `PRG` (full basename); dotfiles omitted; no P00 | **Revised** 2026-08-31 |
 | SEQ | **Not** in Phase 0; Phase 1 with CD/FB | **Accepted** |
 | SAVE / `@:` / Scratch `S:` | Phase 0: SAVE **creates** if CBM name is new; **file-exists** if name already in catalog — **no silent overwrite**. `@:` / Scratch **not** in Phase 0 | Phase 0 locked; `@:`/Scratch timing still open |
 | Writable | **writable=true** by default; UI **Write** checkbox can force read-only | **Accepted** |
@@ -621,7 +621,7 @@ Incremental, independently reviewable PRs. **Ordering invariant:** PR1 owns Host
 - **Files/components:** `c64_hostfs.*`, reuse `d64` tools, FB tests with nested D64
 - **Depends on:** PR5
 - **Changes:** Enter/exit D64 namespace without 1541 ROM; writable policy; G64 unsupported
-- **Landed:** `.d64` catalogs as `DIR`/stem; owned `d64_image` overlay; BAM `$` header;
+- **Landed:** `.d64` catalogs as `DIR` with `.D64` kept in the name; owned `d64_image` overlay; BAM `$` header;
   LOAD extract / SAVE write+flush; `test_hostfs_cd_into_d64`
 
 ### PR8 — Phase 3: assembler `prg=` / `file=` + HostFS refresh

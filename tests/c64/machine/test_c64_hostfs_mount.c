@@ -804,7 +804,7 @@ static void test_hostfs_cd_into_d64(void) {
         }
         memcpy(name, c64.drives[1].entries[i].filename, n);
         name[n] = '\0';
-        if (strcmp(name, "GAME") == 0) {
+        if (strcmp(name, "GAME.D64") == 0) {
             found_game = 1;
             game_is_dir = (c64.drives[1].entries[i].type == C64_DRIVE_FILE_DIR);
         }
@@ -820,16 +820,16 @@ static void test_hostfs_cd_into_d64(void) {
                 c64.drives[1].entries[i].type != C64_DRIVE_FILE_DIR);
         }
     }
-    expect_true("lists GAME", found_game);
-    expect_true("GAME is DIR", game_is_dir);
+    expect_true("lists GAME.D64", found_game);
+    expect_true("GAME.D64 is DIR", game_is_dir);
     expect_true("lists OUTSIDE", found_outside);
     expect_true("no INSIDE on host", !found_inside);
 
-    setup_open_call(&c64, "CD:GAME", 1, 9, 15);
-    expect_true("open CD:GAME", c64_step_instruction(&c64, error, sizeof(error)));
+    setup_open_call(&c64, "CD:GAME.D64", 1, 9, 15);
+    expect_true("open CD:GAME.D64", c64_step_instruction(&c64, error, sizeof(error)));
     expect_success_return(&c64);
     setup_close_call(&c64, 1);
-    expect_true("close CD:GAME", c64_step_instruction(&c64, error, sizeof(error)));
+    expect_true("close CD:GAME.D64", c64_step_instruction(&c64, error, sizeof(error)));
     expect_success_return(&c64);
     expect_true("in d64", c64_hostfs_in_d64(c64.drives[1].hostfs));
     expect_true("still hostfs backend", c64.drives[1].backend == C64_DRIVE_BACKEND_HOSTFS);
@@ -909,7 +909,7 @@ static void test_hostfs_cd_into_d64(void) {
     expect_true("inside gone step", c64_step_instruction(&c64, error, sizeof(error)));
     expect_true("inside gone", (c64.cpu.cpu.flags & 0x01u) != 0);
 
-    setup_open_call(&c64, "CD:GAME", 1, 9, 15);
+    setup_open_call(&c64, "CD:GAME.D64", 1, 9, 15);
     expect_true("reenter", c64_step_instruction(&c64, error, sizeof(error)));
     expect_success_return(&c64);
     setup_close_call(&c64, 1);

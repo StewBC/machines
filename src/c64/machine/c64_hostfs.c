@@ -445,7 +445,7 @@ bool c64_hostfs_rescan(c64_hostfs_volume *vol)
         }
         /*
          * Catalog policy: every regular non-dotfile is visible.
-         *   .d64  → DIR, CBM name = stem (CD enters image sub-volume)
+         *   .d64  → DIR, CBM name = full basename incl. .D64 (FB visibility)
          *   .prg  → PRG, CBM name = stem (SAVE round-trip)
          *   .seq  → SEQ, CBM name = stem (I/O still deferred)
          *   else  → PRG, CBM name = full basename (fb64, xxx.txt, .g64, …)
@@ -454,7 +454,7 @@ bool c64_hostfs_rescan(c64_hostfs_volume *vol)
             char stem[C64_HOSTFS_BASENAME_MAX];
             const char *mangle_src = name;
             c64_drive_file_type ftype = C64_DRIVE_FILE_PRG;
-            size_t ext = 0;
+            size_t ext = 0; /* bytes to strip from name before mangle; 0 = keep */
 
             if (name_len >= 4u && name[name_len - 4u] == '.') {
                 char e0 = name[name_len - 3u];
@@ -462,7 +462,7 @@ bool c64_hostfs_rescan(c64_hostfs_volume *vol)
                 char e2 = name[name_len - 1u];
                 if ((e0 == 'd' || e0 == 'D') && (e1 == '6') &&
                     (e2 == '4')) {
-                    ext = 4u;
+                    /* Keep ".D64" in the listed name so FB can tell images apart. */
                     ftype = C64_DRIVE_FILE_DIR;
                 } else if (
                     (e0 == 'p' || e0 == 'P') && (e1 == 'r' || e1 == 'R') &&

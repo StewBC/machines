@@ -741,7 +741,7 @@ HostFS volume. The volume is trap-fast (not a 1541 on the IEC bus). Advertise as
 
 | Feature | Behavior |
 |---------|----------|
-| `LOAD "$",N` | Lists cwd files (sorted CBM names); ends with `65535 BLOCKS FREE.` Dirs=`DIR`; `.d64` files=`DIR` (stem name); `.seq`=`SEQ`; `.prg` and all other regular files=`PRG` (extensionless names like `fb64` included; `.g64` stays `PRG` and is not enterable). Dotfiles hidden. |
+| `LOAD "$",N` | Lists cwd files (sorted CBM names); ends with `65535 BLOCKS FREE.` Dirs=`DIR`; `.d64` files=`DIR` with the `.D64` suffix kept in the listed name (e.g. `GAME.D64`); `.seq`=`SEQ`; `.prg` and all other regular files=`PRG` (extensionless names like `fb64` included; `.g64` stays `PRG` and is not enterable). Dotfiles hidden. |
 | `LOAD "NAME",N` / `,N,1` | Load a PRG-typed catalog entry from cwd (host path may be `name`, `name.prg`, or another basename). Inside a nested `.d64`, loads from the image directory. |
 | `LOAD "*",N` | First PRG-typed entry in catalog order |
 | `SAVE "NAME",N` | Create `NAME.prg` in a host cwd if new; fail if name exists (no `@:` yet). Inside a nested `.d64`, creates a PRG in the image when Write is enabled and flushes the host `.d64`; read-only / write-protect otherwise. |
