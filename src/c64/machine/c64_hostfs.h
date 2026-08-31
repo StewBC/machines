@@ -63,7 +63,8 @@ bool c64_hostfs_apply_catalog_to_slot(c64_hostfs_volume *vol, c64_drive_slot *sl
  * Accepts FB/SD2IEC-shaped CD forms: CD//, CD:_ / CD:←, CD:NAME, CD//NAME/,
  * CD/NAME/, and bare // / _ where unambiguous. Empty name is a no-op OK
  * (open status channel). CD:NAME may enter a host directory or a .d64 listed
- * as DIR (stem); parent/root leave a nested D64 without mounting IMAGE/1541.
+ * as DIR; parent/root leave a nested D64 without mounting IMAGE/1541.
+ * Host .Pxx (PC64) files catalog/LOAD as PRG using the header CBM name.
  * Returns true if the command was handled (including DOS errors that still
  * "handled" the OPEN); false if not a recognized cmd.
  */

@@ -95,7 +95,7 @@ The product goal is fast in-guest navigation of project/sample trees (Bitsy Bye�
 | Soft power (UI) | Folder mount sets slot **powered** (green LED / power-off verbs) like D64/G64; eject keeps power; power-off ejects | Existing chrome contract |
 | Soft power / IEC (normative) | **Eligibility predicate:** 1541 step, `c1541_reset` on power/mount, and IEC bus pull / ATN ack run **only** when `powered && backend==IMAGE && mounted`. Otherwise (unpowered, `backend==NONE`, `backend==HOSTFS`, or powered-empty) → no step, no reset-for-IEC, no ATN-ack. UI `powered` remains independent (green LED after `[8]`/`[9]` / eject-with-power-held). Eject media → `backend=NONE` (power latch unchanged). This is a **deliberate soft-power tightening** vs today (`powered` alone steps/pulls): powered-empty units must not ATN-ack. | Dual ROM load + today’s `powered`-only gate ATN-acks empty units and would break demos if HostFS/power-on reused it (Edge of Disgrace / `agents/c64/known-gaps.md`) |
 | HostFS trap eligibility | In LOAD/SAVE (and later OPEN/…) traps, check `backend==HOSTFS` **before** the `rom_loaded && emulate_1541` bail; HostFS always traps for that device | Otherwise HostFS is dead whenever demos enable `emulate_1541` |
-| Naming (v1) | **Raw** host basenames mangled to CBM 16-char PETSCII; dirs→`DIR`; `.d64`→`DIR` with `.D64` kept in the listed name; `.prg`→PRG (stem); `.seq`→SEQ (stem); **all other regular files→PRG** (full basename, including extensionless `fb64`); **dotfiles skipped**; no P00 | Revised 2026-08-31 (`.d64` keeps extension for FB) |
+| Naming (v1) | **Raw** host basenames mangled to CBM 16-char PETSCII; dirs→`DIR`; `.d64`→`DIR` with `.D64` kept in the listed name; `.P00`-`.P99`→PRG using PC64 header CBM name (26-byte unwrap on LOAD); `.prg`→PRG (stem); `.seq`→SEQ (stem); **all other regular files→PRG** (full basename, including extensionless `fb64`); **dotfiles skipped** | Revised 2026-08-31 (Pxx support) |
 | SEQ timing | **Phase 1** with CD/FB (not Phase 0) | Owner-accepted 2026-08-30 |
 | Writable UI | HostFS **writable by default** + Machine **Write** checkbox to force read-only | Owner-accepted 2026-08-30 |
 | Phase 1 FB oracle | **CBM FileBrowser 1.6** / `fb64` (named acceptance binary) | Owner-accepted 2026-08-30 |
@@ -117,7 +117,7 @@ The product goal is fast in-guest navigation of project/sample trees (Bitsy Bye�
 |-------|--------|-------|
 | Devices in docs | Neutral 8 or 9 (both first-class) | **Accepted** |
 | Identity / `$` header title | Disk title = folder basename (mangled/uppercased, ≤16); ID `00`; DOS type `2A`; product name in docs **"HostFS"** (not "SD2IEC") | Provisional (still open) |
-| File types in `$` | Directories → `DIR`; `.d64` → `DIR` (name keeps `.D64`); `.prg` → `PRG` (stem); `.seq` → `SEQ` (stem); all other regular files → `PRG` (full basename); dotfiles omitted; no P00 | **Revised** 2026-08-31 |
+| File types in `$` | Directories → `DIR`; `.d64` → `DIR` (name keeps `.D64`); `.P00`-`.P99` → `PRG` (header CBM name); `.prg` → `PRG` (stem); `.seq` → `SEQ` (stem); all other regular files → `PRG` (full basename); dotfiles omitted | **Revised** 2026-08-31 |
 | SEQ | **Not** in Phase 0; Phase 1 with CD/FB | **Accepted** |
 | SAVE / `@:` / Scratch `S:` | Phase 0: SAVE **creates** if CBM name is new; **file-exists** if name already in catalog — **no silent overwrite**. `@:` / Scratch **not** in Phase 0 | Phase 0 locked; `@:`/Scratch timing still open |
 | Writable | **writable=true** by default; UI **Write** checkbox can force read-only | **Accepted** |
@@ -533,7 +533,7 @@ No network exposure beyond existing control-port localhost model.
 ### Resolved (owner 2026-08-30)
 
 1. **Default device recommendation in docs:** **Neutral 8 or 9** — both first-class; no docs preference for 9. Coexistence examples may use `8=1541` + `9=HostFS` as one common pattern only.
-2. **P00 vs raw names (v1):** **Raw names**; `.prg`→PRG; skip unknown extensions; no P00 in v1.
+2. **P00 vs raw names (v1):** **Raw names** for ordinary files; `.P00`-`.P99` recognized as PC64 PRG containers (header CBM name + unwrap). `.Sxx`/`.Uxx`/`.Rxx` still deferred.
 3. **SEQ timing:** **Phase 1** with CD/FB (not Phase 0).
 4. **Write checkbox:** **Writable by default** + Write checkbox.
 5. **Phase 1 FB acceptance oracle:** **CBM FileBrowser 1.6** / `fb64`.

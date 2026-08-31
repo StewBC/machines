@@ -940,6 +940,91 @@ static void test_hostfs_cd_into_d64(void) {
     printf("PASS: test_hostfs_cd_into_d64\n");
 }
 
+static void write_host_p00(
+    const char *dir,
+    const char *basename,
+    const char *cbm_name,
+    uint16_t load_addr,
+    const uint8_t *body,
+    size_t body_len) {
+    char path[512];
+    FILE *f;
+    uint8_t hdr[26];
+    uint8_t la[2];
+    size_t i;
+    size_t n;
+
+    memset(hdr, 0, sizeof(hdr));
+    memcpy(hdr, "C64File", 7);
+    n = strlen(cbm_name);
+    if (n > 16u) {
+        n = 16u;
+    }
+    for (i = 0; i < n; i++) {
+        hdr[8u + i] = (uint8_t)cbm_name[i];
+    }
+    snprintf(path, sizeof(path), "%s/%s", dir, basename);
+    f = fopen(path, "wb");
+    expect_true("open p00", f != NULL);
+    expect_true("write p00 hdr", fwrite(hdr, 1, sizeof(hdr), f) == sizeof(hdr));
+    la[0] = (uint8_t)(load_addr & 0xffu);
+    la[1] = (uint8_t)(load_addr >> 8);
+    expect_true("write p00 la", fwrite(la, 1, 2, f) == 2);
+    if (body_len > 0) {
+        expect_true("write p00 body", fwrite(body, 1, body_len, f) == body_len);
+    }
+    fclose(f);
+}
+
+static void test_hostfs_p00_load(void) {
+    static c64_t c64;
+    char dir[128];
+    char error[128];
+    const uint8_t body[] = {0xA9, 0x77, 0x60};
+    size_t i;
+    int found = 0;
+
+    make_tmpdir(dir, sizeof(dir));
+    write_host_p00(dir, "CARCRASH.P00", "CAR CRASH", 0xC000u, body, sizeof(body));
+    write_host_prg(dir, "plain.prg", 0x8000u, body, sizeof(body));
+
+    reset_machine(&c64);
+    expect_true(
+        "mount",
+        c64_mount_hostfs(&c64, 9, dir, true) == C64_DRIVE_STATUS_OK);
+
+    setup_load_call(&c64, "$", 9, 0);
+    expect_true("load $", c64_step_instruction(&c64, error, sizeof(error)));
+    expect_success_return(&c64);
+    for (i = 0; i < c64.drives[1].entry_count; i++) {
+        char name[17];
+        size_t n = c64.drives[1].entries[i].filename_length;
+        if (n > 16u) {
+            n = 16u;
+        }
+        memcpy(name, c64.drives[1].entries[i].filename, n);
+        name[n] = '\0';
+        if (strcmp(name, "CAR CRASH") == 0) {
+            found = 1;
+            expect_true(
+                "p00 is PRG",
+                c64.drives[1].entries[i].type == C64_DRIVE_FILE_PRG);
+        }
+        expect_true("not listed as CARCRASH.P00", strcmp(name, "CARCRASH.P00") != 0);
+    }
+    expect_true("lists header name", found);
+
+    setup_load_call(&c64, "CAR CRASH", 9, 1);
+    expect_true("load p00", c64_step_instruction(&c64, error, sizeof(error)));
+    expect_success_return(&c64);
+    expect_true("payload at C000", c64_debug_read_ram(&c64, 0xC000) == 0xA9);
+    expect_true("payload data", c64_debug_read_ram(&c64, 0xC001) == 0x77);
+    /* Must not have loaded 'C''6' from the PC64 magic as the load address. */
+    expect_true("not loaded at 3643", c64_debug_read_ram(&c64, 0x3643) != 0xA9);
+
+    printf("PASS: test_hostfs_p00_load\n");
+}
+
 int main(void) {
     test_path_is_dir();
     test_mount_hostfs_basics();
@@ -952,6 +1037,7 @@ int main(void) {
     test_hostfs_save_sealed();
     test_hostfs_cd_channel();
     test_hostfs_cd_into_d64();
+    test_hostfs_p00_load();
     printf("All HostFS mount/trap tests passed.\n");
     return 0;
 }

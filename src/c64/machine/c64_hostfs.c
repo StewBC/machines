@@ -335,6 +335,119 @@ static bool c64_hostfs_path_is_d64_file(const char *path)
     return c64_hostfs_ends_with_ci(base, base_len, ".d64");
 }
 
+/* PC64 / X00: ".P00"–".P99" (PRG containers). Letter encodes type; digits disambiguate. */
+enum { C64_HOSTFS_P00_HEADER_SIZE = 26 };
+
+static bool c64_hostfs_is_pxx_name(const char *name, size_t name_len)
+{
+    unsigned char p;
+    unsigned char d0;
+    unsigned char d1;
+
+    if (name == NULL || name_len < 4u || name[name_len - 4u] != '.') {
+        return false;
+    }
+    p = (unsigned char)name[name_len - 3u];
+    d0 = (unsigned char)name[name_len - 2u];
+    d1 = (unsigned char)name[name_len - 1u];
+    if (p != 'p' && p != 'P') {
+        return false;
+    }
+    return d0 >= '0' && d0 <= '9' && d1 >= '0' && d1 <= '9';
+}
+
+/*
+ * Read PC64 header: magic "C64File\\0", CBM name at +8 (16 bytes, NUL-padded).
+ * On success fills cbm[0..16] and optional payload block count from file_size.
+ */
+static bool c64_hostfs_p00_probe(
+    const char *path,
+    size_t file_size,
+    char *cbm,
+    size_t cbm_cap,
+    size_t *cbm_len,
+    uint16_t *out_blocks)
+{
+    FILE *f;
+    uint8_t hdr[C64_HOSTFS_P00_HEADER_SIZE];
+    size_t n;
+    size_t i;
+
+    if (path == NULL || cbm == NULL || cbm_cap < 2u || cbm_len == NULL) {
+        return false;
+    }
+    if (file_size < (size_t)C64_HOSTFS_P00_HEADER_SIZE + 2u) {
+        return false;
+    }
+    f = fopen(path, "rb");
+    if (f == NULL) {
+        return false;
+    }
+    if (fread(hdr, 1, sizeof(hdr), f) != sizeof(hdr)) {
+        fclose(f);
+        return false;
+    }
+    fclose(f);
+    if (memcmp(hdr, "C64File", 7) != 0 || hdr[7] != 0) {
+        return false;
+    }
+    n = 0;
+    for (i = 0; i < 16u; i++) {
+        if (hdr[8u + i] == 0) {
+            break;
+        }
+        n++;
+    }
+    if (n == 0) {
+        return false;
+    }
+    if (n + 1u > cbm_cap) {
+        n = cbm_cap - 1u;
+    }
+    memcpy(cbm, &hdr[8], n);
+    cbm[n] = '\0';
+    *cbm_len = n;
+    if (out_blocks != NULL) {
+        *out_blocks = c64_hostfs_blocks_for_size(
+            file_size - (size_t)C64_HOSTFS_P00_HEADER_SIZE);
+    }
+    return true;
+}
+
+static bool c64_hostfs_read_p00_prg(
+    const char *path, uint8_t **out_bytes, size_t *out_size)
+{
+    uint8_t *raw = NULL;
+    size_t raw_size = 0;
+    uint8_t *payload;
+    size_t payload_size;
+
+    if (out_bytes == NULL || out_size == NULL) {
+        return false;
+    }
+    *out_bytes = NULL;
+    *out_size = 0;
+    if (!c64_hostfs_read_file(path, &raw, &raw_size)) {
+        return false;
+    }
+    if (raw_size < (size_t)C64_HOSTFS_P00_HEADER_SIZE + 2u ||
+        memcmp(raw, "C64File", 7) != 0 || raw[7] != 0) {
+        free(raw);
+        return false;
+    }
+    payload_size = raw_size - (size_t)C64_HOSTFS_P00_HEADER_SIZE;
+    payload = (uint8_t *)malloc(payload_size);
+    if (payload == NULL) {
+        free(raw);
+        return false;
+    }
+    memcpy(payload, raw + C64_HOSTFS_P00_HEADER_SIZE, payload_size);
+    free(raw);
+    *out_bytes = payload;
+    *out_size = payload_size;
+    return true;
+}
+
 static bool c64_hostfs_catalog_clear(c64_hostfs_volume *vol)
 {
     free(vol->catalog);
@@ -446,10 +559,25 @@ bool c64_hostfs_rescan(c64_hostfs_volume *vol)
         /*
          * Catalog policy: every regular non-dotfile is visible.
          *   .d64  → DIR, CBM name = full basename incl. .D64 (FB visibility)
+         *   .Pxx  → PRG, CBM name from PC64 header (unwrap on LOAD)
          *   .prg  → PRG, CBM name = stem (SAVE round-trip)
          *   .seq  → SEQ, CBM name = stem (I/O still deferred)
          *   else  → PRG, CBM name = full basename (fb64, xxx.txt, .g64, …)
          */
+        if (c64_hostfs_is_pxx_name(name, name_len)) {
+            uint16_t blocks = 0;
+            if (c64_hostfs_p00_probe(
+                    full, (size_t)st.st_size, cbm, sizeof(cbm), &cbm_len, &blocks)) {
+                c64_hostfs_unique_cbm(vol, cbm, sizeof(cbm), &cbm_len);
+                if (!c64_hostfs_catalog_push(
+                        vol, full, cbm, cbm_len, C64_DRIVE_FILE_PRG, blocks)) {
+                    closedir(dir);
+                    return false;
+                }
+                continue;
+            }
+            /* Invalid/truncated Pxx: fall through as ordinary PRG basename. */
+        }
         {
             char stem[C64_HOSTFS_BASENAME_MAX];
             const char *mangle_src = name;
@@ -785,7 +913,16 @@ bool c64_hostfs_read_entry_prg(
         return true;
     }
 
-    return c64_hostfs_read_file(vol->catalog[index].host_path, out_bytes, out_size);
+    {
+        const char *host = vol->catalog[index].host_path;
+        const char *base = c64_hostfs_basename(host);
+        size_t base_len = base != NULL ? strlen(base) : 0u;
+
+        if (c64_hostfs_is_pxx_name(base, base_len)) {
+            return c64_hostfs_read_p00_prg(host, out_bytes, out_size);
+        }
+        return c64_hostfs_read_file(host, out_bytes, out_size);
+    }
 }
 
 bool c64_hostfs_create_prg(
