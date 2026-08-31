@@ -1396,6 +1396,45 @@ static bool c64_basic_append_line(
     return true;
 }
 
+/* PETSCII: RVS ON for inverse header; $A0 shift-space pads 16-char CBM names. */
+enum {
+    C64_DIR_PETSCII_RVS_ON = 0x12,
+    C64_DIR_PETSCII_SHIFT_SPACE = 0xa0
+};
+
+static void c64_dir_pad16(const char *src, char out[17])
+{
+    size_t n = 0;
+
+    if (src != NULL) {
+        while (n < 16u && src[n] != '\0') {
+            out[n] = src[n];
+            n++;
+        }
+    }
+    while (n < 16u) {
+        out[n++] = (char)C64_DIR_PETSCII_SHIFT_SPACE;
+    }
+    out[16] = '\0';
+}
+
+/* Leading spaces so LIST's variable-width line number still lines quotes up
+   (1541: pad = max(0, 4 - digits)). */
+static int c64_dir_quote_leading_spaces(uint16_t blocks)
+{
+    int digits = 1;
+    uint16_t n = blocks;
+
+    while (n >= 10u) {
+        digits++;
+        n = (uint16_t)(n / 10u);
+    }
+    if (digits >= 4) {
+        return 0;
+    }
+    return 4 - digits;
+}
+
 static bool c64_drive_load_directory_to_memory(
     c64_t *machine,
     const c64_drive_slot *slot,
@@ -1405,6 +1444,7 @@ static bool c64_drive_load_directory_to_memory(
     size_t offset = 0;
     size_t i;
     char title[C64_DRIVE_DISK_TITLE_MAX];
+    char title16[17];
     char id[3];
     char dos[3];
     bool ok = true;
@@ -1415,7 +1455,7 @@ static bool c64_drive_load_directory_to_memory(
         return false;
     }
 
-    c64_copy_text(title, sizeof(title), slot->disk_title[0] != '\0' ? slot->disk_title : "                ");
+    c64_copy_text(title, sizeof(title), slot->disk_title[0] != '\0' ? slot->disk_title : "");
     c64_copy_text(id, sizeof(id), slot->disk_id);
     c64_copy_text(dos, sizeof(dos), slot->dos_type);
     if (id[0] == '\0') {
@@ -1424,23 +1464,57 @@ static bool c64_drive_load_directory_to_memory(
     if (dos[0] == '\0') {
         c64_copy_text(dos, sizeof(dos), "  ");
     }
+    c64_dir_pad16(title, title16);
 
-    /* CBM $ convention (HostFS and trap-mode D64 share this path): BASIC line
-       number == block count (header 0; free line uses free_blocks). Text is
-       only "NAME" TYPE / BLOCKS FREE. — not sequential 10/20/30. */
-    ok = c64_basic_append_line(program, 32768u, &offset, start_address, 0, "\"%s\" %s %s", title, id, dos);
+    /* Match real 1541 $ LIST shape (HostFS + trap-mode D64):
+       - line number = block count (header 0; free uses free_blocks)
+       - header: RVS + "TITLE           " ID DOS  (title padded to 16)
+       - files: leading spaces + "NAME            " TYPE (name padded to 16)
+       - free: BLOCKS FREE. */
+    ok = c64_basic_append_line(
+        program,
+        32768u,
+        &offset,
+        start_address,
+        0,
+        "%c\"%s\" %s %s",
+        C64_DIR_PETSCII_RVS_ON,
+        title16,
+        id,
+        dos);
     for (i = 0; ok && i < slot->entry_count; ++i) {
         char name[17];
+        char name16[17];
+        char line[96];
+        int lead;
+        int pos;
+        int n;
+
         c64_directory_entry_name_ascii(&slot->entries[i], name, sizeof(name));
+        c64_dir_pad16(name, name16);
+        lead = c64_dir_quote_leading_spaces(slot->entries[i].block_count);
+        pos = 0;
+        while (pos < lead && pos < (int)sizeof(line) - 1) {
+            line[pos++] = ' ';
+        }
+        n = snprintf(
+            line + pos,
+            sizeof(line) - (size_t)pos,
+            "\"%s\" %s",
+            name16,
+            c64_drive_file_type_text(slot->entries[i].type));
+        if (n < 0 || (size_t)pos + (size_t)n >= sizeof(line)) {
+            ok = false;
+            break;
+        }
         ok = c64_basic_append_line(
             program,
             32768u,
             &offset,
             start_address,
             slot->entries[i].block_count,
-            "\"%s\" %s",
-            name,
-            c64_drive_file_type_text(slot->entries[i].type));
+            "%s",
+            line);
     }
     if (ok) {
         ok = c64_basic_append_line(

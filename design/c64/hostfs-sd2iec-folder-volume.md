@@ -246,11 +246,15 @@ Advertise as **"c64m HostFS"** (CMD/SD2IEC-*shaped*), not full SD2IEC.
 
 **Directory listing shape (Phase 0):** Reuse the BASIC-line synthesizer pattern in `c64_drive_load_directory_to_memory`, sourcing HostFS catalog entries:
 
-- CBM `$` shape: BASIC **line number** = block count (header line `0`; free line uses `free_blocks`); text is `"NAME" TYPE` / `BLOCKS FREE.` (not sequential `10`/`20`/`30`). Shared by HostFS and trap-mode D64.
+- CBM `$` shape (shared HostFS + trap-mode D64), matching real 1541 LIST:
+  - BASIC **line number** = block count (header `0`; free line uses `free_blocks`)
+  - Header text: PETSCII RVS ON + `"TITLE"` padded to 16 with `$A0` + ID + DOS
+  - File text: leading spaces (`4 - digits`) so quotes column-align, `"NAME"` padded to 16, type column
+  - Free text: `BLOCKS FREE.`
 - Type text from `c64_drive_file_type_text` — directories must yield **`DIR`**, not `???`.
 - Block count: `ceil(size / 254)` for files; directories may use `0` or `1` (prefer `0`).
-- HostFS free line: **`65535 BLOCKS FREE.`** (fixed); nested D64 uses BAM free blocks.
-- FB parses the quoted name + type column; closed-bit/raw CBM type nybble is only required if a later oracle demands it — Phase 0 ships the ASCII `DIR`/`PRG` column.
+- HostFS free line number/value: **65535**; nested D64 uses BAM free blocks.
+- FB parses the quoted name + type column; closed-bit/raw CBM type nybble is only required if a later oracle demands it.
 
 ### HostFS volume model (c64-specific)
 
