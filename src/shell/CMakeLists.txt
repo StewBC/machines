@@ -20,6 +20,7 @@ add_library(shell STATIC
     frontend/nuklear_impl.c
     frontend/disk_led_data.c
     frontend/forensics_view.c
+    frontend/symbol_lookup_view.c
     frontend/debugger_layout.c
     frontend/debugger_context_menu.c
     frontend/disasm_pc_lock.c

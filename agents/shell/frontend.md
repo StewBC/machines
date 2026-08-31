@@ -19,6 +19,7 @@ C64 leftover: [`../c64/frontend-debugger.md`](../c64/frontend-debugger.md).
 | `src/shell/frontend/window_title.*` | Title formatter (product label is a parameter) |
 | `src/shell/frontend/help_view.*` | Help overlay (compiled per binary) |
 | `src/shell/frontend/forensics_view.*` | HST1 FIND surface |
+| `src/shell/frontend/symbol_lookup_view.*` | Symbol Lookup dialog (Filter sibling lands later) |
 | `src/shell/frontend/inspector_tab.*` | Inspector *tab* chrome |
 | `src/shell/frontend/disk_led_data.*` | Disk LED bitmaps |
 | `src/shell/frontend/nuklear*` | One Nuklear vendor |
