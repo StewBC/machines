@@ -1404,7 +1404,6 @@ static bool c64_drive_load_directory_to_memory(
     uint8_t *program;
     size_t offset = 0;
     size_t i;
-    uint16_t line_number = 10;
     char title[C64_DRIVE_DISK_TITLE_MAX];
     char id[3];
     char dos[3];
@@ -1426,6 +1425,9 @@ static bool c64_drive_load_directory_to_memory(
         c64_copy_text(dos, sizeof(dos), "  ");
     }
 
+    /* CBM $ convention (HostFS and trap-mode D64 share this path): BASIC line
+       number == block count (header 0; free line uses free_blocks). Text is
+       only "NAME" TYPE / BLOCKS FREE. — not sequential 10/20/30. */
     ok = c64_basic_append_line(program, 32768u, &offset, start_address, 0, "\"%s\" %s %s", title, id, dos);
     for (i = 0; ok && i < slot->entry_count; ++i) {
         char name[17];
@@ -1435,12 +1437,10 @@ static bool c64_drive_load_directory_to_memory(
             32768u,
             &offset,
             start_address,
-            line_number,
-            "%u \"%s\" %s",
             slot->entries[i].block_count,
+            "\"%s\" %s",
             name,
             c64_drive_file_type_text(slot->entries[i].type));
-        line_number = (uint16_t)(line_number + 10u);
     }
     if (ok) {
         ok = c64_basic_append_line(
@@ -1448,9 +1448,8 @@ static bool c64_drive_load_directory_to_memory(
             32768u,
             &offset,
             start_address,
-            line_number,
-            "%u BLOCKS FREE.",
-            slot->free_blocks);
+            slot->free_blocks,
+            "BLOCKS FREE.");
     }
     if (ok && offset + 2u <= 32768u) {
         program[offset++] = 0;
