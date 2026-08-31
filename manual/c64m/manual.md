@@ -736,27 +736,28 @@ alone does **not** power off.
 
 **HostFS (folder mount).** A directory path on `--disk N=<dir>`, or **Use This Folder**
 in the disk file browser after clicking **[8]** / **[9]**, mounts that folder as a
-HostFS volume. The volume is trap-fast (not a 1541 on the IEC bus). Guest I/O:
+HostFS volume. The volume is trap-fast (not a 1541 on the IEC bus). Advertise as
+**c64m HostFS** (CMD/SD2IEC-*shaped*), not full SD2IEC.
 
-- `LOAD "$",N` lists host `.prg` files and subdirectories (`DIR`), sorted by CBM name,
-  ending with `65535 BLOCKS FREE.`
-- `LOAD "NAME",N,1` / `LOAD "*",N,1` load PRGs (raw host `name.prg`; other extensions skipped)
-- `SAVE "NAME",N` creates `NAME.prg` in the current directory (fails if the name already
-  exists; no `@:` yet)
-- Command channel 15 `CD` (SD2IEC-shaped subset) for subdirectory navigation, enough for
-  **CBM FileBrowser 1.6** / `fb64`:
-  - `OPEN 1,N,15,"CD:SUB":CLOSE 1` enters a listed `DIR`
-  - `OPEN 1,N,15,"CD:←":CLOSE 1` (left arrow / `$5F`) goes to the parent
-  - `OPEN 1,N,15,"CD//":CLOSE 1` returns to the mount root
-  - After `CD`, `LOAD "$",N` lists the new cwd; status reads as `00, OK,00,00` (or a DOS
-    error such as `62, FILE NOT FOUND,00,00`)
-- HostFS still traps when `emulate_1541=1` (real 1541 can stay on the other device)
+| Feature | Behavior |
+|---------|----------|
+| `LOAD "$",N` | Lists host `.prg` as `PRG` and subdirs as `DIR` (sorted CBM names); ends with `65535 BLOCKS FREE.` |
+| `LOAD "NAME",N` / `,N,1` | Load PRG from cwd (`name.prg`; other extensions skipped) |
+| `LOAD "*",N` | First PRG in sorted catalog order |
+| `SAVE "NAME",N` | Create `NAME.prg` in cwd if new; fail if name exists (no `@:` yet) |
+| `CD` (channel 15) | `CD:SUB`, `CD:_` (left-arrow `$5F`), `CD//` (and `CD//NAME/` / `CD/NAME/` forms) via `OPEN 1,N,15,"...":CLOSE 1` |
+| Status | `OPEN 1,N,15` then `CHKIN`/`CHRIN`: `00, OK,00,00` or DOS error text (e.g. `62, FILE NOT FOUND,00,00`) |
+| Coexistence | HostFS traps even with `emulate_1541=1`; sibling unit may run a real 1541 IMAGE |
+
+**CBM FileBrowser 1.6** / `fb64` navigates with the `CD` + `LOAD "$"` path above (no SEQ
+required for that oracle).
+
+**Not in this subset:** SEQ file I/O, Scratch `S:`, `@:` overwrite, partitions (`$=P`),
+MD/RD, timestamps, `CD` into `.D64` images, fastloaders on HostFS.
 
 HostFS is a single mount (no multi-image queue / Swap). Opening a `.d64`/`.g64` or
 Shift+adding an image while HostFS is mounted replaces HostFS with an IMAGE queue.
 Folders are never enqueued.
-
-SEQ file I/O, Scratch/`@:`, and partitions are not in this HostFS subset yet.
 
 A unit turns **on** when you:
 

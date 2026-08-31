@@ -237,9 +237,9 @@ Advertise as **"c64m HostFS"** (CMD/SD2IEC-*shaped*), not full SD2IEC.
 | `LOAD "NAME",N` / `,N,1` | 0 | Load PRG from cwd; SA=0 relocates to BASIC start; SA=1 uses file load address |
 | `SAVE "NAME",N` | 0 | Create PRG in cwd (PETSCII→host name mapping) if the CBM name is **new**; if the name already exists in the catalog → **file-exists failure** (no silent overwrite). No `@:` in Phase 0 |
 | Wildcards `*` | 0 | `LOAD "*",N` = first **PRG** in sorted catalog order |
-| SEQ | 1 | With channel traps as needed |
-| Command channel 15 `CD` | 1 | `CD//`, `CD//DIR/`, `CD/DIR/`, `CD:←` (left arrow parent) — enough for FB |
-| Status `00, OK,00,00` | 1 | Read channel 15 after commands |
+| SEQ | 1 | **Deferred** — fb64 oracle navigates with LOAD/`CD` only (no SEQ); reopen if a later oracle needs it |
+| Command channel 15 `CD` | 1 | `CD//`, `CD//DIR/`, `CD/DIR/`, `CD:←` (left arrow parent) — enough for FB (**landed**) |
+| Status `00, OK,00,00` | 1 | Read channel 15 after commands (**landed**; also `30`/`62`/`74`) |
 | `CD` into `.D64` | 2 | Treat image as sub-volume; parent `CD` exits |
 | Partitions `$=P`, MD/RD, timestamps | — | Out unless later brief |
 | Fastloaders / Jiffy on HostFS | — | Non-goal; HostFS is already trap-fast |

@@ -9,8 +9,12 @@ in `c64.c`, `c1541.c`, `c1541_media.c`, `c64_hostfs.c`, runtime disk code.
   `@:` replacement.
 - HostFS: host directory as volume (`c64_mount_hostfs` / `--disk N=<dir>`).
   Trap-fast `$` / LOAD PRG / SAVE create-or-file-exists; channel-15 `CD` via
-  OPEN/CLOSE (+ status CHKIN/CHRIN); no IEC ATN. Spike:
+  OPEN/CLOSE (+ status CHKIN/CHRIN); no IEC ATN. Product name **"HostFS"**
+  (provisional identity string). Spike:
   `design/c64/hostfs-phase1-fb64-spike.md`.
+  DOS status subset today: `00 OK`, `30 SYNTAX ERROR`, `62 FILE NOT FOUND`,
+  `74 DRIVE NOT READY`. SEQ / `@:` / Scratch are **out** (fb64 oracle does not
+  need SEQ for CD/`$`).
 - Devices 8 and 9 have independent ordered disk queues. Images are
   read-only by default. Writable KERNAL SAVE updates the in-memory image;
   runtime flushes to the host path. Failed flushes leave the image dirty.

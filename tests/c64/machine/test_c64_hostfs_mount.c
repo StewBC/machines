@@ -553,6 +553,16 @@ static void test_hostfs_cd_channel(void)
     c64.bus.ram[0x01ff] = (uint8_t)(TEST_RETURN_ADDRESS >> 8);
     expect_true("chrin", c64_step_instruction(&c64, error, sizeof(error)));
     expect_true("status first '0'", c64.cpu.cpu.A == '0');
+    setup_close_call(&c64, 1);
+    expect_true("close status", c64_step_instruction(&c64, error, sizeof(error)));
+    expect_success_return(&c64);
+
+    /* Non-CD command → syntax error status */
+    setup_open_call(&c64, "S:FOO", 1, 9, 15);
+    expect_true("open scratch unsupported", c64_step_instruction(&c64, error, sizeof(error)));
+    expect_success_return(&c64);
+    status = c64_hostfs_status(c64.drives[1].hostfs);
+    expect_true("syntax status", status != NULL && status[0] == '3' && status[1] == '0');
 
     printf("PASS: test_hostfs_cd_channel\n");
 }

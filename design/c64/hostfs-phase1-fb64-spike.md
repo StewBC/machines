@@ -2,7 +2,7 @@
 
 | Field | Value |
 |-------|--------|
-| Status | Complete (spike gate for PR5) |
+| Status | **Landed** (spike gate for PR5; CD traps shipped; SEQ deferred in PR6) |
 | Date | 2026-08-30 |
 | Parent design | [`hostfs-sd2iec-folder-volume.md`](hostfs-sd2iec-folder-volume.md) — Phase 1 precondition / PR5 |
 | Oracle | **CBM FileBrowser 1.6** / `fb64` |
