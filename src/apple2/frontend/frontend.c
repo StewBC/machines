@@ -8383,6 +8383,7 @@ void frontend_handle_event(frontend *ui, SDL_Event *event)
         event->key.repeat == 0 &&
         event->key.keysym.sym == SDLK_ESCAPE) {
         ui->cancel_register_edit_requested = true;
+        /* Topmost first; ESC matches Cancel / dismiss for each popup. */
         if (symbol_lookup_view_any_open(&ui->symbol_lookup)) {
             symbol_lookup_ops ops = frontend_symbol_lookup_ops(ui);
             if (symbol_lookup_view_handle_key(&ui->symbol_lookup, &ops,
@@ -8391,8 +8392,40 @@ void frontend_handle_event(frontend *ui, SDL_Event *event)
                 return;
             }
         }
+        if (ui->file_browser.open) {
+            ui->file_browser.open = false;
+            nk_sdl_handle_event(event);
+            return;
+        }
         if (ui->memory_search.open) {
             ui->memory_search.open = false;
+            nk_sdl_handle_event(event);
+            return;
+        }
+        if (ui->breakpoint_dialog.open) {
+            ui->breakpoint_dialog.open = false;
+            nk_sdl_handle_event(event);
+            return;
+        }
+        if (ui->load_bin_dialog.open) {
+            ui->load_bin_dialog.open = false;
+            nk_sdl_handle_event(event);
+            return;
+        }
+        if (ui->save_bin_dialog.open) {
+            ui->save_bin_dialog.open = false;
+            nk_sdl_handle_event(event);
+            return;
+        }
+        if (ui->assembler.error_dialog_open) {
+            ui->assembler.error_dialog_open = false;
+            nk_sdl_handle_event(event);
+            return;
+        }
+        if (ui->config_dialog.open) {
+            frontend_config_dialog_cancel(ui);
+            nk_sdl_handle_event(event);
+            return;
         }
     }
 
