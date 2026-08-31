@@ -25,6 +25,7 @@ The agents index points here: [`agents/README.md`](../agents/README.md) → Desi
 
 | Design | Status | Last worked on | Path |
 |--------|--------|----------------|------|
+| Symbol source filter (shape B) + unify | active | 2026-08-31 | [`symbols-runtime-filter.md`](symbols-runtime-filter.md) |
 | c64m turbo/max vs VICE perf gap | landed | 2026-08-29 | [`c64/turbo-max-vice-perf-gap.md`](c64/turbo-max-vice-perf-gap.md) |
 
 ## Conventions
