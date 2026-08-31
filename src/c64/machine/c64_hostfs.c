@@ -242,12 +242,26 @@ static int c64_hostfs_cmp_cat(const void *a, const void *b)
     return strcmp(na, nb);
 }
 
+/* $ listings pad CBM names to 16 with $A0; FB reuses those bytes on CD/LOAD. */
+static size_t c64_hostfs_name_significant_len(const uint8_t *name, size_t name_len)
+{
+    while (name_len > 0u) {
+        uint8_t c = name[name_len - 1u];
+        if (c != 0xa0u && c != (uint8_t)' ') {
+            break;
+        }
+        name_len--;
+    }
+    return name_len;
+}
+
 static bool c64_hostfs_catalog_has_name(
     const c64_hostfs_volume *vol, const char *cbm, size_t cbm_len)
 {
     size_t i;
     size_t j;
 
+    cbm_len = c64_hostfs_name_significant_len((const uint8_t *)cbm, cbm_len);
     for (i = 0; i < vol->catalog_count; i++) {
         const c64_drive_directory_entry *e = &vol->catalog[i].dir;
         if (e->filename_length != cbm_len) {
@@ -955,6 +969,7 @@ static int c64_hostfs_find_catalog_index(
     if (vol == NULL || cbm == NULL) {
         return -1;
     }
+    cbm_len = c64_hostfs_name_significant_len((const uint8_t *)cbm, cbm_len);
     for (i = 0; i < vol->catalog_count; i++) {
         const c64_drive_directory_entry *e = &vol->catalog[i].dir;
         if (e->filename_length != cbm_len) {
@@ -984,7 +999,7 @@ static void c64_hostfs_copy_upper_name(
     const uint8_t *src, size_t src_len, char *dst, size_t dst_size, size_t *out_len)
 {
     size_t i;
-    size_t n = src_len;
+    size_t n;
 
     if (dst == NULL || dst_size == 0) {
         if (out_len != NULL) {
@@ -992,6 +1007,7 @@ static void c64_hostfs_copy_upper_name(
         }
         return;
     }
+    n = c64_hostfs_name_significant_len(src, src_len);
     if (n >= dst_size) {
         n = dst_size - 1u;
     }
@@ -1078,6 +1094,8 @@ static bool c64_hostfs_parse_data_name(
         }
         (void)have_mode;
     }
+    len = c64_hostfs_name_significant_len((const uint8_t *)tmp, len);
+    tmp[len] = '\0';
     if (len == 0u || len > 16u) {
         return false;
     }
@@ -1773,6 +1791,8 @@ static bool c64_hostfs_name_eq(
     const uint8_t *a, size_t a_len, const char *b, size_t b_len)
 {
     size_t i;
+    a_len = c64_hostfs_name_significant_len(a, a_len);
+    b_len = c64_hostfs_name_significant_len((const uint8_t *)b, b_len);
     if (a_len != b_len) {
         return false;
     }

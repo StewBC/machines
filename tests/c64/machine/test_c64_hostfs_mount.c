@@ -706,10 +706,14 @@ static void test_hostfs_save_sealed(void) {
     printf("PASS: test_hostfs_save_sealed\n");
 }
 
-static void setup_open_call(
-    c64_t *machine, const char *name, uint8_t la, uint8_t device, uint8_t sa)
+static void setup_open_call_bytes(
+    c64_t *machine,
+    const uint8_t *name,
+    size_t length,
+    uint8_t la,
+    uint8_t device,
+    uint8_t sa)
 {
-    size_t length = strlen(name);
     size_t i;
 
     machine->cpu.cpu.pc = 0xffc0;
@@ -724,7 +728,56 @@ static void setup_open_call(
     machine->bus.ram[0xbb] = (uint8_t)(TEST_FILENAME_BUFFER & 0xff);
     machine->bus.ram[0xbc] = (uint8_t)(TEST_FILENAME_BUFFER >> 8);
     for (i = 0; i < length; ++i) {
-        machine->bus.ram[TEST_FILENAME_BUFFER + i] = (uint8_t)name[i];
+        machine->bus.ram[TEST_FILENAME_BUFFER + i] = name[i];
+    }
+}
+
+static void setup_open_call(
+    c64_t *machine, const char *name, uint8_t la, uint8_t device, uint8_t sa)
+{
+    setup_open_call_bytes(
+        machine, (const uint8_t *)name, strlen(name), la, device, sa);
+}
+
+static void setup_load_call_bytes(
+    c64_t *machine,
+    const uint8_t *name,
+    size_t length,
+    uint8_t device,
+    uint8_t secondary)
+{
+    size_t i;
+
+    machine->cpu.cpu.pc = 0xffd5;
+    machine->cpu.cpu.sp = 0x01fd;
+    machine->bus.ram[0x01fe] = (uint8_t)(TEST_RETURN_ADDRESS & 0xff);
+    machine->bus.ram[0x01ff] = (uint8_t)(TEST_RETURN_ADDRESS >> 8);
+    machine->cpu.cpu.A = 0;
+    machine->cpu.cpu.flags |= 0x01;
+    machine->bus.ram[0xba] = device;
+    machine->bus.ram[0xb9] = secondary;
+    machine->bus.ram[0xb7] = (uint8_t)length;
+    machine->bus.ram[0xbb] = (uint8_t)(TEST_FILENAME_BUFFER & 0xff);
+    machine->bus.ram[0xbc] = (uint8_t)(TEST_FILENAME_BUFFER >> 8);
+    for (i = 0; i < length; ++i) {
+        machine->bus.ram[TEST_FILENAME_BUFFER + i] = name[i];
+    }
+    machine->bus.ram[0x2b] = 0x01;
+    machine->bus.ram[0x2c] = 0x08;
+}
+
+/* Build FB-style 16-char CBM name: significant chars + trailing $A0 pads. */
+static void cbm_pad16(const char *name, uint8_t out[16])
+{
+    size_t i;
+    size_t n = strlen(name);
+
+    memset(out, 0xa0, 16u);
+    if (n > 16u) {
+        n = 16u;
+    }
+    for (i = 0; i < n; i++) {
+        out[i] = (uint8_t)name[i];
     }
 }
 
@@ -920,6 +973,84 @@ static void test_hostfs_cd_channel(void)
 
     remove_tree(dir);
     printf("PASS: test_hostfs_cd_channel\n");
+}
+
+/* FB parses 16-byte $A0-padded names from LOAD "$" and reuses them on CD/LOAD.
+   HostFS catalogs store significant length only — trailing pads must not fail. */
+static void test_hostfs_padded_cbm_names(void)
+{
+    static c64_t c64;
+    char dir[HOSTFS_TEST_PATH_MAX];
+    char path[512];
+    char error[128];
+    const uint8_t body[] = {0xA9, 0x42, 0x60};
+    uint8_t padded[16];
+    uint8_t cd_cmd[3 + 16];
+    const char *status;
+    size_t i;
+    int found_nested = 0;
+
+    make_tmpdir(dir, sizeof(dir));
+    snprintf(path, sizeof(path), "%s/C", dir);
+    expect_true("mkdir C", HOSTFS_TEST_MKDIR(path) == 0 || errno == EEXIST);
+    write_host_prg(path, "inside.prg", 0xC000u, body, sizeof(body));
+    write_host_prg(dir, "root.prg", 0x8000u, body, sizeof(body));
+
+    reset_machine(&c64);
+    expect_true(
+        "mount",
+        c64_mount_hostfs(&c64, 9, dir, true) == C64_DRIVE_STATUS_OK);
+
+    /* LOAD "ROOT_______________",9,1 with $A0 pads (FB shape). */
+    cbm_pad16("ROOT", padded);
+    setup_load_call_bytes(&c64, padded, 16u, 9, 1);
+    expect_true("load padded ROOT", c64_step_instruction(&c64, error, sizeof(error)));
+    expect_success_return(&c64);
+    expect_true("root byte", c64_debug_read_ram(&c64, 0x8000) == 0xA9);
+
+    /* OPEN 1,9,15,"CD:" + padded "C" */
+    cd_cmd[0] = 'C';
+    cd_cmd[1] = 'D';
+    cd_cmd[2] = ':';
+    cbm_pad16("C", padded);
+    memcpy(cd_cmd + 3, padded, 16u);
+    setup_open_call_bytes(&c64, cd_cmd, sizeof(cd_cmd), 1, 9, 15);
+    expect_true("open CD:padded C", c64_step_instruction(&c64, error, sizeof(error)));
+    expect_success_return(&c64);
+    status = c64_hostfs_status(c64.drives[1].hostfs);
+    expect_true(
+        "CD padded OK",
+        status != NULL && status[0] == '0' && status[1] == '0');
+    setup_close_call(&c64, 1);
+    expect_true("close CD padded", c64_step_instruction(&c64, error, sizeof(error)));
+    expect_success_return(&c64);
+
+    setup_load_call(&c64, "$", 9, 0);
+    expect_true("load $ in C", c64_step_instruction(&c64, error, sizeof(error)));
+    expect_success_return(&c64);
+    for (i = 0; i < c64.drives[1].entry_count; i++) {
+        char name[17];
+        size_t n = c64.drives[1].entries[i].filename_length;
+        if (n > 16u) {
+            n = 16u;
+        }
+        memcpy(name, c64.drives[1].entries[i].filename, n);
+        name[n] = '\0';
+        if (strcmp(name, "INSIDE") == 0) {
+            found_nested = 1;
+        }
+        expect_true("no ROOT after CD", strcmp(name, "ROOT") != 0);
+    }
+    expect_true("lists INSIDE after padded CD", found_nested);
+
+    cbm_pad16("INSIDE", padded);
+    setup_load_call_bytes(&c64, padded, 16u, 9, 1);
+    expect_true("load padded INSIDE", c64_step_instruction(&c64, error, sizeof(error)));
+    expect_success_return(&c64);
+    expect_true("inside byte", c64_debug_read_ram(&c64, 0xC000) == 0xA9);
+
+    remove_tree(dir);
+    printf("PASS: test_hostfs_padded_cbm_names\n");
 }
 
 static void test_hostfs_cd_into_d64(void) {
@@ -1394,6 +1525,7 @@ int main(void) {
     test_hostfs_traps_with_emulate_1541();
     test_hostfs_save_sealed();
     test_hostfs_cd_channel();
+    test_hostfs_padded_cbm_names();
     test_hostfs_cd_into_d64();
     test_hostfs_p00_load();
     test_hostfs_scratch_and_seq();

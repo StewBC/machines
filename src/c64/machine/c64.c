@@ -490,6 +490,20 @@ static uint8_t c64_ascii_upper(uint8_t value) {
     return value;
 }
 
+/* Real 1541 dir entries / FB $ listings pad names to 16 with $A0. Catalog
+   slots store the significant length; ignore trailing pads on the request. */
+static size_t c64_cbm_name_significant_len(const uint8_t *name, size_t name_length)
+{
+    while (name_length > 0u) {
+        uint8_t c = name[name_length - 1u];
+        if (c != 0xa0u && c != (uint8_t)' ') {
+            break;
+        }
+        name_length--;
+    }
+    return name_length;
+}
+
 static bool c64_drive_filename_matches(
     const c64_drive_directory_entry *entry,
     const uint8_t *name,
@@ -500,6 +514,7 @@ static bool c64_drive_filename_matches(
         name++;
         name_length -= 2;
     }
+    name_length = c64_cbm_name_significant_len(name, name_length);
 
     if (entry->filename_length != name_length) {
         return false;
@@ -515,6 +530,7 @@ static bool c64_drive_filename_matches(
 static bool c64_drive_pattern_has_wildcard(const uint8_t *name, size_t name_length) {
     size_t i;
 
+    name_length = c64_cbm_name_significant_len(name, name_length);
     for (i = 0; i < name_length; ++i) {
         if (name[i] == '*' || name[i] == '?') {
             return true;
@@ -534,6 +550,7 @@ static bool c64_drive_filename_pattern_matches(
         pattern++;
         pattern_length -= 2;
     }
+    pattern_length = c64_cbm_name_significant_len(pattern, pattern_length);
 
     while (pattern_index < pattern_length) {
         uint8_t pattern_char = pattern[pattern_index++];

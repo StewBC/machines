@@ -11,12 +11,16 @@ in `c64.c`, `c1541.c`, `c1541_media.c`, `c64_hostfs.c`, runtime disk code.
   Trap-fast `$` / LOAD PRG / SAVE create-or-`@:`-replace; channel-15 `CD` +
   Scratch `S:NAME` via OPEN/CLOSE (+ status CHKIN/CHRIN); host-cwd SEQ via
   OPEN SA≠15 + CHKIN/CHRIN or CHKOUT/CHROUT (+ CLALL); no IEC ATN. Product name
-  **"HostFS"**. Spike: `design/c64/hostfs-phase1-fb64-spike.md`.
+  **"HostFS"**.
   Catalog: all non-dotfile regular files are visible (`.prg`/extensionless/other
   → `PRG`, `.seq` → `SEQ`, dirs → `DIR`, `.d64` → `DIR` with `.D64` kept in the
   listed name, `.P00`-`.P99` → `PRG` with the PC64 header CBM name and a 26-byte
   unwrap on LOAD).
   Do **not** require a `.prg` suffix — CBM tools like `fb64` ship extensionless.
+  `$` listings match real 1541 LIST shape (RVS header, names padded to 16 with
+  `$A0`, block-count line numbers). FB reuses those padded bytes on `CD`/`LOAD`;
+  HostFS/trap name compares trim trailing `$A0`/space (catalog stores significant
+  length only) — `test_hostfs_padded_cbm_names`.
   `$` identity (host cwd): mangled **mount-root** basename, ID `00`, DOS `2A`,
   `65535 BLOCKS FREE.` (frozen). `CD` into a `.d64` opens an owned `d64_image`
   overlay on the HostFS volume (still `backend=HOSTFS`; never `c64_mount_d64` /
