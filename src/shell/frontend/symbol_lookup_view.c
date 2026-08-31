@@ -163,12 +163,14 @@ static void symbol_lookup_commit(
     if (dlg == NULL) return;
     if (dlg->selected < 0 || dlg->selected >= dlg->filtered_count) {
         dlg->open = false;
+        dlg->filter_open = false;
         return;
     }
 
     e    = &dlg->entries[dlg->filtered[dlg->selected]];
     addr = e->address;
     dlg->open = false;
+    dlg->filter_open = false;
 
     if (ops == NULL) {
         return;
@@ -199,11 +201,50 @@ void symbol_lookup_view_close(frontend_symbol_lookup_state *state)
         return;
     }
     state->open = false;
+    state->filter_open = false;
 }
 
 bool symbol_lookup_view_is_open(const frontend_symbol_lookup_state *state)
 {
     return state != NULL && state->open;
+}
+
+bool symbol_lookup_view_filter_is_open(const frontend_symbol_lookup_state *state)
+{
+    return state != NULL && state->filter_open;
+}
+
+bool symbol_lookup_view_any_open(const frontend_symbol_lookup_state *state)
+{
+    return state != NULL && (state->open || state->filter_open);
+}
+
+void symbol_lookup_view_set_sources(
+    frontend_symbol_lookup_state *state,
+    const runtime_symbol_source_snapshot_entry *sources,
+    size_t source_count)
+{
+    size_t i, n;
+
+    if (state == NULL) {
+        return;
+    }
+
+    n = source_count;
+    if (n > SYMBOL_FILTER_SOURCE_MAX) {
+        n = SYMBOL_FILTER_SOURCE_MAX;
+    }
+    state->filter_source_count = n;
+    for (i = 0; i < n; ++i) {
+        const runtime_symbol_source_snapshot_entry *src = &sources[i];
+        symbol_filter_source_row *row = &state->filter_sources[i];
+        row->source_id = src->source_id;
+        row->enabled = src->enabled != 0u;
+        symbol_lookup_view_basename(src->source_name, row->label, sizeof(row->label));
+    }
+    if (n == 0u) {
+        state->filter_open = false;
+    }
 }
 
 void symbol_lookup_view_rebuild_entries(
@@ -270,8 +311,21 @@ void symbol_lookup_view_open(
     const symbol_table *table,
     bool from_memory)
 {
+    symbol_filter_source_row saved_sources[SYMBOL_FILTER_SOURCE_MAX];
+    size_t saved_count = 0u;
+
     if (state == NULL) {
         return;
+    }
+
+    /* Preserve chrome Filter cache across reopen; Filter starts closed. */
+    saved_count = state->filter_source_count;
+    if (saved_count > SYMBOL_FILTER_SOURCE_MAX) {
+        saved_count = SYMBOL_FILTER_SOURCE_MAX;
+    }
+    if (saved_count > 0u) {
+        memcpy(saved_sources, state->filter_sources,
+            saved_count * sizeof(saved_sources[0]));
     }
 
     memset(state, 0, sizeof(*state));
@@ -279,6 +333,11 @@ void symbol_lookup_view_open(
     state->sort_asc = true;
     state->selected = -1;
     state->from_memory = from_memory;
+    state->filter_source_count = saved_count;
+    if (saved_count > 0u) {
+        memcpy(state->filter_sources, saved_sources,
+            saved_count * sizeof(state->filter_sources[0]));
+    }
     symbol_lookup_view_rebuild_entries(state, table);
     state->just_opened = true;
     state->open = true;
@@ -289,14 +348,26 @@ bool symbol_lookup_view_handle_key(
     const symbol_lookup_ops *ops,
     SDL_Keycode key)
 {
-    if (state == NULL || !state->open) {
+    if (state == NULL || !symbol_lookup_view_any_open(state)) {
         return false;
     }
 
     if (key == SDLK_ESCAPE) {
-        state->open = false;
-        return true;
+        if (state->filter_open) {
+            state->filter_open = false;
+            return true;
+        }
+        if (state->open) {
+            state->open = false;
+            return true;
+        }
+        return false;
     }
+
+    if (!state->open) {
+        return false;
+    }
+
     if (key == SDLK_TAB) {
         state->table_has_kb_focus = !state->table_has_kb_focus;
         return true;
@@ -325,6 +396,98 @@ bool symbol_lookup_view_handle_key(
     return false;
 }
 
+static void symbol_lookup_render_filter(
+    struct nk_context *ctx,
+    frontend_symbol_lookup_state *state,
+    const symbol_lookup_ops *ops,
+    int width,
+    int height)
+{
+    struct nk_rect bounds;
+    struct nk_list_view lv;
+    float dw, dh, list_h;
+    int i;
+    static const int ROW_H = 22;
+
+    if (ctx == NULL || state == NULL || !state->filter_open) {
+        return;
+    }
+
+    dw = 360.0f;
+    if (dw > (float)width - 16.0f && width > 0) dw = (float)width - 16.0f;
+    dh = (float)height * 0.50f;
+    if (dh < 220.0f) dh = 220.0f;
+    if (dh > (float)height - 16.0f && height > 0) dh = (float)height - 16.0f;
+
+    /* Offset from Lookup center so both stay readable when stacked. */
+    bounds = nk_rect(
+        ((float)width - dw) * 0.5f + 28.0f,
+        ((float)height - dh) * 0.5f + 36.0f,
+        dw, dh);
+
+    if (nk_begin(ctx, "Symbol Filter", bounds,
+            NK_WINDOW_BORDER | NK_WINDOW_TITLE | NK_WINDOW_MOVABLE | NK_WINDOW_CLOSABLE
+            | NK_WINDOW_NO_SCROLLBAR)) {
+
+        if (nk_window_is_closed(ctx, "Symbol Filter")) {
+            state->filter_open = false;
+            nk_end(ctx);
+            return;
+        }
+
+        nk_layout_row_dynamic(ctx, 18.0f, 1);
+        nk_label(ctx, "Enabled sources participate in resolve", NK_TEXT_LEFT);
+
+        {
+            struct nk_rect content = nk_window_get_content_region(ctx);
+            float pad_y = ctx->style.window.padding.y;
+            float sp_y  = ctx->style.window.spacing.y;
+            const int rows = 3; /* hint, list, close */
+            float other_h = 18.0f + 24.0f;
+            list_h = content.h - other_h - (float)rows * sp_y - 2.0f * pad_y;
+        }
+        if (list_h < 40.0f) list_h = 40.0f;
+        nk_layout_row_dynamic(ctx, list_h, 1);
+
+        if (nk_list_view_begin(ctx, &lv, "sym_filter_rows",
+                NK_WINDOW_BORDER, ROW_H, (int)state->filter_source_count)) {
+            for (i = lv.begin; i < lv.end; ++i) {
+                symbol_filter_source_row *row;
+                nk_bool active;
+                bool before;
+
+                if (i < 0 || (size_t)i >= state->filter_source_count) {
+                    continue;
+                }
+                row = &state->filter_sources[i];
+                before = row->enabled;
+                active = before ? nk_true : nk_false;
+
+                nk_layout_row_dynamic(ctx, (float)ROW_H, 1);
+                nk_checkbox_label(ctx,
+                    row->label[0] != '\0' ? row->label : "(unnamed)",
+                    &active);
+                row->enabled = active != 0;
+                if (row->enabled != before &&
+                        ops != NULL && ops->set_source_enabled != NULL) {
+                    ops->set_source_enabled(ops->ctx, row->source_id, row->enabled);
+                }
+            }
+            nk_list_view_end(&lv);
+        }
+
+        nk_layout_row_dynamic(ctx, 24.0f, 3);
+        nk_spacing(ctx, 2);
+        if (nk_button_label(ctx, "Close")) {
+            state->filter_open = false;
+        }
+
+    } else if (nk_window_is_closed(ctx, "Symbol Filter")) {
+        state->filter_open = false;
+    }
+    nk_end(ctx);
+}
+
 void symbol_lookup_view_render(
     struct nk_context *ctx,
     frontend_symbol_lookup_state *state,
@@ -343,163 +506,181 @@ void symbol_lookup_view_render(
      * short basename. Ratios sum to 1 so the row always fits the panel width. */
     static const float COL_RATIO[4] = {0.10f, 0.30f, 0.38f, 0.22f};
 
-    if (ctx == NULL || state == NULL || !state->open) return;
-
-    dw = (float)width * 0.72f;
-    if (dw < 520.0f) dw = 520.0f;
-    if (dw > (float)width - 16.0f && width > 0) dw = (float)width - 16.0f;
-    dh = (float)height * 0.70f;
-    if (dh < 340.0f) dh = 340.0f;
-    if (dh > (float)height - 16.0f && height > 0) dh = (float)height - 16.0f;
-
-    bounds = nk_rect(((float)width - dw) * 0.5f, ((float)height - dh) * 0.5f, dw, dh);
-
-    if (nk_begin(ctx, "Symbol Lookup", bounds,
-            NK_WINDOW_BORDER | NK_WINDOW_TITLE | NK_WINDOW_MOVABLE | NK_WINDOW_CLOSABLE
-            | NK_WINDOW_NO_SCROLLBAR)) {
-
-        if (nk_window_is_closed(ctx, "Symbol Lookup")) {
-            state->open = false;
-            nk_end(ctx);
-            return;
-        }
-
-        memcpy(prev_search, state->search, sizeof(state->search));
-        nk_layout_row_dynamic(ctx, 24.0f, 1);
-        if (state->just_opened) {
-            nk_edit_focus(ctx, 0);
-            state->just_opened = false;
-        }
-        symbol_lookup_edit_replace(
-            ctx,
-            (nk_flags)NK_EDIT_FIELD | NK_EDIT_SELECTABLE | NK_EDIT_CLIPBOARD,
-            state->search, sizeof(state->search), nk_filter_default);
-        if (memcmp(prev_search, state->search, sizeof(state->search)) != 0) {
-            symbol_lookup_refilter(state);
-            state->scroll_to_selected = true;
-        }
-
-        {
-            char h0[12], h1[12], h2[12], h3[12];
-            snprintf(h0, sizeof(h0), "ADDR%s",
-                state->sort_col == SYMBOL_LOOKUP_SORT_ADDR   ? (state->sort_asc ? "^" : "v") : "");
-            snprintf(h1, sizeof(h1), "SCOPE%s",
-                state->sort_col == SYMBOL_LOOKUP_SORT_SCOPE  ? (state->sort_asc ? "^" : "v") : "");
-            snprintf(h2, sizeof(h2), "LABEL%s",
-                state->sort_col == SYMBOL_LOOKUP_SORT_LABEL  ? (state->sort_asc ? "^" : "v") : "");
-            snprintf(h3, sizeof(h3), "SOURCE%s",
-                state->sort_col == SYMBOL_LOOKUP_SORT_SOURCE ? (state->sort_asc ? "^" : "v") : "");
-
-            nk_layout_row(ctx, NK_DYNAMIC, 22.0f, 4, COL_RATIO);
-            if (nk_button_label(ctx, h0))
-                symbol_lookup_set_sort(state, SYMBOL_LOOKUP_SORT_ADDR);
-            if (nk_button_label(ctx, h1))
-                symbol_lookup_set_sort(state, SYMBOL_LOOKUP_SORT_SCOPE);
-            if (nk_button_label(ctx, h2))
-                symbol_lookup_set_sort(state, SYMBOL_LOOKUP_SORT_LABEL);
-            if (nk_button_label(ctx, h3))
-                symbol_lookup_set_sort(state, SYMBOL_LOOKUP_SORT_SOURCE);
-        }
-
-        /* Size the list so search + headers + Close fit with no window-level
-         * scrollbar. Same approach as the File Browser: measure the content
-         * region and subtract the other rows plus spacing/padding. The list
-         * keeps its own scrollbar for long symbol lists. */
-        {
-            struct nk_rect content = nk_window_get_content_region(ctx);
-            float pad_y = ctx->style.window.padding.y;
-            float sp_y  = ctx->style.window.spacing.y;
-            const int rows = 4; /* search, headers, list, close */
-            float other_h = 24.0f  /* search */
-                          + 22.0f  /* headers */
-                          + 24.0f; /* close */
-            table_h = content.h - other_h - (float)rows * sp_y - 2.0f * pad_y;
-        }
-        if (table_h < 40.0f) table_h = 40.0f;
-        nk_layout_row_dynamic(ctx, table_h, 1);
-
-        if (nk_list_view_begin(ctx, &lv, "sym_rows", 0, ROW_H, state->filtered_count)) {
-            struct nk_style_selectable saved_sel = ctx->style.selectable;
-
-            if (state->scroll_to_selected && lv.scroll_pointer != NULL && state->selected >= 0) {
-                nk_uint top    = *lv.scroll_pointer;
-                nk_uint bot    = top + (nk_uint)table_h;
-                nk_uint item_y = (nk_uint)(state->selected * ROW_H);
-                if (item_y < top) {
-                    *lv.scroll_pointer = item_y;
-                } else if (item_y + (nk_uint)ROW_H > bot) {
-                    *lv.scroll_pointer = item_y + (nk_uint)ROW_H - (nk_uint)table_h;
-                }
-                state->scroll_to_selected = false;
-            }
-
-            for (i = lv.begin; i < lv.end; ++i) {
-                const frontend_symbol_lookup_entry *e;
-                bool sel;
-                char addr_buf[6];
-                bool clicked = false;
-
-                if (i < 0 || i >= state->filtered_count) continue;
-                e   = &state->entries[state->filtered[i]];
-                sel = (i == state->selected);
-
-                snprintf(addr_buf, sizeof(addr_buf), "%04X", e->address);
-
-                if (sel) {
-                    ctx->style.selectable.normal  = nk_style_item_color(nk_rgb(21, 91, 116));
-                    ctx->style.selectable.hover   = nk_style_item_color(nk_rgb(21, 91, 116));
-                    ctx->style.selectable.pressed = nk_style_item_color(nk_rgb(21, 91, 116));
-                    ctx->style.selectable.text_normal  = nk_rgb(226, 246, 255);
-                    ctx->style.selectable.text_hover   = nk_rgb(226, 246, 255);
-                    ctx->style.selectable.text_pressed = nk_rgb(226, 246, 255);
-                } else {
-                    ctx->style.selectable = saved_sel;
-                }
-
-                nk_layout_row(ctx, NK_DYNAMIC, (float)ROW_H, 4, COL_RATIO);
-                /* nk_selectable_label asserts on len==0; blank cells use a space. */
-                {
-                    bool s = sel;
-                    if (nk_selectable_label(ctx, addr_buf, NK_TEXT_LEFT, &s)) clicked = true;
-                }
-                {
-                    bool s = sel;
-                    if (nk_selectable_label(ctx, e->scope[0] ? e->scope : " ",
-                            NK_TEXT_LEFT, &s)) clicked = true;
-                }
-                {
-                    bool s = sel;
-                    if (nk_selectable_label(ctx, e->label[0] ? e->label : " ",
-                            NK_TEXT_LEFT, &s)) clicked = true;
-                }
-                {
-                    bool s = sel;
-                    if (nk_selectable_label(ctx, e->source[0] ? e->source : " ",
-                            NK_TEXT_LEFT, &s)) clicked = true;
-                }
-
-                if (clicked) {
-                    state->selected = i;
-                    symbol_lookup_commit(state, ops);
-                    ctx->style.selectable = saved_sel;
-                    nk_list_view_end(&lv);
-                    nk_end(ctx);
-                    return;
-                }
-            }
-
-            ctx->style.selectable = saved_sel;
-            nk_list_view_end(&lv);
-        }
-
-        nk_layout_row_dynamic(ctx, 24.0f, 3);
-        nk_spacing(ctx, 2);
-        if (nk_button_label(ctx, "Close")) {
-            state->open = false;
-        }
-
-    } else if (nk_window_is_closed(ctx, "Symbol Lookup")) {
-        state->open = false;
+    if (ctx == NULL || state == NULL) {
+        return;
     }
-    nk_end(ctx);
+
+    if (state->open) {
+        dw = (float)width * 0.72f;
+        if (dw < 520.0f) dw = 520.0f;
+        if (dw > (float)width - 16.0f && width > 0) dw = (float)width - 16.0f;
+        dh = (float)height * 0.70f;
+        if (dh < 340.0f) dh = 340.0f;
+        if (dh > (float)height - 16.0f && height > 0) dh = (float)height - 16.0f;
+
+        bounds = nk_rect(((float)width - dw) * 0.5f, ((float)height - dh) * 0.5f, dw, dh);
+
+        if (nk_begin(ctx, "Symbol Lookup", bounds,
+                NK_WINDOW_BORDER | NK_WINDOW_TITLE | NK_WINDOW_MOVABLE | NK_WINDOW_CLOSABLE
+                | NK_WINDOW_NO_SCROLLBAR)) {
+
+            if (nk_window_is_closed(ctx, "Symbol Lookup")) {
+                state->open = false;
+                state->filter_open = false;
+                nk_end(ctx);
+                symbol_lookup_render_filter(ctx, state, ops, width, height);
+                return;
+            }
+
+            memcpy(prev_search, state->search, sizeof(state->search));
+            nk_layout_row_dynamic(ctx, 24.0f, 1);
+            if (state->just_opened) {
+                nk_edit_focus(ctx, 0);
+                state->just_opened = false;
+            }
+            symbol_lookup_edit_replace(
+                ctx,
+                (nk_flags)NK_EDIT_FIELD | NK_EDIT_SELECTABLE | NK_EDIT_CLIPBOARD,
+                state->search, sizeof(state->search), nk_filter_default);
+            if (memcmp(prev_search, state->search, sizeof(state->search)) != 0) {
+                symbol_lookup_refilter(state);
+                state->scroll_to_selected = true;
+            }
+
+            {
+                char h0[12], h1[12], h2[12], h3[12];
+                snprintf(h0, sizeof(h0), "ADDR%s",
+                    state->sort_col == SYMBOL_LOOKUP_SORT_ADDR   ? (state->sort_asc ? "^" : "v") : "");
+                snprintf(h1, sizeof(h1), "SCOPE%s",
+                    state->sort_col == SYMBOL_LOOKUP_SORT_SCOPE  ? (state->sort_asc ? "^" : "v") : "");
+                snprintf(h2, sizeof(h2), "LABEL%s",
+                    state->sort_col == SYMBOL_LOOKUP_SORT_LABEL  ? (state->sort_asc ? "^" : "v") : "");
+                snprintf(h3, sizeof(h3), "SOURCE%s",
+                    state->sort_col == SYMBOL_LOOKUP_SORT_SOURCE ? (state->sort_asc ? "^" : "v") : "");
+
+                nk_layout_row(ctx, NK_DYNAMIC, 22.0f, 4, COL_RATIO);
+                if (nk_button_label(ctx, h0))
+                    symbol_lookup_set_sort(state, SYMBOL_LOOKUP_SORT_ADDR);
+                if (nk_button_label(ctx, h1))
+                    symbol_lookup_set_sort(state, SYMBOL_LOOKUP_SORT_SCOPE);
+                if (nk_button_label(ctx, h2))
+                    symbol_lookup_set_sort(state, SYMBOL_LOOKUP_SORT_LABEL);
+                if (nk_button_label(ctx, h3))
+                    symbol_lookup_set_sort(state, SYMBOL_LOOKUP_SORT_SOURCE);
+            }
+
+            /* Size the list so search + headers + footer fit with no window-level
+             * scrollbar. Same approach as the File Browser. */
+            {
+                struct nk_rect content = nk_window_get_content_region(ctx);
+                float pad_y = ctx->style.window.padding.y;
+                float sp_y  = ctx->style.window.spacing.y;
+                const int rows = 4; /* search, headers, list, footer */
+                float other_h = 24.0f  /* search */
+                              + 22.0f  /* headers */
+                              + 24.0f; /* Filter/Close */
+                table_h = content.h - other_h - (float)rows * sp_y - 2.0f * pad_y;
+            }
+            if (table_h < 40.0f) table_h = 40.0f;
+            nk_layout_row_dynamic(ctx, table_h, 1);
+
+            if (nk_list_view_begin(ctx, &lv, "sym_rows", 0, ROW_H, state->filtered_count)) {
+                struct nk_style_selectable saved_sel = ctx->style.selectable;
+
+                if (state->scroll_to_selected && lv.scroll_pointer != NULL && state->selected >= 0) {
+                    nk_uint top    = *lv.scroll_pointer;
+                    nk_uint bot    = top + (nk_uint)table_h;
+                    nk_uint item_y = (nk_uint)(state->selected * ROW_H);
+                    if (item_y < top) {
+                        *lv.scroll_pointer = item_y;
+                    } else if (item_y + (nk_uint)ROW_H > bot) {
+                        *lv.scroll_pointer = item_y + (nk_uint)ROW_H - (nk_uint)table_h;
+                    }
+                    state->scroll_to_selected = false;
+                }
+
+                for (i = lv.begin; i < lv.end; ++i) {
+                    const frontend_symbol_lookup_entry *e;
+                    bool sel;
+                    char addr_buf[6];
+                    bool clicked = false;
+
+                    if (i < 0 || i >= state->filtered_count) continue;
+                    e   = &state->entries[state->filtered[i]];
+                    sel = (i == state->selected);
+
+                    snprintf(addr_buf, sizeof(addr_buf), "%04X", e->address);
+
+                    if (sel) {
+                        ctx->style.selectable.normal  = nk_style_item_color(nk_rgb(21, 91, 116));
+                        ctx->style.selectable.hover   = nk_style_item_color(nk_rgb(21, 91, 116));
+                        ctx->style.selectable.pressed = nk_style_item_color(nk_rgb(21, 91, 116));
+                        ctx->style.selectable.text_normal  = nk_rgb(226, 246, 255);
+                        ctx->style.selectable.text_hover   = nk_rgb(226, 246, 255);
+                        ctx->style.selectable.text_pressed = nk_rgb(226, 246, 255);
+                    } else {
+                        ctx->style.selectable = saved_sel;
+                    }
+
+                    nk_layout_row(ctx, NK_DYNAMIC, (float)ROW_H, 4, COL_RATIO);
+                    /* nk_selectable_label asserts on len==0; blank cells use a space. */
+                    {
+                        bool s = sel;
+                        if (nk_selectable_label(ctx, addr_buf, NK_TEXT_LEFT, &s)) clicked = true;
+                    }
+                    {
+                        bool s = sel;
+                        if (nk_selectable_label(ctx, e->scope[0] ? e->scope : " ",
+                                NK_TEXT_LEFT, &s)) clicked = true;
+                    }
+                    {
+                        bool s = sel;
+                        if (nk_selectable_label(ctx, e->label[0] ? e->label : " ",
+                                NK_TEXT_LEFT, &s)) clicked = true;
+                    }
+                    {
+                        bool s = sel;
+                        if (nk_selectable_label(ctx, e->source[0] ? e->source : " ",
+                                NK_TEXT_LEFT, &s)) clicked = true;
+                    }
+
+                    if (clicked) {
+                        state->selected = i;
+                        symbol_lookup_commit(state, ops);
+                        ctx->style.selectable = saved_sel;
+                        nk_list_view_end(&lv);
+                        nk_end(ctx);
+                        symbol_lookup_render_filter(ctx, state, ops, width, height);
+                        return;
+                    }
+                }
+
+                ctx->style.selectable = saved_sel;
+                nk_list_view_end(&lv);
+            }
+
+            nk_layout_row_dynamic(ctx, 24.0f, 2);
+            if (state->filter_source_count == 0u) {
+                nk_widget_disable_begin(ctx);
+            }
+            if (nk_button_label(ctx, "Filter")) {
+                state->filter_open = true;
+            }
+            if (state->filter_source_count == 0u) {
+                nk_widget_disable_end(ctx);
+            }
+            if (nk_button_label(ctx, "Close")) {
+                state->open = false;
+                state->filter_open = false;
+            }
+
+        } else if (nk_window_is_closed(ctx, "Symbol Lookup")) {
+            state->open = false;
+            state->filter_open = false;
+        }
+        nk_end(ctx);
+    }
+
+    /* Draw Filter after Lookup (stacking precedent: File Browser after Load). */
+    symbol_lookup_render_filter(ctx, state, ops, width, height);
 }

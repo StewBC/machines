@@ -707,7 +707,7 @@ static bool frontend_any_dialog_open(const frontend *ui)
         || ui->load_bin_dialog.open
         || ui->save_bin_dialog.open
         || ui->assembler.error_dialog_open
-        || symbol_lookup_view_is_open(&ui->symbol_lookup)
+        || symbol_lookup_view_any_open(&ui->symbol_lookup)
         || ui->file_browser.open;
 }
 
@@ -1127,6 +1127,12 @@ static bool frontend_click_in_any_dialog(const frontend *ui, float x, float y)
     }
     if (symbol_lookup_view_is_open(&ui->symbol_lookup)) {
         win = nk_window_find(ui->ctx, "Symbol Lookup");
+        if (win && frontend_point_in_rect(x, y, win->bounds)) {
+            return true;
+        }
+    }
+    if (symbol_lookup_view_filter_is_open(&ui->symbol_lookup)) {
+        win = nk_window_find(ui->ctx, "Symbol Filter");
         if (win && frontend_point_in_rect(x, y, win->bounds)) {
             return true;
         }
@@ -3083,6 +3089,12 @@ static void frontend_symbol_lookup_jump_memory(void *ctx, uint16_t address)
     mv->request_pending = false;
 }
 
+static void frontend_symbol_lookup_set_source_enabled(
+    void *ctx, uint32_t source_id, bool enabled)
+{
+    (void)frontend_request_set_symbol_source_enabled((frontend *)ctx, source_id, enabled);
+}
+
 static symbol_lookup_ops frontend_symbol_lookup_ops(frontend *ui)
 {
     symbol_lookup_ops ops;
@@ -3090,6 +3102,7 @@ static symbol_lookup_ops frontend_symbol_lookup_ops(frontend *ui)
     ops.ctx = ui;
     ops.jump_disasm = frontend_symbol_lookup_jump_disasm;
     ops.jump_memory = frontend_symbol_lookup_jump_memory;
+    ops.set_source_enabled = frontend_symbol_lookup_set_source_enabled;
     return ops;
 }
 
@@ -3459,6 +3472,8 @@ static void frontend_disassembly_handle_key(
 
     if (alt && sym == SDLK_s) {
         symbol_lookup_view_open(&ui->symbol_lookup, ui->symbol_table, false);
+        symbol_lookup_view_set_sources(
+            &ui->symbol_lookup, ui->symbol_sources, ui->symbol_source_count);
         return;
     }
 
@@ -5300,6 +5315,8 @@ static void frontend_memory_handle_key(
 
     if (alt && sym == SDLK_s) {
         symbol_lookup_view_open(&ui->symbol_lookup, ui->symbol_table, true);
+        symbol_lookup_view_set_sources(
+            &ui->symbol_lookup, ui->symbol_sources, ui->symbol_source_count);
         return;
     }
 
@@ -8105,6 +8122,8 @@ void frontend_update_symbols(frontend *ui, const runtime_symbol_snapshot *snapsh
         memcpy(ui->symbol_sources, snapshot->sources, n * sizeof(ui->symbol_sources[0]));
     }
 
+    symbol_lookup_view_set_sources(
+        &ui->symbol_lookup, ui->symbol_sources, ui->symbol_source_count);
     if (symbol_lookup_view_is_open(&ui->symbol_lookup)) {
         symbol_lookup_view_rebuild_entries(&ui->symbol_lookup, ui->symbol_table);
     }
@@ -8255,8 +8274,13 @@ void frontend_handle_event(frontend *ui, SDL_Event *event)
         event->key.repeat == 0 &&
         event->key.keysym.sym == SDLK_ESCAPE) {
         ui->cancel_register_edit_requested = true;
-        if (symbol_lookup_view_is_open(&ui->symbol_lookup)) {
-            symbol_lookup_view_close(&ui->symbol_lookup);
+        if (symbol_lookup_view_any_open(&ui->symbol_lookup)) {
+            symbol_lookup_ops ops = frontend_symbol_lookup_ops(ui);
+            if (symbol_lookup_view_handle_key(&ui->symbol_lookup, &ops,
+                    SDLK_ESCAPE)) {
+                nk_sdl_handle_event(event);
+                return;
+            }
         }
     }
 
@@ -8274,7 +8298,7 @@ void frontend_handle_event(frontend *ui, SDL_Event *event)
     }
 
     if (event->type == SDL_KEYDOWN && event->key.repeat == 0 &&
-        symbol_lookup_view_is_open(&ui->symbol_lookup)) {
+        symbol_lookup_view_any_open(&ui->symbol_lookup)) {
         symbol_lookup_ops ops = frontend_symbol_lookup_ops(ui);
         if (symbol_lookup_view_handle_key(&ui->symbol_lookup, &ops,
                 event->key.keysym.sym)) {
