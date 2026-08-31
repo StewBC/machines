@@ -1907,6 +1907,12 @@ static void dispatch_intent(
         (void)runtime_client_set_breakpoint_enabled(client, intent->id, intent->enabled);
         (void)runtime_client_request_breakpoints(client);
         break;
+    case FRONTEND_DEBUGGER_INTENT_SET_SYMBOL_SOURCE_ENABLED:
+        (void)runtime_client_set_symbol_source_enabled(
+            client,
+            intent->symbol_source_id,
+            intent->symbol_source_enabled);
+        break;
     case FRONTEND_DEBUGGER_INTENT_BREAKPOINT_CREATE:
         (void)runtime_client_create_breakpoint(client, &intent->breakpoint);
         (void)runtime_client_request_breakpoints(client);

@@ -84,6 +84,10 @@ bool runtime_client_assemble_file_full(
     bool reset_first,
     bool auto_adjust_segments);
 bool runtime_client_poll_symbols(runtime_client *client, runtime_symbol_snapshot *out);
+bool runtime_client_set_symbol_source_enabled(
+    runtime_client *client,
+    uint32_t source_id,
+    bool enabled);
 bool runtime_client_paste_text(runtime_client *client, const char *text, size_t length);
 bool runtime_client_cycle_turbo_speed(runtime_client *client);
 /* milli_mhz: RUNTIME_TURBO_MAX (0) = max free-run; else target MHz × 1000 (1000 = 1 MHz). */

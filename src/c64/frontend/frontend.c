@@ -461,6 +461,9 @@ struct frontend {
     frontend_help_state help;
     frontend_forensics_state forensics;
     frontend_symbol_lookup_state symbol_lookup;
+    /* Chrome-owned copy of last polled snapshot.sources[] (raw source_id). */
+    size_t symbol_source_count;
+    runtime_symbol_source_snapshot_entry symbol_sources[RUNTIME_SYMBOL_SOURCE_SNAPSHOT_MAX];
     frontend_file_browser_state file_browser;
     /* Remembered default folder per browse slot (session memory; main.c bridges
        these to the INI). Empty string means "unset" -> fall back to cwd. */
@@ -1230,6 +1233,7 @@ static bool frontend_push_assemble_run_intent(
 static void frontend_draw_assembler_error_dialog(frontend *ui, int width, int height);
 static void frontend_draw_symbol_lookup(frontend *ui, int width, int height);
 static void frontend_open_symbol_lookup(frontend *ui, bool from_memory);
+static void frontend_symbol_lookup_rebuild_entries(frontend *ui);
 static void frontend_symbol_lookup_commit(frontend *ui);
 static void frontend_draw_file_browser(frontend *ui, int width, int height);
 static bool frontend_push_load_bin_execute_intent(
@@ -8065,6 +8069,8 @@ void frontend_invalidate_disassembly_cache(frontend *ui)
 
 void frontend_update_symbols(frontend *ui, const runtime_symbol_snapshot *snapshot)
 {
+    size_t n;
+
     if (ui == NULL || snapshot == NULL) {
         return;
     }
@@ -8081,6 +8087,79 @@ void frontend_update_symbols(frontend *ui, const runtime_symbol_snapshot *snapsh
     }
 
     symbol_table_make_resolver(ui->symbol_table, &ui->symbols);
+
+    n = snapshot->source_count;
+    if (n > RUNTIME_SYMBOL_SOURCE_SNAPSHOT_MAX) {
+        n = RUNTIME_SYMBOL_SOURCE_SNAPSHOT_MAX;
+    }
+    ui->symbol_source_count = n;
+    if (n > 0u) {
+        memcpy(ui->symbol_sources, snapshot->sources, n * sizeof(ui->symbol_sources[0]));
+    }
+
+    if (ui->symbol_lookup.open) {
+        frontend_symbol_lookup_rebuild_entries(ui);
+    }
+    frontend_invalidate_disassembly_cache(ui);
+}
+
+bool frontend_request_set_symbol_source_enabled(
+    frontend *ui,
+    uint32_t source_id,
+    bool enabled)
+{
+    size_t next;
+
+    if (ui == NULL) {
+        return false;
+    }
+
+    next = (ui->intent_write + 1u) % FRONTEND_DEBUGGER_INTENT_CAPACITY;
+    if (next == ui->intent_read) {
+        return false;
+    }
+
+    memset(&ui->intents[ui->intent_write], 0, sizeof(ui->intents[ui->intent_write]));
+    ui->intents[ui->intent_write].type = FRONTEND_DEBUGGER_INTENT_SET_SYMBOL_SOURCE_ENABLED;
+    ui->intents[ui->intent_write].symbol_source_id = source_id;
+    ui->intents[ui->intent_write].symbol_source_enabled = enabled;
+    ui->intent_write = next;
+    return true;
+}
+
+size_t frontend_symbol_source_count(const frontend *ui)
+{
+    return ui == NULL ? 0u : ui->symbol_source_count;
+}
+
+bool frontend_symbol_source_at(
+    const frontend *ui,
+    size_t index,
+    uint32_t *out_source_id,
+    symbol_source_kind *out_kind,
+    const char **out_name,
+    bool *out_enabled)
+{
+    const runtime_symbol_source_snapshot_entry *src;
+
+    if (ui == NULL || index >= ui->symbol_source_count) {
+        return false;
+    }
+
+    src = &ui->symbol_sources[index];
+    if (out_source_id != NULL) {
+        *out_source_id = src->source_id;
+    }
+    if (out_kind != NULL) {
+        *out_kind = (symbol_source_kind)src->source_kind;
+    }
+    if (out_name != NULL) {
+        *out_name = src->source_name;
+    }
+    if (out_enabled != NULL) {
+        *out_enabled = src->enabled != 0u;
+    }
+    return true;
 }
 
 void frontend_destroy(frontend *ui)
@@ -9399,27 +9478,42 @@ static void frontend_draw_file_browser(frontend *ui, int width, int height)
     nk_end(ctx);
 }
 
-static void frontend_open_symbol_lookup(frontend *ui, bool from_memory)
+static void frontend_symbol_lookup_rebuild_entries(frontend *ui)
 {
     frontend_symbol_lookup_state *dlg;
     size_t i, count;
     symbol_info info;
+    char search[SYMBOL_LOOKUP_SEARCH_MAX];
+    frontend_symbol_lookup_sort_col sort_col;
+    bool sort_asc;
+    bool from_memory;
+    bool table_has_kb_focus;
+    int selected;
 
-    if (ui == NULL) return;
+    if (ui == NULL) {
+        return;
+    }
 
     dlg = &ui->symbol_lookup;
-    memset(dlg, 0, sizeof(*dlg));
-    dlg->sort_col = SYMBOL_LOOKUP_SORT_ADDR;
-    dlg->sort_asc = true;
-    dlg->selected = -1;
-    dlg->from_memory = from_memory;
+    memcpy(search, dlg->search, sizeof(search));
+    sort_col = dlg->sort_col;
+    sort_asc = dlg->sort_asc;
+    from_memory = dlg->from_memory;
+    table_has_kb_focus = dlg->table_has_kb_focus;
+    selected = dlg->selected;
 
+    dlg->entry_count = 0;
+    dlg->filtered_count = 0;
     if (ui->symbol_table != NULL) {
         count = symbol_table_count(ui->symbol_table);
-        if (count > SYMBOL_LOOKUP_ENTRY_MAX) count = SYMBOL_LOOKUP_ENTRY_MAX;
+        if (count > SYMBOL_LOOKUP_ENTRY_MAX) {
+            count = SYMBOL_LOOKUP_ENTRY_MAX;
+        }
         for (i = 0; i < count; ++i) {
             frontend_symbol_lookup_entry *e = &dlg->entries[dlg->entry_count];
-            if (symbol_table_get(ui->symbol_table, i, &info) != SYMBOL_OK) continue;
+            if (symbol_table_get(ui->symbol_table, i, &info) != SYMBOL_OK) {
+                continue;
+            }
             e->address = info.address;
             frontend_symbol_lookup_scope_str(&info, e->scope, sizeof(e->scope));
             snprintf(e->label, sizeof(e->label), "%.*s",
@@ -9429,8 +9523,35 @@ static void frontend_open_symbol_lookup(frontend *ui, bool from_memory)
         }
     }
 
+    memcpy(dlg->search, search, sizeof(dlg->search));
+    dlg->sort_col = sort_col;
+    dlg->sort_asc = sort_asc;
+    dlg->from_memory = from_memory;
+    dlg->table_has_kb_focus = table_has_kb_focus;
     frontend_symbol_lookup_refilter(dlg);
-    dlg->selected = dlg->filtered_count > 0 ? 0 : -1;
+    if (selected < 0 || selected >= dlg->filtered_count) {
+        dlg->selected = dlg->filtered_count > 0 ? 0 : -1;
+    } else {
+        dlg->selected = selected;
+    }
+    dlg->scroll_to_selected = true;
+}
+
+static void frontend_open_symbol_lookup(frontend *ui, bool from_memory)
+{
+    frontend_symbol_lookup_state *dlg;
+
+    if (ui == NULL) {
+        return;
+    }
+
+    dlg = &ui->symbol_lookup;
+    memset(dlg, 0, sizeof(*dlg));
+    dlg->sort_col = SYMBOL_LOOKUP_SORT_ADDR;
+    dlg->sort_asc = true;
+    dlg->selected = -1;
+    dlg->from_memory = from_memory;
+    frontend_symbol_lookup_rebuild_entries(ui);
     dlg->just_opened = true;
     dlg->open = true;
 }

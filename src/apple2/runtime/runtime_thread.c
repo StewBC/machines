@@ -4860,6 +4860,15 @@ static void runtime_process_command(runtime *rt, const runtime_command *cmd, boo
     case RUNTIME_COMMAND_SAVE_BIN:
         runtime_save_bin(rt, cmd);
         break;
+    case RUNTIME_COMMAND_SET_SYMBOL_SOURCE_ENABLED:
+        if (rt->symbols != NULL) {
+            (void)symbol_table_set_source_enabled_at(
+                rt->symbols,
+                cmd->data.set_symbol_source_enabled.source_id,
+                cmd->data.set_symbol_source_enabled.enabled != 0u);
+            runtime_publish_symbols(rt);
+        }
+        break;
 
     default:
         /* Unknown / unsupported command: ignore. */

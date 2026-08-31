@@ -156,7 +156,8 @@ typedef enum frontend_debugger_intent_type {
     FRONTEND_DEBUGGER_INTENT_HISTORY_NEXT,
     FRONTEND_DEBUGGER_INTENT_HISTORY_READ,
     FRONTEND_DEBUGGER_INTENT_HISTORY_INFO,
-    FRONTEND_DEBUGGER_INTENT_HISTORY_CLOSE
+    FRONTEND_DEBUGGER_INTENT_HISTORY_CLOSE,
+    FRONTEND_DEBUGGER_INTENT_SET_SYMBOL_SOURCE_ENABLED
 } frontend_debugger_intent_type;
 
 typedef enum frontend_history_verb {
@@ -197,6 +198,8 @@ typedef struct frontend_debugger_intent {
     uint16_t value;
     uint32_t id;
     bool enabled;
+    uint32_t symbol_source_id;
+    bool symbol_source_enabled;
     bool include_write_history;
     runtime_memory_mode memory_mode;
     runtime_breakpoint_definition breakpoint;
@@ -365,6 +368,18 @@ void frontend_set_assembler_path(frontend *ui, const char *path);
 void frontend_show_assembler_errors(frontend *ui, const char *errors);
 void frontend_show_assembler_notice(frontend *ui, const char *notice);
 void frontend_update_symbols(frontend *ui, const runtime_symbol_snapshot *snapshot);
+bool frontend_request_set_symbol_source_enabled(
+    frontend *ui,
+    uint32_t source_id,
+    bool enabled);
+size_t frontend_symbol_source_count(const frontend *ui);
+bool frontend_symbol_source_at(
+    const frontend *ui,
+    size_t index,
+    uint32_t *out_source_id,
+    symbol_source_kind *out_kind,
+    const char **out_name,
+    bool *out_enabled);
 void frontend_set_load_bin_path(frontend *ui, const char *path);
 void frontend_set_save_bin_path(frontend *ui, const char *path);
 void frontend_invalidate_disassembly_cache(frontend *ui);

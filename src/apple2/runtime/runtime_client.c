@@ -556,6 +556,24 @@ bool runtime_client_set_breakpoint_enabled(runtime_client *client, uint32_t id, 
     return runtime_client_push(client, &command);
 }
 
+bool runtime_client_set_symbol_source_enabled(
+    runtime_client *client,
+    uint32_t source_id,
+    bool enabled)
+{
+    runtime_command command = {
+        .type = RUNTIME_COMMAND_SET_SYMBOL_SOURCE_ENABLED,
+    };
+
+    if (!client) {
+        return false;
+    }
+
+    command.data.set_symbol_source_enabled.source_id = source_id;
+    command.data.set_symbol_source_enabled.enabled = enabled ? 1u : 0u;
+    return runtime_client_push(client, &command);
+}
+
 bool runtime_client_rearm_oneshot_breakpoints(runtime_client *client) {
     return runtime_client_send_command(client, RUNTIME_COMMAND_REARM_ONESHOT_BREAKPOINTS);
 }

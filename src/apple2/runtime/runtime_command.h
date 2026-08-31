@@ -75,7 +75,8 @@ typedef enum runtime_command_type {
     RUNTIME_COMMAND_INSPECTOR_LAND_SAMPLE,
     RUNTIME_COMMAND_INSPECTOR_LAND,
     RUNTIME_COMMAND_INSPECTOR_LAND_TO_CYCLE,
-    RUNTIME_COMMAND_INSPECTOR_SAMPLE_STEP
+    RUNTIME_COMMAND_INSPECTOR_SAMPLE_STEP,
+    RUNTIME_COMMAND_SET_SYMBOL_SOURCE_ENABLED
 } runtime_command_type;
 
 enum {
@@ -163,6 +164,11 @@ typedef struct runtime_command {
             uint32_t id;
             uint8_t enabled;
         } set_breakpoint_enabled;
+
+        struct {
+            uint32_t source_id;
+            uint8_t enabled;
+        } set_symbol_source_enabled;
 
         struct {
             runtime_breakpoint_definition definition;

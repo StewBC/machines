@@ -5988,6 +5988,16 @@ static bool runtime_process_command(runtime *rt, const runtime_command *command,
             runtime_assemble_file_command(rt, command);
             break;
 
+        case RUNTIME_COMMAND_SET_SYMBOL_SOURCE_ENABLED:
+            if (rt->symbols != NULL) {
+                (void)symbol_table_set_source_enabled_at(
+                    rt->symbols,
+                    command->data.set_symbol_source_enabled.source_id,
+                    command->data.set_symbol_source_enabled.enabled != 0u);
+                runtime_publish_symbols(rt);
+            }
+            break;
+
         case RUNTIME_COMMAND_APPLY_MACHINE_CONFIG:
             runtime_apply_machine_config(rt, command);
             break;
