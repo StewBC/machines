@@ -1911,7 +1911,6 @@ static void frontend_draw_breakpoint_editor(frontend *ui, int width, int height)
             "Breakpoint Editor",
             bounds,
             NK_WINDOW_BORDER | NK_WINDOW_TITLE | NK_WINDOW_MOVABLE | NK_WINDOW_CLOSABLE)) {
-        if (!nk_window_is_closed(ctx, "Breakpoint Editor")) {
             nk_layout_row_dynamic(ctx, 20.0f, 1);
             frontend_checkbox_bool(ctx, "Enabled", &dialog->enabled);
 
@@ -2039,13 +2038,11 @@ static void frontend_draw_breakpoint_editor(frontend *ui, int width, int height)
                 }
                 dialog->open = false;
             }
-        } else {
-            dialog->open = false;
-        }
-    } else if (nk_window_is_closed(ctx, "Breakpoint Editor")) {
-        dialog->open = false;
     }
     nk_end(ctx);
+    if (dialog->open && nk_window_is_hidden(ctx, "Breakpoint Editor")) {
+        dialog->open = false;
+    }
 }
 
 static bool frontend_config_validate(frontend_config_dialog_state *dialog)
@@ -2456,7 +2453,6 @@ static void frontend_draw_config_dialog(frontend *ui, int width, int height)
     }
 
     if (nk_begin(ctx, "Configure", bounds, NK_WINDOW_BORDER | NK_WINDOW_TITLE | NK_WINDOW_MOVABLE | NK_WINDOW_CLOSABLE)) {
-        if (!nk_window_is_closed(ctx, "Configure")) {
             nk_layout_row_dynamic(ctx, 24.0f, 3);
             frontend_draw_config_tab_button(ui, FRONTEND_CONFIG_TAB_MACHINE, "Machine");
             frontend_draw_config_tab_button(ui, FRONTEND_CONFIG_TAB_EMULATOR, "Emulator");
@@ -2565,13 +2561,11 @@ static void frontend_draw_config_dialog(frontend *ui, int width, int height)
                 frontend_config_dialog_cancel(ui);
             }
             frontend_draw_config_existing_ini_prompt(ui, dialog, ctx);
-        } else {
-            frontend_config_dialog_cancel(ui);
-        }
-    } else if (nk_window_is_closed(ctx, "Configure")) {
-        frontend_config_dialog_cancel(ui);
     }
     nk_end(ctx);
+    if (ui->config_dialog.open && nk_window_is_hidden(ctx, "Configure")) {
+        frontend_config_dialog_cancel(ui);
+    }
 }
 
 static void frontend_push_debugger_intent(
@@ -9034,12 +9028,6 @@ static void frontend_draw_file_browser(frontend *ui, int width, int height)
             NK_WINDOW_BORDER | NK_WINDOW_TITLE | NK_WINDOW_MOVABLE | NK_WINDOW_CLOSABLE
             | NK_WINDOW_NO_SCROLLBAR)) {
 
-        if (nk_window_is_closed(ctx, "File Browser")) {
-            dlg->open = false;
-            nk_end(ctx);
-            return;
-        }
-
         edit_active_this_frame = false;
 
         nk_layout_row_dynamic(ctx, 20.0f, 1);
@@ -9348,10 +9336,11 @@ static void frontend_draw_file_browser(frontend *ui, int width, int height)
             }
         }
 
-    } else if (nk_window_is_closed(ctx, "File Browser")) {
-        dlg->open = false;
     }
     nk_end(ctx);
+    if ((dlg->open) && nk_window_is_hidden(ctx, "File Browser")) {
+        dlg->open = false;
+    }
 }
 
 static void frontend_draw_load_bin_dialog(frontend *ui, int width, int height)
@@ -9373,7 +9362,6 @@ static void frontend_draw_load_bin_dialog(frontend *ui, int width, int height)
 
     if (nk_begin(ctx, "Load", bounds,
                  NK_WINDOW_BORDER | NK_WINDOW_TITLE | NK_WINDOW_MOVABLE | NK_WINDOW_CLOSABLE)) {
-        if (!nk_window_is_closed(ctx, "Load")) {
             /* Name / Browse row */
             nk_layout_row_begin(ctx, NK_DYNAMIC, 24.0f, 3);
             nk_layout_row_push(ctx, 0.18f);
@@ -9437,13 +9425,11 @@ static void frontend_draw_load_bin_dialog(frontend *ui, int width, int height)
             if (nk_button_label(ctx, "OK")) {
                 frontend_commit_load_bin_dialog(ui);
             }
-        } else {
-            dlg->open = false;
-        }
-    } else if (nk_window_is_closed(ctx, "Load")) {
-        dlg->open = false;
     }
     nk_end(ctx);
+    if (dlg->open && nk_window_is_hidden(ctx, "Load")) {
+        dlg->open = false;
+    }
 }
 
 static void frontend_draw_save_bin_dialog(frontend *ui, int width, int height)
@@ -9468,7 +9454,6 @@ static void frontend_draw_save_bin_dialog(frontend *ui, int width, int height)
 
     if (nk_begin(ctx, "Save", bounds,
                  NK_WINDOW_BORDER | NK_WINDOW_TITLE | NK_WINDOW_MOVABLE | NK_WINDOW_CLOSABLE)) {
-        if (!nk_window_is_closed(ctx, "Save")) {
             /* Name / Browse row */
             nk_layout_row_begin(ctx, NK_DYNAMIC, 24.0f, 3);
             nk_layout_row_push(ctx, 0.18f);
@@ -9569,13 +9554,11 @@ static void frontend_draw_save_bin_dialog(frontend *ui, int width, int height)
                     dlg->open = false;
                 }
             }
-        } else {
-            dlg->open = false;
-        }
-    } else if (nk_window_is_closed(ctx, "Save")) {
-        dlg->open = false;
     }
     nk_end(ctx);
+    if (dlg->open && nk_window_is_hidden(ctx, "Save")) {
+        dlg->open = false;
+    }
 }
 
 static void frontend_draw_assembler_error_dialog(frontend *ui, int width, int height)

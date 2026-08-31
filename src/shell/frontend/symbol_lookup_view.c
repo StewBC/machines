@@ -429,12 +429,6 @@ static void symbol_lookup_render_filter(
             NK_WINDOW_BORDER | NK_WINDOW_TITLE | NK_WINDOW_MOVABLE | NK_WINDOW_CLOSABLE
             | NK_WINDOW_NO_SCROLLBAR)) {
 
-        if (nk_window_is_closed(ctx, "Symbol Filter")) {
-            state->filter_open = false;
-            nk_end(ctx);
-            return;
-        }
-
         nk_layout_row_dynamic(ctx, 18.0f, 1);
         nk_label(ctx, "Enabled sources participate in resolve", NK_TEXT_LEFT);
 
@@ -482,10 +476,11 @@ static void symbol_lookup_render_filter(
             state->filter_open = false;
         }
 
-    } else if (nk_window_is_closed(ctx, "Symbol Filter")) {
-        state->filter_open = false;
     }
     nk_end(ctx);
+    if (state->filter_open && nk_window_is_hidden(ctx, "Symbol Filter")) {
+        state->filter_open = false;
+    }
 }
 
 void symbol_lookup_view_render(
@@ -523,14 +518,6 @@ void symbol_lookup_view_render(
         if (nk_begin(ctx, "Symbol Lookup", bounds,
                 NK_WINDOW_BORDER | NK_WINDOW_TITLE | NK_WINDOW_MOVABLE | NK_WINDOW_CLOSABLE
                 | NK_WINDOW_NO_SCROLLBAR)) {
-
-            if (nk_window_is_closed(ctx, "Symbol Lookup")) {
-                state->open = false;
-                state->filter_open = false;
-                nk_end(ctx);
-                symbol_lookup_render_filter(ctx, state, ops, width, height);
-                return;
-            }
 
             memcpy(prev_search, state->search, sizeof(state->search));
             nk_layout_row_dynamic(ctx, 24.0f, 1);
@@ -674,11 +661,12 @@ void symbol_lookup_view_render(
                 state->filter_open = false;
             }
 
-        } else if (nk_window_is_closed(ctx, "Symbol Lookup")) {
+        }
+        nk_end(ctx);
+        if (state->open && nk_window_is_hidden(ctx, "Symbol Lookup")) {
             state->open = false;
             state->filter_open = false;
         }
-        nk_end(ctx);
     }
 
     /* Draw Filter after Lookup (stacking precedent: File Browser after Load). */
