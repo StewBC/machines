@@ -98,7 +98,7 @@ static void mount_robocop_g64(c64_t *machine) {
     uint8_t *bytes = NULL;
     size_t size = 0;
 
-    snprintf(path, sizeof(path), "%s/assets/disks/robocop[data_east_1987](ntsc)(alt)(!).g64",
+    snprintf(path, sizeof(path), "%s/assets/c64/disks/robocop[data_east_1987](ntsc)(alt)(!).g64",
         C64M_SOURCE_DIR);
     expect_true("read g64", read_file(path, &bytes, &size) != 0);
     expect_true("mount g64",
@@ -205,7 +205,7 @@ int main(void) {
     {
         char asset_path[512];
         snprintf(asset_path, sizeof(asset_path),
-                 "%s/assets/disks/robocop[data_east_1987](ntsc)(alt)(!).g64",
+                 "%s/assets/c64/disks/robocop[data_east_1987](ntsc)(alt)(!).g64",
                  C64M_SOURCE_DIR);
         if (c64m_test_asset_missing(asset_path)) {
             return C64M_TEST_SKIP;

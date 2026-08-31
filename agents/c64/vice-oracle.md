@@ -30,7 +30,7 @@ Use `-ntsc` when the title and c64m `--video NTSC` are NTSC. Quote paths
 that contain spaces.
 
 Do **not** use plain `-autostart` without `-autostartprgmode 1` for these
-files. Do not wait for READY and type RUN. Disk titles under `assets/disks/`
+files. Do not wait for READY and type RUN. Disk titles under `assets/c64/disks/`
 are a different workflow (`disk-iec1541.md`).
 
 c64m counterpart:

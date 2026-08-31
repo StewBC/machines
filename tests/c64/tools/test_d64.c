@@ -396,7 +396,7 @@ static int test_blank_fixture(void)
     d64_result result;
     d64_image *image;
 
-    snprintf(path, sizeof(path), "%s/assets/disks/blank.d64", C64M_SOURCE_DIR);
+    snprintf(path, sizeof(path), "%s/assets/c64/disks/blank.d64", C64M_SOURCE_DIR);
     if (read_file(path, &bytes, &size) != 0) {
         fprintf(stderr, "SKIP: required asset not present: %s\n", path);
         return -1; /* skip sentinel: gitignored copyrighted fixture absent */
@@ -460,7 +460,7 @@ static int test_odell_fixture(void)
     const d64_disk_info *info;
     d64_directory_entry title_entry;
 
-    snprintf(path, sizeof(path), "%s/assets/disks/ODELLLAK.D64", C64M_SOURCE_DIR);
+    snprintf(path, sizeof(path), "%s/assets/c64/disks/ODELLLAK.D64", C64M_SOURCE_DIR);
     if (read_file(path, &bytes, &size) != 0) {
         fprintf(stderr, "SKIP: required asset not present: %s\n", path);
         return -1; /* skip sentinel: gitignored copyrighted fixture absent */

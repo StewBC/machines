@@ -221,9 +221,9 @@ static void test_mount_replace_unmount_and_failure(void) {
     char odell_path[512];
     char missing_path[512];
 
-    snprintf(blank_path, sizeof(blank_path), "%s/assets/disks/blank.d64", C64M_SOURCE_DIR);
-    snprintf(odell_path, sizeof(odell_path), "%s/assets/disks/ODELLLAK.D64", C64M_SOURCE_DIR);
-    snprintf(missing_path, sizeof(missing_path), "%s/assets/disks/does-not-exist.d64", C64M_SOURCE_DIR);
+    snprintf(blank_path, sizeof(blank_path), "%s/assets/c64/disks/blank.d64", C64M_SOURCE_DIR);
+    snprintf(odell_path, sizeof(odell_path), "%s/assets/c64/disks/ODELLLAK.D64", C64M_SOURCE_DIR);
+    snprintf(missing_path, sizeof(missing_path), "%s/assets/c64/disks/does-not-exist.d64", C64M_SOURCE_DIR);
 
     rt = start_runtime(&client);
 
@@ -276,8 +276,8 @@ static void test_autorun_does_not_rearm_on_disk_replacement(void) {
     char blank_path[512];
     char odell_path[512];
 
-    snprintf(blank_path, sizeof(blank_path), "%s/assets/disks/blank.d64", C64M_SOURCE_DIR);
-    snprintf(odell_path, sizeof(odell_path), "%s/assets/disks/ODELLLAK.D64", C64M_SOURCE_DIR);
+    snprintf(blank_path, sizeof(blank_path), "%s/assets/c64/disks/blank.d64", C64M_SOURCE_DIR);
+    snprintf(odell_path, sizeof(odell_path), "%s/assets/c64/disks/ODELLLAK.D64", C64M_SOURCE_DIR);
 
     rt = start_runtime_ex(&client, true);
 
@@ -300,12 +300,12 @@ int main(void) {
     {
         char asset_path[512];
         snprintf(asset_path, sizeof(asset_path),
-                 "%s/assets/disks/blank.d64", C64M_SOURCE_DIR);
+                 "%s/assets/c64/disks/blank.d64", C64M_SOURCE_DIR);
         if (c64m_test_asset_missing(asset_path)) {
             return C64M_TEST_SKIP;
         }
         snprintf(asset_path, sizeof(asset_path),
-                 "%s/assets/disks/ODELLLAK.D64", C64M_SOURCE_DIR);
+                 "%s/assets/c64/disks/ODELLLAK.D64", C64M_SOURCE_DIR);
         if (c64m_test_asset_missing(asset_path)) {
             return C64M_TEST_SKIP;
         }

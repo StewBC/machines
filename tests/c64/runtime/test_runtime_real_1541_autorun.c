@@ -140,7 +140,7 @@ static void test_real_1541_autorun_loads_first_program(void) {
     runtime *rt;
     runtime_client *client;
     runtime_event event;
-    const char *disk_path = C64M_SOURCE_DIR "/assets/disks/GALENCIA.D64";
+    const char *disk_path = C64M_SOURCE_DIR "/assets/c64/disks/GALENCIA.D64";
 
     rt = start_real_1541_runtime(&client);
 
@@ -173,7 +173,7 @@ int main(void) {
     {
         char asset_path[512];
         snprintf(asset_path, sizeof(asset_path),
-                 "%s/assets/disks/GALENCIA.D64", C64M_SOURCE_DIR);
+                 "%s/assets/c64/disks/GALENCIA.D64", C64M_SOURCE_DIR);
         if (c64m_test_asset_missing(asset_path)) {
             return C64M_TEST_SKIP;
         }

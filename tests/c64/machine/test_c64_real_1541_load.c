@@ -117,7 +117,7 @@ static void mount_raw_d64(c64_t *machine, const char *name) {
     uint8_t *bytes = NULL;
     size_t size = 0;
 
-    snprintf(path, sizeof(path), "%s/assets/disks/%s", C64M_SOURCE_DIR, name);
+    snprintf(path, sizeof(path), "%s/assets/c64/disks/%s", C64M_SOURCE_DIR, name);
     expect_true("read d64", read_file(path, &bytes, &size) != 0);
     expect_true(
         "mount d64",
@@ -338,7 +338,7 @@ static void mount_raw_g64(c64_t *machine, const char *name) {
     uint8_t *bytes = NULL;
     size_t size = 0;
 
-    snprintf(path, sizeof(path), "%s/assets/disks/%s", C64M_SOURCE_DIR, name);
+    snprintf(path, sizeof(path), "%s/assets/c64/disks/%s", C64M_SOURCE_DIR, name);
     expect_true("read g64", read_file(path, &bytes, &size) != 0);
     expect_true(
         "mount g64",
@@ -425,7 +425,7 @@ static int count_gcr_headers(const uint8_t *tr, size_t len) {
  * ~400 track bytes and smashes the following FFFFFF…52 mark.
  *
  * Fixture: standard blank DOS G64 (35 tracks, zone-2 track 18, 19 headers at
- * 371-byte pitch). Placed under assets/disks/ like other machine-test images.
+ * 371-byte pitch). Placed under assets/c64/disks/ like other machine-test images.
  */
 static void test_g64_dos_write_footprint_next_header_intact(void) {
     c64_t machine;
@@ -446,9 +446,9 @@ static void test_g64_dos_write_footprint_next_header_intact(void) {
 
     install_real_roms_ex(&machine, 1);
 
-    snprintf(path, sizeof(path), "%s/assets/disks/blank_dos.g64", C64M_SOURCE_DIR);
+    snprintf(path, sizeof(path), "%s/assets/c64/disks/blank_dos.g64", C64M_SOURCE_DIR);
     expect_true(
-        "read assets/disks/blank_dos.g64 (standard blank DOS G64 fixture)",
+        "read assets/c64/disks/blank_dos.g64 (standard blank DOS G64 fixture)",
         read_file(path, &g64, &g64_size) != 0);
     expect_true(
         "mount g64 fixture",
@@ -688,7 +688,7 @@ int main(void) {
         size_t i;
         for (i = 0; i < sizeof(required) / sizeof(required[0]); ++i) {
             snprintf(asset_path, sizeof(asset_path),
-                     "%s/assets/disks/%s", C64M_SOURCE_DIR, required[i]);
+                     "%s/assets/c64/disks/%s", C64M_SOURCE_DIR, required[i]);
             if (c64m_test_asset_missing(asset_path)) {
                 return C64M_TEST_SKIP;
             }

@@ -88,7 +88,7 @@ Edge of Disgrace checker remains a **manual** VICE compare. Match models
   `C64M_SPRDMA`, `C64M_LINELOG` / `C64M_LINELOG_FULL`
 - EoD capture: `build/eod_regression_capture` with `roms/system.rom`,
   `roms/character.rom`, `roms/1541.rom`, and the Edge of Disgrace D64s under
-  `assets/disks/`. Fine-checker bar: no mono column at x=24, `ones@24` about
+  `assets/c64/disks/`. Fine-checker bar: no mono column at x=24, `ones@24` about
   50%, seam 23/24 = 0. Top/bottom black bars solid at x=0.
 - `assets/prg/` vs VICE: `vice-oracle.md` (`-autostartprgmode 1`, `-autoload`,
   `-VICIImodel 6569`)

@@ -356,9 +356,9 @@ static void test_parse_command_arguments(void)
     expect_u32("mount-d64 device", 8u, request.args.device);
     expect_string("mount-d64 path", "disk.d64", request.args.text);
 
-    expect_true("parse mount-d64 path spaces", control_protocol_parse_request("40 mount-d64 8 assets/disks/Fort Apocalypse.d64", &request, &error));
+    expect_true("parse mount-d64 path spaces", control_protocol_parse_request("40 mount-d64 8 assets/c64/disks/Fort Apocalypse.d64", &request, &error));
     expect_u32("mount-d64 spaced device", 8u, request.args.device);
-    expect_string("mount-d64 spaced path", "assets/disks/Fort Apocalypse.d64", request.args.text);
+    expect_string("mount-d64 spaced path", "assets/c64/disks/Fort Apocalypse.d64", request.args.text);
 
     expect_true("parse unmount-disk", control_protocol_parse_request("41 unmount-disk 8", &request, &error));
     expect_int("unmount-disk type", CONTROL_COMMAND_UNMOUNT_DISK, request.type);

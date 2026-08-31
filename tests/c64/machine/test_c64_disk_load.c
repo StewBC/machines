@@ -114,7 +114,7 @@ static void mount_fixture_device(c64_t *machine, uint8_t device, const char *fil
     char disk_id[3];
     char dos_type[3];
 
-    snprintf(path, sizeof(path), "%s/assets/disks/%s", C64M_SOURCE_DIR, filename);
+    snprintf(path, sizeof(path), "%s/assets/c64/disks/%s", C64M_SOURCE_DIR, filename);
     if (read_file(path, &bytes, &size) != 0) {
         fail("failed to read disk fixture");
     }
@@ -654,12 +654,12 @@ int main(void) {
     {
         char asset_path[512];
         snprintf(asset_path, sizeof(asset_path),
-                 "%s/assets/disks/ODELLLAK.D64", C64M_SOURCE_DIR);
+                 "%s/assets/c64/disks/ODELLLAK.D64", C64M_SOURCE_DIR);
         if (c64m_test_asset_missing(asset_path)) {
             return C64M_TEST_SKIP;
         }
         snprintf(asset_path, sizeof(asset_path),
-                 "%s/assets/disks/blank.d64", C64M_SOURCE_DIR);
+                 "%s/assets/c64/disks/blank.d64", C64M_SOURCE_DIR);
         if (c64m_test_asset_missing(asset_path)) {
             return C64M_TEST_SKIP;
         }

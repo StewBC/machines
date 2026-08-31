@@ -312,7 +312,7 @@ Wire mount does not by itself type `LOAD"*",8` unless the process was started
 with disk + `--autorun`. Manual path:
 
 ```text
-mount-d64 8 assets/disks/game.d64
+mount-d64 8 assets/c64/disks/game.d64
 # wait until READY if needed, then:
 paste-events LOAD"*",8\[RT]
 # after load finishes:
