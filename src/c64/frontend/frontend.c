@@ -707,6 +707,8 @@ static bool frontend_any_dialog_open(const frontend *ui)
         || ui->load_bin_dialog.open
         || ui->save_bin_dialog.open
         || ui->assembler.error_dialog_open
+        || ui->memory_search.open
+        || ui->reset_prompt.open
         || symbol_lookup_view_any_open(&ui->symbol_lookup)
         || ui->file_browser.open;
 }
@@ -1137,8 +1139,21 @@ static bool frontend_click_in_any_dialog(const frontend *ui, float x, float y)
             return true;
         }
     }
+    if (ui->memory_search.open) {
+        win = nk_window_find(ui->ctx, "Find Memory");
+        if (win && frontend_point_in_rect(x, y, win->bounds)) {
+            return true;
+        }
+    }
     if (ui->file_browser.open) {
         win = nk_window_find(ui->ctx, "File Browser");
+        if (win && frontend_point_in_rect(x, y, win->bounds)) {
+            return true;
+        }
+    }
+    if (ui->reset_prompt.open) {
+        /* Nested Misc popup; treat Misc bounds as the hit target. */
+        win = nk_window_find(ui->ctx, "Misc");
         if (win && frontend_point_in_rect(x, y, win->bounds)) {
             return true;
         }
@@ -8320,6 +8335,11 @@ void frontend_handle_event(frontend *ui, SDL_Event *event)
             nk_sdl_handle_event(event);
             return;
         }
+        if (ui->memory_search.open) {
+            ui->memory_search.open = false;
+            nk_sdl_handle_event(event);
+            return;
+        }
         if (ui->breakpoint_dialog.open) {
             ui->breakpoint_dialog.open = false;
             nk_sdl_handle_event(event);
@@ -8337,6 +8357,11 @@ void frontend_handle_event(frontend *ui, SDL_Event *event)
         }
         if (ui->assembler.error_dialog_open) {
             ui->assembler.error_dialog_open = false;
+            nk_sdl_handle_event(event);
+            return;
+        }
+        if (ui->reset_prompt.open) {
+            ui->reset_prompt.open = false;
             nk_sdl_handle_event(event);
             return;
         }
