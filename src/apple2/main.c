@@ -2485,11 +2485,8 @@ static void dispatch_intent(
             }
             break;
         case FRONTEND_DEBUGGER_INTENT_CONFIG_PICK_SYMBOL_DIALOG:
-            if (options != NULL) {
-                (void)app_options_set_string(&options->symbol_files, intent->file_browser_path);
-                if (ui != NULL) {
-                    frontend_set_config_state(ui, options);
-                }
+            if (ui != NULL) {
+                frontend_append_symbol_file(ui, intent->file_browser_path);
             }
             break;
         case FRONTEND_DEBUGGER_INTENT_STATE_SAVE_AS_DIALOG:
