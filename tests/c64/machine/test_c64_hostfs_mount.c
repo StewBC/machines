@@ -36,9 +36,19 @@ static void load_nop_rom(c1541 *drive) {
 
 static void make_tmpdir(char *out, size_t out_size) {
     static int seq;
-    snprintf(out, out_size, "test_hostfs_mount_%d", ++seq);
-    if (HOSTFS_TEST_MKDIR(out) != 0 && errno != EEXIST) {
-        fail("mkdir tmpdir");
+    /* Never reuse an existing directory: leftover GAME.prg from a prior run
+       makes SAVE "create-or-file-exists" fail under ctest's sticky cwd. */
+    for (;;) {
+        snprintf(out, out_size, "test_hostfs_mount_%d", ++seq);
+        if (HOSTFS_TEST_MKDIR(out) == 0) {
+            return;
+        }
+        if (errno != EEXIST) {
+            fail("mkdir tmpdir");
+        }
+        if (seq > 100000) {
+            fail("mkdir tmpdir exhausted");
+        }
     }
 }
 

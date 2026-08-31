@@ -44,6 +44,12 @@ status) goes through the ROM plus the FORMT intercept.
 Validated fast-loader samples: Arkanoid V-MAX PAL and Robocop NTSC
 load-to-game. That is not broad commercial coverage.
 
+Mixed 8/9 coexistence (`emulate_1541=1`, 1541 ROM in both units): one slot
+may be `IMAGE` (ROM/IEC path) while the other is `HOSTFS` (traps). HostFS
+never becomes `iec_active` and must not enter the 1541 job path. Regression:
+`tests/c64/machine/test_c64_real_1541_load.c`
+(`test_hostfs_sibling_with_real_1541`).
+
 ## Soft power
 
 Each unit has a sticky `c64_drive_slot.powered` latch (UI green LED /

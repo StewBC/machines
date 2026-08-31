@@ -4,11 +4,21 @@
 
 #include "../test_asset.h"
 
+#include <errno.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
+
+#if defined(_WIN32)
+#include <direct.h>
+#define SIBLING_TEST_MKDIR(path) _mkdir(path)
+#else
+#include <unistd.h>
+#define SIBLING_TEST_MKDIR(path) mkdir((path), 0755)
+#endif
 
 #ifndef C64M_SOURCE_DIR
 #define C64M_SOURCE_DIR "."
@@ -90,6 +100,10 @@ static void install_real_roms_ex(c64_t *machine, int media_1541) {
     config.media_1541 = media_1541;
     c64_set_config(machine, &config);
     expect_true("load 1541 rom", c1541_load_rom(&machine->drive8, C64M_SOURCE_DIR "/roms/1541.rom") != 0);
+    /* Runtime loads the same ROM into both units; sibling HostFS proofs need that. */
+    expect_true(
+        "load 1541 rom drive9",
+        c1541_load_rom(&machine->drive9, C64M_SOURCE_DIR "/roms/1541.rom") != 0);
     expect_true("install roms", c64_install_roms(machine, &roms, error, sizeof(error)));
     expect_true("reset machine", c64_reset(machine, error, sizeof(error)));
 }
@@ -111,7 +125,8 @@ static void mount_raw_d64(c64_t *machine, const char *name) {
     free(bytes);
 }
 
-static void setup_load_call(c64_t *machine, const char *name) {
+static void setup_load_call_ex(
+    c64_t *machine, const char *name, uint8_t device, uint8_t secondary) {
     size_t length = strlen(name);
     size_t i;
 
@@ -124,8 +139,8 @@ static void setup_load_call(c64_t *machine, const char *name) {
     machine->cpu.cpu.Y = 0x08u;
     machine->cpu.cpu.flags |= 0x01u;
 
-    machine->bus.ram[0xbau] = 8;
-    machine->bus.ram[0xb9u] = 0;
+    machine->bus.ram[0xbau] = device;
+    machine->bus.ram[0xb9u] = secondary;
     machine->bus.ram[0xb7u] = (uint8_t)length;
     machine->bus.ram[0xbbu] = (uint8_t)(TEST_FILENAME_BUFFER & 0xffu);
     machine->bus.ram[0xbcu] = (uint8_t)(TEST_FILENAME_BUFFER >> 8);
@@ -134,6 +149,10 @@ static void setup_load_call(c64_t *machine, const char *name) {
     }
     machine->bus.ram[0x2bu] = 0x01u;
     machine->bus.ram[0x2cu] = 0x08u;
+}
+
+static void setup_load_call(c64_t *machine, const char *name) {
+    setup_load_call_ex(machine, name, 8, 0);
 }
 
 static void step_cycles(c64_t *machine, uint64_t limit) {
@@ -526,6 +545,137 @@ static void test_g64_dos_write_footprint_next_header_intact(void) {
     printf("PASS: test_g64_dos_write_footprint_next_header_intact\n");
 }
 
+static void make_hostfs_tmpdir(char *out, size_t out_size) {
+    static int seq;
+    /* Fresh directory only — do not reuse leftovers under ctest's cwd. */
+    for (;;) {
+        snprintf(out, out_size, "test_hostfs_1541_sibling_%d", ++seq);
+        if (SIBLING_TEST_MKDIR(out) == 0) {
+            return;
+        }
+        if (errno != EEXIST) {
+            fail("mkdir hostfs sibling tmpdir");
+        }
+        if (seq > 100000) {
+            fail("mkdir hostfs sibling tmpdir exhausted");
+        }
+    }
+}
+
+static void write_host_prg(
+    const char *dir,
+    const char *basename,
+    uint16_t load_addr,
+    const uint8_t *body,
+    size_t body_len) {
+    char path[512];
+    FILE *f;
+    uint8_t hdr[2];
+
+    snprintf(path, sizeof(path), "%s/%s", dir, basename);
+    f = fopen(path, "wb");
+    expect_true("open host prg", f != NULL);
+    hdr[0] = (uint8_t)(load_addr & 0xffu);
+    hdr[1] = (uint8_t)(load_addr >> 8);
+    expect_true("write host prg hdr", fwrite(hdr, 1, 2, f) == 2);
+    if (body_len > 0) {
+        expect_true("write host prg body", fwrite(body, 1, body_len, f) == body_len);
+    }
+    fclose(f);
+}
+
+/*
+ * PR4: device 8 loads a D64 through the real 1541 ROM/IEC path while device 9
+ * HostFS still traps. HostFS must stay off the IEC bus (no step / no job path).
+ */
+static void test_hostfs_sibling_with_real_1541(void) {
+    c64_t machine;
+    char dir[128];
+    char error[256];
+    const uint8_t body[] = {0xA9, 0x42, 0x60}; /* LDA #$42 / RTS */
+    uint16_t end;
+    uint16_t drive9_pc_before;
+    uint8_t drive9_jobs_before[5];
+    uint64_t cycles_before_hostfs;
+    size_t i;
+
+    make_hostfs_tmpdir(dir, sizeof(dir));
+    write_host_prg(dir, "sibling.prg", 0xC000u, body, sizeof(body));
+
+    install_real_roms(&machine);
+    expect_true("drive8 rom loaded", machine.drive8.rom_loaded != 0);
+    expect_true("drive9 rom loaded", machine.drive9.rom_loaded != 0);
+
+    expect_true(
+        "mount hostfs on 9",
+        c64_mount_hostfs(&machine, 9, dir, true) == C64_DRIVE_STATUS_OK);
+    mount_raw_d64(&machine, "GALENCIA.D64");
+
+    expect_true("8 backend image", machine.drives[0].backend == C64_DRIVE_BACKEND_IMAGE);
+    expect_true("9 backend hostfs", machine.drives[1].backend == C64_DRIVE_BACKEND_HOSTFS);
+    expect_true("8 iec active", c64_drive_iec_active(&machine, 8));
+    expect_true("9 not iec active", !c64_drive_iec_active(&machine, 9));
+    expect_true("9 hostfs handle", machine.drives[1].hostfs != NULL);
+
+    step_cycles(&machine, 2500000u);
+
+    drive9_pc_before = machine.drive9.cpu.cpu.pc;
+    for (i = 0; i < 5u; ++i) {
+        drive9_jobs_before[i] = machine.drive9.ram[i];
+    }
+
+    /* Device 8: ROM-path LOAD "*",8 (trap must NOT intercept). */
+    setup_load_call_ex(&machine, "*", 8, 0);
+    step_cycles(&machine, 60000000u);
+
+    if (machine.cpu.cpu.pc != (uint16_t)(TEST_RETURN_ADDRESS + 1u)) {
+        fprintf(stderr,
+            "sibling D64 LOAD did not return: pc=%04X p=%02X cycle=%llu "
+            "d8pc=%04X d9pc=%04X\n",
+            machine.cpu.cpu.pc,
+            machine.cpu.cpu.flags,
+            (unsigned long long)machine.clock.cycle,
+            machine.drive8.cpu.cpu.pc,
+            machine.drive9.cpu.cpu.pc);
+        fail("sibling real 1541 LOAD did not return");
+    }
+    if ((machine.cpu.cpu.flags & 0x01u) != 0) {
+        fail("sibling real 1541 LOAD returned carry set");
+    }
+    end = (uint16_t)machine.cpu.cpu.X | ((uint16_t)machine.cpu.cpu.Y << 8);
+    if (end <= 0x0801u || machine.bus.ram[0x0801u] == 0) {
+        fail("sibling real 1541 LOAD did not populate BASIC memory");
+    }
+
+    /* HostFS unit must not have been stepped or entered a DOS job. */
+    expect_true("9 still not iec", !c64_drive_iec_active(&machine, 9));
+    expect_true("9 pc frozen during 8 load", machine.drive9.cpu.cpu.pc == drive9_pc_before);
+    for (i = 0; i < 5u; ++i) {
+        if (machine.drive9.ram[i] != drive9_jobs_before[i]) {
+            fprintf(stderr, "drive9 job[%zu] changed during IMAGE load\n", i);
+            fail("HostFS drive entered 1541 job path");
+        }
+    }
+
+    /* Device 9: HostFS trap LOAD despite emulate_1541 + both ROMs loaded. */
+    cycles_before_hostfs = machine.clock.cycle;
+    setup_load_call_ex(&machine, "SIBLING", 9, 1);
+    expect_true("hostfs load step", c64_step_instruction(&machine, error, sizeof(error)));
+    expect_true("hostfs carry clear", (machine.cpu.cpu.flags & 0x01u) == 0);
+    expect_true("hostfs status clear", machine.bus.ram[0x90u] == 0);
+    expect_true("hostfs lda", c64_debug_read_ram(&machine, 0xC000u) == 0xA9);
+    expect_true("hostfs imm", c64_debug_read_ram(&machine, 0xC001u) == 0x42);
+    /* Trap-fast: must not burn an IEC transfer's worth of cycles. */
+    expect_true(
+        "hostfs trap was fast",
+        (machine.clock.cycle - cycles_before_hostfs) < 1000ull);
+    expect_true("9 still hostfs after load", machine.drives[1].backend == C64_DRIVE_BACKEND_HOSTFS);
+    expect_true("9 still not iec after load", !c64_drive_iec_active(&machine, 9));
+    expect_true("9 pc still frozen", machine.drive9.cpu.cpu.pc == drive9_pc_before);
+
+    printf("PASS: test_hostfs_sibling_with_real_1541\n");
+}
+
 int main(void) {
     {
         static const char *const required[] = {
@@ -549,5 +699,6 @@ int main(void) {
     test_real_1541_media_save_small_prg();
     test_real_1541_media_g64_star_load_returns();
     test_g64_dos_write_footprint_next_header_intact();
+    test_hostfs_sibling_with_real_1541();
     return 0;
 }
