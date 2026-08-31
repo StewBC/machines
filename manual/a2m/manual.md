@@ -555,8 +555,8 @@ files.
 | Column | Contents |
 |--------|----------|
 | `ADDR` | Symbol address in hex (`XXXX`) |
-| `SCOPE` | Assembler scope path, e.g. `anon_0001` (up to 15 characters) |
-| `LABEL` | Symbol name (leaf portion, up to 15 characters) |
+| `SCOPE` | Assembler scope path, e.g. `anon_0001` (up to 32 characters) |
+| `LABEL` | Symbol name (leaf portion, up to 32 characters) |
 | `SOURCE` | File basename (no extension), or `assembler` for inline assembly |
 
 **Search:** the field at the top has focus when the dialog opens. Type to filter the

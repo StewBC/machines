@@ -343,7 +343,7 @@ typedef struct frontend_breakpoint_dialog_state {
 enum {
     SYMBOL_LOOKUP_ENTRY_MAX  = 4096,
     SYMBOL_LOOKUP_SEARCH_MAX = 128,
-    SYMBOL_LOOKUP_COL_MAX    = 15
+    SYMBOL_LOOKUP_COL_MAX    = 32
 };
 
 typedef enum frontend_symbol_lookup_sort_col {
@@ -8592,7 +8592,7 @@ static int frontend_symbol_lookup_compare(const void *a, const void *b)
 static void frontend_symbol_lookup_refilter(frontend_symbol_lookup_state *dlg)
 {
     int i;
-    char row[64];
+    char row[SYMBOL_LOOKUP_COL_MAX * 3 + 16];
     char addr_hex[5];
 
     dlg->filtered_count = 0;
@@ -9438,8 +9438,10 @@ static void frontend_draw_symbol_lookup(frontend *ui, int width, int height)
     float dw, dh, table_h;
     int i;
 
-    static const int ROW_H    = 18;
-    static const float ADDR_W = 52.0f;
+    static const int ROW_H = 18;
+    /* ADDR stays narrow; SCOPE/LABEL take most of the row; SOURCE is usually a
+     * short basename. Ratios sum to 1 so the row always fits the panel width. */
+    static const float COL_RATIO[4] = {0.10f, 0.30f, 0.38f, 0.22f};
 
     if (ui == NULL || !ui->symbol_lookup.open || ui->ctx == NULL) return;
 
@@ -9456,7 +9458,8 @@ static void frontend_draw_symbol_lookup(frontend *ui, int width, int height)
     bounds = nk_rect(((float)width - dw) * 0.5f, ((float)height - dh) * 0.5f, dw, dh);
 
     if (nk_begin(ctx, "Symbol Lookup", bounds,
-            NK_WINDOW_BORDER | NK_WINDOW_TITLE | NK_WINDOW_MOVABLE | NK_WINDOW_CLOSABLE)) {
+            NK_WINDOW_BORDER | NK_WINDOW_TITLE | NK_WINDOW_MOVABLE | NK_WINDOW_CLOSABLE
+            | NK_WINDOW_NO_SCROLLBAR)) {
 
         if (nk_window_is_closed(ctx, "Symbol Lookup")) {
             dlg->open = false;
@@ -9492,13 +9495,7 @@ static void frontend_draw_symbol_lookup(frontend *ui, int width, int height)
             snprintf(h3, sizeof(h3), "SOURCE%s",
                 dlg->sort_col == SYMBOL_LOOKUP_SORT_SOURCE ? (dlg->sort_asc ? "^" : "v") : "");
 
-            nk_layout_row_template_begin(ctx, 22.0f);
-            nk_layout_row_template_push_static(ctx, ADDR_W);
-            nk_layout_row_template_push_dynamic(ctx);
-            nk_layout_row_template_push_dynamic(ctx);
-            nk_layout_row_template_push_dynamic(ctx);
-            nk_layout_row_template_end(ctx);
-
+            nk_layout_row(ctx, NK_DYNAMIC, 22.0f, 4, COL_RATIO);
             if (nk_button_label(ctx, h0))
                 frontend_symbol_lookup_set_sort(dlg, SYMBOL_LOOKUP_SORT_ADDR);
             if (nk_button_label(ctx, h1))
@@ -9509,9 +9506,20 @@ static void frontend_draw_symbol_lookup(frontend *ui, int width, int height)
                 frontend_symbol_lookup_set_sort(dlg, SYMBOL_LOOKUP_SORT_SOURCE);
         }
 
-        /* Scrollable table */
-        table_h = nk_window_get_height(ctx) - 24.0f /* title */ - 24.0f /* search */
-                  - 22.0f /* headers */ - 30.0f /* close btn */ - 24.0f /* padding */;
+        /* Size the list so search + headers + Close fit with no window-level
+         * scrollbar. Same approach as the File Browser: measure the content
+         * region and subtract the other rows plus spacing/padding. The list
+         * keeps its own scrollbar for long symbol lists. */
+        {
+            struct nk_rect content = nk_window_get_content_region(ctx);
+            float pad_y = ctx->style.window.padding.y;
+            float sp_y  = ctx->style.window.spacing.y;
+            const int rows = 4; /* search, headers, list, close */
+            float other_h = 24.0f  /* search */
+                          + 22.0f  /* headers */
+                          + 24.0f; /* close */
+            table_h = content.h - other_h - (float)rows * sp_y - 2.0f * pad_y;
+        }
         if (table_h < 40.0f) table_h = 40.0f;
         nk_layout_row_dynamic(ctx, table_h, 1);
 
@@ -9554,28 +9562,26 @@ static void frontend_draw_symbol_lookup(frontend *ui, int width, int height)
                     ctx->style.selectable = saved_sel;
                 }
 
-                nk_layout_row_template_begin(ctx, (float)ROW_H);
-                nk_layout_row_template_push_static(ctx, ADDR_W);
-                nk_layout_row_template_push_dynamic(ctx);
-                nk_layout_row_template_push_dynamic(ctx);
-                nk_layout_row_template_push_dynamic(ctx);
-                nk_layout_row_template_end(ctx);
-
+                nk_layout_row(ctx, NK_DYNAMIC, (float)ROW_H, 4, COL_RATIO);
+                /* nk_selectable_label asserts on len==0; blank cells use a space. */
                 {
                     bool s = sel;
-                    if (nk_selectable_label(ctx, addr_buf,  NK_TEXT_LEFT, &s)) clicked = true;
+                    if (nk_selectable_label(ctx, addr_buf, NK_TEXT_LEFT, &s)) clicked = true;
                 }
                 {
                     bool s = sel;
-                    if (nk_selectable_label(ctx, e->scope,  NK_TEXT_LEFT, &s)) clicked = true;
+                    if (nk_selectable_label(ctx, e->scope[0] ? e->scope : " ",
+                            NK_TEXT_LEFT, &s)) clicked = true;
                 }
                 {
                     bool s = sel;
-                    if (nk_selectable_label(ctx, e->label,  NK_TEXT_LEFT, &s)) clicked = true;
+                    if (nk_selectable_label(ctx, e->label[0] ? e->label : " ",
+                            NK_TEXT_LEFT, &s)) clicked = true;
                 }
                 {
                     bool s = sel;
-                    if (nk_selectable_label(ctx, e->source, NK_TEXT_LEFT, &s)) clicked = true;
+                    if (nk_selectable_label(ctx, e->source[0] ? e->source : " ",
+                            NK_TEXT_LEFT, &s)) clicked = true;
                 }
 
                 if (clicked) {
