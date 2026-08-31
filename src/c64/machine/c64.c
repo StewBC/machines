@@ -1030,7 +1030,8 @@ static bool c64_drive_load_prg_to_memory(
                 load_address |= (uint16_t)value << 8;
                 target_address = use_prg_address ?
                     load_address :
-                    c64_read_zp16(machine, C64_BASIC_START_POINTER);
+                    ((uint16_t)machine->cpu.cpu.X |
+                     ((uint16_t)machine->cpu.cpu.Y << 8));
                 have_target_address = true;
                 continue;
             }
@@ -1058,7 +1059,9 @@ static bool c64_drive_load_prg_to_memory(
 
     *out_start_address = target_address;
     *out_end_address = (uint16_t)(target_address + written);
-    if (!use_prg_address) {
+    /* SA=0 relocates to X/Y; only touch BASIC end pointers when loading into TXTTAB. */
+    if (!use_prg_address &&
+        target_address == c64_read_zp16(machine, C64_BASIC_START_POINTER)) {
         c64_write_zp16(machine, C64_BASIC_VARTAB_POINTER, *out_end_address);
         c64_write_zp16(machine, C64_BASIC_ARYTAB_POINTER, *out_end_address);
         c64_write_zp16(machine, C64_BASIC_STREND_POINTER, *out_end_address);
@@ -1157,16 +1160,17 @@ static bool c64_basic_append_line(
 static bool c64_drive_load_directory_to_memory(
     c64_t *machine,
     const c64_drive_slot *slot,
+    uint16_t start_address,
     uint16_t *out_end_address) {
     uint8_t *program;
     size_t offset = 0;
     size_t i;
-    uint16_t start_address;
     uint16_t line_number = 10;
     char title[C64_DRIVE_DISK_TITLE_MAX];
     char id[3];
     char dos[3];
     bool ok = true;
+    uint16_t txttab;
 
     program = (uint8_t *)malloc(32768u);
     if (program == NULL) {
@@ -1182,8 +1186,6 @@ static bool c64_drive_load_directory_to_memory(
     if (dos[0] == '\0') {
         c64_copy_text(dos, sizeof(dos), "  ");
     }
-
-    start_address = c64_read_zp16(machine, C64_BASIC_START_POINTER);
 
     ok = c64_basic_append_line(program, 32768u, &offset, start_address, 0, "\"%s\" %s %s", title, id, dos);
     for (i = 0; ok && i < slot->entry_count; ++i) {
@@ -1223,9 +1225,13 @@ static bool c64_drive_load_directory_to_memory(
             c64_bus_write(&machine->bus, (uint16_t)(start_address + i), program[i]);
         }
         *out_end_address = (uint16_t)(start_address + offset);
-        c64_write_zp16(machine, C64_BASIC_VARTAB_POINTER, *out_end_address);
-        c64_write_zp16(machine, C64_BASIC_ARYTAB_POINTER, *out_end_address);
-        c64_write_zp16(machine, C64_BASIC_STREND_POINTER, *out_end_address);
+        txttab = c64_read_zp16(machine, C64_BASIC_START_POINTER);
+        /* FB loads "$" to its own table via SA=0 X/Y — do not move VARTAB then. */
+        if (start_address == txttab) {
+            c64_write_zp16(machine, C64_BASIC_VARTAB_POINTER, *out_end_address);
+            c64_write_zp16(machine, C64_BASIC_ARYTAB_POINTER, *out_end_address);
+            c64_write_zp16(machine, C64_BASIC_STREND_POINTER, *out_end_address);
+        }
         c64_write_zp16(machine, C64_ZP_EAL, *out_end_address);
     } else {
         ok = false;
@@ -1312,7 +1318,7 @@ static bool c64_hostfs_load_prg_bytes_to_memory(
     load_address = (uint16_t)data[0] | ((uint16_t)data[1] << 8);
     target_address = use_prg_address ?
         load_address :
-        c64_read_zp16(machine, C64_BASIC_START_POINTER);
+        ((uint16_t)machine->cpu.cpu.X | ((uint16_t)machine->cpu.cpu.Y << 8));
     payload_off = 2u;
     for (i = payload_off; i < data_size; ++i) {
         uint32_t addr = (uint32_t)target_address + (uint32_t)(i - payload_off);
@@ -1324,7 +1330,8 @@ static bool c64_hostfs_load_prg_bytes_to_memory(
     *out_start_address = target_address;
     *out_end_address =
         (uint16_t)(target_address + (uint16_t)(data_size - payload_off));
-    if (!use_prg_address) {
+    if (!use_prg_address &&
+        target_address == c64_read_zp16(machine, C64_BASIC_START_POINTER)) {
         c64_write_zp16(machine, C64_BASIC_VARTAB_POINTER, *out_end_address);
         c64_write_zp16(machine, C64_BASIC_ARYTAB_POINTER, *out_end_address);
         c64_write_zp16(machine, C64_BASIC_STREND_POINTER, *out_end_address);
@@ -1358,8 +1365,12 @@ static bool c64_try_hostfs_load_trap(
     }
 
     if (filename_length == 1 && filename[0] == '$') {
-        start_address = c64_read_zp16(machine, C64_BASIC_START_POINTER);
-        if (!c64_drive_load_directory_to_memory(machine, slot, &end_address)) {
+        /* SA=0: relocate to X/Y (FB loadlist). Else fall back to TXTTAB. */
+        start_address = (secondary_address == 0) ?
+            ((uint16_t)machine->cpu.cpu.X | ((uint16_t)machine->cpu.cpu.Y << 8)) :
+            c64_read_zp16(machine, C64_BASIC_START_POINTER);
+        if (!c64_drive_load_directory_to_memory(
+                machine, slot, start_address, &end_address)) {
             c64_kernal_load_return(machine, false, 0x05, 0);
             return true;
         }
@@ -1479,8 +1490,11 @@ static bool c64_try_kernal_load_trap(c64_t *machine) {
     }
 
     if (filename_length == 1 && filename[0] == '$') {
-        start_address = c64_read_zp16(machine, C64_BASIC_START_POINTER);
-        if (!c64_drive_load_directory_to_memory(machine, slot, &end_address)) {
+        start_address = (secondary_address == 0) ?
+            ((uint16_t)machine->cpu.cpu.X | ((uint16_t)machine->cpu.cpu.Y << 8)) :
+            c64_read_zp16(machine, C64_BASIC_START_POINTER);
+        if (!c64_drive_load_directory_to_memory(
+                machine, slot, start_address, &end_address)) {
             c64_kernal_load_return(machine, false, 0x05, 0);
             return true;
         }

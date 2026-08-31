@@ -348,10 +348,29 @@ static void test_hostfs_load_save_traps(void) {
         expect_true("hides dotfiles", !found_dot);
     }
 
-    /* LOAD "$",9 */
+    /* LOAD "$",9 into BASIC (X/Y=$0801 as BASIC does) */
     setup_load_call(&c64, "$", 9, 0);
     expect_true("step $", c64_step_instruction(&c64, error, sizeof(error)));
     expect_success_return(&c64);
+
+    /* FB-style LOAD "$" to a non-BASIC address must not move VARTAB. */
+    {
+        uint16_t vartab_before;
+        uint16_t dest = 0x4000;
+        setup_load_call(&c64, "$", 9, 0);
+        c64.cpu.cpu.X = (uint8_t)(dest & 0xffu);
+        c64.cpu.cpu.Y = (uint8_t)(dest >> 8);
+        vartab_before = (uint16_t)c64.bus.ram[0x2d] | ((uint16_t)c64.bus.ram[0x2e] << 8);
+        expect_true("step $ to $4000", c64_step_instruction(&c64, error, sizeof(error)));
+        expect_success_return(&c64);
+        expect_true(
+            "vartab unchanged",
+            ((uint16_t)c64.bus.ram[0x2d] | ((uint16_t)c64.bus.ram[0x2e] << 8)) ==
+                vartab_before);
+        /* Directory program link/next should be present at dest. */
+        expect_true("dir at dest lo", c64_debug_read_ram(&c64, dest) != 0 ||
+                                         c64_debug_read_ram(&c64, (uint16_t)(dest + 1)) != 0);
+    }
 
     /* LOAD "HELLO",9,1 */
     setup_load_call(&c64, "HELLO", 9, 1);
