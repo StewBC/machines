@@ -312,6 +312,8 @@ struct runtime {
     bool use_ini;
     bool save_ini;
     char *ini_path;
+    /* Comma-separated symbol file paths (owned); loaded as SYMBOL_SOURCE_FILE. */
+    char *symbol_files;
 };
 
 int runtime_thread_main(void *userdata);

@@ -15,6 +15,7 @@
 #include "video.h"
 
 #include <SDL.h>
+#include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -3634,6 +3635,96 @@ static void runtime_publish_symbols(runtime *rt)
     mutex_unlock(slot->mutex);
 }
 
+static bool runtime_replace_string(char **target, const char *value)
+{
+    char *copy = NULL;
+    size_t length;
+
+    if (value != NULL && value[0] != '\0') {
+        length = strlen(value);
+        copy = (char *)malloc(length + 1u);
+        if (copy == NULL) {
+            return false;
+        }
+        memcpy(copy, value, length + 1u);
+    }
+
+    free(*target);
+    *target = copy;
+    return true;
+}
+
+static bool runtime_string_equal(const char *a, const char *b)
+{
+    if (a == NULL) {
+        a = "";
+    }
+    if (b == NULL) {
+        b = "";
+    }
+    return strcmp(a, b) == 0;
+}
+
+static void runtime_load_symbol_files(runtime *rt)
+{
+    const char *cursor;
+
+    if (rt == NULL || rt->symbols == NULL) {
+        return;
+    }
+
+    symbol_table_remove_kind(rt->symbols, SYMBOL_SOURCE_FILE);
+    cursor = rt->symbol_files != NULL ? rt->symbol_files : "";
+    while (*cursor != '\0') {
+        const char *start;
+        const char *end;
+        char path[RUNTIME_COMMAND_PATH_MAX];
+        size_t length;
+        size_t loaded = 0;
+        symbol_result result;
+
+        while (*cursor == ',' || isspace((unsigned char)*cursor)) {
+            cursor++;
+        }
+        if (*cursor == '\0') {
+            break;
+        }
+
+        start = cursor;
+        while (*cursor != '\0' && *cursor != ',') {
+            cursor++;
+        }
+        end = cursor;
+        while (end > start && isspace((unsigned char)end[-1])) {
+            end--;
+        }
+
+        length = (size_t)(end - start);
+        if (length == 0) {
+            continue;
+        }
+        if (length >= sizeof(path)) {
+            length = sizeof(path) - 1u;
+        }
+        memcpy(path, start, length);
+        path[length] = '\0';
+
+        result = symbol_table_load_file(rt->symbols, path, path, &loaded);
+        (void)loaded;
+        if (result == SYMBOL_OUT_OF_MEMORY) {
+            runtime_publish_error(rt, "out of memory while loading symbol file");
+            break;
+        }
+        if (result != SYMBOL_OK) {
+            char message[1152];
+            snprintf(message, sizeof(message), "failed to load symbol file: %s", path);
+            runtime_publish_error(rt, message);
+        }
+    }
+
+    runtime_publish_symbols(rt);
+}
+
 static void runtime_publish_assemble_error(runtime *rt, const char *message)
 {
     runtime_event event;
@@ -3920,8 +4011,22 @@ static void runtime_process_command(runtime *rt, const runtime_command *cmd, boo
         const runtime_machine_config *config = &cmd->data.apply_machine_config.config;
         bool changed = rt->machine.model !=
             (config->apple_model == 1u ? APPLE2_MODEL_II_PLUS : APPLE2_MODEL_IIE_ENHANCED);
+        bool symbols_changed;
         int mockingboards = 0;
         int slot;
+
+        symbols_changed = !runtime_string_equal(
+            rt->symbol_files,
+            cmd->data.apply_machine_config.symbol_files);
+        if (!runtime_replace_string(
+                &rt->symbol_files,
+                cmd->data.apply_machine_config.symbol_files)) {
+            runtime_publish_error(rt, "failed to update symbol file list");
+            break;
+        }
+        if (symbols_changed) {
+            runtime_load_symbol_files(rt);
+        }
 
         for (slot = 1; slot <= 7; ++slot) {
             runtime_slot_card_type type = config->slot_cards[slot];
@@ -5036,6 +5141,8 @@ int runtime_thread_main(void *userdata)
         runtime_refresh_rw_breakpoint_flag(rt);
         runtime_publish_breakpoints(rt);
     }
+
+    runtime_load_symbol_files(rt);
 
     runtime_publish_simple(rt, RUNTIME_EVENT_STARTED);
     runtime_publish_simple(rt, RUNTIME_EVENT_RESET_COMPLETE);

@@ -372,6 +372,13 @@ runtime *runtime_create(const runtime_config *config)
                 return NULL;
             }
         }
+        if (config->symbol_files != NULL && config->symbol_files[0] != '\0') {
+            rt->symbol_files = runtime_copy_string(config->symbol_files);
+            if (rt->symbol_files == NULL) {
+                runtime_destroy(rt);
+                return NULL;
+            }
+        }
 
         rt->diskii_mount_count = 0;
         rt->smartport_mount_count = 0;
@@ -455,6 +462,8 @@ void runtime_destroy(runtime *rt)
     free(rt->presentation_scratch);
     free(rt->ini_path);
     rt->ini_path = NULL;
+    free(rt->symbol_files);
+    rt->symbol_files = NULL;
     for (j = 0; j < rt->diskii_mount_count; j++) {
         free(rt->diskii_paths[j]);
         rt->diskii_paths[j] = NULL;

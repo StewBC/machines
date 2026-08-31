@@ -2338,19 +2338,32 @@ static void dispatch_intent(
                     log_warn(
                         "Configure: invalid turbo ladder, leaving live list unchanged");
                 }
-                if (!runtime_client_apply_machine_config(
-                        client,
-                        &machine_config,
-                        turbo_arg,
-                        NULL,
-                        NULL,
-                        intent->config_result.machine_changed,
-                        false,
-                        runtime_running)) {
-                    log_warn(
-                        intent->config_result.machine_changed ?
-                            "Configure: could not queue machine power cycle" :
-                            "Configure: could not queue turbo ladder");
+                {
+                    char absolute_symbol_files[1024];
+                    const char *symbol_files_arg = "";
+
+                    if (app_options_symbol_files_absolute(
+                            options,
+                            absolute_symbol_files,
+                            sizeof(absolute_symbol_files))) {
+                        symbol_files_arg = absolute_symbol_files;
+                    } else if (options->symbol_files != NULL) {
+                        symbol_files_arg = options->symbol_files;
+                    }
+                    if (!runtime_client_apply_machine_config(
+                            client,
+                            &machine_config,
+                            turbo_arg,
+                            NULL,
+                            symbol_files_arg,
+                            intent->config_result.machine_changed,
+                            false,
+                            runtime_running)) {
+                        log_warn(
+                            intent->config_result.machine_changed ?
+                                "Configure: could not queue machine power cycle" :
+                                "Configure: could not queue turbo ladder");
+                    }
                 }
             }
             if (ui != NULL) {
@@ -2636,6 +2649,7 @@ static bool apply_options_to_runtime_config(const app_options *options, runtime_
 
     /* Breakpoint INI [DEBUG] break.* (P4e): load when use_ini; save with remember/saveini. */
     rt_config->ini_path = options->ini_path;
+    rt_config->symbol_files = options->symbol_files;
     rt_config->use_ini = options->use_ini;
     rt_config->save_ini =
         (options->save_ini || options->remember) && !options->no_save_ini;
@@ -2780,6 +2794,15 @@ int main(int argc, char **argv)
     (void)app_options_apply_convenience_paths(&options);
     if (!apply_options_to_runtime_config(&options, &rt_config)) {
         goto done;
+    }
+    {
+        static char runtime_symbol_files[1024];
+        if (app_options_symbol_files_absolute(
+                &options, runtime_symbol_files, sizeof(runtime_symbol_files))) {
+            rt_config.symbol_files = runtime_symbol_files;
+        } else {
+            rt_config.symbol_files = options.symbol_files;
+        }
     }
 
     /* Host audio before runtime_create so the actual sample rate is known
