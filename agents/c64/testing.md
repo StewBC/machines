@@ -39,8 +39,8 @@ not a regression.
 - Machine/CPU/bus: `c64_bus`, `c64_cpu_validation`, `c64_cpu_observer`,
   `c64_boot_progression`, `c64_vicii`, `c64_cia`, `c64_keyboard`, `c64_snapshot`
 - SID/audio: `sid`, `audio_buffer`, `runtime_scheduler`
-- Disk/IEC: `d64`, `g64`, `c1541`, `c1541_gcr`, `c1541_media`, `c64_disk_load`,
-  `c64_real_1541_load`, `c64_robocop_g64`, `c64_arkanoid_g64`,
+- Disk/IEC: `d64`, `g64`, `c1541`, `c1541_gcr`, `c1541_media`, `c64_hostfs_mount`,
+  `c64_disk_load`, `c64_real_1541_load`, `c64_robocop_g64`, `c64_arkanoid_g64`,
   `c64_arkanoid_alt_g64`, `runtime_disk`, `runtime_real_1541_autorun`
 - Runtime/control: `runtime_*`, `control_protocol`,
   `history_control_integration`, `run_to_raster_control_integration`,

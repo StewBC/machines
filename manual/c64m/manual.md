@@ -741,19 +741,19 @@ HostFS volume. The volume is trap-fast (not a 1541 on the IEC bus). Advertise as
 
 | Feature | Behavior |
 |---------|----------|
-| `LOAD "$",N` | Lists cwd files (sorted CBM names); ends with `65535 BLOCKS FREE.` Dirs=`DIR`; `.seq`=`SEQ`; `.prg` and all other regular files=`PRG` (extensionless names like `fb64` included). Dotfiles hidden. |
-| `LOAD "NAME",N` / `,N,1` | Load a PRG-typed catalog entry from cwd (host path may be `name`, `name.prg`, or another basename) |
-| `LOAD "*",N` | First PRG-typed entry in sorted catalog order |
-| `SAVE "NAME",N` | Create `NAME.prg` in cwd if new; fail if name exists (no `@:` yet) |
-| `CD` (channel 15) | `CD:SUB`, `CD:_` (left-arrow `$5F`), `CD//` (and `CD//NAME/` / `CD/NAME/` forms) via `OPEN 1,N,15,"...":CLOSE 1` |
+| `LOAD "$",N` | Lists cwd files (sorted CBM names); ends with `65535 BLOCKS FREE.` Dirs=`DIR`; `.d64` files=`DIR` (stem name); `.seq`=`SEQ`; `.prg` and all other regular files=`PRG` (extensionless names like `fb64` included; `.g64` stays `PRG` and is not enterable). Dotfiles hidden. |
+| `LOAD "NAME",N` / `,N,1` | Load a PRG-typed catalog entry from cwd (host path may be `name`, `name.prg`, or another basename). Inside a nested `.d64`, loads from the image directory. |
+| `LOAD "*",N` | First PRG-typed entry in catalog order |
+| `SAVE "NAME",N` | Create `NAME.prg` in a host cwd if new; fail if name exists (no `@:` yet). Inside a nested `.d64`, creates a PRG in the image when Write is enabled and flushes the host `.d64`; read-only / write-protect otherwise. |
+| `CD` (channel 15) | `CD:SUB`, `CD:_` (left-arrow `$5F`), `CD//` (and `CD//NAME/` / `CD/NAME/` forms) via `OPEN 1,N,15,"...":CLOSE 1`. `CD` into a `.d64` listed as `DIR` opens that image as a sub-volume (still HostFS traps; not a 1541). Parent / root leave the image and return to the host folder. |
 | Status | `OPEN 1,N,15` then `CHKIN`/`CHRIN`: `00, OK,00,00` or DOS error text (e.g. `62, FILE NOT FOUND,00,00`) |
 | Coexistence | HostFS traps even with `emulate_1541=1`; sibling unit may run a real 1541 IMAGE |
 
 **CBM FileBrowser 1.6** / `fb64` navigates with the `CD` + `LOAD "$"` path above (no SEQ
-required for that oracle).
+required for that oracle), including entering `.d64` images listed as directories.
 
 **Not in this subset:** SEQ file I/O, Scratch `S:`, `@:` overwrite, partitions (`$=P`),
-MD/RD, timestamps, `CD` into `.D64` images, fastloaders on HostFS.
+MD/RD, timestamps, `CD` into `.G64` images, fastloaders on HostFS.
 
 HostFS is a single mount (no multi-image queue / Swap). Opening a `.d64`/`.g64` or
 Shift+adding an image while HostFS is mounted replaces HostFS with an IMAGE queue.

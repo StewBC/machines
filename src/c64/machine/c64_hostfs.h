@@ -37,6 +37,8 @@ const char *c64_hostfs_cwd_path(const c64_hostfs_volume *vol);
 const char *c64_hostfs_display_name(const c64_hostfs_volume *vol);
 bool c64_hostfs_writable(const c64_hostfs_volume *vol);
 void c64_hostfs_set_writable(c64_hostfs_volume *vol, bool writable);
+/* True while CD has entered a .d64 sub-volume (still backend=HOSTFS). */
+bool c64_hostfs_in_d64(const c64_hostfs_volume *vol);
 
 /* DOS status channel string, e.g. "00, OK,00,00\r". */
 const char *c64_hostfs_status(const c64_hostfs_volume *vol);
@@ -60,8 +62,10 @@ bool c64_hostfs_apply_catalog_to_slot(c64_hostfs_volume *vol, c64_drive_slot *sl
  * Execute a command-channel name buffer (OPEN SA=15 filename).
  * Accepts FB/SD2IEC-shaped CD forms: CD//, CD:_ / CD:←, CD:NAME, CD//NAME/,
  * CD/NAME/, and bare // / _ where unambiguous. Empty name is a no-op OK
- * (open status channel). Returns true if the command was handled (including
- * DOS errors that still "handled" the OPEN); false if not a recognized cmd.
+ * (open status channel). CD:NAME may enter a host directory or a .d64 listed
+ * as DIR (stem); parent/root leave a nested D64 without mounting IMAGE/1541.
+ * Returns true if the command was handled (including DOS errors that still
+ * "handled" the OPEN); false if not a recognized cmd.
  */
 bool c64_hostfs_command(
     c64_hostfs_volume *vol,
@@ -73,8 +77,15 @@ bool c64_hostfs_command(
 bool c64_hostfs_read_file(
     const char *host_path, uint8_t **out_bytes, size_t *out_size);
 
-/* Create host `<cbm>.prg` under cwd. Fails if a catalog PRG with that CBM
-   name already exists (no overwrite). cbm_name is PETSCII/ASCII bytes. */
+/* Read PRG bytes for a catalog index (host file, or extract from nested D64). */
+bool c64_hostfs_read_entry_prg(
+    c64_hostfs_volume *vol,
+    size_t index,
+    uint8_t **out_bytes,
+    size_t *out_size);
+
+/* Create PRG in cwd: host `<cbm>.prg`, or into a nested D64 (flush host file).
+   Fails if the CBM name already exists (no overwrite / no @:). */
 bool c64_hostfs_create_prg(
     c64_hostfs_volume *vol,
     const uint8_t *cbm_name,

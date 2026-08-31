@@ -1353,7 +1353,6 @@ static bool c64_try_hostfs_load_trap(
     uint8_t *bytes = NULL;
     size_t size = 0;
     size_t index;
-    const char *host_path;
 
     if (slot->hostfs == NULL) {
         c64_kernal_load_return(machine, false, 0x05, 0);
@@ -1390,9 +1389,7 @@ static bool c64_try_hostfs_load_trap(
         return true;
     }
     index = (size_t)(entry - slot->entries);
-    host_path = c64_hostfs_entry_host_path(slot->hostfs, index);
-    if (host_path == NULL ||
-        !c64_hostfs_read_file(host_path, &bytes, &size) ||
+    if (!c64_hostfs_read_entry_prg(slot->hostfs, index, &bytes, &size) ||
         !c64_hostfs_load_prg_bytes_to_memory(
             machine,
             bytes,

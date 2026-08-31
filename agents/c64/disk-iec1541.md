@@ -13,10 +13,16 @@ in `c64.c`, `c1541.c`, `c1541_media.c`, `c64_hostfs.c`, runtime disk code.
   (provisional identity string). Spike:
   `design/c64/hostfs-phase1-fb64-spike.md`.
   Catalog: all non-dotfile regular files are visible (`.prg`/extensionless/other
-  → `PRG`, `.seq` → `SEQ`, dirs → `DIR`). Do **not** require a `.prg` suffix —
-  CBM tools like `fb64` ship extensionless. DOS status subset: `00 OK`,
+  → `PRG`, `.seq` → `SEQ`, dirs → `DIR`, `.d64` → `DIR` with stem name).
+  Do **not** require a `.prg` suffix — CBM tools like `fb64` ship extensionless.
+  `CD` into a `.d64` opens an owned `d64_image` overlay on the HostFS volume
+  (still `backend=HOSTFS`; never `c64_mount_d64` / never iec_active). Nested `$`
+  uses BAM title/id/DOS/`free_blocks`; LOAD extracts PRG; SAVE (when writable)
+  uses `d64_image_write_prg` + flush to the host `.d64`. Parent/`CD//` leave the
+  image. `.g64` stays non-enterable. DOS status subset: `00 OK`,
   `30 SYNTAX ERROR`, `62 FILE NOT FOUND`, `74 DRIVE NOT READY`. SEQ channel I/O
-  / `@:` / Scratch are **out** (listing `.seq` as type only).
+  / `@:` / Scratch are **out** (listing `.seq` as type only). Regression:
+  `test_hostfs_cd_into_d64` in `tests/c64/machine/test_c64_hostfs_mount.c`.
 - Devices 8 and 9 have independent ordered disk queues. Images are
   read-only by default. Writable KERNAL SAVE updates the in-memory image;
   runtime flushes to the host path. Failed flushes leave the image dirty.

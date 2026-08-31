@@ -2,6 +2,7 @@
 #include "c64.h"
 #include "c64_hostfs.h"
 #include "c64_rom.h"
+#include "d64.h"
 
 #include <errno.h>
 #include <stdio.h>
@@ -52,8 +53,141 @@ static void make_tmpdir(char *out, size_t out_size) {
     }
 }
 
+static uint8_t sectors_on_track(uint8_t track) {
+    if (track <= 17) {
+        return 21;
+    }
+    if (track <= 24) {
+        return 19;
+    }
+    if (track <= 30) {
+        return 18;
+    }
+    return 17;
+}
+
+static void set_bam_sector(uint8_t *bam, uint8_t track, uint8_t sector, int free_sector) {
+    uint8_t *entry = &bam[4u + ((track - 1u) * 4u)];
+    uint8_t mask = (uint8_t)(1u << (sector & 7u));
+    uint8_t *byte = &entry[1u + (sector >> 3u)];
+    int was_free = (*byte & mask) != 0;
+
+    if (was_free == free_sector) {
+        return;
+    }
+    if (free_sector) {
+        *byte |= mask;
+        entry[0]++;
+    } else {
+        *byte &= (uint8_t)~mask;
+        entry[0]--;
+    }
+}
+
+static void fill_d64_name(uint8_t *target, const char *name) {
+    size_t i;
+    memset(target, 0xa0, D64_DIRECTORY_NAME_SIZE);
+    for (i = 0; i < D64_DIRECTORY_NAME_SIZE && name[i] != '\0'; ++i) {
+        target[i] = (uint8_t)name[i];
+    }
+}
+
+/* Minimal blank D64 with BAM title "TEST DISK" / id "ID" / DOS "2A". */
 static uint8_t *make_blank_d64(void) {
-    return (uint8_t *)calloc(1, C64_DRIVE_D64_STANDARD_SIZE);
+    uint8_t *image;
+    size_t offset;
+    uint8_t *bam;
+    uint8_t *directory;
+    uint8_t track;
+
+    image = (uint8_t *)calloc(1, D64_STANDARD_IMAGE_SIZE);
+    if (image == NULL) {
+        return NULL;
+    }
+    if (d64_track_sector_offset(18, 0, &offset) != D64_OK) {
+        free(image);
+        return NULL;
+    }
+    bam = &image[offset];
+    bam[0] = 18;
+    bam[1] = 1;
+    bam[2] = 0x41;
+    for (track = 1; track <= D64_TRACK_COUNT; ++track) {
+        uint8_t sectors = sectors_on_track(track);
+        uint8_t *entry = &bam[4u + ((track - 1u) * 4u)];
+        uint8_t sector;
+
+        entry[0] = sectors;
+        entry[1] = entry[2] = entry[3] = 0;
+        for (sector = 0; sector < sectors; ++sector) {
+            entry[1u + (sector >> 3u)] |= (uint8_t)(1u << (sector & 7u));
+        }
+    }
+    set_bam_sector(bam, 18, 0, 0);
+    set_bam_sector(bam, 18, 1, 0);
+    fill_d64_name(&bam[0x90], "TEST DISK");
+    bam[0xa2] = 'I';
+    bam[0xa3] = 'D';
+    bam[0xa5] = '2';
+    bam[0xa6] = 'A';
+    if (d64_track_sector_offset(18, 1, &offset) != D64_OK) {
+        free(image);
+        return NULL;
+    }
+    directory = &image[offset];
+    directory[0] = 0;
+    directory[1] = 0xff;
+    return image;
+}
+
+static void write_host_d64_with_prg(
+    const char *dir,
+    const char *basename,
+    const char *prg_name,
+    uint16_t load_addr,
+    const uint8_t *body,
+    size_t body_len) {
+    char path[512];
+    uint8_t *bytes;
+    d64_image *image;
+    d64_result result;
+    uint8_t *prg;
+    size_t prg_len;
+    const uint8_t *out;
+    size_t out_size;
+    FILE *f;
+
+    bytes = make_blank_d64();
+    expect_true("blank d64", bytes != NULL);
+    image = d64_image_create(bytes, D64_STANDARD_IMAGE_SIZE, &result);
+    free(bytes);
+    expect_true("parse blank", image != NULL && result == D64_OK);
+    prg_len = 2u + body_len;
+    prg = (uint8_t *)malloc(prg_len);
+    expect_true("alloc prg", prg != NULL);
+    prg[0] = (uint8_t)(load_addr & 0xffu);
+    prg[1] = (uint8_t)(load_addr >> 8);
+    if (body_len > 0) {
+        memcpy(prg + 2, body, body_len);
+    }
+    expect_true(
+        "write inside prg",
+        d64_image_write_prg(
+            image,
+            (const uint8_t *)prg_name,
+            strlen(prg_name),
+            prg,
+            prg_len,
+            false) == D64_OK);
+    free(prg);
+    out = d64_image_bytes(image, &out_size);
+    expect_true("d64 bytes", out != NULL && out_size == D64_STANDARD_IMAGE_SIZE);
+    snprintf(path, sizeof(path), "%s/%s", dir, basename);
+    f = fopen(path, "wb");
+    expect_true("open host d64", f != NULL);
+    expect_true("write host d64", fwrite(out, 1, out_size, f) == out_size);
+    fclose(f);
+    d64_image_destroy(image);
 }
 
 /* Assert ATN-ack DATA pull is absent after settling a VIA poke on drive 8. */
@@ -626,6 +760,186 @@ static void test_hostfs_cd_channel(void)
     printf("PASS: test_hostfs_cd_channel\n");
 }
 
+static void test_hostfs_cd_into_d64(void) {
+    static c64_t c64;
+    char dir[128];
+    char path[512];
+    char error[128];
+    const uint8_t inside_body[] = {0xA9, 0x42, 0x60};
+    const uint8_t outside_body[] = {0xA9, 0x11, 0x60};
+    char parent_cmd[8];
+    FILE *f;
+    struct stat st;
+    size_t i;
+    int found_game = 0;
+    int found_outside = 0;
+    int found_inside = 0;
+    int game_is_dir = 0;
+
+    make_tmpdir(dir, sizeof(dir));
+    write_host_prg(dir, "outside.prg", 0x8000u, outside_body, sizeof(outside_body));
+    write_host_d64_with_prg(
+        dir, "game.d64", "INSIDE", 0xC000u, inside_body, sizeof(inside_body));
+    /* .g64 must stay non-DIR / non-enterable. */
+    snprintf(path, sizeof(path), "%s/skip.g64", dir);
+    f = fopen(path, "wb");
+    expect_true("dummy g64", f != NULL);
+    fputs("not-a-real-g64", f);
+    fclose(f);
+
+    reset_machine(&c64);
+    expect_true(
+        "mount",
+        c64_mount_hostfs(&c64, 9, dir, true) == C64_DRIVE_STATUS_OK);
+    expect_true("not in d64 yet", !c64_hostfs_in_d64(c64.drives[1].hostfs));
+
+    setup_load_call(&c64, "$", 9, 0);
+    expect_true("load $ host", c64_step_instruction(&c64, error, sizeof(error)));
+    expect_success_return(&c64);
+    for (i = 0; i < c64.drives[1].entry_count; i++) {
+        char name[17];
+        size_t n = c64.drives[1].entries[i].filename_length;
+        if (n > 16u) {
+            n = 16u;
+        }
+        memcpy(name, c64.drives[1].entries[i].filename, n);
+        name[n] = '\0';
+        if (strcmp(name, "GAME") == 0) {
+            found_game = 1;
+            game_is_dir = (c64.drives[1].entries[i].type == C64_DRIVE_FILE_DIR);
+        }
+        if (strcmp(name, "OUTSIDE") == 0) {
+            found_outside = 1;
+        }
+        if (strcmp(name, "INSIDE") == 0) {
+            found_inside = 1;
+        }
+        if (strcmp(name, "SKIP.G64") == 0) {
+            expect_true(
+                "g64 not dir",
+                c64.drives[1].entries[i].type != C64_DRIVE_FILE_DIR);
+        }
+    }
+    expect_true("lists GAME", found_game);
+    expect_true("GAME is DIR", game_is_dir);
+    expect_true("lists OUTSIDE", found_outside);
+    expect_true("no INSIDE on host", !found_inside);
+
+    setup_open_call(&c64, "CD:GAME", 1, 9, 15);
+    expect_true("open CD:GAME", c64_step_instruction(&c64, error, sizeof(error)));
+    expect_success_return(&c64);
+    setup_close_call(&c64, 1);
+    expect_true("close CD:GAME", c64_step_instruction(&c64, error, sizeof(error)));
+    expect_success_return(&c64);
+    expect_true("in d64", c64_hostfs_in_d64(c64.drives[1].hostfs));
+    expect_true("still hostfs backend", c64.drives[1].backend == C64_DRIVE_BACKEND_HOSTFS);
+    expect_true("not iec", !c64_drive_iec_active(&c64, 9));
+
+    setup_load_call(&c64, "$", 9, 0);
+    expect_true("load $ in d64", c64_step_instruction(&c64, error, sizeof(error)));
+    expect_success_return(&c64);
+    found_inside = 0;
+    found_outside = 0;
+    for (i = 0; i < c64.drives[1].entry_count; i++) {
+        char name[17];
+        size_t n = c64.drives[1].entries[i].filename_length;
+        if (n > 16u) {
+            n = 16u;
+        }
+        memcpy(name, c64.drives[1].entries[i].filename, n);
+        name[n] = '\0';
+        if (strcmp(name, "INSIDE") == 0) {
+            found_inside = 1;
+        }
+        if (strcmp(name, "OUTSIDE") == 0) {
+            found_outside = 1;
+        }
+    }
+    expect_true("lists INSIDE", found_inside);
+    expect_true("no OUTSIDE in d64", !found_outside);
+    expect_true("bam title", strcmp(c64.drives[1].disk_title, "TEST DISK") == 0);
+    expect_true("free not 65535", c64.drives[1].free_blocks != 65535u);
+
+    setup_load_call(&c64, "INSIDE", 9, 1);
+    expect_true("load inside", c64_step_instruction(&c64, error, sizeof(error)));
+    expect_success_return(&c64);
+    expect_true("inside byte", c64_debug_read_ram(&c64, 0xC000) == 0xA9);
+    expect_true("inside data", c64_debug_read_ram(&c64, 0xC001) == 0x42);
+
+    c64.bus.ram[0x4000] = 0xEE;
+    c64.bus.ram[0x4001] = 0xFF;
+    setup_save_call(&c64, "NEWONE", 9, 0x4000, 0x4002);
+    expect_true("save newone", c64_step_instruction(&c64, error, sizeof(error)));
+    expect_success_return(&c64);
+    setup_save_call(&c64, "NEWONE", 9, 0x4000, 0x4002);
+    expect_true("save exists step", c64_step_instruction(&c64, error, sizeof(error)));
+    expect_true("save exists carry", (c64.cpu.cpu.flags & 0x01u) != 0);
+
+    snprintf(path, sizeof(path), "%s/game.d64", dir);
+    expect_true("stat flushed", stat(path, &st) == 0);
+    expect_true("flushed size", (size_t)st.st_size == D64_STANDARD_IMAGE_SIZE);
+
+    c64_hostfs_set_writable(c64.drives[1].hostfs, false);
+    c64.drives[1].writable = false;
+    setup_save_call(&c64, "ROFAIL", 9, 0x4000, 0x4002);
+    expect_true("save ro step", c64_step_instruction(&c64, error, sizeof(error)));
+    expect_true("save ro fail", (c64.cpu.cpu.flags & 0x01u) != 0);
+    c64_hostfs_set_writable(c64.drives[1].hostfs, true);
+    c64.drives[1].writable = true;
+
+    parent_cmd[0] = 'C';
+    parent_cmd[1] = 'D';
+    parent_cmd[2] = ':';
+    parent_cmd[3] = (char)0x5f;
+    parent_cmd[4] = '\0';
+    setup_open_call(&c64, parent_cmd, 1, 9, 15);
+    expect_true("open CD:parent", c64_step_instruction(&c64, error, sizeof(error)));
+    expect_success_return(&c64);
+    setup_close_call(&c64, 1);
+    expect_true("close parent", c64_step_instruction(&c64, error, sizeof(error)));
+    expect_success_return(&c64);
+    expect_true("left d64", !c64_hostfs_in_d64(c64.drives[1].hostfs));
+
+    setup_load_call(&c64, "OUTSIDE", 9, 1);
+    expect_true("load outside", c64_step_instruction(&c64, error, sizeof(error)));
+    expect_success_return(&c64);
+    expect_true("outside byte", c64_debug_read_ram(&c64, 0x8000) == 0xA9);
+
+    setup_load_call(&c64, "INSIDE", 9, 1);
+    expect_true("inside gone step", c64_step_instruction(&c64, error, sizeof(error)));
+    expect_true("inside gone", (c64.cpu.cpu.flags & 0x01u) != 0);
+
+    setup_open_call(&c64, "CD:GAME", 1, 9, 15);
+    expect_true("reenter", c64_step_instruction(&c64, error, sizeof(error)));
+    expect_success_return(&c64);
+    setup_close_call(&c64, 1);
+    expect_true("close reenter", c64_step_instruction(&c64, error, sizeof(error)));
+    expect_success_return(&c64);
+    expect_true("in d64 again", c64_hostfs_in_d64(c64.drives[1].hostfs));
+
+    setup_open_call(&c64, "CD//", 1, 9, 15);
+    expect_true("open CD//", c64_step_instruction(&c64, error, sizeof(error)));
+    expect_success_return(&c64);
+    setup_close_call(&c64, 1);
+    expect_true("close root", c64_step_instruction(&c64, error, sizeof(error)));
+    expect_success_return(&c64);
+    expect_true("root left d64", !c64_hostfs_in_d64(c64.drives[1].hostfs));
+
+    setup_open_call(&c64, "CD:SKIP.G64", 1, 9, 15);
+    expect_true("open g64", c64_step_instruction(&c64, error, sizeof(error)));
+    expect_success_return(&c64);
+    {
+        const char *status = c64_hostfs_status(c64.drives[1].hostfs);
+        expect_true(
+            "g64 status 62",
+            status != NULL && status[0] == '6' && status[1] == '2');
+    }
+    setup_close_call(&c64, 1);
+    expect_true("close g64", c64_step_instruction(&c64, error, sizeof(error)));
+
+    printf("PASS: test_hostfs_cd_into_d64\n");
+}
+
 int main(void) {
     test_path_is_dir();
     test_mount_hostfs_basics();
@@ -637,6 +951,7 @@ int main(void) {
     test_hostfs_traps_with_emulate_1541();
     test_hostfs_save_sealed();
     test_hostfs_cd_channel();
+    test_hostfs_cd_into_d64();
     printf("All HostFS mount/trap tests passed.\n");
     return 0;
 }

@@ -2,7 +2,7 @@
 
 | Field | Value |
 |-------|--------|
-| Status | **Draft** (owner Open-Question answers incorporated 2026-08-30; fill human Author before Accepted) |
+| Status | **Active** (Phase 0–2 / PR1–PR7 landed; Phase 3 assembler + PR9 snapshot remain) |
 | Author | design brief session |
 | Date | 2026-08-30 |
 | Audience | Senior engineers / agents expanding phases into implementation plans |
@@ -414,13 +414,13 @@ Migration: none for existing D64 users; directories previously rejected as unsup
 6. Manual: documented subset published; identity string finalized (or Phase 0 default kept).
 7. Tests for CD normalization, missing dir → DOS error, IMAGE+1541 sibling does not take HostFS traps.
 
-### Phase 2 — `CD` into `.D64` as sub-volume
+### Phase 2 — `CD` into `.D64` as sub-volume — **landed (PR7)**
 
 **Scope:** When cwd selects a `.d64`, HostFS presents that image’s directory; `LOAD`/`SAVE` use D64 helpers; `CD` parent exits. Still **no** 1541 ROM for that tree.
 
 **Exit criteria:**
 
-1. FB can enter a D64 listed in a folder and load a PRG from it.
+1. FB can enter a D64 listed in a folder and load a PRG from it. *(automated: `test_hostfs_cd_into_d64`; FB oracle manual)*
 2. Exit image returns to parent host directory.
 3. Writable policy explicit (default read-only inside image unless Write enabled).
 4. G64 enter is **out** (no trap path for G64 today).
@@ -615,12 +615,14 @@ Incremental, independently reviewable PRs. **Ordering invariant:** PR1 owns Host
 - **Depends on:** PR5
 - **Changes:** SEQ as needed by **fb64** oracle; Scratch/`@:` if Open Question C answered; identity string freeze if Open Question A answered (else keep Phase 0 provisional)
 
-### PR7 — Phase 2: `CD` into D64 sub-volume
+### PR7 — Phase 2: `CD` into D64 sub-volume — **landed**
 
 - **Title:** `c64m: HostFS CD into D64 images`
 - **Files/components:** `c64_hostfs.*`, reuse `d64` tools, FB tests with nested D64
 - **Depends on:** PR5
 - **Changes:** Enter/exit D64 namespace without 1541 ROM; writable policy; G64 unsupported
+- **Landed:** `.d64` catalogs as `DIR`/stem; owned `d64_image` overlay; BAM `$` header;
+  LOAD extract / SAVE write+flush; `test_hostfs_cd_into_d64`
 
 ### PR8 — Phase 3: assembler `prg=` / `file=` + HostFS refresh
 
