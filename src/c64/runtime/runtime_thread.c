@@ -6657,6 +6657,8 @@ int runtime_thread_main(void *userdata) {
                 }
             }
 
+            runtime_swiftlink_pump(rt);
+
             if (rt->inspecting) {
                 int batch = RUNTIME_RUN_BATCH_CYCLES;
                 char error[256];
@@ -6866,6 +6868,7 @@ int runtime_thread_main(void *userdata) {
                 }
             }
 
+            runtime_swiftlink_pump(rt);
             continue;
         }
 
@@ -6874,8 +6877,10 @@ int runtime_thread_main(void *userdata) {
         }
 
         runtime_process_command(rt, &command, &alive);
+        runtime_swiftlink_pump(rt);
     }
 
+    runtime_swiftlink_shutdown(rt);
     free(rt->pending_prg_path);
     rt->pending_prg_path = NULL;
     free(rt->pending_asm_path);

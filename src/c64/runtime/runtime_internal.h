@@ -7,6 +7,7 @@
 #include "runtime_vic_ring.h"
 #include "runtime_history.h"
 #include "runtime_inspector.h"
+#include "runtime_swiftlink.h"
 
 #include "audio_buffer.h"
 #include "c64.h"
@@ -190,6 +191,7 @@ struct runtime {
     runtime_symbol_slot symbol_slot;
     symbol_table *symbols;
     c64_t machine;
+    runtime_swiftlink_bridge swiftlink;
     runtime_history *history;
     uint32_t history_memory_mb;
     runtime_frame_ring frame_ring;

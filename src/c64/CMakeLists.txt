@@ -547,6 +547,31 @@ target_link_libraries(${test_platform_fs} PRIVATE
 
 leftover_add_test(NAME platform_fs COMMAND ${test_platform_fs})
 
+leftover_exe(test_platform_socket_connect
+    ${MACHINES_ROOT}/tests/shell/platform/test_platform_socket_connect.c
+)
+
+target_compile_features(${test_platform_socket_connect} PRIVATE c_std_99)
+
+target_link_libraries(${test_platform_socket_connect} PRIVATE
+    shell
+)
+
+leftover_add_test(NAME platform_socket_connect COMMAND ${test_platform_socket_connect})
+
+leftover_exe(test_runtime_swiftlink_bridge
+    ${MACHINES_ROOT}/tests/c64/runtime/test_runtime_swiftlink_bridge.c
+)
+
+target_compile_features(${test_runtime_swiftlink_bridge} PRIVATE c_std_99)
+
+target_link_libraries(${test_runtime_swiftlink_bridge} PRIVATE
+    ${runtime}
+    shell
+)
+
+leftover_add_test(NAME runtime_swiftlink_bridge COMMAND ${test_runtime_swiftlink_bridge})
+
 leftover_exe(test_c64_cpu_validation
     ${MACHINES_ROOT}/tests/c64/machine/test_c64_cpu_validation.c
 )

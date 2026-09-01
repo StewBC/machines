@@ -168,6 +168,12 @@ runtime *runtime_create(const runtime_config *config) {
         return NULL;
     }
 
+    runtime_swiftlink_bridge_init(&rt->swiftlink);
+    if (rt->swiftlink.mu == NULL) {
+        runtime_destroy(rt);
+        return NULL;
+    }
+
     rt->client.command_queue = rt->command_queue;
     rt->client.event_queue = rt->event_queue;
     rt->client.frame_slot = &rt->frame_slot;
@@ -308,6 +314,7 @@ void runtime_destroy(runtime *rt) {
     }
 
     runtime_stop(rt);
+    runtime_swiftlink_bridge_destroy(&rt->swiftlink);
     c64_unmount_all_drives(&rt->machine);
     free(rt->basic_rom_path);
     free(rt->char_rom_path);
