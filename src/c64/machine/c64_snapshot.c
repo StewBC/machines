@@ -1638,6 +1638,7 @@ static void apply_loaded_machine(c64_t *dst, c64_t *src, bool restore_1541_core)
     c64_bus_attach_vicii(&dst->bus, &dst->vic);
     c64_bus_attach_cias(&dst->bus, &dst->cia1, &dst->cia2);
     c64_bus_attach_sid(&dst->bus, &dst->sid);
+    c64_bus_attach_swiftlink(&dst->bus, &dst->swiftlink);
     dst->bus.vic_bank_base = src->bus.vic_bank_base;
     dst->keyboard = src->keyboard;
     dst->joystick1 = src->joystick1;

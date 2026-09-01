@@ -54,7 +54,12 @@ typedef enum c64_swiftlink_connect_err {
     C64_SWIFTLINK_CONN_NO_ANSWER
 } c64_swiftlink_connect_err;
 
-typedef struct c64_swiftlink {
+#ifndef C64M_SWIFTLINK_TYPEDEF
+#define C64M_SWIFTLINK_TYPEDEF
+typedef struct c64_swiftlink c64_swiftlink;
+#endif
+
+struct c64_swiftlink {
     bool enabled;
     uint16_t base; /* 0xDE00 or 0xDF00 */
 
@@ -96,7 +101,7 @@ typedef struct c64_swiftlink {
     uint8_t escape_abort_byte;
 
     c64_swiftlink_host_req pending_req;
-} c64_swiftlink;
+};
 
 void c64_swiftlink_init(c64_swiftlink *sl);
 void c64_swiftlink_reset(c64_swiftlink *sl); /* status-write / cold ACIA semantics */

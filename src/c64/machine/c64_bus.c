@@ -1,5 +1,6 @@
 #include "c64_bus.h"
 
+#include "c64_swiftlink.h"
 #include "cia.h"
 #include "sid.h"
 #include "vicii.h"
@@ -324,6 +325,12 @@ static uint8_t c64_io_read(c64_bus_t *bus, uint16_t address) {
         return cia_read_register(bus->cia2, address);
     }
 
+    /* SwiftLink owns the selected IO1/IO2 page when enabled; cart latches must
+       not share that page. */
+    if (bus->swiftlink != NULL && c64_swiftlink_owns(bus->swiftlink, address)) {
+        return c64_swiftlink_read(bus->swiftlink, address);
+    }
+
     /* IO1 read side-effects: C64GS and Dinamic latch their bank from the
        accessed address on a read (VICE gs.c / dinamic.c). Read value is 0. */
     if (address >= 0xde00u && address <= 0xdeffu && bus->cartridge_mounted) {
@@ -385,6 +392,11 @@ static void c64_io_write(c64_bus_t *bus, uint16_t address, uint8_t value) {
             c64_bus_refresh_vic_bank_base(bus);
         }
         bus->cia2_register_writes++;
+        return;
+    }
+
+    if (bus->swiftlink != NULL && c64_swiftlink_owns(bus->swiftlink, address)) {
+        c64_swiftlink_write(bus->swiftlink, address, value);
         return;
     }
 
@@ -476,6 +488,43 @@ void c64_bus_attach_sid(c64_bus_t *bus, sid *s) {
     assert(bus);
 
     bus->sid = s;
+}
+
+void c64_bus_attach_swiftlink(c64_bus_t *bus, c64_swiftlink *sl) {
+    assert(bus);
+
+    bus->swiftlink = sl;
+}
+
+bool c64_cartridge_hw_claims_io1(uint16_t hardware_type) {
+    switch (hardware_type) {
+    case C64_CARTRIDGE_HW_OCEAN:
+    case C64_CARTRIDGE_HW_FUNPLAY:
+    case C64_CARTRIDGE_HW_C64GS:
+    case C64_CARTRIDGE_HW_DINAMIC:
+    case C64_CARTRIDGE_HW_MAGIC_DESK:
+        return true;
+    default:
+        return false;
+    }
+}
+
+bool c64_cartridge_hw_claims_io2(uint16_t hardware_type) {
+    return hardware_type == C64_CARTRIDGE_HW_SUPER_GAMES;
+}
+
+bool c64_cart_claims_io1(const c64_bus_t *bus) {
+    if (bus == NULL || !bus->cartridge_mounted) {
+        return false;
+    }
+    return c64_cartridge_hw_claims_io1(bus->cartridge_hardware_type);
+}
+
+bool c64_cart_claims_io2(const c64_bus_t *bus) {
+    if (bus == NULL || !bus->cartridge_mounted) {
+        return false;
+    }
+    return c64_cartridge_hw_claims_io2(bus->cartridge_hardware_type);
 }
 
 void c64_bus_refresh_vic_bank_base(c64_bus_t *bus) {

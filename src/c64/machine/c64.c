@@ -2759,6 +2759,7 @@ void c64_init(c64_t *machine) {
     c64_bus_attach_vicii(&machine->bus, &machine->vic);
     c64_bus_attach_cias(&machine->bus, &machine->cia1, &machine->cia2);
     c64_bus_attach_sid(&machine->bus, &machine->sid);
+    c64_bus_attach_swiftlink(&machine->bus, &machine->swiftlink);
     c6510_init(&machine->cpu, machine, c64_cpu_read, c64_cpu_write);
     c6510_set_irq_pending_callback(&machine->cpu, c64_cpu_irq_pending);
     c6510_set_nmi_pending_callback(&machine->cpu, c64_cpu_nmi_pending);
@@ -3559,6 +3560,32 @@ bool c64_cartridge_attached(const c64_t *machine) {
     assert(machine);
 
     return machine->bus.cartridge_mounted;
+}
+
+bool c64_swiftlink_conflicts_with_hw(const c64_t *machine, uint16_t hardware_type) {
+    uint16_t base;
+
+    assert(machine);
+    if (!machine->swiftlink.enabled) {
+        return false;
+    }
+    base = (uint16_t)(machine->swiftlink.base & 0xFF00u);
+    if (base == C64_SWIFTLINK_BASE_DE00) {
+        return c64_cartridge_hw_claims_io1(hardware_type);
+    }
+    if (base == C64_SWIFTLINK_BASE_DF00) {
+        return c64_cartridge_hw_claims_io2(hardware_type);
+    }
+    return false;
+}
+
+bool c64_swiftlink_conflicts(const c64_t *machine) {
+    assert(machine);
+    if (!machine->swiftlink.enabled || !machine->bus.cartridge_mounted) {
+        return false;
+    }
+    return c64_swiftlink_conflicts_with_hw(
+        machine, machine->bus.cartridge_hardware_type);
 }
 
 bool c64_drive_device_supported(uint8_t device) {

@@ -20,6 +20,11 @@ typedef struct cia cia;
 typedef struct sid sid;
 #endif
 
+#ifndef C64M_SWIFTLINK_TYPEDEF
+#define C64M_SWIFTLINK_TYPEDEF
+typedef struct c64_swiftlink c64_swiftlink;
+#endif
+
 enum {
     C64_RAM_SIZE = 0x10000,
     C64_COLOR_RAM_SIZE = 0x0400,
@@ -71,6 +76,7 @@ struct c64_bus_t {
     cia *cia1;
     cia *cia2;
     sid *sid;
+    c64_swiftlink *swiftlink;
     uint8_t cpu_port_direction;
     uint8_t cpu_port_data;
     uint64_t screen_ram_writes;
@@ -102,7 +108,14 @@ void c64_bus_reset(c64_bus_t *bus);
 void c64_bus_attach_vicii(c64_bus_t *bus, vicii *v);
 void c64_bus_attach_cias(c64_bus_t *bus, cia *cia1, cia *cia2);
 void c64_bus_attach_sid(c64_bus_t *bus, sid *s);
+void c64_bus_attach_swiftlink(c64_bus_t *bus, c64_swiftlink *sl);
 void c64_bus_refresh_vic_bank_base(c64_bus_t *bus);
+
+/* True when a mounted CRT mapper decodes the given I/O page. */
+bool c64_cart_claims_io1(const c64_bus_t *bus);
+bool c64_cart_claims_io2(const c64_bus_t *bus);
+bool c64_cartridge_hw_claims_io1(uint16_t hardware_type);
+bool c64_cartridge_hw_claims_io2(uint16_t hardware_type);
 
 uint8_t c64_bus_read(c64_bus_t *bus, uint16_t address);
 void c64_bus_write(c64_bus_t *bus, uint16_t address, uint8_t value);

@@ -392,10 +392,22 @@ bool runtime_swiftlink_set_enabled(runtime *rt, bool enabled, uint16_t base)
     }
 
     if (enabled) {
+        uint16_t prev_base = rt->machine.swiftlink.base;
+        bool prev_on = rt->machine.swiftlink.enabled;
+
         c64_swiftlink_set_base(&rt->machine.swiftlink, base);
         c64_swiftlink_set_enabled(&rt->machine.swiftlink, true);
+        if (c64_swiftlink_conflicts(&rt->machine)) {
+            c64_swiftlink_set_enabled(&rt->machine.swiftlink, prev_on);
+            c64_swiftlink_set_base(&rt->machine.swiftlink, prev_base);
+            runtime_publish_error(
+                rt,
+                "SwiftLink conflicts with mounted cartridge I/O page");
+            return false;
+        }
         if (!runtime_swiftlink_bridge_start(&rt->swiftlink)) {
-            c64_swiftlink_set_enabled(&rt->machine.swiftlink, false);
+            c64_swiftlink_set_enabled(&rt->machine.swiftlink, prev_on);
+            c64_swiftlink_set_base(&rt->machine.swiftlink, prev_base);
             return false;
         }
         return true;

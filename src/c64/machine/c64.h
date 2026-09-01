@@ -653,6 +653,9 @@ bool c64_attach_dinamic_cartridge(
     size_t error_size);
 void c64_detach_cartridge(c64_t *machine);
 bool c64_cartridge_attached(const c64_t *machine);
+/* True when SwiftLink is enabled and a mounted cart claims the same I/O page. */
+bool c64_swiftlink_conflicts(const c64_t *machine);
+bool c64_swiftlink_conflicts_with_hw(const c64_t *machine, uint16_t hardware_type);
 bool c64_drive_device_supported(uint8_t device);
 c64_drive_status_result c64_mount_d64(
     c64_t *machine,

@@ -413,7 +413,7 @@ static void runtime_publish_simple_event(
     runtime_publish_event(rt, &event);
 }
 
-static void runtime_publish_error(
+void runtime_publish_error(
     runtime *rt,
     const char *message) {
     runtime_event event = {
@@ -4112,6 +4112,14 @@ static void runtime_load_crt(runtime *rt, const runtime_command *command) {
         return;
     }
     hardware_type = header->hardware_type;
+
+    if (c64_swiftlink_conflicts_with_hw(&rt->machine, hardware_type)) {
+        crt_image_destroy(image);
+        runtime_publish_error(
+            rt,
+            "CRT attach conflicts with enabled SwiftLink I/O page");
+        return;
+    }
 
     if (crt_image_is_generic_supported(image)) {
         attached = runtime_attach_generic_crt(rt, image, header);

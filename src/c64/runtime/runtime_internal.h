@@ -178,6 +178,9 @@ typedef struct runtime_breakpoint {
     runtime_bp_condition condition;
 } runtime_breakpoint;
 
+/* Defined in runtime_thread.c; usable from other runtime TUs on the worker. */
+void runtime_publish_error(runtime *rt, const char *message);
+
 struct runtime {
     thread *thread;
     message_queue *command_queue;
