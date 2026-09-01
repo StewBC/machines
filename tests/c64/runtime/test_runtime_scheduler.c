@@ -762,6 +762,66 @@ static void test_runtime_joystick_event_reaches_machine(void) {
     stop_runtime(rt, client);
 }
 
+static void test_runtime_mouse_event_reaches_machine(void) {
+    runtime *rt;
+    runtime_client *client;
+    runtime_event event;
+
+    rt = start_runtime(&client);
+
+    /* Drive PA6 high as output so SID pots select control port 1. */
+    expect_true("mouse DDRA", runtime_client_write_memory_byte(
+        client,
+        0xdc02,
+        0xc0,
+        RUNTIME_MEMORY_MODE_CPU_MAP));
+    expect_true("mouse PRA port1", runtime_client_write_memory_byte(
+        client,
+        0xdc00,
+        0x40,
+        RUNTIME_MEMORY_MODE_CPU_MAP));
+    if (!poll_event(client, &event, RUNTIME_EVENT_MEMORY_RESPONSE) ||
+        !poll_event(client, &event, RUNTIME_EVENT_MEMORY_RESPONSE)) {
+        fail("CIA mux setup memory write responses not received");
+    }
+
+    expect_true(
+        "send mouse port 1",
+        runtime_client_set_mouse(client, 1u, 0x2au, 0x54u, C64_JOYSTICK_FIRE));
+    expect_true("request POTX", runtime_client_request_memory(
+        client,
+        0xd419,
+        1,
+        RUNTIME_MEMORY_MODE_CPU_MAP));
+    if (!poll_event(client, &event, RUNTIME_EVENT_MEMORY_RESPONSE)) {
+        fail("POTX after set_mouse not received");
+    }
+    expect_u8("POTX from set_mouse", 0x2a, event.data.memory.bytes[0]);
+
+    expect_true("request POTY", runtime_client_request_memory(
+        client,
+        0xd41a,
+        1,
+        RUNTIME_MEMORY_MODE_CPU_MAP));
+    if (!poll_event(client, &event, RUNTIME_EVENT_MEMORY_RESPONSE)) {
+        fail("POTY after set_mouse not received");
+    }
+    expect_u8("POTY from set_mouse", 0x54, event.data.memory.bytes[0]);
+
+    expect_true("clear mouse", runtime_client_clear_mouse(client));
+    expect_true("request POTX after clear", runtime_client_request_memory(
+        client,
+        0xd419,
+        1,
+        RUNTIME_MEMORY_MODE_CPU_MAP));
+    if (!poll_event(client, &event, RUNTIME_EVENT_MEMORY_RESPONSE)) {
+        fail("POTX after clear_mouse not received");
+    }
+    expect_u8("POTX after clear_mouse", 0xff, event.data.memory.bytes[0]);
+
+    stop_runtime(rt, client);
+}
+
 static void test_runtime_run_pause(void) {
     runtime *rt;
     runtime_client *client;
@@ -1838,6 +1898,7 @@ int main(void) {
     test_runtime_keyboard_event_reaches_machine();
     test_runtime_restore_event_reaches_machine();
     test_runtime_joystick_event_reaches_machine();
+    test_runtime_mouse_event_reaches_machine();
     test_runtime_run_pause();
     test_runtime_reset_resumes_running();
     test_runtime_step_instruction_from_running_pauses();

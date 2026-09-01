@@ -387,6 +387,38 @@ bool runtime_client_set_joystick(runtime_client *client, unsigned port, uint8_t 
     return runtime_client_push(client, &command);
 }
 
+bool runtime_client_set_mouse(
+    runtime_client *client,
+    unsigned port,
+    uint8_t potx,
+    uint8_t poty,
+    uint8_t buttons) {
+    runtime_command command = {
+        .type = RUNTIME_COMMAND_SET_MOUSE,
+    };
+
+    if (!client || port < 1u || port > 2u) {
+        return false;
+    }
+
+    command.data.set_mouse.port = (uint8_t)port;
+    command.data.set_mouse.potx = potx;
+    command.data.set_mouse.poty = poty;
+    command.data.set_mouse.buttons = (uint8_t)(buttons & 0x1fu);
+    return runtime_client_push(client, &command);
+}
+
+bool runtime_client_clear_mouse(runtime_client *client) {
+    runtime_command command = {
+        .type = RUNTIME_COMMAND_CLEAR_MOUSE,
+    };
+
+    if (!client) {
+        return false;
+    }
+    return runtime_client_push(client, &command);
+}
+
 static bool runtime_client_set_cpu_register(
     runtime_client *client,
     runtime_cpu_register reg,

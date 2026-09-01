@@ -30,6 +30,14 @@ bool runtime_client_request_frame(runtime_client *client);
 bool runtime_client_keyboard_key(runtime_client *client, c64_key key, bool pressed);
 bool runtime_client_restore(runtime_client *client);
 bool runtime_client_set_joystick(runtime_client *client, unsigned port, uint8_t inputs);
+/* 1351 proportional: potx/poty are encoded POT bytes; buttons = C64_JOYSTICK_*. */
+bool runtime_client_set_mouse(
+    runtime_client *client,
+    unsigned port,
+    uint8_t potx,
+    uint8_t poty,
+    uint8_t buttons);
+bool runtime_client_clear_mouse(runtime_client *client);
 bool runtime_client_create_breakpoint(
     runtime_client *client,
     const runtime_breakpoint_definition *definition);

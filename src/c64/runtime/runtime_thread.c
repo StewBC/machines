@@ -5258,6 +5258,8 @@ static bool runtime_inspector_command_mutates_machine(runtime_command_type type)
     case RUNTIME_COMMAND_KEYBOARD_KEY:
     case RUNTIME_COMMAND_RESTORE:
     case RUNTIME_COMMAND_SET_JOYSTICK:
+    case RUNTIME_COMMAND_SET_MOUSE:
+    case RUNTIME_COMMAND_CLEAR_MOUSE:
     case RUNTIME_COMMAND_HISTORY_CLEAR:
     case RUNTIME_COMMAND_HISTORY_RECORD:
     case RUNTIME_COMMAND_INSPECTOR_SET_ENABLED:
@@ -5887,6 +5889,19 @@ static bool runtime_process_command(runtime *rt, const runtime_command *command,
                 &rt->machine,
                 command->data.set_joystick.port,
                 command->data.set_joystick.inputs);
+            break;
+
+        case RUNTIME_COMMAND_SET_MOUSE:
+            c64_set_mouse(
+                &rt->machine,
+                command->data.set_mouse.port,
+                command->data.set_mouse.potx,
+                command->data.set_mouse.poty,
+                command->data.set_mouse.buttons);
+            break;
+
+        case RUNTIME_COMMAND_CLEAR_MOUSE:
+            c64_clear_mouse(&rt->machine);
             break;
 
         case RUNTIME_COMMAND_SET_CPU_REGISTER:

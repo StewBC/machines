@@ -52,6 +52,8 @@ typedef enum runtime_command_type {
     RUNTIME_COMMAND_SET_TURBO_MULTIPLIER,
     RUNTIME_COMMAND_PASTE_TEXT,
     RUNTIME_COMMAND_SET_JOYSTICK,
+    RUNTIME_COMMAND_SET_MOUSE,
+    RUNTIME_COMMAND_CLEAR_MOUSE,
     RUNTIME_COMMAND_STEP_OUT,
     RUNTIME_COMMAND_STEP_OVER,
     RUNTIME_COMMAND_RUN_TO_CURSOR,
@@ -267,6 +269,13 @@ typedef struct runtime_command {
             uint8_t port;
             uint8_t inputs;
         } set_joystick;
+
+        struct {
+            uint8_t port;
+            uint8_t potx;
+            uint8_t poty;
+            uint8_t buttons;
+        } set_mouse;
 
         struct {
             uint16_t address;
