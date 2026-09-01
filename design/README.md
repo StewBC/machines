@@ -25,7 +25,7 @@ The agents index points here: [`agents/README.md`](../agents/README.md) → Desi
 
 | Design | Status | Last worked on | Path |
 |--------|--------|----------------|------|
-| c64m CBM 1351 mouse emulation | landed | 2026-09-01 | [`c64/cbm1351-mouse.md`](c64/cbm1351-mouse.md) |
+| c64m CBM 1351 mouse emulation | active (Phase 6 quality) | 2026-09-01 | [`c64/cbm1351-mouse.md`](c64/cbm1351-mouse.md) |
 | c64m turbo/max vs VICE perf gap | landed | 2026-08-29 | [`c64/turbo-max-vice-perf-gap.md`](c64/turbo-max-vice-perf-gap.md) |
 
 ## Conventions

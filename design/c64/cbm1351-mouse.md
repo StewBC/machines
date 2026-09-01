@@ -2,12 +2,12 @@
 
 | Field | Value |
 |-------|--------|
-| Status | **landed** |
+| Status | **active** (Phases 1–5 landed; Phase 6 quality open) |
 | Author | design session |
 | Date | 2026-09-01 |
 | Audience | c64m implementers |
 | Path | [`design/c64/cbm1351-mouse.md`](cbm1351-mouse.md) |
-| Tracker | `TODO.txt` — `DONE CBM1351 Mouse emulation` |
+| Tracker | Local `TODO.txt` — `DONE CBM1351 Mouse emulation` (core); Phase 6 below |
 
 ## Overview
 
@@ -428,13 +428,13 @@ None — product decisions locked in conversation. Follow-ups (not blocking): se
 - [`src/c64/frontend/frontend_joystick_input.*`](../../src/c64/frontend/frontend_joystick_input.h) — choke-point pattern
 - [`src/c64/main.c`](../../src/c64/main.c) — `sdl_c64_controller_send_ports`
 - C64 OS #92 — 1351 pot bit layout / driver model (external)
-- `TODO.txt` — `TODO CBM1351 Mouse emulation`
+- Local `TODO.txt` — core mouse marked DONE; Phase 6 is quality follow-on
 
 ---
 
 ## PR Plan
 
-Implementation phases as **commits on `master`**. Documentation only in the final phase.
+Implementation phases as **commits on `master`**. Phases 1–5 are done. Phase 6 is the live handoff for feel/quality.
 
 ### Phase 1 — Machine pots + mux + `c64_set_mouse` + snapshot v15
 
@@ -460,8 +460,56 @@ Implementation phases as **commits on `master`**. Documentation only in the fina
 - **Deps:** Phase 3
 - **Changes:** `mouse_enabled` (default false), `mouse_port` (default 1); Configure checkbox + port; apply releases capture on disable/port change. Keep Phase 3 CLI. **Do not** edit `c64m.ini.example` here (docs-last override; Phase 5).
 
-### Phase 5 — Documentation + design index (docs only)
+### Phase 5 — Documentation + design index (docs only) — **DONE**
 
-- **Files:** `manual/c64m/manual.md`, regenerate `manual/c64m/HELP_MARKDOWN.md` via `src/shell/tools/gen_help.py`, `c64m.ini.example`, `agents/c64/known-gaps.md`, `agents/c64/sid-audio.md`, `agents/c64/frontend-debugger.md` (brief capture note if useful), `design/README.md` (add `c64/cbm1351-mouse.md`), copy this design to `design/c64/cbm1351-mouse.md`, clear/update `TODO.txt` line
+- **Files:** `manual/c64m/manual.md` (help rebuilds via `gen_help.py` at compile time; `HELP_MARKDOWN.md` is the ASCII subset *rules* file, not generated), `c64m.ini.example`, `agents/c64/known-gaps.md`, `agents/c64/sid-audio.md`, `agents/c64/frontend-debugger.md`, `design/README.md`
 - **Deps:** Phases 1–4
-- **Changes:** Document enable/capture UX, INI keys, CLI, pot/mux behavior, ownership limitation, remaining non-goals. Mark known-gaps: 1351 functional pots when attached; generic paddles still stubbed. Note that Phase 4 briefly left `c64m.ini.example` stale by explicit docs-last delivery lock.
+- **Changes:** Documented enable/capture UX, CLI/INI, pot/mux, ownership gap. Known-gaps: 1351 pots when attached; generic paddles still stubbed.
+
+### Phase 6 — Motion quality (handoff) — **OPEN**
+
+**Goal:** Occasional pointer teleports are much rarer after clamp + pot-window budget, but not gone. Make circle/drag feel “great,” not merely acceptable. Commits on `master`; keep changes scoped to host motion path unless measurement forces machine-side work.
+
+#### Shipped after Phase 5 (already in tree)
+
+| Commit / change | What |
+|-----------------|------|
+| `dfecbdec` | Per-SDL-event clamp `±CBM1351_MAX_DELTA` (**8**) |
+| `2cc3172e` | Pot-window budget: pending deltas; each **`CBM1351_BUDGET_MS` (16)** commit at most **`±CBM1351_BUDGET_MAX` (8)** into 6-bit counters; **drop excess** |
+
+Code: `src/c64/frontend/frontend_mouse_input.{c,h}`; poll flush in `src/c64/main.c`; notes in `agents/c64/frontend-debugger.md`.
+
+#### Measured symptoms (control-port watches)
+
+Oracle: CSDb #92222 `irqtesting.prg`, mouse port 1, Opt+Click capture, move in a circle; sample `$D419/$D41A` + `$DC00..$DC02` via `--control-port 6510`.
+
+- Unclamped: valid port-1 deltas often **±24..32** (full signed 6-bit); mean \|d\| ~17–18 between sparse samples.
+- After clamp: better (~25–40% calmer); user: “much much better,” still rare pops.
+- After budget: not re-measured in-session; **re-run the circle watch first** in the new session.
+- Mux flips a lot under irqtesting (PA6/PA7); wrong-port reads return `$FF`. Diffing a real pot against `$FF` (ctr 63) invents huge jumps if a driver samples mid-keyboard-scan.
+
+#### Product locks still in force
+
+- Proportional only; paddles stay `$FF` unless 1351 attached on mux-selected port.
+- Capture UX unchanged (Opt+Click CRT enter/leave; autorelease on focus/Help/Forensics/dialog/Inspector).
+- No control-port `mouse` verb; no Inspector mouse log event (v1).
+- Ownership only at SDL/kbdjoy merge; control `joystick` overwrite accepted.
+
+#### Recommended next steps (in order)
+
+1. **Re-measure** after `2cc3172e` with the same irqtesting circle + control-port script (valid port-1 non-`$FF` only). Confirm whether rare pops remain in the pot stream or are mostly guest/mux.
+2. **Tune budget** if still hot: lower `CBM1351_BUDGET_MAX` (e.g. 5) and/or shorten/lengthen `CBM1351_BUDGET_MS`; avoid another ad-hoc clamp-only pass without numbers.
+3. **Optional: hold last pot across mux deselect** while 1351 attached — only if measurement shows `$FF` interleaving still causes guest pops. **Not** phantom keys (pots are SID ADC, not CIA matrix); risk is **stale motion**, not keypresses. Owner was wary; do not land without a kill test.
+4. **SID pot-sample timing** (machine-side) only if 1–3 cannot get irqtesting/GEOS to “great.”
+5. **Out of Phase 6 (owner-owned):** better surfacing when pending PRG inject at `$E38B` fails (`stop=error` with empty `$0801` looked like a mouse regression when the PRG path was missing). Host already publishes `failed to open PRG file`; UI/title should show it.
+
+#### How to continue (new session)
+
+```text
+Read design/c64/cbm1351-mouse.md Phase 6.
+Rebuild ./build/c64m; run irqtesting with --mouse --mouse-port 1 --control-port 6510.
+Opt+Click CRT; circle; sample pots; compare to Phase 6 table.
+Then tune budget or consider mux last-value hold with a kill criterion.
+```
+
+Smoke: GEOS or irqtesting; no dual-cursor; default mouse off.
