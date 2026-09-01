@@ -89,6 +89,16 @@ turbo_speeds = 1,max
 ; irq = none
 ; pace_baud = false
 
+[printer]
+; Soft-attach MPS-803-class IEC printer (device 4). Default off.
+; CLI: --printer / --no-printer,
+;      --printer-dir <path>, --printer-format bmp
+;      (png|pdf unlock in a later PR with the encoders — do not list early)
+; enabled = false
+; device = 4
+; output_dir = prints
+; format = bmp
+
 [assembler]
 ; file = samples/c64/hello.asm
 ; address = 0801
@@ -108,4 +118,5 @@ turbo_speeds = 1,max
 ; basic = assets/c64
 ; text = assets/c64
 ; snapshot = assets/c64/snapshots
+; printer = prints
 ; Legacy: [state] quicksave_folder migrates into browse snapshot when unset.

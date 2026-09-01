@@ -83,7 +83,8 @@ typedef enum runtime_command_type {
     /* [-]/[+]: Record checkpoint lattice walk. */
     RUNTIME_COMMAND_INSPECTOR_CHECKPOINT_STEP,
     RUNTIME_COMMAND_SET_SYMBOL_SOURCE_ENABLED,
-    RUNTIME_COMMAND_SET_SWIFTLINK
+    RUNTIME_COMMAND_SET_SWIFTLINK,
+    RUNTIME_COMMAND_SET_PRINTER
 } runtime_command_type;
 
 enum {
@@ -258,6 +259,11 @@ typedef struct runtime_command {
             uint8_t irq_mode; /* c64_swiftlink_irq_mode */
             uint8_t pace_baud;
         } set_swiftlink;
+
+        struct {
+            uint8_t enabled;
+            char output_dir[RUNTIME_COMMAND_PATH_MAX];
+        } set_printer;
 
         struct {
             char text[RUNTIME_PASTE_TEXT_MAX];

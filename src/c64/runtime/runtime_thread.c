@@ -12,6 +12,7 @@
 #include "runtime_assembler.h"
 #include "runtime_history_wire.h"
 #include "runtime_inspector.h"
+#include "runtime_printer.h"
 #include "crt.h"
 #include "d64.h"
 #include "t64.h"
@@ -5328,6 +5329,7 @@ static bool runtime_inspector_command_mutates_machine(runtime_command_type type)
     case RUNTIME_COMMAND_HISTORY_RECORD:
     case RUNTIME_COMMAND_INSPECTOR_SET_ENABLED:
     case RUNTIME_COMMAND_SET_SWIFTLINK:
+    case RUNTIME_COMMAND_SET_PRINTER:
         return true;
     default:
         return false;
@@ -6107,6 +6109,13 @@ static bool runtime_process_command(runtime *rt, const runtime_command *command,
                 command->data.set_swiftlink.base,
                 (c64_swiftlink_irq_mode)command->data.set_swiftlink.irq_mode,
                 command->data.set_swiftlink.pace_baud != 0u);
+            break;
+
+        case RUNTIME_COMMAND_SET_PRINTER:
+            (void)runtime_printer_set_enabled(
+                rt,
+                command->data.set_printer.enabled != 0u,
+                command->data.set_printer.output_dir);
             break;
 
         case RUNTIME_COMMAND_PASTE_TEXT: {

@@ -8,6 +8,7 @@
 #include "runtime_history.h"
 #include "runtime_inspector.h"
 #include "runtime_swiftlink.h"
+#include "runtime_printer.h"
 
 #include "audio_buffer.h"
 #include "c64.h"

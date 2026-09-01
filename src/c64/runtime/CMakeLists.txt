@@ -10,6 +10,7 @@ add_library(${runtime} STATIC
     runtime_vic_ring.c
     runtime_inspector.c
     runtime_swiftlink.c
+    runtime_printer.c
     runtime.c
     runtime_thread.c
 )

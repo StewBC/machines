@@ -91,6 +91,12 @@ bool runtime_client_set_swiftlink(
     uint16_t base,
     c64_swiftlink_irq_mode irq_mode,
     bool pace_baud);
+/* Soft-attach MPS-803-class printer (device 4). Format is BMP for v1.
+   output_dir is required when enabling; may be NULL when disabling. */
+bool runtime_client_set_printer(
+    runtime_client *client,
+    bool enabled,
+    const char *output_dir);
 /* rom_paths, when non-NULL, carries the effective ROM file paths (any member may
    be NULL/empty for "unset"); pass reload_roms=true to have the runtime re-read
    them as part of this apply (requires reset to take visible effect). */

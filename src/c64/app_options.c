@@ -1355,7 +1355,7 @@ static bool apply_disk_spec(app_options *options, const char *spec)
 /* Keys in the [browse] section, indexed by frontend_browse_slot / APP_BROWSE_DIR
    order. Keep in sync with frontend_browse_slot in frontend/frontend.h. */
 static const char *const browse_dir_keys[APP_BROWSE_DIR_COUNT] = {
-    "assembler", "disk", "program", "basic", "text", "snapshot"
+    "assembler", "disk", "program", "basic", "text", "snapshot", "printer"
 };
 /* Index of the "snapshot" slot within browse_dir_keys / browse_dirs. Doubles as
    the quicksave folder (see the frontend Paths tab). */
@@ -1639,6 +1639,36 @@ static void apply_config(app_options *options, config *cfg)
     }
     options->swiftlink_pace_baud = config_get_bool(
         cfg, "swiftlink", "pace_baud", options->swiftlink_pace_baud);
+    options->printer_enabled = config_get_bool(
+        cfg, "printer", "enabled", options->printer_enabled);
+    value = config_get(cfg, "printer", "device");
+    if (value != NULL && value[0] != '\0') {
+        char *end = NULL;
+        unsigned long parsed = strtoul(value, &end, 0);
+        if (end == value || *end != '\0' || parsed != 4ul) {
+            fprintf(stderr,
+                    "invalid [printer] device `%s`; using 4\n",
+                    value);
+            options->printer_device = 4;
+        } else {
+            options->printer_device = (uint8_t)parsed;
+        }
+    }
+    value = config_get(cfg, "printer", "output_dir");
+    if (value != NULL && value[0] != '\0') {
+        replace_string_from_ini(options, &options->printer_output_dir, value);
+    }
+    value = config_get(cfg, "printer", "format");
+    if (value != NULL && value[0] != '\0') {
+        if (strcmp(value, "bmp") == 0) {
+            replace_string(&options->printer_format, "bmp");
+        } else {
+            fprintf(stderr,
+                    "invalid [printer] format `%s`; using bmp\n",
+                    value);
+            replace_string(&options->printer_format, "bmp");
+        }
+    }
     value = config_get(cfg, "debug", "inspector_memory_mb");
     if (value != NULL) {
         char *end = NULL;
@@ -1837,6 +1867,10 @@ static bool parse_command_line_overrides(app_options *options, int argc, char **
     const char *swiftlink_irq = NULL;
     int swiftlink_pace_baud = 0;
     int swiftlink_pace_baud_cli = -1;
+    int printer = 0;
+    int printer_cli = -1;
+    const char *printer_dir = NULL;
+    const char *printer_format = NULL;
     int i;
     struct argparse argparse;
     const char *const usages[] = {
@@ -1899,6 +1933,13 @@ static bool parse_command_line_overrides(app_options *options, int argc, char **
         OPT_BOOLEAN('\0', "swiftlink-pace-baud", &swiftlink_pace_baud,
                     "pace SwiftLink TX/RX to configured baud (default off; --no-swiftlink-pace-baud)",
                     NULL, 0, 0),
+        OPT_BOOLEAN('\0', "printer", &printer,
+                    "enable MPS-803-class IEC printer device 4 (default off; --no-printer)",
+                    NULL, 0, 0),
+        OPT_STRING('\0', "printer-dir", &printer_dir,
+                   "printer output directory (default prints)", NULL, 0, 0),
+        OPT_STRING('\0', "printer-format", &printer_format,
+                   "printer host page format: bmp (default bmp)", NULL, 0, 0),
 
         OPT_STRING('\0', "video", &video_standard, "video standard: PAL or NTSC", NULL, 0, 0),
         OPT_BOOLEAN('P', "pal", &video_pal, "use PAL video timing", NULL, 0, OPT_NONEG),
@@ -1955,6 +1996,10 @@ static bool parse_command_line_overrides(app_options *options, int argc, char **
             swiftlink_pace_baud_cli = 1;
         } else if (strcmp(argv[i], "--no-swiftlink-pace-baud") == 0) {
             swiftlink_pace_baud_cli = 0;
+        } else if (strcmp(argv[i], "--printer") == 0) {
+            printer_cli = 1;
+        } else if (strcmp(argv[i], "--no-printer") == 0) {
+            printer_cli = 0;
         } else if (strcmp(argv[i], "--mouse") == 0) {
             mouse_cli = 1;
         } else if (strcmp(argv[i], "--no-mouse") == 0) {
@@ -1975,6 +2020,7 @@ static bool parse_command_line_overrides(app_options *options, int argc, char **
     (void)inspector_off_on_max_flag;
     (void)swiftlink;
     (void)swiftlink_pace_baud;
+    (void)printer;
     (void)mouse_flag;
     (void)disk; /* help placeholder; mounts come from apply_disk_args */
 
@@ -2121,6 +2167,19 @@ static bool parse_command_line_overrides(app_options *options, int argc, char **
     if (swiftlink_pace_baud_cli >= 0) {
         options->swiftlink_pace_baud = swiftlink_pace_baud_cli != 0;
     }
+    if (printer_cli >= 0) {
+        options->printer_enabled = printer_cli != 0;
+    }
+    if (printer_dir != NULL) {
+        replace_string_from_ini(options, &options->printer_output_dir, printer_dir);
+    }
+    if (printer_format != NULL) {
+        if (strcmp(printer_format, "bmp") != 0) {
+            fprintf(stderr, "--printer-format expects bmp\n");
+            return false;
+        }
+        replace_string(&options->printer_format, "bmp");
+    }
     if (swiftlink_base != NULL) {
         const char *p = swiftlink_base;
         char normalized[8];
@@ -2258,6 +2317,10 @@ void app_options_init(app_options *options)
     options->swiftlink_pace_baud = false;
     replace_string(&options->swiftlink_base, "de00");
     replace_string(&options->swiftlink_irq, "none");
+    options->printer_enabled = false;
+    options->printer_device = 4;
+    replace_string(&options->printer_output_dir, "prints");
+    replace_string(&options->printer_format, "bmp");
 }
 
 uint16_t app_options_swiftlink_base_addr(const app_options *options)
@@ -2363,6 +2426,8 @@ bool app_options_copy(app_options *dest, const app_options *src)
     dest->inspector_off_on_max = src->inspector_off_on_max;
     dest->swiftlink_enabled = src->swiftlink_enabled;
     dest->swiftlink_pace_baud = src->swiftlink_pace_baud;
+    dest->printer_enabled = src->printer_enabled;
+    dest->printer_device = src->printer_device;
 
     if (!replace_string(&dest->keyboard_joystick_layout, src->keyboard_joystick_layout) ||
         !replace_string(&dest->ini_path, src->ini_path) ||
@@ -2384,7 +2449,9 @@ bool app_options_copy(app_options *dest, const app_options *src)
         !replace_string(&dest->assembler_address, src->assembler_address) ||
         !replace_string(&dest->assembler_run_address, src->assembler_run_address) ||
         !replace_string(&dest->swiftlink_base, src->swiftlink_base) ||
-        !replace_string(&dest->swiftlink_irq, src->swiftlink_irq)) {
+        !replace_string(&dest->swiftlink_irq, src->swiftlink_irq) ||
+        !replace_string(&dest->printer_output_dir, src->printer_output_dir) ||
+        !replace_string(&dest->printer_format, src->printer_format)) {
         app_options_destroy(dest);
         return false;
     }
@@ -2536,6 +2603,24 @@ bool app_options_save_shutdown(const app_options *options)
         config_set(cfg, "swiftlink", "irq", "none");
     }
     config_set_bool(cfg, "swiftlink", "pace_baud", options->swiftlink_pace_baud);
+    config_set_bool(cfg, "printer", "enabled", options->printer_enabled);
+    config_set_int(cfg, "printer", "device", (int)options->printer_device);
+    if (options->printer_output_dir != NULL && options->printer_output_dir[0] != '\0') {
+        char storage[PATH_MAX];
+        if (path_for_ini_storage(
+                options, options->printer_output_dir, storage, sizeof(storage))) {
+            config_set(cfg, "printer", "output_dir", storage);
+        } else {
+            config_set(cfg, "printer", "output_dir", options->printer_output_dir);
+        }
+    } else {
+        config_set(cfg, "printer", "output_dir", "prints");
+    }
+    if (options->printer_format != NULL && options->printer_format[0] != '\0') {
+        config_set(cfg, "printer", "format", options->printer_format);
+    } else {
+        config_set(cfg, "printer", "format", "bmp");
+    }
     /* The snapshot folder is now [browse] snapshot; drop the legacy key. */
     config_remove_prefix(cfg, "state", "quicksave_folder");
     if (options->symbol_files != NULL &&
@@ -2714,6 +2799,8 @@ void app_options_destroy(app_options *options)
     free(options->assembler_run_address);
     free(options->swiftlink_base);
     free(options->swiftlink_irq);
+    free(options->printer_output_dir);
+    free(options->printer_format);
     for (i = 0; i < APP_BROWSE_DIR_COUNT; ++i) {
         free(options->browse_dirs[i]);
     }

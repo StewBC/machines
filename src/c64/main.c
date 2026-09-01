@@ -4852,12 +4852,27 @@ static void dispatch_debugger_intents(
                         &rom_paths,
                         intent.config_result.roms_changed);
                     if (sent) {
+                        char printer_dir_abs[1024];
+                        const char *printer_dir = options->printer_output_dir;
+
                         (void)runtime_client_set_swiftlink(
                             client,
                             options->swiftlink_enabled,
                             app_options_swiftlink_base_addr(options),
                             app_options_swiftlink_irq_mode(options),
                             options->swiftlink_pace_baud);
+                        if (printer_dir != NULL && printer_dir[0] != '\0' &&
+                            app_options_path_absolute_from_ini(
+                                options,
+                                printer_dir,
+                                printer_dir_abs,
+                                sizeof(printer_dir_abs))) {
+                            printer_dir = printer_dir_abs;
+                        }
+                        (void)runtime_client_set_printer(
+                            client,
+                            options->printer_enabled,
+                            printer_dir);
                     }
                     /* Pull live browse/ROM path edits into options before any save. */
                     for (slot = 0; slot < FRONTEND_BROWSE_SLOT_COUNT &&
@@ -7788,6 +7803,18 @@ int main(int argc, char **argv) {
             app_options_swiftlink_base_addr(&options),
             app_options_swiftlink_irq_mode(&options),
             options.swiftlink_pace_baud);
+    }
+
+    if (options.printer_enabled) {
+        char printer_dir_abs[1024];
+        const char *printer_dir = options.printer_output_dir;
+
+        if (printer_dir != NULL && printer_dir[0] != '\0' &&
+            app_options_path_absolute_from_ini(
+                &options, printer_dir, printer_dir_abs, sizeof(printer_dir_abs))) {
+            printer_dir = printer_dir_abs;
+        }
+        (void)runtime_client_set_printer(client, true, printer_dir);
     }
 
     if (options.headless) {

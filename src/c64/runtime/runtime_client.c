@@ -867,6 +867,35 @@ bool runtime_client_set_swiftlink(
     return runtime_client_push(client, &command);
 }
 
+bool runtime_client_set_printer(
+    runtime_client *client,
+    bool enabled,
+    const char *output_dir)
+{
+    runtime_command command = {
+        .type = RUNTIME_COMMAND_SET_PRINTER,
+    };
+
+    if (!client) {
+        return false;
+    }
+    if (enabled && (output_dir == NULL || output_dir[0] == '\0')) {
+        return false;
+    }
+
+    command.data.set_printer.enabled = enabled ? 1u : 0u;
+    if (output_dir != NULL && output_dir[0] != '\0') {
+        snprintf(
+            command.data.set_printer.output_dir,
+            sizeof(command.data.set_printer.output_dir),
+            "%s",
+            output_dir);
+    } else {
+        command.data.set_printer.output_dir[0] = '\0';
+    }
+    return runtime_client_push(client, &command);
+}
+
 bool runtime_client_apply_machine_config(
     runtime_client *client,
     const c64_config *config,

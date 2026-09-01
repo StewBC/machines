@@ -1606,7 +1606,9 @@ static bool frontend_config_prepare_edit_buffers(frontend_config_dialog_state *d
         frontend_config_reserve_string(&dialog->edited.basic_rom_path, 1024) &&
         frontend_config_reserve_string(&dialog->edited.char_rom_path, 1024) &&
         frontend_config_reserve_string(&dialog->edited.kernal_rom_path, 1024) &&
-        frontend_config_reserve_string(&dialog->edited.rom1541_path, 1024);
+        frontend_config_reserve_string(&dialog->edited.rom1541_path, 1024) &&
+        frontend_config_reserve_string(&dialog->edited.printer_output_dir, 1024) &&
+        frontend_config_reserve_string(&dialog->edited.printer_format, 16);
 }
 
 static void frontend_config_dialog_reset(frontend_config_dialog_state *dialog)
@@ -2414,6 +2416,62 @@ static void frontend_draw_config_emulator_tab(frontend *ui, frontend_config_dial
             "Pace to baud rate",
             &dialog->edited.swiftlink_pace_baud);
     }
+
+    /* Printer is soft-attach host config — same family as SwiftLink. */
+    {
+        static const char *const format_items[] = { "bmp" };
+        int selected;
+
+        nk_layout_row_dynamic(ctx, 10.0f, 1);
+        nk_spacing(ctx, 1);
+        nk_layout_row_dynamic(ctx, 18.0f, 1);
+        nk_label(ctx, "Printer (MPS-803)", NK_TEXT_LEFT);
+
+        nk_layout_row_dynamic(ctx, 22.0f, 1);
+        frontend_checkbox_bool(
+            ctx,
+            "Enable printer (device 4)",
+            &dialog->edited.printer_enabled);
+
+        if (dialog->edited.printer_output_dir == NULL) {
+            app_options_set_string(&dialog->edited.printer_output_dir, "prints");
+        }
+        nk_layout_row_begin(ctx, NK_DYNAMIC, 22.0f, 3);
+        nk_layout_row_push(ctx, 0.30f);
+        nk_label(ctx, "Output dir", NK_TEXT_LEFT);
+        nk_layout_row_push(ctx, 0.56f);
+        frontend_edit_replace(
+            ctx,
+            NK_EDIT_FIELD,
+            dialog->edited.printer_output_dir,
+            1024,
+            nk_filter_default);
+        nk_layout_row_push(ctx, 0.14f);
+        if (nk_button_label(ctx, "...")) {
+            if (ui->browse_dirs[FRONTEND_BROWSE_SLOT_PRINTER][0] == '\0' &&
+                dialog->edited.printer_output_dir != NULL &&
+                dialog->edited.printer_output_dir[0] != '\0') {
+                frontend_set_browse_dir(
+                    ui,
+                    FRONTEND_BROWSE_SLOT_PRINTER,
+                    dialog->edited.printer_output_dir);
+            }
+            ui->config_dialog.pending_browse_slot = FRONTEND_BROWSE_SLOT_PRINTER;
+            frontend_push_simple_intent(ui, FRONTEND_DEBUGGER_INTENT_CONFIG_PICK_PATH_DIALOG);
+        }
+        nk_layout_row_end(ctx);
+
+        if (dialog->edited.printer_format == NULL) {
+            app_options_set_string(&dialog->edited.printer_format, "bmp");
+        }
+        nk_layout_row_begin(ctx, NK_DYNAMIC, 22.0f, 2);
+        nk_layout_row_push(ctx, 0.30f);
+        nk_label(ctx, "Format", NK_TEXT_LEFT);
+        nk_layout_row_push(ctx, 0.70f);
+        selected = 0;
+        (void)nk_combo(ctx, format_items, 1, selected, 18, nk_vec2(120.0f, 80.0f));
+        nk_layout_row_end(ctx);
+    }
 }
 
 /* One ROM path row: label, an edit box bound to the dialog's editable path
@@ -2465,7 +2523,7 @@ static void frontend_draw_config_rom_row(
 static void frontend_draw_config_paths_tab(frontend *ui, frontend_config_dialog_state *dialog, struct nk_context *ctx)
 {
     static const char *const labels[FRONTEND_BROWSE_SLOT_COUNT] = {
-        "assembler", "disk", "program", "basic", "text", "snapshot"
+        "assembler", "disk", "program", "basic", "text", "snapshot", "printer"
     };
     bool single = dialog->edited.rom_single_system;
     int i;
@@ -8965,8 +9023,9 @@ const char *frontend_get_browse_dir(const frontend *ui, frontend_browse_slot slo
     return ui->browse_dirs[slot];
 }
 
-/* Stores a folder chosen via a Paths-tab [...] button into its pending slot,
-   converting to the INI-relative form used for display and persistence. */
+/* Stores a folder chosen via a Paths-tab / Emulator-tab [...] button into its
+   pending slot, converting to the INI-relative form used for display and
+   persistence. Printer slot also updates the active [printer] output_dir. */
 void frontend_set_picked_browse_dir(frontend *ui, const char *path)
 {
     int slot;
@@ -8976,6 +9035,10 @@ void frontend_set_picked_browse_dir(frontend *ui, const char *path)
     slot = ui->config_dialog.pending_browse_slot;
     if (slot >= 0 && slot < FRONTEND_BROWSE_SLOT_COUNT) {
         frontend_browse_to_relative(ui, path, ui->browse_dirs[slot], sizeof(ui->browse_dirs[slot]));
+        if (slot == FRONTEND_BROWSE_SLOT_PRINTER) {
+            app_options_set_string(
+                &ui->config_dialog.edited.printer_output_dir, ui->browse_dirs[slot]);
+        }
     }
 }
 

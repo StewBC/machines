@@ -2023,6 +2023,114 @@ static void test_mouse_saved_to_ini(void) {
     remove("test_mouse_save.ini");
 }
 
+static void test_printer_defaults_and_overrides(void) {
+    app_options options;
+    char cwd[C64M_SCRATCH_PATH_MAX];
+    char expected_dir[C64M_SCRATCH_PATH_MAX];
+    char *default_argv[] = {"test_app_options", "--noini"};
+    char *cli_argv[] = {
+        "test_app_options",
+        "--noini",
+        "--printer",
+        "--printer-dir",
+        "out_prints",
+        "--printer-format",
+        "bmp",
+    };
+    char *cli_bad_format[] = {
+        "test_app_options", "--noini", "--printer-format", "png",
+    };
+    char *cli_off_argv[] = {
+        "test_app_options", "--noini", "--no-printer",
+    };
+
+    if (c64m_getcwd(cwd, sizeof(cwd)) == NULL) {
+        fprintf(stderr, "printer test cwd failed\n");
+        exit(1);
+    }
+    normalize_path(cwd);
+    snprintf(expected_dir, sizeof(expected_dir), "%s/out_prints", cwd);
+
+    if (!app_options_load_startup(&options, 2, default_argv)) {
+        fprintf(stderr, "printer default load failed\n");
+        exit(1);
+    }
+    expect_bool("printer default enabled", 0, options.printer_enabled);
+    expect_int("printer default device", 4, (int)options.printer_device);
+    expect_string("printer default output_dir", "prints", options.printer_output_dir);
+    expect_string("printer default format", "bmp", options.printer_format);
+    expect_int("browse dir count includes printer", 7, APP_BROWSE_DIR_COUNT);
+    app_options_destroy(&options);
+
+    if (!app_options_load_startup(&options, 7, cli_argv)) {
+        fprintf(stderr, "printer cli load failed\n");
+        exit(1);
+    }
+    expect_bool("printer cli enabled", 1, options.printer_enabled);
+    normalize_path(options.printer_output_dir);
+    expect_string("printer cli output_dir", expected_dir, options.printer_output_dir);
+    expect_string("printer cli format", "bmp", options.printer_format);
+    app_options_destroy(&options);
+
+    if (app_options_load_startup(&options, 4, cli_bad_format)) {
+        fprintf(stderr, "printer bad format should have failed\n");
+        app_options_destroy(&options);
+        exit(1);
+    }
+
+    if (!app_options_load_startup(&options, 3, cli_off_argv)) {
+        fprintf(stderr, "printer cli off load failed\n");
+        exit(1);
+    }
+    expect_bool("printer cli disabled", 0, options.printer_enabled);
+    app_options_destroy(&options);
+}
+
+static void test_printer_saved_to_ini(void) {
+    app_options options;
+    char *argv[] = {
+        "test_app_options", "--inifile", "test_printer_save.ini",
+    };
+
+    remove("test_printer_save.ini");
+    if (!app_options_load_startup(&options, 3, argv)) {
+        fprintf(stderr, "printer save load failed\n");
+        exit(1);
+    }
+
+    options.printer_enabled = true;
+    options.printer_device = 4;
+    app_options_set_string(&options.printer_output_dir, "my_prints");
+    app_options_set_string(&options.printer_format, "bmp");
+    app_options_set_string(&options.browse_dirs[6], "my_prints");
+
+    if (!app_options_save_shutdown(&options)) {
+        fprintf(stderr, "printer save_shutdown failed\n");
+        exit(1);
+    }
+    app_options_destroy(&options);
+
+    if (!file_contains("test_printer_save.ini", "output_dir=my_prints")) {
+        fprintf(stderr, "printer output_dir was not saved\n");
+        exit(1);
+    }
+    if (!file_contains("test_printer_save.ini", "printer=my_prints")) {
+        fprintf(stderr, "browse printer dir was not saved\n");
+        exit(1);
+    }
+
+    if (!app_options_load_startup(&options, 3, argv)) {
+        fprintf(stderr, "printer reload failed\n");
+        exit(1);
+    }
+    expect_bool("saved printer enabled", 1, options.printer_enabled);
+    expect_int("saved printer device", 4, (int)options.printer_device);
+    expect_string("saved printer format", "bmp", options.printer_format);
+
+    app_options_destroy(&options);
+    remove("test_printer_save.ini");
+}
+
 static void test_assembler_auto_adjust_segments_ini(void) {
     app_options options;
     char *default_argv[] = {"test_app_options", "--noini"};
@@ -2123,6 +2231,8 @@ int main(void) {
     test_keyboard_joystick_saved_to_ini();
     test_mouse_defaults_and_overrides();
     test_mouse_saved_to_ini();
+    test_printer_defaults_and_overrides();
+    test_printer_saved_to_ini();
     test_assembler_auto_adjust_segments_ini();
 
     leave_scratch(home, scratch);

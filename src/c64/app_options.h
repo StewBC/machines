@@ -11,7 +11,7 @@
 
 /* Remembered file-browser default folders, one per browse slot. The order and
    count must match frontend_browse_slot in frontend/frontend.h. */
-#define APP_BROWSE_DIR_COUNT 6
+#define APP_BROWSE_DIR_COUNT 7
 
 /* Ordered list of disk image paths for one drive slot. */
 typedef struct {
@@ -129,6 +129,11 @@ typedef struct app_options {
     char *swiftlink_base; /* "de00" or "df00" */
     char *swiftlink_irq;  /* "none" | "nmi" | "irq" */
     bool swiftlink_pace_baud; /* gate TX/RX holding to configured baud (default off) */
+    /* MPS-803-class IEC printer soft-attach (device 4). Default off. */
+    bool printer_enabled;
+    uint8_t printer_device; /* default 4; v1 only accepts 4 */
+    char *printer_output_dir; /* default "prints" */
+    char *printer_format; /* "bmp" only until PNG/PDF unlock */
 } app_options;
 
 /* Returns 0xDE00 or 0xDF00 from options->swiftlink_base (default DE00). */
