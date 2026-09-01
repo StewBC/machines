@@ -1126,56 +1126,212 @@ static bool c64_try_hostfs_chrout_trap(c64_t *machine)
     return true;
 }
 
-static bool c64_try_hostfs_clall_trap(c64_t *machine)
+static bool c64_any_hostfs_mounted(const c64_t *machine)
 {
     size_t i;
+
+    for (i = 0; i < C64_DRIVE_SLOT_COUNT; i++) {
+        if (machine->drives[i].mounted &&
+            machine->drives[i].backend == C64_DRIVE_BACKEND_HOSTFS &&
+            machine->drives[i].hostfs != NULL) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static bool c64_hostfs_slot_for_device(
+    c64_t *machine, uint8_t device, c64_drive_slot **out_slot)
+{
+    c64_drive_slot *slot;
+
+    if (!c64_drive_device_supported(device)) {
+        return false;
+    }
+    slot = &machine->drives[device - C64_DRIVE_MIN_DEVICE];
+    if (!slot->mounted || slot->backend != C64_DRIVE_BACKEND_HOSTFS ||
+        slot->hostfs == NULL) {
+        return false;
+    }
+    if (out_slot != NULL) {
+        *out_slot = slot;
+    }
+    return true;
+}
+
+static void c64_hostfs_close_lat_entry(c64_t *machine, c64_drive_slot *slot, uint8_t la)
+{
+    if (slot->hostfs_cmd_open && slot->hostfs_cmd_la == la) {
+        slot->hostfs_cmd_open = false;
+        slot->hostfs_status_chkin = false;
+        slot->hostfs_status_pos = 0;
+    }
+    if (machine->replay_sealed) {
+        (void)c64_hostfs_discard_la(slot->hostfs, la);
+    } else {
+        (void)c64_hostfs_close_la(slot->hostfs, la);
+    }
+}
+
+static bool c64_try_printer_open_trap(c64_t *machine)
+{
+    uint8_t device;
+    uint8_t la;
+    uint8_t sa;
+
+    if (machine->cpu.cpu.pc != C64_KERNAL_OPEN_ENTRY) {
+        return false;
+    }
+    if (!machine->printer.enabled) {
+        return false;
+    }
+
+    device = machine->bus.ram[C64_ZP_DEVICE_NUMBER];
+    if (device != machine->printer.device) {
+        return false;
+    }
+
+    la = machine->bus.ram[C64_ZP_LOGICAL_FILE];
+    sa = machine->bus.ram[C64_ZP_SECONDARY_ADDRESS];
+    if (!c64_kernal_file_table_add(machine, la, device, sa)) {
+        c64_kernal_rts_return(machine, false, 0x01);
+        return true;
+    }
+    c64_printer_set_sa(&machine->printer, sa);
+    c64_kernal_rts_return(machine, true, 0);
+    return true;
+}
+
+static bool c64_try_printer_close_trap(c64_t *machine)
+{
+    uint8_t la;
+    int idx;
+    uint8_t device;
+
+    if (machine->cpu.cpu.pc != C64_KERNAL_CLOSE_ENTRY) {
+        return false;
+    }
+    if (!machine->printer.enabled) {
+        return false;
+    }
+
+    la = machine->cpu.cpu.X;
+    idx = c64_kernal_file_table_find(machine, la);
+    if (idx < 0) {
+        return false;
+    }
+    device = machine->bus.ram[C64_RAM_FAT + idx];
+    if (device != machine->printer.device) {
+        return false;
+    }
+
+    if (!machine->replay_sealed) {
+        c64_printer_force_flush(&machine->printer);
+    }
+    (void)c64_kernal_file_table_remove(machine, la);
+    if (machine->bus.ram[C64_ZP_DFLTN] == la) {
+        machine->bus.ram[C64_ZP_DFLTN] = 0;
+    }
+    if (machine->bus.ram[C64_ZP_DFLTO] == la) {
+        machine->bus.ram[C64_ZP_DFLTO] = 3;
+    }
+    c64_kernal_rts_return(machine, true, 0);
+    return true;
+}
+
+static bool c64_try_printer_chkout_trap(c64_t *machine)
+{
+    uint8_t la;
+    int idx;
+    uint8_t device;
+
+    if (machine->cpu.cpu.pc != C64_KERNAL_CHKOUT_ENTRY) {
+        return false;
+    }
+    if (!machine->printer.enabled) {
+        return false;
+    }
+
+    la = machine->cpu.cpu.A;
+    idx = c64_kernal_file_table_find(machine, la);
+    if (idx < 0) {
+        return false;
+    }
+    device = machine->bus.ram[C64_RAM_FAT + idx];
+    if (device != machine->printer.device) {
+        return false;
+    }
+
+    machine->bus.ram[C64_ZP_DFLTO] = la;
+    c64_kernal_rts_return(machine, true, 0);
+    return true;
+}
+
+static bool c64_try_printer_chrout_trap(c64_t *machine)
+{
+    uint8_t la;
+    int idx;
+    uint8_t device;
+
+    if (machine->cpu.cpu.pc != C64_KERNAL_CHROUT_ENTRY) {
+        return false;
+    }
+    if (!machine->printer.enabled) {
+        return false;
+    }
+
+    la = machine->bus.ram[C64_ZP_DFLTO];
+    idx = c64_kernal_file_table_find(machine, la);
+    if (idx < 0) {
+        return false;
+    }
+    device = machine->bus.ram[C64_RAM_FAT + idx];
+    if (device != machine->printer.device) {
+        return false;
+    }
+
+    if (!machine->replay_sealed) {
+        c64_printer_putc(&machine->printer, machine->cpu.cpu.A);
+    }
+    c64_kernal_rts_return(machine, true, 0);
+    return true;
+}
+
+/* Close printer + HostFS LAs in one LAT pass; RTS only when LAT empty. */
+static bool c64_try_virtual_peripheral_clall_trap(c64_t *machine)
+{
+    size_t i;
+    uint8_t idx;
+    bool any_hostfs;
 
     if (machine->cpu.cpu.pc != C64_KERNAL_CLALL_ENTRY) {
         return false;
     }
 
-    /* Only claim CLALL when at least one HostFS device is mounted. */
-    {
-        bool any_hostfs = false;
-        for (i = 0; i < C64_DRIVE_SLOT_COUNT; i++) {
-            if (machine->drives[i].mounted &&
-                machine->drives[i].backend == C64_DRIVE_BACKEND_HOSTFS &&
-                machine->drives[i].hostfs != NULL) {
-                any_hostfs = true;
-                break;
-            }
-        }
-        if (!any_hostfs) {
-            return false;
-        }
+    any_hostfs = c64_any_hostfs_mounted(machine);
+    if (!machine->printer.enabled && !any_hostfs) {
+        return false;
     }
 
-    /* Close every LAT entry that maps to a HostFS device. */
-    while (machine->bus.ram[C64_ZP_LDTND] > 0) {
-        uint8_t n = machine->bus.ram[C64_ZP_LDTND];
-        uint8_t la = machine->bus.ram[C64_RAM_LAT];
-        uint8_t device = machine->bus.ram[C64_RAM_FAT];
-        c64_drive_slot *slot;
+    idx = 0;
+    while (idx < machine->bus.ram[C64_ZP_LDTND]) {
+        uint8_t la = machine->bus.ram[C64_RAM_LAT + idx];
+        uint8_t device = machine->bus.ram[C64_RAM_FAT + idx];
+        c64_drive_slot *slot = NULL;
 
-        if (!c64_drive_device_supported(device)) {
+        if (machine->printer.enabled && device == machine->printer.device) {
+            if (!machine->replay_sealed) {
+                c64_printer_force_flush(&machine->printer);
+            }
             (void)c64_kernal_file_table_remove(machine, la);
             continue;
         }
-        slot = &machine->drives[device - C64_DRIVE_MIN_DEVICE];
-        if (slot->mounted && slot->backend == C64_DRIVE_BACKEND_HOSTFS &&
-            slot->hostfs != NULL) {
-            if (slot->hostfs_cmd_open && slot->hostfs_cmd_la == la) {
-                slot->hostfs_cmd_open = false;
-                slot->hostfs_status_chkin = false;
-                slot->hostfs_status_pos = 0;
-            }
-            (void)c64_hostfs_close_la(slot->hostfs, la);
+        if (c64_hostfs_slot_for_device(machine, device, &slot)) {
+            c64_hostfs_close_lat_entry(machine, slot, la);
             (void)c64_kernal_file_table_remove(machine, la);
-        } else {
-            /* Leave non-HostFS files alone — fall through to KERNAL. */
-            return false;
+            continue;
         }
-        (void)n;
+        idx++;
     }
 
     for (i = 0; i < C64_DRIVE_SLOT_COUNT; i++) {
@@ -1185,35 +1341,52 @@ static bool c64_try_hostfs_clall_trap(c64_t *machine)
                 machine->drives[i].hostfs, &machine->drives[i]);
         }
     }
-    machine->bus.ram[C64_ZP_DFLTN] = 0;
-    machine->bus.ram[C64_ZP_DFLTO] = 3;
-    c64_kernal_rts_return(machine, true, 0);
-    return true;
+
+    if (c64_kernal_file_table_find(machine, machine->bus.ram[C64_ZP_DFLTN]) < 0) {
+        machine->bus.ram[C64_ZP_DFLTN] = 0;
+    }
+    if (c64_kernal_file_table_find(machine, machine->bus.ram[C64_ZP_DFLTO]) < 0) {
+        machine->bus.ram[C64_ZP_DFLTO] = 3;
+    }
+
+    if (machine->bus.ram[C64_ZP_LDTND] == 0) {
+        machine->bus.ram[C64_ZP_DFLTN] = 0;
+        machine->bus.ram[C64_ZP_DFLTO] = 3;
+        c64_kernal_rts_return(machine, true, 0);
+        return true;
+    }
+    /* Foreign LAs remain — fall through to real KERNAL CLALL without RTS. */
+    return false;
 }
 
 static bool c64_try_kernal_channel_traps(c64_t *machine)
 {
     uint16_t pc = machine->cpu.cpu.pc;
     if (pc == (uint16_t)C64_KERNAL_OPEN_ENTRY) {
-        return c64_try_hostfs_open_trap(machine);
+        return c64_try_printer_open_trap(machine) ||
+               c64_try_hostfs_open_trap(machine);
     }
     if (pc == (uint16_t)C64_KERNAL_CLOSE_ENTRY) {
-        return c64_try_hostfs_close_trap(machine);
+        return c64_try_printer_close_trap(machine) ||
+               c64_try_hostfs_close_trap(machine);
     }
     if (pc == (uint16_t)C64_KERNAL_CHKIN_ENTRY) {
         return c64_try_hostfs_chkin_trap(machine);
     }
     if (pc == (uint16_t)C64_KERNAL_CHKOUT_ENTRY) {
-        return c64_try_hostfs_chkout_trap(machine);
+        return c64_try_printer_chkout_trap(machine) ||
+               c64_try_hostfs_chkout_trap(machine);
     }
     if (pc == (uint16_t)C64_KERNAL_CHRIN_ENTRY) {
         return c64_try_hostfs_chrin_trap(machine);
     }
     if (pc == (uint16_t)C64_KERNAL_CHROUT_ENTRY) {
-        return c64_try_hostfs_chrout_trap(machine);
+        return c64_try_printer_chrout_trap(machine) ||
+               c64_try_hostfs_chrout_trap(machine);
     }
     if (pc == (uint16_t)C64_KERNAL_CLALL_ENTRY) {
-        return c64_try_hostfs_clall_trap(machine);
+        /* Unified virtual-peripheral helper (printer + HostFS). */
+        return c64_try_virtual_peripheral_clall_trap(machine);
     }
     return false;
 }
