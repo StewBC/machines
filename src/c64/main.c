@@ -4735,6 +4735,12 @@ static void dispatch_debugger_intents(
                             debug_state->runtime_state == FRONTEND_RUNTIME_STATE_RUNNING,
                         &rom_paths,
                         intent.config_result.roms_changed);
+                    if (sent) {
+                        (void)runtime_client_set_swiftlink(
+                            client,
+                            options->swiftlink_enabled,
+                            app_options_swiftlink_base_addr(options));
+                    }
                     /* Pull live browse/ROM path edits into options before any save. */
                     for (slot = 0; slot < FRONTEND_BROWSE_SLOT_COUNT &&
                              slot < APP_BROWSE_DIR_COUNT; ++slot) {
@@ -7579,6 +7585,13 @@ int main(int argc, char **argv) {
         return 1;
     }
     client = runtime_get_client(rt);
+
+    if (options.swiftlink_enabled) {
+        (void)runtime_client_set_swiftlink(
+            client,
+            true,
+            app_options_swiftlink_base_addr(&options));
+    }
 
     {
         int i;

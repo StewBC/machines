@@ -2299,6 +2299,54 @@ static void frontend_draw_config_emulator_tab(frontend *ui, frontend_config_dial
     /* CRT presentation is a transactional live preview: edited values drive the
        frontend immediately, while Cancel restores dialog->original. */
     frontend_preview_crt_options(ui, &dialog->edited);
+
+    /* SwiftLink is soft-attach host config — not part of CRT preview/Cancel. */
+    {
+        static const char *const base_items[] = { "$DE00", "$DF00" };
+        static const char *const irq_items[] = { "None" };
+        int selected;
+        int next;
+
+        nk_layout_row_dynamic(ctx, 10.0f, 1);
+        nk_spacing(ctx, 1);
+        nk_layout_row_dynamic(ctx, 18.0f, 1);
+        nk_label(ctx, "SwiftLink / Turbo232", NK_TEXT_LEFT);
+
+        nk_layout_row_dynamic(ctx, 22.0f, 1);
+        frontend_checkbox_bool(
+            ctx,
+            "Enable SwiftLink (Hayes / TeensyROM)",
+            &dialog->edited.swiftlink_enabled);
+
+        if (dialog->edited.swiftlink_base == NULL) {
+            app_options_set_string(&dialog->edited.swiftlink_base, "de00");
+        }
+        nk_layout_row_begin(ctx, NK_DYNAMIC, 22.0f, 2);
+        nk_layout_row_push(ctx, 0.30f);
+        nk_label(ctx, "Base address", NK_TEXT_LEFT);
+        nk_layout_row_push(ctx, 0.70f);
+        selected = frontend_string_equal(dialog->edited.swiftlink_base, "df00") ? 1 : 0;
+        next = nk_combo(ctx, base_items, 2, selected, 18, nk_vec2(120.0f, 100.0f));
+        if (next != selected) {
+            app_options_set_string(
+                &dialog->edited.swiftlink_base, next == 1 ? "df00" : "de00");
+        }
+        nk_layout_row_end(ctx);
+
+        nk_layout_row_begin(ctx, NK_DYNAMIC, 22.0f, 2);
+        nk_layout_row_push(ctx, 0.30f);
+        nk_label(ctx, "Interrupt", NK_TEXT_LEFT);
+        nk_layout_row_push(ctx, 0.70f);
+        nk_widget_disable_begin(ctx);
+        (void)nk_combo(ctx, irq_items, 1, 0, 18, nk_vec2(120.0f, 80.0f));
+        nk_widget_disable_end(ctx);
+        nk_layout_row_end(ctx);
+
+        nk_layout_row_dynamic(ctx, 36.0f, 1);
+        nk_label_wrap(
+            ctx,
+            "Conflicts with IO1 CRT mappers at $DE00; Super Games at $DF00.");
+    }
 }
 
 /* One ROM path row: label, an edit box bound to the dialog's editable path

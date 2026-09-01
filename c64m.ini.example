@@ -76,6 +76,13 @@ turbo_speeds = 1,max
 ; keyboard_joystick_port = 0
 ; keyboard_joystick_layout = wasd
 
+[swiftlink]
+; Soft-attach SwiftLink/Turbo232 (Hayes modem over TCP; TeensyROM model).
+; CLI: --swiftlink / --no-swiftlink, --swiftlink-base de00|df00
+; enabled = false
+; base = de00
+; irq = none
+
 [assembler]
 ; file = samples/c64/hello.asm
 ; address = 0801

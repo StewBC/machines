@@ -5259,6 +5259,7 @@ static bool runtime_inspector_command_mutates_machine(runtime_command_type type)
     case RUNTIME_COMMAND_HISTORY_CLEAR:
     case RUNTIME_COMMAND_HISTORY_RECORD:
     case RUNTIME_COMMAND_INSPECTOR_SET_ENABLED:
+    case RUNTIME_COMMAND_SET_SWIFTLINK:
         return true;
     default:
         return false;
@@ -6016,6 +6017,13 @@ static bool runtime_process_command(runtime *rt, const runtime_command *command,
 
         case RUNTIME_COMMAND_SET_TURBO_MULTIPLIER:
             runtime_set_turbo_multiplier(rt, command->data.set_turbo_multiplier.multiplier);
+            break;
+
+        case RUNTIME_COMMAND_SET_SWIFTLINK:
+            (void)runtime_swiftlink_set_enabled(
+                rt,
+                command->data.set_swiftlink.enabled != 0u,
+                command->data.set_swiftlink.base);
             break;
 
         case RUNTIME_COMMAND_PASTE_TEXT: {

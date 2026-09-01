@@ -171,39 +171,69 @@ static int bridge_thread_main(void *userdata)
         }
 
         if (conn != NULL) {
-            int ready = platform_socket_wait_readable(conn, RUNTIME_SWIFTLINK_POLL_MS);
-            if (ready < 0) {
-                platform_socket_connection_destroy(conn);
-                conn = NULL;
-                mutex_lock(b->mu);
-                b->result = RUNTIME_SWIFTLINK_RES_PEER_CLOSED;
-                clear_rings_locked(b);
-                mutex_unlock(b->mu);
-            } else if (ready > 0) {
-                uint8_t rx_buf[512];
-                int got = platform_socket_read(conn, rx_buf, sizeof(rx_buf));
-                if (got == 0 || got == -1) {
+            size_t from_space;
+
+            mutex_lock(b->mu);
+            from_space = RUNTIME_SWIFTLINK_FROM_NET_SIZE - b->from_net_count;
+            mutex_unlock(b->mu);
+
+            if (from_space == 0) {
+                /* Back-pressure: do not recv (and drop) while the host RX ring
+                   is full; wait briefly so hangup/disable stay responsive.
+                   Still observe peer close/error while stalled. */
+                int ready =
+                    platform_socket_wait_readable(conn, RUNTIME_SWIFTLINK_POLL_MS);
+                if (ready < 0) {
                     platform_socket_connection_destroy(conn);
                     conn = NULL;
                     mutex_lock(b->mu);
                     b->result = RUNTIME_SWIFTLINK_RES_PEER_CLOSED;
                     clear_rings_locked(b);
                     mutex_unlock(b->mu);
-                } else if (got > 0) {
-                    mutex_lock(b->mu);
-                    for (i = 0; i < (size_t)got; ++i) {
-                        if (!ring_push(
-                                b->from_net,
-                                RUNTIME_SWIFTLINK_FROM_NET_SIZE,
-                                &b->from_net_head,
-                                &b->from_net_count,
-                                rx_buf[i])) {
-                            break;
-                        }
-                    }
-                    mutex_unlock(b->mu);
                 }
-                /* got == -2 would-block: ignore */
+            } else {
+                int ready =
+                    platform_socket_wait_readable(conn, RUNTIME_SWIFTLINK_POLL_MS);
+                if (ready < 0) {
+                    platform_socket_connection_destroy(conn);
+                    conn = NULL;
+                    mutex_lock(b->mu);
+                    b->result = RUNTIME_SWIFTLINK_RES_PEER_CLOSED;
+                    clear_rings_locked(b);
+                    mutex_unlock(b->mu);
+                } else if (ready > 0) {
+                    uint8_t rx_buf[512];
+                    size_t want = sizeof(rx_buf);
+                    int got;
+
+                    if (want > from_space) {
+                        want = from_space;
+                    }
+                    got = platform_socket_read(conn, rx_buf, want);
+                    if (got == 0 || got == -1) {
+                        platform_socket_connection_destroy(conn);
+                        conn = NULL;
+                        mutex_lock(b->mu);
+                        b->result = RUNTIME_SWIFTLINK_RES_PEER_CLOSED;
+                        clear_rings_locked(b);
+                        mutex_unlock(b->mu);
+                    } else if (got > 0) {
+                        mutex_lock(b->mu);
+                        for (i = 0; i < (size_t)got; ++i) {
+                            if (!ring_push(
+                                    b->from_net,
+                                    RUNTIME_SWIFTLINK_FROM_NET_SIZE,
+                                    &b->from_net_head,
+                                    &b->from_net_count,
+                                    rx_buf[i])) {
+                                /* Should not happen: we capped want to space. */
+                                break;
+                            }
+                        }
+                        mutex_unlock(b->mu);
+                    }
+                    /* got == -2 would-block: ignore */
+                }
             }
         } else {
             /* Idle: short sleep via readable wait on nothing — use poll on
@@ -347,38 +377,60 @@ void runtime_swiftlink_bridge_pump(runtime_swiftlink_bridge *b, c64_swiftlink *s
         c64_swiftlink_host_peer_closed(sl);
     }
 
-    n = c64_swiftlink_pull_tx(sl, chunk, sizeof(chunk));
-    if (n > 0) {
+    {
+        size_t to_space;
+
         mutex_lock(b->mu);
-        for (i = 0; i < n; ++i) {
-            if (!ring_push(
-                    b->to_net,
-                    RUNTIME_SWIFTLINK_TO_NET_SIZE,
-                    &b->to_net_head,
-                    &b->to_net_count,
-                    chunk[i])) {
-                break;
-            }
-        }
+        to_space = RUNTIME_SWIFTLINK_TO_NET_SIZE - b->to_net_count;
         mutex_unlock(b->mu);
+        if (to_space > sizeof(chunk)) {
+            to_space = sizeof(chunk);
+        }
+        n = (to_space > 0) ? c64_swiftlink_pull_tx(sl, chunk, to_space) : 0;
+        if (n > 0) {
+            mutex_lock(b->mu);
+            for (i = 0; i < n; ++i) {
+                if (!ring_push(
+                        b->to_net,
+                        RUNTIME_SWIFTLINK_TO_NET_SIZE,
+                        &b->to_net_head,
+                        &b->to_net_count,
+                        chunk[i])) {
+                    /* Should not happen: pull was capped to free space. */
+                    break;
+                }
+            }
+            mutex_unlock(b->mu);
+        }
     }
 
     {
-        uint8_t rx[256];
-        size_t rx_n = 0;
-        mutex_lock(b->mu);
-        while (rx_n < sizeof(rx) &&
-               ring_pop(
-                   b->from_net,
-                   RUNTIME_SWIFTLINK_FROM_NET_SIZE,
-                   &b->from_net_tail,
-                   &b->from_net_count,
-                   &rx[rx_n])) {
-            rx_n++;
+        /* Move host→guest only as far as the machine RX ring can accept.
+           Never pop-then-drop: a full machine FIFO is back-pressure, not overrun. */
+        size_t space = c64_swiftlink_rx_space(sl);
+        size_t moved = 0;
+
+        while (moved < space && moved < sizeof(chunk)) {
+            uint8_t byte;
+            bool got;
+
+            mutex_lock(b->mu);
+            got = ring_pop(
+                b->from_net,
+                RUNTIME_SWIFTLINK_FROM_NET_SIZE,
+                &b->from_net_tail,
+                &b->from_net_count,
+                &byte);
+            mutex_unlock(b->mu);
+            if (!got) {
+                break;
+            }
+            chunk[moved++] = byte;
         }
-        mutex_unlock(b->mu);
-        if (rx_n > 0) {
-            (void)c64_swiftlink_push_rx(sl, rx, rx_n);
+        if (moved > 0) {
+            size_t accepted = c64_swiftlink_push_rx(sl, chunk, moved);
+            /* accepted must equal moved when space was checked first. */
+            (void)accepted;
         }
     }
 

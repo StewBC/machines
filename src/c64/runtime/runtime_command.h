@@ -80,7 +80,8 @@ typedef enum runtime_command_type {
     RUNTIME_COMMAND_INSPECTOR_LAND_TO_CYCLE,
     /* [-]/[+]: Record checkpoint lattice walk. */
     RUNTIME_COMMAND_INSPECTOR_CHECKPOINT_STEP,
-    RUNTIME_COMMAND_SET_SYMBOL_SOURCE_ENABLED
+    RUNTIME_COMMAND_SET_SYMBOL_SOURCE_ENABLED,
+    RUNTIME_COMMAND_SET_SWIFTLINK
 } runtime_command_type;
 
 enum {
@@ -248,6 +249,11 @@ typedef struct runtime_command {
         struct {
             uint32_t multiplier;
         } set_turbo_multiplier;
+
+        struct {
+            uint8_t enabled;
+            uint16_t base; /* 0xDE00 or 0xDF00 */
+        } set_swiftlink;
 
         struct {
             char text[RUNTIME_PASTE_TEXT_MAX];

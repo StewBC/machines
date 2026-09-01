@@ -4,6 +4,7 @@
 
 #include <stdbool.h>
 #include <stddef.h>
+#include <stdint.h>
 
 #define C64M_DRIVE_COUNT 16
 
@@ -119,7 +120,14 @@ typedef struct app_options {
        it drives (0 = disabled, 1 or 2 = active). */
     char *keyboard_joystick_layout;
     int keyboard_joystick_port;
+    /* SwiftLink / Turbo232 soft-attach (TeensyROM-style Hayes modem). Default off. */
+    bool swiftlink_enabled;
+    char *swiftlink_base; /* "de00" or "df00" */
+    char *swiftlink_irq;  /* "none" in v1; reserved nmi|irq */
 } app_options;
+
+/* Returns 0xDE00 or 0xDF00 from options->swiftlink_base (default DE00). */
+uint16_t app_options_swiftlink_base_addr(const app_options *options);
 
 void app_options_init(app_options *options);
 bool app_options_load_startup(app_options *options, int argc, char **argv);

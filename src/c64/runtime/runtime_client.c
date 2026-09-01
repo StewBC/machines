@@ -807,6 +807,23 @@ bool runtime_client_set_turbo_multiplier(runtime_client *client, uint32_t multip
     return runtime_client_push(client, &command);
 }
 
+bool runtime_client_set_swiftlink(runtime_client *client, bool enabled, uint16_t base) {
+    runtime_command command = {
+        .type = RUNTIME_COMMAND_SET_SWIFTLINK,
+    };
+
+    if (!client) {
+        return false;
+    }
+    if (base != 0xDE00u && base != 0xDF00u) {
+        return false;
+    }
+
+    command.data.set_swiftlink.enabled = enabled ? 1u : 0u;
+    command.data.set_swiftlink.base = base;
+    return runtime_client_push(client, &command);
+}
+
 bool runtime_client_apply_machine_config(
     runtime_client *client,
     const c64_config *config,

@@ -548,6 +548,14 @@ uint8_t c64_swiftlink_read(c64_swiftlink *sl, uint16_t addr) {
     assert(sl);
 
     offset = (uint8_t)(addr & 0xFFu);
+    /* TeensyROM-style ASAP: drain TX holding / refill RX holding on every
+       guest poll of data/status. Without this, service only runs at runtime
+       batch boundaries (~1 byte per 1024 Phi2) and feels far slower than
+       real hardware. Command/control/turbo reads do not need it. */
+    if (offset == 0x00u || offset == 0x01u) {
+        c64_swiftlink_service(sl);
+    }
+
     switch (offset) {
     case 0x00:
         if (sl->rx_holding_full) {
@@ -577,6 +585,12 @@ void c64_swiftlink_write(c64_swiftlink *sl, uint16_t addr, uint8_t val) {
     assert(sl);
 
     offset = (uint8_t)(addr & 0xFFu);
+    /* Drain any prior TX byte before accepting a new data write, so TDRE
+       observed by a tight poll/write loop matches TeensyROM ASAP delivery. */
+    if (offset == 0x00u) {
+        c64_swiftlink_service(sl);
+    }
+
     switch (offset) {
     case 0x00:
         if (sl->tx_holding_full) {
@@ -584,6 +598,8 @@ void c64_swiftlink_write(c64_swiftlink *sl, uint16_t addr, uint8_t val) {
         }
         sl->tx_holding = val;
         sl->tx_holding_full = true;
+        /* Try to absorb into Hayes / TX ring immediately. */
+        c64_swiftlink_service(sl);
         return;
     case 0x01:
         c64_swiftlink_reset(sl);
@@ -721,6 +737,11 @@ size_t c64_swiftlink_push_rx(c64_swiftlink *sl, const uint8_t *in, size_t n) {
         accepted++;
     }
     return accepted;
+}
+
+size_t c64_swiftlink_rx_space(const c64_swiftlink *sl) {
+    assert(sl);
+    return (size_t)(C64_SWIFTLINK_RX_RING_SIZE - sl->rx_count);
 }
 
 void c64_swiftlink_set_carrier(c64_swiftlink *sl, bool present) {

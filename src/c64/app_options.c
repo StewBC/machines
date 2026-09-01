@@ -1591,6 +1591,50 @@ static void apply_config(app_options *options, config *cfg)
         cfg, "debug", "history_off_on_max", options->history_off_on_max);
     options->inspector_off_on_max = config_get_bool(
         cfg, "debug", "inspector_off_on_max", options->inspector_off_on_max);
+    options->swiftlink_enabled = config_get_bool(
+        cfg, "swiftlink", "enabled", options->swiftlink_enabled);
+    value = config_get(cfg, "swiftlink", "base");
+    if (value != NULL && value[0] != '\0') {
+        const char *p = value;
+        char normalized[8];
+        size_t n = 0;
+        if (*p == '$') {
+            p++;
+        }
+        while (*p != '\0' && n + 1u < sizeof(normalized)) {
+            char c = *p++;
+            if (c >= 'A' && c <= 'Z') {
+                c = (char)(c - 'A' + 'a');
+            }
+            normalized[n++] = c;
+        }
+        normalized[n] = '\0';
+        if (strcmp(normalized, "de00") == 0 || strcmp(normalized, "df00") == 0) {
+            replace_string(&options->swiftlink_base, normalized);
+        } else {
+            fprintf(stderr,
+                    "invalid [swiftlink] base `%s`; using de00\n",
+                    value);
+            replace_string(&options->swiftlink_base, "de00");
+        }
+    }
+    value = config_get(cfg, "swiftlink", "irq");
+    if (value != NULL && value[0] != '\0') {
+        if (strcmp(value, "none") == 0 || strcmp(value, "nmi") == 0 ||
+            strcmp(value, "irq") == 0) {
+            replace_string(&options->swiftlink_irq, value);
+            if (strcmp(value, "none") != 0) {
+                fprintf(stderr,
+                        "[swiftlink] irq=`%s` reserved; v1 uses none\n",
+                        value);
+            }
+        } else {
+            fprintf(stderr,
+                    "invalid [swiftlink] irq `%s`; using none\n",
+                    value);
+            replace_string(&options->swiftlink_irq, "none");
+        }
+    }
     value = config_get(cfg, "debug", "inspector_memory_mb");
     if (value != NULL) {
         char *end = NULL;
@@ -1780,6 +1824,9 @@ static bool parse_command_line_overrides(app_options *options, int argc, char **
     int history_off_on_max_cli = -1;
     int inspector_off_on_max_flag = 0;
     int inspector_off_on_max_cli = -1;
+    int swiftlink = 0;
+    int swiftlink_cli = -1;
+    const char *swiftlink_base = NULL;
     int i;
     struct argparse argparse;
     const char *const usages[] = {
@@ -1832,6 +1879,11 @@ static bool parse_command_line_overrides(app_options *options, int argc, char **
         OPT_BOOLEAN('\0', "inspector-off-on-max", &inspector_off_on_max_flag,
                     "wipe Inspector Record on max (default on; --no-inspector-off-on-max)",
                     NULL, 0, 0),
+        OPT_BOOLEAN('\0', "swiftlink", &swiftlink,
+                    "enable SwiftLink/Turbo232 Hayes modem (default off; --no-swiftlink)",
+                    NULL, 0, 0),
+        OPT_STRING('\0', "swiftlink-base", &swiftlink_base,
+                   "SwiftLink base: de00 or df00 (default de00)", NULL, 0, 0),
 
         OPT_STRING('\0', "video", &video_standard, "video standard: PAL or NTSC", NULL, 0, 0),
         OPT_BOOLEAN('P', "pal", &video_pal, "use PAL video timing", NULL, 0, OPT_NONEG),
@@ -1875,6 +1927,10 @@ static bool parse_command_line_overrides(app_options *options, int argc, char **
             inspector_off_on_max_cli = 1;
         } else if (strcmp(argv[i], "--no-inspector-off-on-max") == 0) {
             inspector_off_on_max_cli = 0;
+        } else if (strcmp(argv[i], "--swiftlink") == 0) {
+            swiftlink_cli = 1;
+        } else if (strcmp(argv[i], "--no-swiftlink") == 0) {
+            swiftlink_cli = 0;
         }
     }
 
@@ -1889,6 +1945,7 @@ static bool parse_command_line_overrides(app_options *options, int argc, char **
     (void)inspector; /* consumed so --inspector is a known flag; CLI value comes from inspector_cli */
     (void)history_off_on_max_flag;
     (void)inspector_off_on_max_flag;
+    (void)swiftlink;
     (void)disk; /* help placeholder; mounts come from apply_disk_args */
 
     if (show_version) {
@@ -2018,6 +2075,30 @@ static bool parse_command_line_overrides(app_options *options, int argc, char **
     if (inspector_off_on_max_cli >= 0) {
         options->inspector_off_on_max = inspector_off_on_max_cli != 0;
     }
+    if (swiftlink_cli >= 0) {
+        options->swiftlink_enabled = swiftlink_cli != 0;
+    }
+    if (swiftlink_base != NULL) {
+        const char *p = swiftlink_base;
+        char normalized[8];
+        size_t n = 0;
+        if (*p == '$') {
+            p++;
+        }
+        while (*p != '\0' && n + 1u < sizeof(normalized)) {
+            char c = *p++;
+            if (c >= 'A' && c <= 'Z') {
+                c = (char)(c - 'A' + 'a');
+            }
+            normalized[n++] = c;
+        }
+        normalized[n] = '\0';
+        if (strcmp(normalized, "de00") != 0 && strcmp(normalized, "df00") != 0) {
+            fprintf(stderr, "--swiftlink-base expects de00 or df00\n");
+            return false;
+        }
+        replace_string(&options->swiftlink_base, normalized);
+    }
     if (inspector_memory != NULL) {
         char *end = NULL;
         unsigned long parsed = strtoul(inspector_memory, &end, 0);
@@ -2119,6 +2200,22 @@ void app_options_init(app_options *options)
     options->inspector_memory_mb = C64M_DEFAULT_INSPECTOR_MEMORY_MB;
     options->history_off_on_max = true; /* pause HST1 in max by default */
     options->inspector_off_on_max = true;
+    options->swiftlink_enabled = false;
+    replace_string(&options->swiftlink_base, "de00");
+    replace_string(&options->swiftlink_irq, "none");
+}
+
+uint16_t app_options_swiftlink_base_addr(const app_options *options)
+{
+    if (options != NULL && options->swiftlink_base != NULL) {
+        if (strcmp(options->swiftlink_base, "df00") == 0 ||
+            strcmp(options->swiftlink_base, "DF00") == 0 ||
+            strcmp(options->swiftlink_base, "$df00") == 0 ||
+            strcmp(options->swiftlink_base, "$DF00") == 0) {
+            return 0xDF00u;
+        }
+    }
+    return 0xDE00u;
 }
 
 bool app_options_apply_ini_file(app_options *options, const char *path)
@@ -2194,6 +2291,7 @@ bool app_options_copy(app_options *dest, const app_options *src)
     dest->inspector_memory_mb = src->inspector_memory_mb;
     dest->history_off_on_max = src->history_off_on_max;
     dest->inspector_off_on_max = src->inspector_off_on_max;
+    dest->swiftlink_enabled = src->swiftlink_enabled;
 
     if (!replace_string(&dest->keyboard_joystick_layout, src->keyboard_joystick_layout) ||
         !replace_string(&dest->ini_path, src->ini_path) ||
@@ -2213,7 +2311,9 @@ bool app_options_copy(app_options *dest, const app_options *src)
         !replace_string(&dest->audio_record_path, src->audio_record_path) ||
         !replace_string(&dest->assembler_file, src->assembler_file) ||
         !replace_string(&dest->assembler_address, src->assembler_address) ||
-        !replace_string(&dest->assembler_run_address, src->assembler_run_address)) {
+        !replace_string(&dest->assembler_run_address, src->assembler_run_address) ||
+        !replace_string(&dest->swiftlink_base, src->swiftlink_base) ||
+        !replace_string(&dest->swiftlink_irq, src->swiftlink_irq)) {
         app_options_destroy(dest);
         return false;
     }
@@ -2351,6 +2451,17 @@ bool app_options_save_shutdown(const app_options *options)
         cfg, "debug", "history_off_on_max", options->history_off_on_max ? 1 : 0);
     config_set_int(
         cfg, "debug", "inspector_off_on_max", options->inspector_off_on_max ? 1 : 0);
+    config_set_bool(cfg, "swiftlink", "enabled", options->swiftlink_enabled);
+    if (options->swiftlink_base != NULL && options->swiftlink_base[0] != '\0') {
+        config_set(cfg, "swiftlink", "base", options->swiftlink_base);
+    } else {
+        config_set(cfg, "swiftlink", "base", "de00");
+    }
+    if (options->swiftlink_irq != NULL && options->swiftlink_irq[0] != '\0') {
+        config_set(cfg, "swiftlink", "irq", options->swiftlink_irq);
+    } else {
+        config_set(cfg, "swiftlink", "irq", "none");
+    }
     /* The snapshot folder is now [browse] snapshot; drop the legacy key. */
     config_remove_prefix(cfg, "state", "quicksave_folder");
     if (options->symbol_files != NULL &&
@@ -2527,6 +2638,8 @@ void app_options_destroy(app_options *options)
     free(options->assembler_file);
     free(options->assembler_address);
     free(options->assembler_run_address);
+    free(options->swiftlink_base);
+    free(options->swiftlink_irq);
     for (i = 0; i < APP_BROWSE_DIR_COUNT; ++i) {
         free(options->browse_dirs[i]);
     }

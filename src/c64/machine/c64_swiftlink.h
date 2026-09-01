@@ -11,8 +11,11 @@ extern "C" {
 enum {
     C64_SWIFTLINK_BASE_DE00 = 0xDE00u,
     C64_SWIFTLINK_BASE_DF00 = 0xDF00u,
-    C64_SWIFTLINK_TX_RING_SIZE = 256,
-    C64_SWIFTLINK_RX_RING_SIZE = 256,
+    /* Host bridge rings are 4–8 KiB; keep the machine RX FIFO in the same
+       ballpark so a burst banner (FICS login, etc.) is not overrun before the
+       polled guest can drain RDRF. */
+    C64_SWIFTLINK_TX_RING_SIZE = 1024,
+    C64_SWIFTLINK_RX_RING_SIZE = 8192,
     C64_SWIFTLINK_AT_LINE_MAX = 128,
     C64_SWIFTLINK_HOST_MAX = 128
 };
@@ -122,6 +125,8 @@ void c64_swiftlink_host_peer_closed(c64_swiftlink *sl);
 
 size_t c64_swiftlink_pull_tx(c64_swiftlink *sl, uint8_t *out, size_t max);
 size_t c64_swiftlink_push_rx(c64_swiftlink *sl, const uint8_t *in, size_t n);
+/* Free bytes in the machine RX ring (not counting RX holding). */
+size_t c64_swiftlink_rx_space(const c64_swiftlink *sl);
 void c64_swiftlink_set_carrier(c64_swiftlink *sl, bool present);
 
 #ifdef __cplusplus

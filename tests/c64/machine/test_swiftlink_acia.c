@@ -94,25 +94,6 @@ static void test_register_readback_and_unmapped(void) {
     expect_eq_u8("unmapped still FF", 0xFF, c64_swiftlink_read(&sl, 0xDE04));
 }
 
-static void test_tdre_holding_and_ignore(void) {
-    c64_swiftlink sl;
-    uint8_t out[4];
-
-    c64_swiftlink_init(&sl);
-    c64_swiftlink_set_enabled(&sl, true);
-
-    expect_true("TDRE ready", (status(&sl) & C64_SWIFTLINK_STATUS_TDRE) != 0);
-    c64_swiftlink_write(&sl, 0xDE00, 0x41);
-    expect_false("TDRE clear after write", (status(&sl) & C64_SWIFTLINK_STATUS_TDRE) != 0);
-
-    /* Second write while TDRE clear is ignored. */
-    c64_swiftlink_write(&sl, 0xDE00, 0x42);
-    c64_swiftlink_service(&sl);
-    /* Command mode: byte goes to Hayes line, not host TX ring. */
-    expect_eq_u8("no host tx", 0, (uint8_t)c64_swiftlink_pull_tx(&sl, out, sizeof(out)));
-    expect_true("TDRE after service", (status(&sl) & C64_SWIFTLINK_STATUS_TDRE) != 0);
-}
-
 static void go_online(c64_swiftlink *sl) {
     static const char dial[] = "ATDT127.0.0.1:9\n";
     c64_swiftlink_host_req req;
@@ -129,6 +110,45 @@ static void go_online(c64_swiftlink *sl) {
     expect_eq_u8("connect kind", (uint8_t)C64_SWIFTLINK_HOST_REQ_CONNECT, (uint8_t)req.kind);
     c64_swiftlink_host_connect_result(sl, C64_SWIFTLINK_CONN_OK);
     c64_swiftlink_service(sl);
+}
+
+static void test_tdre_holding_and_ignore(void) {
+    c64_swiftlink sl;
+    uint8_t out[4];
+    size_t i;
+
+    c64_swiftlink_init(&sl);
+    c64_swiftlink_set_enabled(&sl, true);
+
+    /* Command mode ASAP: write is absorbed into the Hayes line on the data
+       write itself, so a following status poll already shows TDRE again
+       (TeensyROM-style; not "TDRE stuck until a later batch service"). */
+    expect_true("TDRE ready", (status(&sl) & C64_SWIFTLINK_STATUS_TDRE) != 0);
+    c64_swiftlink_write(&sl, 0xDE00, 0x41);
+    expect_true("TDRE after ASAP absorb", (status(&sl) & C64_SWIFTLINK_STATUS_TDRE) != 0);
+    expect_eq_u8("no host tx in command", 0, (uint8_t)c64_swiftlink_pull_tx(&sl, out, sizeof(out)));
+
+    /* Back-pressure: online with a full host TX ring keeps the next byte in
+       holding (TDRE=0); a second write must be ignored. Status-write reset
+       clears the partial Hayes line from the command-mode probe above. */
+    c64_swiftlink_write(&sl, 0xDE01, 0x00);
+    go_online(&sl);
+    for (i = 0; i < C64_SWIFTLINK_TX_RING_SIZE; ++i) {
+        int spins = 0;
+        while ((status(&sl) & C64_SWIFTLINK_STATUS_TDRE) == 0) {
+            if (++spins > 4) {
+                fail("prime: TDRE stuck before ring full");
+            }
+        }
+        c64_swiftlink_write(&sl, 0xDE00, 0x55);
+    }
+    expect_true("TDRE ready after filling ring",
+                (status(&sl) & C64_SWIFTLINK_STATUS_TDRE) != 0);
+    c64_swiftlink_write(&sl, 0xDE00, 0xAA);
+    expect_false("TDRE clear when ring full", (status(&sl) & C64_SWIFTLINK_STATUS_TDRE) != 0);
+    c64_swiftlink_write(&sl, 0xDE00, 0xBB); /* ignored */
+    expect_false("TDRE still clear", (status(&sl) & C64_SWIFTLINK_STATUS_TDRE) != 0);
+    expect_eq_u8("holding keeps first blocked byte", 0xAA, sl.tx_holding);
 }
 
 static void test_retromate_tdre_burst(void) {
@@ -190,6 +210,7 @@ static void test_rdrf_and_overrun(void) {
     }
     accepted = c64_swiftlink_push_rx(&sl, payload, sizeof(payload));
     expect_eq_u16("ring capacity", C64_SWIFTLINK_RX_RING_SIZE, (uint16_t)accepted);
+    expect_eq_u16("rx_space empty", 0, (uint16_t)c64_swiftlink_rx_space(&sl));
     expect_true("overrun latched", (status(&sl) & C64_SWIFTLINK_STATUS_OVERRUN) != 0);
     /* Status read clears overrun. */
     expect_false("overrun cleared", (status(&sl) & C64_SWIFTLINK_STATUS_OVERRUN) != 0);
