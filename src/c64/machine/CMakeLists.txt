@@ -11,6 +11,7 @@ add_library(${machine} STATIC
     c64_frame.c
     c64_rom.c
     c64_snapshot.c
+    c64_swiftlink.c
     c6510.c
     keyboard.c
     sid.c

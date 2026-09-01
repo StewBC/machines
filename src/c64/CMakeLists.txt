@@ -149,6 +149,18 @@ target_link_libraries(${test_via6522} PRIVATE
 
 leftover_add_test(NAME via6522 COMMAND ${test_via6522})
 
+leftover_exe(test_swiftlink_acia
+    ${MACHINES_ROOT}/tests/c64/machine/test_swiftlink_acia.c
+)
+
+target_compile_features(${test_swiftlink_acia} PRIVATE c_std_99)
+
+target_link_libraries(${test_swiftlink_acia} PRIVATE
+    ${machine}
+)
+
+leftover_add_test(NAME swiftlink_acia COMMAND ${test_swiftlink_acia})
+
 leftover_exe(test_c1541
     ${MACHINES_ROOT}/tests/c64/machine/test_c1541.c
 )

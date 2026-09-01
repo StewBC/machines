@@ -2755,6 +2755,7 @@ void c64_init(c64_t *machine) {
     cia_attach_port_input(&machine->cia1, c64_cia1_port_inputs, machine);
     cia_attach_port_input(&machine->cia2, c64_cia2_port_inputs, machine);
     sid_init(&machine->sid, c64_config_clock_hz(&machine->config));
+    c64_swiftlink_init(&machine->swiftlink);
     c64_bus_attach_vicii(&machine->bus, &machine->vic);
     c64_bus_attach_cias(&machine->bus, &machine->cia1, &machine->cia2);
     c64_bus_attach_sid(&machine->bus, &machine->sid);
@@ -2856,6 +2857,7 @@ bool c64_reset(c64_t *machine, char *error, size_t error_size) {
             VICII_VIDEO_STANDARD_PAL :
             VICII_VIDEO_STANDARD_NTSC);
     sid_init(&machine->sid, c64_config_clock_hz(&machine->config));
+    c64_swiftlink_reset(&machine->swiftlink);
     vicii_reset(&machine->vic);
     vicii_write_register(&machine->vic, C64_VICII_REG_MEMORY_POINTER, 0x15);
     cia_reset(&machine->cia1);
