@@ -12,7 +12,9 @@ enum {
     C64_SWIFTLINK_BASE_DE00 = 0xDE00u,
     C64_SWIFTLINK_BASE_DF00 = 0xDF00u,
     C64_SWIFTLINK_TX_RING_SIZE = 256,
-    C64_SWIFTLINK_RX_RING_SIZE = 256
+    C64_SWIFTLINK_RX_RING_SIZE = 256,
+    C64_SWIFTLINK_AT_LINE_MAX = 128,
+    C64_SWIFTLINK_HOST_MAX = 128
 };
 
 /* Status register bits (read). Carrier/DSR use SwiftLink pin-swap sense:
@@ -27,6 +29,30 @@ enum {
     C64_SWIFTLINK_STATUS_CD = 0x40u,
     C64_SWIFTLINK_STATUS_IRQ = 0x80u
 };
+
+typedef enum c64_swiftlink_mode {
+    C64_SWIFTLINK_MODE_COMMAND = 0,
+    C64_SWIFTLINK_MODE_DIALING,
+    C64_SWIFTLINK_MODE_ONLINE
+} c64_swiftlink_mode;
+
+typedef enum c64_swiftlink_host_req_kind {
+    C64_SWIFTLINK_HOST_REQ_NONE = 0,
+    C64_SWIFTLINK_HOST_REQ_CONNECT,
+    C64_SWIFTLINK_HOST_REQ_HANGUP
+} c64_swiftlink_host_req_kind;
+
+typedef struct c64_swiftlink_host_req {
+    c64_swiftlink_host_req_kind kind;
+    char host[C64_SWIFTLINK_HOST_MAX];
+    uint16_t port;
+} c64_swiftlink_host_req;
+
+typedef enum c64_swiftlink_connect_err {
+    C64_SWIFTLINK_CONN_OK = 0,
+    C64_SWIFTLINK_CONN_NO_DIALTONE,
+    C64_SWIFTLINK_CONN_NO_ANSWER
+} c64_swiftlink_connect_err;
 
 typedef struct c64_swiftlink {
     bool enabled;
@@ -54,6 +80,22 @@ typedef struct c64_swiftlink {
     uint16_t rx_head;
     uint16_t rx_tail;
     uint16_t rx_count;
+
+    /* Hayes modem */
+    c64_swiftlink_mode mode;
+    bool echo;
+    bool verbose;
+    char at_line[C64_SWIFTLINK_AT_LINE_MAX];
+    uint16_t at_len;
+    bool ignore_lf; /* CR already ended the line; swallow following LF */
+    bool at_overflow;
+
+    uint8_t escape_len; /* 0..2 withheld '+' bytes while online */
+    bool escape_flushing;
+    uint8_t escape_flush_pos; /* next '+' index to flush, or 3 = abort byte */
+    uint8_t escape_abort_byte;
+
+    c64_swiftlink_host_req pending_req;
 } c64_swiftlink;
 
 void c64_swiftlink_init(c64_swiftlink *sl);
@@ -66,9 +108,12 @@ bool c64_swiftlink_owns(const c64_swiftlink *sl, uint16_t addr);
 uint8_t c64_swiftlink_read(c64_swiftlink *sl, uint16_t addr);
 void c64_swiftlink_write(c64_swiftlink *sl, uint16_t addr, uint8_t val);
 
-/* Drain TX holding into the TX ring; fill RX holding from the RX ring.
-   Hayes / online escape come in a later PR; PR1 only moves bytes. */
+/* Runtime thread only: advance Hayes, escape scanner, holding↔rings. */
 void c64_swiftlink_service(c64_swiftlink *sl);
+
+bool c64_swiftlink_take_host_request(c64_swiftlink *sl, c64_swiftlink_host_req *out);
+void c64_swiftlink_host_connect_result(c64_swiftlink *sl, c64_swiftlink_connect_err err);
+void c64_swiftlink_host_peer_closed(c64_swiftlink *sl);
 
 size_t c64_swiftlink_pull_tx(c64_swiftlink *sl, uint8_t *out, size_t max);
 size_t c64_swiftlink_push_rx(c64_swiftlink *sl, const uint8_t *in, size_t n);

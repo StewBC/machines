@@ -275,9 +275,9 @@ stateDiagram-v2
 |-------------|--------|--------------------|--------------------|----------------|
 | Command (idle) | `ATH` / `ATH0` | `OK` | `0` | Command |
 | Dialing | `ATH` / `ATH0` | Cancel dial; `NO CARRIER` | `3` | Command |
-| Online | `ATH` / `ATH0` | Close TCP; `NO CARRIER` | `3` | Command |
+| Online | *(not via data path in v1)* | — | — | — |
 
-Note: TeensyROM documents `ATH` as “dummy OK; use `+++`.” c64m documents this as an **intentional divergence** so CCGMS-style and classic Hayes clients can hang up with ATH; RetroMate still uses status write.
+Note: TeensyROM documents `ATH` as “dummy OK; use `+++`.” c64m accepts Hayes-classic `ATH` in **command/dialing** (intentional divergence). **v1 online hangup is `+++` / status-write / peer close** — online TX is escape-scanner + TCP, so `ATH` bytes would be payload. Classic “`+++` → command mode with carrier, then `ATH`” remains PR7 if CCGMS smoke needs it. RetroMate uses status write.
 
 #### ATZ response matrix (locked)
 
@@ -287,7 +287,7 @@ Note: TeensyROM documents `ATH` as “dummy OK; use `+++`.” c64m documents thi
 |-------------|--------|--------------------|--------------------|----------------|
 | Command (idle) | Reset modem settings | `OK` | `0` | Command |
 | Dialing | Cancel dial; reset settings; close any in-flight connect | `NO CARRIER` | `3` | Command |
-| Online | Close TCP; reset settings | `NO CARRIER` | `3` | Command |
+| Online | *(same as ATH — not via data path in v1; use `+++` then `ATZ` in command)* | — | — | — |
 
 #### Hangup response sources (locked)
 

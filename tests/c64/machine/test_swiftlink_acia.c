@@ -97,7 +97,6 @@ static void test_register_readback_and_unmapped(void) {
 static void test_tdre_holding_and_ignore(void) {
     c64_swiftlink sl;
     uint8_t out[4];
-    size_t n;
 
     c64_swiftlink_init(&sl);
     c64_swiftlink_set_enabled(&sl, true);
@@ -109,15 +108,32 @@ static void test_tdre_holding_and_ignore(void) {
     /* Second write while TDRE clear is ignored. */
     c64_swiftlink_write(&sl, 0xDE00, 0x42);
     c64_swiftlink_service(&sl);
-    n = c64_swiftlink_pull_tx(&sl, out, sizeof(out));
-    expect_eq_u8("pulled count", 1, (uint8_t)n);
-    expect_eq_u8("pulled byte", 0x41, out[0]);
+    /* Command mode: byte goes to Hayes line, not host TX ring. */
+    expect_eq_u8("no host tx", 0, (uint8_t)c64_swiftlink_pull_tx(&sl, out, sizeof(out)));
     expect_true("TDRE after service", (status(&sl) & C64_SWIFTLINK_STATUS_TDRE) != 0);
 }
 
+static void go_online(c64_swiftlink *sl) {
+    static const char dial[] = "ATDT127.0.0.1:9\n";
+    c64_swiftlink_host_req req;
+    size_t i;
+
+    for (i = 0; i < sizeof(dial) - 1u; ++i) {
+        while ((status(sl) & C64_SWIFTLINK_STATUS_TDRE) == 0) {
+            c64_swiftlink_service(sl);
+        }
+        c64_swiftlink_write(sl, 0xDE00, (uint8_t)dial[i]);
+        c64_swiftlink_service(sl);
+    }
+    expect_true("connect req", c64_swiftlink_take_host_request(sl, &req));
+    expect_eq_u8("connect kind", (uint8_t)C64_SWIFTLINK_HOST_REQ_CONNECT, (uint8_t)req.kind);
+    c64_swiftlink_host_connect_result(sl, C64_SWIFTLINK_CONN_OK);
+    c64_swiftlink_service(sl);
+}
+
 static void test_retromate_tdre_burst(void) {
-    /* RetroMate fills a send buffer then polls TDRE before each sta data. */
-    static const char line[] = "atdt127.0.0.1:1234\n";
+    /* RetroMate polls TDRE before each sta data; online payload hits host TX. */
+    static const char line[] = "hello-fics\n";
     c64_swiftlink sl;
     uint8_t all[64];
     size_t i;
@@ -125,11 +141,10 @@ static void test_retromate_tdre_burst(void) {
 
     c64_swiftlink_init(&sl);
     c64_swiftlink_set_enabled(&sl, true);
-
-    /* Guest-style init: control $10, turbo $00, command $0B */
     c64_swiftlink_write(&sl, 0xDE03, 0x10);
     c64_swiftlink_write(&sl, 0xDE07, 0x00);
     c64_swiftlink_write(&sl, 0xDE02, 0x0B);
+    go_online(&sl);
 
     for (i = 0; i < sizeof(line) - 1u; ++i) {
         int spins = 0;
@@ -226,8 +241,9 @@ static void test_service_backpressure(void) {
 
     c64_swiftlink_init(&sl);
     c64_swiftlink_set_enabled(&sl, true);
+    go_online(&sl);
 
-    /* Fill TX ring completely via holding+service. */
+    /* Fill TX ring completely via holding+service (online path). */
     for (i = 0; i < C64_SWIFTLINK_TX_RING_SIZE; ++i) {
         while ((status(&sl) & C64_SWIFTLINK_STATUS_TDRE) == 0) {
             fail("unexpected TDRE clear while filling");
