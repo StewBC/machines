@@ -45,6 +45,13 @@ target_compile_features(${test_audio_buffer} PRIVATE c_std_99)
 target_link_libraries(${test_audio_buffer} PRIVATE ${util} SDL2::SDL2)
 leftover_add_test(NAME audio_buffer COMMAND ${test_audio_buffer})
 
+leftover_exe(test_host_page_writer
+    ${MACHINES_ROOT}/tests/shell/util/test_host_page_writer.c
+)
+target_compile_features(${test_host_page_writer} PRIVATE c_std_99)
+target_link_libraries(${test_host_page_writer} PRIVATE ${util} SDL2::SDL2)
+leftover_add_test(NAME host_page_writer COMMAND ${test_host_page_writer})
+
 leftover_exe(test_message_queue
     ${MACHINES_ROOT}/tests/shell/util/test_message_queue.c
 )

@@ -14,6 +14,7 @@ add_library(shell STATIC
     util/message_queue.c
     util/config.c
     util/host_log.c
+    util/host_page_writer.c
     platform/platform.c
     platform/platform_fs.c
     platform/platform_socket.c
