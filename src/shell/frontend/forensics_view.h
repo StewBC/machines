@@ -40,8 +40,8 @@ typedef struct frontend_fr_logical_entry {
 
 typedef struct frontend_forensics_state {
     bool open;
-    frontend_forensics_entry entry; /* where Opt+R/Close returns */
-    bool crt_was_running; /* valid when entry == CRT: restore on Opt+R/Close */
+    frontend_forensics_entry entry; /* where Alt+R/Close returns */
+    bool crt_was_running; /* valid when entry == CRT: restore on Alt+R/Close */
     bool query_focus_pending;
     char query[FRONTEND_FR_QUERY_MAX];
     char query_history[FRONTEND_FR_QUERY_HISTORY][FRONTEND_FR_QUERY_MAX];
@@ -128,7 +128,7 @@ bool forensics_view_is_open(const frontend_forensics_state *state);
 frontend_forensics_entry forensics_view_entry(const frontend_forensics_state *state);
 bool forensics_view_crt_was_running(const frontend_forensics_state *state);
 
-/* Opt+R / Close: return to entry surface (may resume CRT). */
+/* Alt+R / Close: return to entry surface (may resume CRT). */
 frontend_forensics_leave_result forensics_view_leave_to_entry(
     frontend_forensics_state *state);
 /* F9: always debugger, always paused. */

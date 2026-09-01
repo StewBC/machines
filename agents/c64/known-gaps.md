@@ -36,7 +36,7 @@ the bottom.
 
 Inspector itself is shipped (opt-in `--inspector` / `[debug] inspector`, Misc
 Inspector tab, `enter-inspector` / `leave-inspector` / `land-inspector` /
-`land-inspector-exact`). Forensics (Opt+R / Inspector **Forensics...**) is the
+`land-inspector-exact`). Forensics (Alt+R / Inspector **Forensics...**) is the
 in-emulator HST1 FIND transcript (see the manual **Forensics** section). File
 snapshots (`save-state` / `load-state`) are a different product.
 

@@ -28,7 +28,7 @@ int main(void)
     CHECK((src[0].flags & MEMSRC_HIGHBIT_ASCII) == 0u);
     CHECK((src[3].flags & MEMSRC_FOREIGN_BUS) != 0u);
 
-    /* UI Opt+M order (not control-table declaration order): map, rom, ram, drive8, drive9. */
+    /* UI Alt+M order (not control-table declaration order): map, rom, ram, drive8, drive9. */
     {
         static const memory_source cycle[] = {
             { 0u, "CPU map", "map", 0u, 0x10000u, MEMSRC_WRITABLE },

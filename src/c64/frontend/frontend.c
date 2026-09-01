@@ -5362,7 +5362,7 @@ static void frontend_memory_handle_key(
         return;
     }
 
-    /* Opt+Shift+Up/Down: scroll one row with the cursor pinned on-screen. */
+    /* Alt+Shift+Up/Down: scroll one row with the cursor pinned on-screen. */
     if (alt && shift && sym == SDLK_UP &&
         memory->edit_field != FRONTEND_MEMORY_EDIT_ADDRESS) {
         int32_t delta = -(int32_t)memory->columns;
@@ -5380,7 +5380,7 @@ static void frontend_memory_handle_key(
         return;
     }
 
-    /* Virtual view navigation (Opt alone; Shift reserved above). */
+    /* Virtual view navigation (Alt alone; Shift reserved above). */
     if (alt && !shift && sym == SDLK_UP &&
         memory->edit_field != FRONTEND_MEMORY_EDIT_ADDRESS) {
         if (ui->memory_active_view_index > 0) {
@@ -9892,7 +9892,7 @@ static void frontend_render_display_only(frontend *ui)
         return;
     }
 
-    /* Keep CRT hit-test in sync for 1351 Opt+Click when debugger UI is hidden. */
+    /* Keep CRT hit-test in sync for 1351 Alt+Click when debugger UI is hidden. */
     ui->layout.display = nk_rect(
         (float)dest.x, (float)dest.y, (float)dest.w, (float)dest.h);
 

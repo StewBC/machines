@@ -8,7 +8,7 @@
  *   $C100:      Map | ROM   (//e internal ROM force)
  *   $D000-$FFFF: Map | LC bank1 | LC bank2 | ROM
  *
- * UI Opt+M / Source menu typically cycle named presets (helpers below).
+ * UI Alt+M / Source menu typically cycle named presets (helpers below).
  * Right-click can expose full multi-field selection later.
  */
 
@@ -88,7 +88,7 @@ static inline void vf_set_d000(view_flags_t *f, a2sel_d000 v)
     vf_set_field(f, A2SEL_D000_MASK, A2SEL_D000_SHIFT, (uint32_t)v);
 }
 
-/* Named UI presets for Opt+M / Source menu (encode as VIEW_FLAGS). */
+/* Named UI presets for Alt+M / Source menu (encode as VIEW_FLAGS). */
 typedef enum runtime_view_area {
     RUNTIME_VIEW_AREA_MAP = 0, /* CPU map / soft-switch reality */
     RUNTIME_VIEW_AREA_MAIN,    /* force main 48K */

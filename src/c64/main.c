@@ -3980,7 +3980,7 @@ static void forensics_handle_history_event(
 /*
  * Leave Forensics.
  * force_debugger (F9 or successful Land): always debugger, never resume.
- * Otherwise (Opt+R / Close): return to entry surface; resume only if that
+ * Otherwise (Alt+R / Close): return to entry surface; resume only if that
  * surface was full-screen CRT and it was running when Forensics opened.
  */
 static void leave_forensics_mode(
@@ -7072,7 +7072,7 @@ static bool run_main_loop(
        press-and-hold accent popup. Seed from SDL's current state so the first
        frame only calls SDL when the desired state actually differs. */
     bool text_input_active = SDL_IsTextInputActive() == SDL_TRUE;
-    /* Block TEXTINPUT after Opt+H / Opt+R until Option is released so the
+    /* Block TEXTINPUT after Alt+H / Alt+R until Option is released so the
        chord letter does not type into Help/Forensics edit fields. */
     bool suppress_text_after_option_chord = false;
     frontend_runtime_state last_title_state = FRONTEND_RUNTIME_STATE_UNKNOWN;
@@ -7160,7 +7160,7 @@ static bool run_main_loop(
             if (event.type == SDL_QUIT) {
                 running = false;
             } else if (mouse_consumed) {
-                /* Opt+Click / captured motion already handled above. */
+                /* Alt+Click / captured motion already handled above. */
             } else if (event.type == SDL_KEYDOWN && event.key.repeat != 0 &&
                        frontend_handle_help_key(ui, &event.key, options->scroll_wheel_lines)) {
                 send_event_to_frontend = false;
@@ -7201,7 +7201,7 @@ static bool run_main_loop(
                     event.key.keysym.sym == SDLK_r &&
                     frontend_input_has_option_modifier(&event.key) &&
                     !frontend_input_has_shift_modifier(&event.key)) {
-                    /* Opt+R: toggle Forensics; leave returns to entry surface. */
+                    /* Alt+R: toggle Forensics; leave returns to entry surface. */
                     if (frontend_forensics_is_open(ui)) {
                         leave_forensics_mode(
                             window, client, ui, &ui_visible, false);
@@ -7513,7 +7513,7 @@ static bool run_main_loop(
         }
         if (!frontend_help_is_open(ui) &&
             frontend_forensics_consume_close_request(ui)) {
-            /* Close button == Opt+R (return to entry surface). */
+            /* Close button == Alt+R (return to entry surface). */
             leave_forensics_mode(window, client, ui, &ui_visible, false);
         }
         if (!frontend_help_is_open(ui) &&

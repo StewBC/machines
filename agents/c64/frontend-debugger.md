@@ -29,7 +29,7 @@ Window title: `c64m - VIDEO - TURBO - STATE`. Modes render as `Normal`,
 `Max`. Inspecting replaces the state with `Inspect`.
 
 Host file selection uses `platform_fs`. Remembered browse directories live
-in `[browse]`. State hotkeys: Opt+Shift+`>` / `<`.
+in `[browse]`. State hotkeys: Alt+Shift+`>` / `<`.
 
 ## Inspector tab
 
@@ -55,11 +55,11 @@ the slider. Inspector Record does **not** arm or stop HST1.
 ## Forensics
 
 Full-window HST1 FIND surface (`forensics_view.*`), not a Misc tab and not a
-Help-style CRT overlay. **Forensics...** on the Inspector tab and **Opt+R**
-open it (pauses on enter). **Opt+R** / **Close** return to the entry surface
+Help-style CRT overlay. **Forensics...** on the Inspector tab and **Alt+R**
+open it (pauses on enter). **Alt+R** / **Close** return to the entry surface
 (CRT restores prior run state if it was running; debugger stays paused).
 **F9** from Forensics always opens the debugger paused. **Esc** does not
-leave. **Opt+H** stacks modal Help over Forensics (CRT underlay; Forensics
+leave. **Alt+H** stacks modal Help over Forensics (CRT underlay; Forensics
 stays open as return surface).
 
 Query line → structured `HISTORY_*` intents → `main.c` claim/decode →
@@ -98,8 +98,8 @@ disables; real controllers remain Alt+1/2. SDL text input is enabled only
 while an edit field has focus.
 
 CBM 1351 (proportional only): default off (`[input] mouse_enabled` /
-`--mouse`). Opt+Click CRT captures (relative mode + warp to window center);
-Opt+Click releases. Autorelease on focus loss, Help, Forensics, any dialog,
+`--mouse`). Alt+Click CRT captures (relative mode + warp to window center);
+Alt+Click releases. Autorelease on focus loss, Help, Forensics, any dialog,
 or Inspector. While captured, re-assert relative mode if SDL/OS dropped it
 (macOS after Alt-Tab can leave the host cursor free while xrel still moves
 the guest).
@@ -137,7 +137,7 @@ Basic Text is stock BASIC V2 only (`util/basic_v2`).
 editing it, read `manual/c64m/HELP_MARKDOWN.md` (ASCII, no links, help-renderer
 subset).
 
-Opt+H opens modal Help (Quit still works). Remembers return surface: CRT,
+Alt+H opens modal Help (Quit still works). Remembers return surface: CRT,
 debugger, or Forensics. CRT underlay while open.
 
 Help search highlights hits: inverse band on the jumped-to span, underline

@@ -19,9 +19,9 @@ void debugger_disasm_view_init(debugger_disasm_view *view)
 const char *debugger_disasm_footer_hint(debugger_disasm_mode mode)
 {
     if (mode == DEBUGGER_DISASM_MODE_INSPECT) {
-        return "Right=THEN | Opt+A=goto | Opt+B=BP | Opt+Left unbound";
+        return "Right=THEN | Alt+A=goto | Alt+B=BP | Alt+Left unbound";
     }
-    return "Right=PC | Opt+A=goto | Opt+B=BP | Opt+Left=set PC";
+    return "Right=PC | Alt+A=goto | Alt+B=BP | Alt+Left=set PC";
 }
 
 int debugger_disasm_hex_digit(SDL_Keycode sym)
@@ -203,7 +203,7 @@ bool debugger_disasm_handle_key(
         return false;
     }
 
-    /* Live-only: Opt+B breakpoint. */
+    /* Live-only: Alt+B breakpoint. */
     if (alt && !shift && sym == SDLK_b) {
         if (ops->on_toggle_execute_bp != NULL) {
             if (!view->has_cursor && ops->focus_valid != NULL && ops->focus_valid(ops->ctx) &&
@@ -217,7 +217,7 @@ bool debugger_disasm_handle_key(
         return false;
     }
 
-    /* Live-only: Opt+S symbol lookup. */
+    /* Live-only: Alt+S symbol lookup. */
     if (alt && sym == SDLK_s) {
         if (ops->on_symbol_lookup != NULL) {
             ops->on_symbol_lookup(ops->ctx);
@@ -226,7 +226,7 @@ bool debugger_disasm_handle_key(
         return false;
     }
 
-    /* Live-only: Opt+M cycle memory source. */
+    /* Live-only: Alt+M cycle memory source. */
     if (alt && !shift && sym == SDLK_m) {
         if (ops->on_cycle_memory_mode != NULL) {
             ops->on_cycle_memory_mode(ops->ctx);
@@ -311,7 +311,7 @@ bool debugger_disasm_handle_key(
         return true;
     }
 
-    /* Live-only: Opt+Left set PC. */
+    /* Live-only: Alt+Left set PC. */
     if (sym == SDLK_LEFT && alt) {
         if (ops->on_set_pc != NULL) {
             if (!view->has_cursor && ops->focus_valid != NULL && ops->focus_valid(ops->ctx) &&

@@ -11,7 +11,7 @@ Serialize on the **runtime thread**. Host never touches `apple2_t`.
 |---------|------|
 | Drop `.a2state` on the window | `main.c` `handle_drop_file` → `runtime_client_load_state` |
 | `--sna path` | After start + mounts |
-| Opt+Shift+`.` / `,` | Quicksave / newest in the snapshot browse folder |
+| Alt+Shift+`.` / `,` | Quicksave / newest in the snapshot browse folder |
 | Control | `save-state` / `load-state` |
 | Misc → Machine | Unified Load/Save |
 

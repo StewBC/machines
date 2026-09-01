@@ -49,17 +49,17 @@ Stage 7 client subset and Stage 5 memory-source table, not `apple2.h` /
   the live key table. Do not leave unused `*_ops` callbacks or unused shell
   pane key/merge stubs beside a live product handler — delete or wire in
   the same change.
-- Opt+M cycles the **machine's published sources**, not a shared enum.
+- Alt+M cycles the **machine's published sources**, not a shared enum.
   Apple memview Map→Main→Aux→LC1→LC2→ROM; Apple disasm Map→ROM→Main.
   C64 CPU map / ROM / RAM / drive 8 / drive 9. High-bit ASCII is a source
   view flag (Apple default on, C64 default off).
 - Exclusive tabs stay leftover: Machine, Debugger, Hardware, **Assembler**,
   Config. Inspector tab is shared chrome.
-- Forensics is HST1 FIND, not Inspector. Opt+R / Inspector **Forensics...**.
-- Help: Opt+H. Modal while open (Quit still works). May stack over Forensics
+- Forensics is HST1 FIND, not Inspector. Alt+R / Inspector **Forensics...**.
+- Help: Alt+H. Modal while open (Quit still works). May stack over Forensics
   (CRT underlay; returns to Forensics on close). Generated from that binary's
   `manual/*/manual.md`.
-- Symbol Lookup / Filter live in `symbol_lookup_view.*` (both products). Opt+S
+- Symbol Lookup / Filter live in `symbol_lookup_view.*` (both products). Alt+S
   opens Lookup; footer **[Filter][Close]**. Filter is a sibling window drawn
   **after** Lookup (File Browser stacking precedent). Enable toggles use chrome-
   cached snapshot `source_id` values only -- never UI-local `symbol_table_add`

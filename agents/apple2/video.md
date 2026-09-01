@@ -51,7 +51,7 @@ Floating bus: active video = scanner byte; blanking = last latch.
 
 Host monitor (`apple2_video_set_monitor`): Colour vs discrete Mono. Phosphor
 White / Green / Amber. **Not snapshotted.** CLI `--video-display`, INI
-`[Video] colour` + `mono_mode`, Shift+Opt+C, Configure → Emulator.
+`[Video] colour` + `mono_mode`, Shift+Alt+C, Configure → Emulator.
 
 Debugger **Override** (Hardware tab) is a RAM view of a page: it affects video
 paint only. Real soft switches, mapping, floating bus, and snapshots keep

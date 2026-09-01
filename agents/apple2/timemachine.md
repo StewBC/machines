@@ -54,13 +54,13 @@ NOW. Exact Forensics/CPU focuses choose the nearest older/newer sample.
 
 **F10 / F11 / Shift+F10 / F12 / Shift+F12**: re-execute on the landed Apple.
 F12 runs until a **breakpoint** or **live**, then **stops**, still in Inspect.
-No-op at live. Opt+Left is unbound. Pokes reject (`read-only-inspector`).
+No-op at live. Alt+Left is unbound. Pokes reject (`read-only-inspector`).
 
 **Leave**: restore live NOW including its exact framebuffer and turbo policy,
 still **paused**. Does not auto-resume. Unchanged Leave -> Enter reuses the
 same provisional NOW endpoint.
 
-**One breakpoint list.** Opt+B and the Breakpoints tab always edit it. Time-travel
+**One breakpoint list.** Alt+B and the Breakpoints tab always edit it. Time-travel
 F12 hits those breakpoints.
 
 **CRT on stop:** any F10-family / F12 / Pause that leaves the Apple stopped

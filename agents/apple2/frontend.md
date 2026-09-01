@@ -36,7 +36,7 @@ Intents (`FRONTEND_DEBUGGER_INTENT_*`) are dispatched in `main.c` onto
 ## Layout
 
 Panes: Apple display, registers, disassembly, memory (splitable), misc.
-Opt+Tab cycles Apple2 → Disassembly → Misc → Memory (when F9 is up).
+Alt+Tab cycles Apple2 → Disassembly → Misc → Memory (when F9 is up).
 
 Machine Display zeroes window padding/spacing (like Memory/Disassembly), lays out the
 picture from the content region minus a fixed status band, and draws the probe in that
@@ -51,15 +51,15 @@ Configure dialog (not F2): Machine | Emulator | Paths.
 
 ## Memory / disasm areas
 
-Memory pane Opt+M: **Map → Main → Aux → LC1 → LC2 → ROM**.
-Disasm Opt+M: **Map → ROM → Main** only. Do not unify those cycles.
+Memory pane Alt+M: **Map → Main → Aux → LC1 → LC2 → ROM**.
+Disasm Alt+M: **Map → ROM → Main** only. Do not unify those cycles.
 
 Memory ASCII column: per-view **hi-bit on** (default) strips/sets bit 7 for
 show/type; **hi-bit off** is host `$20–$7E` only. Toggle via status-row click or
 the memory context-menu **ASCII** group. Session-only; splits inherit the parent
 flag.
 
-Opt+Left sets PC from the disasm cursor **in live mode**. In time travel it is
+Alt+Left sets PC from the disasm cursor **in live mode**. In time travel it is
 unbound.
 
 ## Configure
@@ -107,10 +107,10 @@ Record / Inspect / Leave. See [`timemachine.md`](timemachine.md). Window
 tint the window background. Breakpoints tab chrome is the live panel in both
 modes (one list).
 
-**Forensics…** / **Opt+R** open full-window Forensics (no CRT behind). **Pauses**
-on enter. **Opt+R** / **Close** return to the entry surface (CRT restores prior
+**Forensics…** / **Alt+R** open full-window Forensics (no CRT behind). **Pauses**
+on enter. **Alt+R** / **Close** return to the entry surface (CRT restores prior
 run state if it was running; debugger stays paused). **F9** always opens the
-debugger paused. **Esc** does not leave Forensics. **Opt+H** stacks modal Help over
+debugger paused. **Esc** does not leave Forensics. **Alt+H** stacks modal Help over
 Forensics (CRT underlay; Forensics stays open as return surface).
 Query line → `HISTORY_*` intents → `main.c` claim/decode → transcript (session 0;
 `history_close` on exit). Transcript group scroll is kept in
@@ -127,7 +127,7 @@ parallel list, no LCP).
 soft-fail without checkpoints. On successful land (any Inspect focus update used
 for the land status strip), leave Forensics like F9 (debugger paused; abandon CRT
 resume latch) and select Misc → Inspector. Cancel / soft-fail / incomplete land
-stay in Forensics; Opt+R/Close entry-surface rules unchanged. Double-click `id=` /
+stay in Forensics; Alt+R/Close entry-surface rules unchanged. Double-click `id=` /
 `cyc=` / `pc=$...` copies that token. User docs: `manual/a2m/manual.md` (**Forensics**).
 Forensics UI behavior is covered in this note and `agents/shell/`; the old
 leftover product design drafts were removed.
@@ -145,7 +145,7 @@ CPU recorder.
 | Option/KP0 → BUTN0, Space → BUTN1 | Space → BUTN0, Option → BUTN1 |
 
 While stick is **on**, Option is a fire key (not latched Open-Apple). Host
-Opt+Shift+0/1/2 clears solid-apple so chords do not stick BUTN0.
+Alt+Shift+0/1/2 clears solid-apple so chords do not stick BUTN0.
 
 ## Disk LEDs
 
@@ -153,7 +153,7 @@ Green = Disk II **motor-on**. Red = write activity hold.
 
 ## Memory search
 
-Active Memory sub-view, while stopped: Opt+F / Opt+G / Opt+Shift+G. String
+Active Memory sub-view, while stopped: Alt+F / Alt+G / Alt+Shift+G. String
 (optional case-fold) or hex byte pairs. Uses that split view's snapshot,
 honors invalid bytes in partial planes, wraps 64K.
 
@@ -172,12 +172,12 @@ the render pass measures the row that holds the hit and corrects group
 scroll on the next frame. `help_view_search()` is what `test_help_view`
 drives.
 
-Opt+H opens (and pauses if running). Esc / Opt+H close. Help is modal (Quit still
+Alt+H opens (and pauses if running). Esc / Alt+H close. Help is modal (Quit still
 works). Remembers return surface: CRT, debugger, or Forensics.
 
 ## Assembler view
 
 Source filename is `[assembler] file=...`. Browse opens beside the shown
-filename; empty uses Configure → Paths → Assembler. Opt+Shift+A queues the
+filename; empty uses Configure → Paths → Assembler. Alt+Shift+A queues the
 same Assemble action. See [`runtime.md`](runtime.md) for `dest=` / `file=` /
 MLI.

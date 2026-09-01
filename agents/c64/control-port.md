@@ -383,7 +383,7 @@ Run/step/load/input commands return `ok accepted=1` when the runtime command was
 queued, not when the operation has completed. Follow with `wait-event`,
 `get-state`, or a specific query.
 
-`set-turbo` changes the active turbo mode without modifying the configured Opt+T
+`set-turbo` changes the active turbo mode without modifying the configured Alt+T
 list. Modes are:
 
 | Mode | Name   | Meaning |
@@ -391,7 +391,7 @@ list. Modes are:
 | 1    | normal | Real-time pace, live pixels |
 | 2 / `max` | max | Free-run, live pixels (full correctness) |
 
-Value `3` is hard-rejected (`bad-args`). Default Opt+T ladder is `1,max`.
+Value `3` is hard-rejected (`bad-args`). Default Alt+T ladder is `1,max`.
 `set-turbo 2` / `set-turbo max` pauses HST1 when
 `[debug] history_off_on_max` is on (default) and wipes Inspector Record when
 `[debug] inspector_off_on_max` is on (default); turbo 1 resumes HST1 and

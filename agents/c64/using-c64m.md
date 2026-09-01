@@ -39,7 +39,7 @@ Useful startup flags:
 | `--control-port N` | Enable TCP control (required for this guide) |
 | `--headless` | No window/audio device; still needs a control port |
 | `--pal` / `--ntsc` | Video standard |
-| `--turbo=1\|2\|max` | Initial turbo mode / Opt+T ladder (see § Gotchas) |
+| `--turbo=1\|2\|max` | Initial turbo mode / Alt+T ladder (see § Gotchas) |
 | `-p` / `--prg FILE` | Inject PRG at boot |
 | `-a` / `--autorun` | After PRG/BASIC/disk load, paste `RUN`+Return (CLI only) |
 | `--disk 8=image.d64` | Mount disk on device 8 |
@@ -157,7 +157,7 @@ or `control-port.md` / paste parser.
 | 1 | normal | Real-time, **live** framebuffer |
 | 2 / `max` | max | Free-run, **live** framebuffer (good default for agents) |
 
-Default Opt+T ladder is `1,max`. `set-turbo 3` (and CSV/`--turbo` value `3`)
+Default Alt+T ladder is `1,max`. `set-turbo 3` (and CSV/`--turbo` value `3`)
 is hard-rejected. Max keeps live paint — there is no paint-off turbo path.
 Breakpoint action `fast` is a separate paint-off speed mode, not a turbo
 ladder value.

@@ -57,7 +57,7 @@ Ops: `== != < > <= >=` and mask set/clear. Empty = unguarded.
 | `\[RESET]` `\[COLDRESET]` | Warm / cold reset |
 | `\[W:N]` | Wait N units (~10 ms each at 1 MHz) |
 
-Clipboard **Opt+Insert** remains plain `apple2_paste_begin` (no escapes).
+Clipboard **Alt+Insert** remains plain `apple2_paste_begin` (no escapes).
 Paste/TYPE do not change turbo.
 
 ## SWAP

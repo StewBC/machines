@@ -34,7 +34,7 @@ full-frame (block) paint** ~60 Hz wall. Encoding: milli-MHz, or
 | Finite `N` | Aim `N ×` ~1.02 MHz (frame-quantum pace) | Beam path, Φ0 step; per-cycle audio |
 | `max` | Instruction quanta, ≤2e6 insns / ~1/60 s wall | A-lite H/V/VBL (no pixel paint); one `paint_full_frame` per quantum; **no host PCM** (AY time still advanced); reseed beam on leave |
 
-CLI `--turbo` / INI `turbo_speeds`. Opt+T cycles. Paste and TYPE do **not**
+CLI `--turbo` / INI `turbo_speeds`. Alt+T cycles. Paste and TYPE do **not**
 change turbo. FAST → max; SLOW → 1 MHz. Control: `set-turbo` accepts MHz,
 `max`, or `-1` — not ladder indices.
 

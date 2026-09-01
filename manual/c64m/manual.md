@@ -54,7 +54,7 @@ Useful flags:
 | `--kbdjoy-layout <numpad|wasd>` | Select the keyboard joystick key layout        |
 | `--mouse` / `--no-mouse` | Enable CBM 1351 mouse capture (default off) |
 | `--mouse-port <1|2>`   | Control port for the 1351 (default `1`) |
-| `--turbo <list>` / `-t`| Turbo mode list for Opt+T, e.g. `1,max` (1=normal, 2/`max`=max; `3` rejected) |
+| `--turbo <list>` / `-t`| Turbo mode list for Alt+T, e.g. `1,max` (1=normal, 2/`max`=max; `3` rejected) |
 | `--audio-smoke`        | Emit a 440 Hz test tone to verify audio output      |
 
 By default, c64m loads `c64m.ini` from the current directory. The INI file stores
@@ -109,7 +109,7 @@ You can also restore or write snapshots while the emulator is running:
 
 - UI: Debugger / controls **[Load]** and **[Save]** (see **State**)
 - Drag and drop a `.c64state` file onto the window
-- Quickload / quicksave: **Shift+Opt+<** / **Shift+Opt+>**
+- Quickload / quicksave: **Shift+Alt+<** / **Shift+Alt+>**
 - Control port: `load-state <path>` and `save-state <path>` (async; wait for
   `load-state-complete` or `save-state-complete` - see **Remote**)
 
@@ -240,8 +240,8 @@ to the emulated C64. The window can be resized; the display always scales to fit
 available area. Whether it keeps the true CRT shape while doing so, or simply stretches
 to fill, is the **True Aspect Ratio** setting. See **Display and Scaling**.
 
-Press **F9** to open or close Debug Mode. Press **Opt+H** to open or close the in-emulator
-help. Press **Opt+R** to open or close **Forensics** (CPU flight recorder FIND UI; see
+Press **F9** to open or close Debug Mode. Press **Alt+H** to open or close the in-emulator
+help. Press **Alt+R** to open or close **Forensics** (CPU flight recorder FIND UI; see
 **Forensics**). On macOS, **Cmd+Q** quits.
 
 ### Window Title
@@ -272,8 +272,8 @@ In Debug Mode, the window is divided into four main areas:
 
 c64m tracks an active view for keyboard input. When no modal dialog is open, the active
 C64 display, Disassembly, Misc, or Memory view has a neutral gray outline. Click a view
-to make it active, or press **Opt+Tab** to cycle C64->Disassembly->Misc->Memory. Press
-**Shift+Opt+Tab** to cycle in reverse. Modal dialogs keep input to themselves, so these
+to make it active, or press **Alt+Tab** to cycle C64->Disassembly->Misc->Memory. Press
+**Shift+Alt+Tab** to cycle in reverse. Modal dialogs keep input to themselves, so these
 view-cycling keys do not work while a dialog is open.
 
 ### Layout
@@ -312,12 +312,12 @@ After land the CRT uses the cell's still when present, otherwise paints from the
 C64 (no pink watermark). `[-]` / `[+]` step one retained checkpoint (past the newest,
 `[+]` restores live). F10 / F11 / Shift+F10 / F12 / Shift+F12 re-execute on that C64 and
 stop at a breakpoint or live; they stay in Inspector. F12 does not resume the live line.
-Opt+Left is unbound. Opt+B still toggles the same breakpoint list.
+Alt+Left is unbound. Alt+B still toggles the same breakpoint list.
 
 A successful guest disk write **drops earlier Inspector history**. The tab shows
 `disk write, device N @ cycle X` at the left edge of the remaining window.
 
-**Opt+T** into max (turbo 2 / `max`) pauses the CPU flight recorder by default
+**Alt+T** into max (turbo 2 / `max`) pauses the CPU flight recorder by default
 and discards Inspector Record. HST1 keeps retained records and resumes when
 leaving max (back to turbo 1). Opt out of the HST1 pause with
 `--no-history-off-on-max` or `[debug] history_off_on_max=false`. Separately,
@@ -328,14 +328,14 @@ the Record wipe with `--no-inspector-off-on-max` or
 `[debug] inspector_off_on_max=false`. Inspector Record still does not arm or
 stop HST1.
 
-**Forensics...** (or **Opt+R**) opens the full-window FIND UI over the CPU flight
+**Forensics...** (or **Alt+R**) opens the full-window FIND UI over the CPU flight
 recorder. **Land before** / **Land exact** jump Inspect to a FIND hit's cycle; they
 do not drive the scrubber. A successful land then opens the debugger on the
 Inspector tab. See **Forensics**.
 
 ### Turbo Mode
 
-**Opt+T** cycles through the configured turbo mode list (default `1,max`). The
+**Alt+T** cycles through the configured turbo mode list (default `1,max`). The
 list is stored in the INI file. Value `3` is rejected on the CLI, INI, and
 control port.
 
@@ -357,10 +357,10 @@ somewhat lower depending on load.
 
 ### Help
 
-Press **Opt+H** or **ESC** to open or close the in-emulator help overlay. The C64 pauses
+Press **Alt+H** or **ESC** to open or close the in-emulator help overlay. The C64 pauses
 while the overlay is open and resumes when it is dismissed (unless Help was opened over
 Forensics, which was already paused). Help is **modal**: while it is open, only Help
-navigation, **Esc** / **Opt+H** (close), and Quit work -- not F9, Opt+R, step/run, or
+navigation, **Esc** / **Alt+H** (close), and Quit work -- not F9, Alt+R, step/run, or
 other host chords. Help draws over the CRT underlay; closing it returns to the surface
 that was active (full-screen CRT, Debug Mode, or Forensics).
 
@@ -404,13 +404,13 @@ Keyboard shortcuts active while the help overlay is open:
 recorder (HST1 FIND / NEXT / READ). It is not the Inspector slider: FIND answers
 "who wrote this?", then you can land Inspect at a hit's machine cycle.
 
-Open from Misc -> Inspector (**Forensics...**) or **Opt+R** (works from the
+Open from Misc -> Inspector (**Forensics...**) or **Alt+R** (works from the
 full-screen CRT or with F9 Debug Mode up).
 
 | Transition | Behavior |
 |------------|----------|
 | Open Forensics | **Pauses** if the machine was running. Remembers whether you came from the CRT or the debugger. |
-| **Opt+R** / **Close** | Return to that entry surface. CRT entry resumes only if it was running when Forensics opened. Debugger entry stays paused. |
+| **Alt+R** / **Close** | Return to that entry surface. CRT entry resumes only if it was running when Forensics opened. Debugger entry stays paused. |
 | **F9** | Always open the debugger, paused (abandons any CRT resume latch). |
 | Successful **Land before** / **Land exact** | Same as **F9**: debugger, paused. Also selects Misc -> Inspector. Cancel or failed land stays in Forensics. |
 | **Esc** | Does **not** leave Forensics (Help still uses Esc). |
@@ -452,7 +452,7 @@ If you are not yet Inspecting but checkpoints exist, either land button asks to
 reports the post-land `focus_cycle` versus the requested cycle (clamp, live, or
 quantized). After a successful land, Forensics closes and the debugger opens
 paused on the Inspector tab. Cancel or a failed land leaves you in Forensics.
-**Opt+R** / **Close** still return to the entry surface as above.
+**Alt+R** / **Close** still return to the entry surface as above.
 
 The control port can land the same way: `land-inspector cycle=<n>` (quantized)
 and `land-inspector-exact cycle=<n>` (see **Remote** / **State and Snapshots**).
@@ -552,33 +552,33 @@ source-mode color; if the view is active, the separate neutral active-view borde
 still shown.
 
 Switch modes with **right-click** anywhere in the view (the **Source** group lists all
-three with an asterisk next to the active choice), or with **Opt+M** from the keyboard.
+three with an asterisk next to the active choice), or with **Alt+M** from the keyboard.
 
 When the emulator is paused, the same popup also shows an **Access** group for the
 address under the disassembly cursor. The four `XXXX` entries are the recorded program
 counters of the last instructions that wrote to that C64 address, oldest retained entry
 first and newest entry last. `0000` means no writer has been recorded for that slot.
 Selecting one of the entries moves the Disassembly cursor to that address, the same kind
-of jump as entering the writer PC with `Opt+A`.
+of jump as entering the writer PC with `Alt+A`.
 
 ### Keyboard Controls
 
 | Key             | Action                                                     |
 |-----------------|------------------------------------------------------------|
-| `Opt+A`         | Enter address-jump mode; type four hex digits then Enter   |
-| `Opt+B`         | Toggle execute breakpoint at cursor (paused only; same list while Inspecting) |
-| `Opt+M`         | Cycle source mode: Map -> ROM -> RAM -> Map                |
-| `Opt+S`         | Open the Symbol Lookup dialog                              |
-| `Opt+Left`      | Set PC to cursor address (paused only; unbound while Inspecting) |
+| `Alt+A`         | Enter address-jump mode; type four hex digits then Enter   |
+| `Alt+B`         | Toggle execute breakpoint at cursor (paused only; same list while Inspecting) |
+| `Alt+M`         | Cycle source mode: Map -> ROM -> RAM -> Map                |
+| `Alt+S`         | Open the Symbol Lookup dialog                              |
+| `Alt+Left`      | Set PC to cursor address (paused only; unbound while Inspecting) |
 | `Up` / `Down`   | Move cursor one instruction                                |
 | `PgUp` / `PgDn` | Scroll one page                                            |
 | `Home` / `End`  | Jump to first or last line of the current view             |
-| `Opt+Home`      | Jump to address `$0000`                                    |
-| `Opt+End`       | Jump to address `$FFFF`                                    |
+| `Alt+Home`      | Jump to address `$0000`                                    |
+| `Alt+End`       | Jump to address `$FFFF`                                    |
 
 ### Symbol Lookup
 
-**Opt+S** opens the Symbol Lookup dialog while the Disassembly view is active.
+**Alt+S** opens the Symbol Lookup dialog while the Disassembly view is active.
 
 The dialog shows a searchable, sortable table of **enabled** symbols known to the
 debugger: labels exported from the assembler and symbols loaded from Configure
@@ -617,7 +617,7 @@ ascending.
 | **[Close]** or `ESC`    | Dismiss without navigating (`ESC` closes Symbol Filter first if it is open) |
 
 **On commit:** the Disassembly view cursor jumps to the symbol's address, equivalent to
-entering the address with `Opt+A`.
+entering the address with `Alt+A`.
 
 ### Symbol Filter
 
@@ -672,7 +672,7 @@ Map has no source-mode color; if the view is active, the separate neutral active
 border is still shown.
 
 Switch modes with **right-click** anywhere in the view (the **Source** group lists all
-choices with an asterisk next to the active choice), or with **Opt+M** from the keyboard.
+choices with an asterisk next to the active choice), or with **Alt+M** from the keyboard.
 
 The memory and disassembly view modes are independent of each other -- for example, you
 can watch raw RAM in the memory view while the disassembler follows the CPU map
@@ -734,27 +734,27 @@ writer PC.
 
 | Key               | Action                                                       |
 |-------------------|--------------------------------------------------------------|
-| `Opt+A`           | Toggle address-entry mode; type four hex digits to jump      |
-| `Opt+M`           | Cycle source mode: Map -> ROM -> RAM -> 1541 Map 8 -> 1541 Map 9 -> Map |
-| `Opt+S`           | Open the Symbol Lookup dialog                                |
-| `Opt+X`           | Toggle between hex and ASCII edit modes                      |
-| `Opt+V`           | Split active view at cursor                                  |
-| `Shift+Opt+V`     | Split active view at the start of the cursor row             |
-| `Opt+J`           | Dissolve active view (no-op when only one view exists)       |
-| `Opt+Up`          | Switch focus to the view above                               |
-| `Opt+Down`        | Switch focus to the view below                               |
-| `Opt+Shift+Up`    | Scroll one row up; cursor stays on the same screen cell      |
-| `Opt+Shift+Down`  | Scroll one row down; cursor stays on the same screen cell    |
+| `Alt+A`           | Toggle address-entry mode; type four hex digits to jump      |
+| `Alt+M`           | Cycle source mode: Map -> ROM -> RAM -> 1541 Map 8 -> 1541 Map 9 -> Map |
+| `Alt+S`           | Open the Symbol Lookup dialog                                |
+| `Alt+X`           | Toggle between hex and ASCII edit modes                      |
+| `Alt+V`           | Split active view at cursor                                  |
+| `Shift+Alt+V`     | Split active view at the start of the cursor row             |
+| `Alt+J`           | Dissolve active view (no-op when only one view exists)       |
+| `Alt+Up`          | Switch focus to the view above                               |
+| `Alt+Down`        | Switch focus to the view below                               |
+| `Alt+Shift+Up`    | Scroll one row up; cursor stays on the same screen cell      |
+| `Alt+Shift+Down`  | Scroll one row down; cursor stays on the same screen cell    |
 | `Up` / `Down`     | Move cursor one row (16 bytes)                               |
 | `Left` / `Right`  | Move cursor one byte (or nibble in hex mode)                 |
 | `PgUp` / `PgDn`   | Scroll one page                                              |
 | `Home`            | Move cursor to start of the current row                      |
-| `Opt+Home`        | Move cursor to the start of the visible window               |
+| `Alt+Home`        | Move cursor to the start of the visible window               |
 | `End`             | Move cursor to end of the current row                        |
-| `Opt+End`         | Move cursor to the end of the visible window                 |
+| `Alt+End`         | Move cursor to the end of the visible window                 |
 | `0-9`, `A-F`     | Edit hex nibble at cursor (paused only, hex mode)            |
 
-**Opt+S** also opens the Symbol Lookup dialog from the Memory view. On commit, the
+**Alt+S** also opens the Symbol Lookup dialog from the Memory view. On commit, the
 active virtual view scrolls so that the symbol's address is row-aligned (the row
 containing that address appears at the top of the view) and the cursor is placed on
 the exact byte. See **Symbol Lookup** under **Disasm** for full dialog reference.
@@ -882,7 +882,7 @@ apply to `.T64` files.
 
 The Load dialog is keyboard-driven: **Return** (or keypad Return) performs the same
 action as **[OK]** when the Name field is nonempty, including the normal address
-validation. **Opt+Return** opens **Browse...**. Once the file browser is open, it is the
+validation. **Alt+Return** opens **Browse...**. Once the file browser is open, it is the
 active dialog, so typing selects a file and **Return** opens the selected file.
 
 **Basic Text** loads a plain-text BASIC listing - the kind you get from a `LIST`,
@@ -941,9 +941,9 @@ swap after load). C64 ROM bytes are referenced and hash-validated rather than fu
 embedded, so a snapshot is expected to be loaded with the same ROM files available. A
 failed load leaves the live machine unchanged.
 
-**Shift+Opt+>** quicksaves to the snapshot folder (Configure -> Paths -> `snapshot`,
+**Shift+Alt+>** quicksaves to the snapshot folder (Configure -> Paths -> `snapshot`,
 which defaults to the current directory). Each quicksave creates a new timestamped
-`.c64state` file; existing quicksaves are not overwritten. **Shift+Opt+<** quickloads
+`.c64state` file; existing quicksaves are not overwritten. **Shift+Alt+<** quickloads
 the newest `.c64state` in that folder.
 
 At startup, use `--sna <file>` to load a snapshot from the command line. Over the
@@ -1201,7 +1201,7 @@ Alias note: `RE` means RESTORE; `RS` means RUNSTOP.
 **[Apply]** applies changes. **[Cancel]** discards them.
 
 Setting an execute breakpoint from the keyboard while the cursor is in the Disassembly
-view is faster: position the cursor and press **Opt+B**. A second press removes the
+view is faster: position the cursor and press **Alt+B**. A second press removes the
 breakpoint.
 
 ## Hardware
@@ -1666,10 +1666,10 @@ below the tab body on every tab.
 | 1541 media (GCR)  | When Emulate 1541 is on: GCR tracks, rotation, SYNC, motor/head; enables G64 |
 | Show disk LEDs    | Draw green (read) and red (write) activity LEDs in the window corner |
 
-The Keyboard Joystick port selector matches the runtime **Shift+Opt+1** /
-**Shift+Opt+2** assignment; either place can change the active port. Change the layout
-here or with **Shift+Opt+M**. Mouse (1351) matches `--mouse` / `--mouse-port` and the
-`[input]` INI keys; enabling it does not grab the pointer until you **Opt+Click** the
+The Keyboard Joystick port selector matches the runtime **Shift+Alt+1** /
+**Shift+Alt+2** assignment; either place can change the active port. Change the layout
+here or with **Shift+Alt+M**. Mouse (1351) matches `--mouse` / `--mouse-port` and the
+`[input]` INI keys; enabling it does not grab the pointer until you **Alt+Click** the
 CRT (see **Mouse (1351)** under Implementation Notes). Changing Video reboots the
 emulated machine while preserving its running state. Emulate 1541, 1541 media (GCR),
 Show disk LEDs, and the other Machine settings apply immediately when you press
@@ -1736,7 +1736,7 @@ directory, and each row has a **[...]** button that opens a folder picker:
 | program   | Load PRG/BAS, and Load/Save Binary with no Basic checkbox      |
 | basic     | Load/Save Binary with **Basic Program** ticked                 |
 | text      | Load/Save Binary with **Basic Text** ticked                    |
-| snapshot  | Save/Load State - and the quicksave folder (Shift+Opt+> / <)   |
+| snapshot  | Save/Load State - and the quicksave folder (Shift+Alt+> / <)   |
 
 Edits to the browse folders take effect on the next browse immediately. The folder
 picker's **[Use This Folder]** button selects the folder currently shown. **[Save Paths
@@ -1989,45 +1989,45 @@ break.E38B = execute,map,type=load\x22*\x22\x2c8\x2c1\[RT]
 
 ## Keyboard
 
-Keys listed here are intercepted by the emulator before reaching the C64. On macOS,
-**Opt** = Option/Alt.
+Keys listed here are intercepted by the emulator before reaching the C64.
+**Alt** is Option on Mac.
 
 ### Emulator Keys
 
 | Key             | Action                                                     |
 |-----------------|------------------------------------------------------------|
 | **F9**          | Toggle Debug Mode on/off                                   |
-| **Opt+H**       | Toggle in-emulator help on/off                             |
-| **Opt+R**       | Toggle Forensics (CPU flight recorder FIND UI)             |
-| **Shift+Opt+A** | Assemble the configured source file using the Assembler settings |
-| **Shift+Opt+M** | Toggle keyboard joystick mapping between Numpad and WASD   |
+| **Alt+H**       | Toggle in-emulator help on/off                             |
+| **Alt+R**       | Toggle Forensics (CPU flight recorder FIND UI)             |
+| **Shift+Alt+A** | Assemble the configured source file using the Assembler settings |
+| **Shift+Alt+M** | Toggle keyboard joystick mapping between Numpad and WASD   |
 | **F10**         | Step instruction (paused) or Pause (running). In Inspector: sealed step (no-op at live) |
 | **Shift+F10**   | Step out of current subroutine. In Inspector: sealed step-out (no-op at live) |
 | **F11**             | Step over JSR. In Inspector: sealed step-over (no-op at live) |
 | **F12**         | Run (resume execution). In Inspector: re-execute to a breakpoint or live; stay in Inspector |
 | **Shift+F12**   | Run to the cursor address in the Disassembly view. In Inspector: same, still stops at live |
-| **Opt+T**       | Cycle turbo mode                                           |
-| **Opt+Tab**     | Cycle active view: C64 -> Disassembly -> Misc -> Memory    |
-| **Shift+Opt+Tab** | Cycle active view in reverse                            |
-| **Opt+1**       | Map gamepad to joystick port 1                             |
-| **Opt+2**       | Map gamepad to joystick port 2 (default)                   |
-| **Shift+Opt+1** | Assign the keyboard joystick to port 1 (press again to disable) |
-| **Shift+Opt+2** | Assign the keyboard joystick to port 2 (press again to disable) |
-| **Shift+Opt+0** | Disable the keyboard joystick on any port                       |
-| **Opt+Click**   | When Mouse (1351) is enabled: click the CRT to capture; Opt+Click again to release |
-| **Shift+Opt+>** | Quicksave state to the snapshot folder (Configure -> Paths)     |
-| **Shift+Opt+<** | Quickload the newest state from the snapshot folder             |
+| **Alt+T**       | Cycle turbo mode                                           |
+| **Alt+Tab**     | Cycle active view: C64 -> Disassembly -> Misc -> Memory    |
+| **Shift+Alt+Tab** | Cycle active view in reverse                            |
+| **Alt+1**       | Map gamepad to joystick port 1                             |
+| **Alt+2**       | Map gamepad to joystick port 2 (default)                   |
+| **Shift+Alt+1** | Assign the keyboard joystick to port 1 (press again to disable) |
+| **Shift+Alt+2** | Assign the keyboard joystick to port 2 (press again to disable) |
+| **Shift+Alt+0** | Disable the keyboard joystick on any port                       |
+| **Alt+Click**   | When Mouse (1351) is enabled: click the CRT to capture; Alt+Click again to release |
+| **Shift+Alt+>** | Quicksave state to the snapshot folder (Configure -> Paths)     |
+| **Shift+Alt+<** | Quickload the newest state from the snapshot folder             |
 | **Cmd+Q**       | Quit (macOS)                                               |
 
 ### Paste and Clipboard
 
 | Key                | Action                                                  |
 |--------------------|---------------------------------------------------------|
-| **Opt+Ins**        | Paste clipboard as timed C64 keystrokes (~40 ms per key) |
-| **Shift+Opt+Ins**  | Paste clipboard text via the input-encoding parser (same format as the Type breakpoint action) |
+| **Alt+Ins**        | Paste clipboard as timed C64 keystrokes (~40 ms per key) |
+| **Shift+Alt+Ins**  | Paste clipboard text via the input-encoding parser (same format as the Type breakpoint action) |
 
-Timed paste (**Opt+Ins**) advances with emulated time (faster wall-clock in max). Parser-based paste
-(**Shift+Opt+Ins**) supports named keys, PETSCII escapes, matrix addresses, and joystick
+Timed paste (**Alt+Ins**) advances with emulated time (faster wall-clock in max). Parser-based paste
+(**Shift+Alt+Ins**) supports named keys, PETSCII escapes, matrix addresses, and joystick
 events in addition to literal text; see **Type text format** under **Breakpoints**.
 
 ### C64 Key Mapping
@@ -2257,7 +2257,7 @@ Accepted execution commands respond:
 <id> ok accepted=1
 ```
 
-`set-turbo` changes only the active mode; it does not modify the configured Opt+T
+`set-turbo` changes only the active mode; it does not modify the configured Alt+T
 turbo list. `set-turbo 2` or `set-turbo max` pauses the CPU flight recorder when
 `history_off_on_max` is on (default) and wipes Inspector Record when
 `inspector_off_on_max` is on (default). Returning to turbo 1 resumes HST1 and
@@ -2275,7 +2275,7 @@ bus accesses in a bounded memory arena. The default budget is 256 MiB. Set it
 with `--history-memory=<MiB>` or `[debug] history_memory_mb`; `0` disables the
 feature and other valid values are 16 through 4096.
 
-In the debugger UI, **Forensics** (**Opt+R**) is the interactive FIND surface
+In the debugger UI, **Forensics** (**Alt+R**) is the interactive FIND surface
 over this recorder (see **Forensics**). The control-port verbs below are the
 same engine for scripts. Inspector Record does not arm or stop this recorder.
 
@@ -2996,10 +2996,10 @@ beyond 8/9 remain out of scope.
 ### Joystick
 
 Port 1 is emulated via CIA #1 Port B bits 0-4. Port 2 via CIA #1 Port A bits 0-4. A
-connected gamepad defaults to port 2; Opt+1 and Opt+2 reassign it.
+connected gamepad defaults to port 2; Alt+1 and Alt+2 reassign it.
 
 The host keyboard can also act as a joystick. It is disabled by default; assign it to a
-port with **Shift+Opt+1** / **Shift+Opt+2**, the Keyboard Joystick control in the
+port with **Shift+Alt+1** / **Shift+Alt+2**, the Keyboard Joystick control in the
 Configure dialog, or `--kbdjoy`. A gamepad and the keyboard may share the same port,
 in which case their directions and fire are combined.
 
@@ -3031,9 +3031,9 @@ Enable it with **Configure -> Machine -> Mouse (1351)**, `[input] mouse_enabled`
 
 **Capture:**
 
-1. With the mouse enabled, **Opt+Click** the CRT picture to capture (host cursor hides;
+1. With the mouse enabled, **Alt+Click** the CRT picture to capture (host cursor hides;
    relative motion feeds the guest).
-2. **Opt+Click** again to release (no need to hit the CRT while captured).
+2. **Alt+Click** again to release (no need to hit the CRT while captured).
 3. Capture also ends when the window loses focus, Help or Forensics opens, a modal
    dialog opens, or you enter Inspector.
 

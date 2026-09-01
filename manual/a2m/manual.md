@@ -163,7 +163,7 @@ You can also restore or write snapshots while the emulator is running:
 
 - UI: Misc -> Machine **[Load...]** and **[Save...]** (see **Machine**)
 - Drag and drop a `.a2state` file onto the window
-- Quickload / quicksave: **Shift+Opt+<** / **Shift+Opt+>**
+- Quickload / quicksave: **Shift+Alt+<** / **Shift+Alt+>**
 - Control port: `load-state <path>` and `save-state <path>` (see **Remote**)
 
 Example:
@@ -234,10 +234,10 @@ Double low-resolution graphics use the same 16-colour cells as LORES, but each
 scanner column is two 7-pixel half-cells (auxiliary RAM, then main). Mixed
 double LORES keeps 80-column text in the bottom four lines.
 
-Press **F9** to open or close Debug Mode. Press **Opt+H** to open or close the
-in-emulator help. Press **Opt+R** to open or close **Forensics** (CPU flight
+Press **F9** to open or close Debug Mode. Press **Alt+H** to open or close the
+in-emulator help. Press **Alt+R** to open or close **Forensics** (CPU flight
 recorder FIND UI; see **Forensics**). On macOS, **Cmd+Q** quits; on Windows and
-Linux, **Opt+Q** quits.
+Linux, **Alt+Q** quits.
 
 ### Window Title
 
@@ -267,8 +267,8 @@ In Debug Mode, the window is divided into four main areas:
 
 a2m tracks an active view for keyboard input. When no modal dialog is open, the active
 Apple 2 display, Disassembly, Misc, or Memory view has a neutral gray outline. Click a
-view to make it active, or press **Opt+Tab** to cycle Apple 2 -> Disassembly -> Misc ->
-Memory. Press **Shift+Opt+Tab** to cycle in reverse. Modal dialogs keep input to
+view to make it active, or press **Alt+Tab** to cycle Apple 2 -> Disassembly -> Misc ->
+Memory. Press **Shift+Alt+Tab** to cycle in reverse. Modal dialogs keep input to
 themselves, so these view-cycling keys do not work while a dialog is open.
 
 ### Machine Display pixel address
@@ -302,7 +302,7 @@ splitter positions are saved to the INI file on quit if `Save on Quit` is enable
 
 ### Turbo Mode
 
-**Opt+T** cycles through the configured turbo ladder (default `1,max`). The list is
+**Alt+T** cycles through the configured turbo ladder (default `1,max`). The list is
 stored in the INI file.
 
 Turbo is a list of MHz targets for the whole emulated machine (CPU, video beam,
@@ -325,11 +325,11 @@ presentation cadence and leaving `max` keeps the same Inspector window.
 
 ### Help
 
-Press **Opt+H** to open or close the in-emulator help overlay. **ESC** also closes it
+Press **Alt+H** to open or close the in-emulator help overlay. **ESC** also closes it
 when it is open. The Apple 2 pauses while the overlay is open and resumes when it is
 dismissed (unless Help was opened over Forensics, which was already paused). Help is
-**modal**: while it is open, only Help navigation, **Esc** / **Opt+H** (close), and
-Quit work -- not F9, Opt+R, step/run, or other host chords. Help draws over the CRT
+**modal**: while it is open, only Help navigation, **Esc** / **Alt+H** (close), and
+Quit work -- not F9, Alt+R, step/run, or other host chords. Help draws over the CRT
 underlay; closing it returns to the surface that was active (full-screen CRT, Debug
 Mode, or Forensics).
 
@@ -373,13 +373,13 @@ Keyboard shortcuts active while the help overlay is open:
 not the Inspector slider: FIND answers "who wrote this?", then you can land
 Inspect at a hit's machine cycle.
 
-Open from Misc -> Inspector (**Forensics...**) or **Opt+R** (from the full-screen
+Open from Misc -> Inspector (**Forensics...**) or **Alt+R** (from the full-screen
 CRT or with Debug Mode up).
 
 | Transition | Behavior |
 |------------|----------|
 | Open Forensics | **Pauses** if the machine was running. Remembers whether you came from the CRT or the debugger. |
-| **Opt+R** / **Close** | Return to that entry surface. CRT entry resumes only if it was running when Forensics opened. Debugger entry stays paused. |
+| **Alt+R** / **Close** | Return to that entry surface. CRT entry resumes only if it was running when Forensics opened. Debugger entry stays paused. |
 | **F9** | Always open the debugger, paused. |
 | Successful **Land before** / **Land exact** | Same as **F9**: debugger, paused, on Misc -> Inspector. Cancel or failed land stays in Forensics. |
 
@@ -416,7 +416,7 @@ With a record selected:
 If you are not yet Inspecting but checkpoints exist, either land button asks to
 **Inspect & Land** first. Landing needs an Inspector recording window. After a
 successful land, Forensics closes and the debugger opens paused on the Inspector
-tab. Cancel or a failed land leaves you in Forensics. **Opt+R** / **Close** still
+tab. Cancel or a failed land leaves you in Forensics. **Alt+R** / **Close** still
 return to the entry surface as above.
 
 The control port can land the same way: `land-inspector cycle=<n>` (quantized)
@@ -516,7 +516,7 @@ The disassembly view can show bytes from any of these sources:
 | **ROM** | System ROM bytes at ROM addresses, regardless of mapping |
 
 Right-click anywhere in the view to open a **Source** menu listing all six modes,
-with an asterisk next to the active choice. **Opt+M** from the keyboard cycles
+with an asterisk next to the active choice. **Alt+M** from the keyboard cycles
 Map -> ROM -> Main -> Map.
 
 When the emulator is paused, the same popup also shows an **Access** group for the
@@ -524,27 +524,27 @@ address under the disassembly cursor. The four `XXXX` entries are the recorded p
 counters of the last instructions that wrote to that address, oldest retained entry
 first and newest entry last. `0000` means no writer has been recorded for that slot.
 Selecting one of the entries moves the Disassembly cursor to that address, the same kind
-of jump as entering the writer PC with `Opt+A`.
+of jump as entering the writer PC with `Alt+A`.
 
 ### Keyboard Controls
 
 | Key | Action |
 |-----|--------|
-| `Opt+A` | Enter address-jump mode; type four hex digits then Enter |
-| `Opt+B` | Toggle execute breakpoint at cursor (paused only) |
-| `Opt+M` | Cycle source mode: Map -> ROM -> Main -> Map |
-| `Opt+S` | Open the Symbol Lookup dialog |
-| `Opt+Left` | Set PC to cursor address (paused, live only; unbound in time travel) |
-| `Opt+Right` | Set cursor address to PC |
+| `Alt+A` | Enter address-jump mode; type four hex digits then Enter |
+| `Alt+B` | Toggle execute breakpoint at cursor (paused only) |
+| `Alt+M` | Cycle source mode: Map -> ROM -> Main -> Map |
+| `Alt+S` | Open the Symbol Lookup dialog |
+| `Alt+Left` | Set PC to cursor address (paused, live only; unbound in time travel) |
+| `Alt+Right` | Set cursor address to PC |
 | `Up` / `Down` | Move cursor one instruction |
 | `PgUp` / `PgDn` | Scroll one page |
 | `Home` / `End` | Jump to first or last line of the current view |
-| `Opt+Home` | Jump to address `$0000` |
-| `Opt+End` | Jump to address `$FFFF` |
+| `Alt+Home` | Jump to address `$0000` |
+| `Alt+End` | Jump to address `$FFFF` |
 
 ### Symbol Lookup
 
-**Opt+S** opens the Symbol Lookup dialog while the Disassembly view is active.
+**Alt+S** opens the Symbol Lookup dialog while the Disassembly view is active.
 
 The dialog shows a searchable, sortable table of **enabled** symbols known to the
 debugger: labels exported from the assembler and symbols loaded from Configure
@@ -583,7 +583,7 @@ ascending.
 | **[Close]** or `ESC` | Dismiss without navigating (`ESC` closes Symbol Filter first if it is open) |
 
 **On commit:** the Disassembly view cursor jumps to the symbol's address, equivalent to
-entering the address with `Opt+A`.
+entering the address with `Alt+A`.
 
 ### Symbol Filter
 
@@ -633,8 +633,8 @@ Map has no source-mode color; if the view is active, the separate neutral active
 border is still shown.
 
 Switch modes with **right-click** anywhere in the view (the **Source** group lists all
-choices with an asterisk next to the active choice), or with **Opt+M** from the keyboard.
-**Opt+M** cycles Map -> Main -> Aux -> LC1 -> LC2 -> ROM -> Map.
+choices with an asterisk next to the active choice), or with **Alt+M** from the keyboard.
+**Alt+M** cycles Map -> Main -> Aux -> LC1 -> LC2 -> ROM -> Map.
 
 The memory and disassembly view modes are independent of each other. You can watch
 auxiliary RAM in the memory view while the disassembler follows the CPU map.
@@ -707,40 +707,40 @@ Selecting an entry moves the Disassembly cursor to that writer PC.
 
 ### Find
 
-With emulation stopped and the Memory panel active, **Opt+F** opens Find.
+With emulation stopped and the Memory panel active, **Alt+F** opens Find.
 Choose String (optionally ignoring case) or Hex; hex accepts complete byte pairs
-with optional spaces, such as `DE AD BE EF`. **Opt+G** repeats forward and
-**Opt+Shift+G** searches backward. Search follows the selected source of the
+with optional spaces, such as `DE AD BE EF`. **Alt+G** repeats forward and
+**Alt+Shift+G** searches backward. Search follows the selected source of the
 active split Memory view and wraps around the 64K address space.
 
 ### Keyboard Controls
 
 | Key | Action |
 |-----|--------|
-| `Opt+A` | Toggle address-entry mode; type four hex digits to jump |
-| `Opt+M` | Cycle source mode: Map -> Main -> Aux -> LC1 -> LC2 -> ROM -> Map |
-| `Opt+S` | Open the Symbol Lookup dialog |
-| `Opt+F` | Open Find (paused only) |
-| `Opt+G` | Find next |
-| `Opt+Shift+G` | Find previous |
-| `Opt+X` | Toggle between hex and ASCII edit modes |
-| `Opt+V` | Split active view at the cursor row & $FFF0 |
-| `Shift+Opt+V` | Split active view at cursor |
-| `Opt+J` | Dissolve active view (no-op when only one view exists) |
-| `Opt+Up` | Switch focus to the view above |
-| `Opt+Down` | Switch focus to the view below |
-| `Opt+Shift+Up` | Scroll one row up; cursor stays on the same screen cell |
-| `Opt+Shift+Down` | Scroll one row down; cursor stays on the same screen cell |
+| `Alt+A` | Toggle address-entry mode; type four hex digits to jump |
+| `Alt+M` | Cycle source mode: Map -> Main -> Aux -> LC1 -> LC2 -> ROM -> Map |
+| `Alt+S` | Open the Symbol Lookup dialog |
+| `Alt+F` | Open Find (paused only) |
+| `Alt+G` | Find next |
+| `Alt+Shift+G` | Find previous |
+| `Alt+X` | Toggle between hex and ASCII edit modes |
+| `Alt+V` | Split active view at the cursor row & $FFF0 |
+| `Shift+Alt+V` | Split active view at cursor |
+| `Alt+J` | Dissolve active view (no-op when only one view exists) |
+| `Alt+Up` | Switch focus to the view above |
+| `Alt+Down` | Switch focus to the view below |
+| `Alt+Shift+Up` | Scroll one row up; cursor stays on the same screen cell |
+| `Alt+Shift+Down` | Scroll one row down; cursor stays on the same screen cell |
 | `Up` / `Down` | Move cursor one row (16 bytes) |
 | `Left` / `Right` | Move cursor one byte (or nibble in hex mode) |
 | `PgUp` / `PgDn` | Scroll one page |
 | `Home` | Move cursor to start of the current row |
-| `Opt+Home` | Move cursor to the start of the visible window |
+| `Alt+Home` | Move cursor to the start of the visible window |
 | `End` | Move cursor to end of the current row |
-| `Opt+End` | Move cursor to the end of the visible window |
+| `Alt+End` | Move cursor to the end of the visible window |
 | `0-9`, `A-F` | Edit hex nibble at cursor (paused only, hex mode) |
 
-**Opt+S** also opens the Symbol Lookup dialog from the Memory view. On commit, the
+**Alt+S** also opens the Symbol Lookup dialog from the Memory view. On commit, the
 active virtual view scrolls so that the symbol's address is row-aligned (the row
 containing that address appears at the top of the view) and the cursor is placed on
 the exact byte. See **Symbol Lookup** under **Disassembly View** for full dialog
@@ -833,9 +833,9 @@ snapshot include the keyboard joystick port, layout, and swap-fire setting (so a
 quickload restores stick assignment without rewriting the INI). A failed load leaves
 the live machine unchanged.
 
-**Shift+Opt+>** quicksaves to the snapshot folder (Configure -> Paths -> `snapshot`,
+**Shift+Alt+>** quicksaves to the snapshot folder (Configure -> Paths -> `snapshot`,
 which defaults to the current directory). Each quicksave creates a new timestamped
-`.a2state` file; existing quicksaves are not overwritten. **Shift+Opt+<** quickloads
+`.a2state` file; existing quicksaves are not overwritten. **Shift+Alt+<** quickloads
 the newest `.a2state` in that folder.
 
 At startup, use `--sna <file>` to load a snapshot from the command line. Over the
@@ -850,7 +850,7 @@ state: it resumes automatically if it was running, or remains paused if it was
 stopped. Any pending assembler-queued run is cancelled.
 
 **F8** is the keyboard stand-in for CTRL+RESET (macOS often eats Control+F-keys).
-**Opt+F8** is CTRL+Open-Apple+RESET (cold start / banner boot).
+**Alt+F8** is CTRL+Open-Apple+RESET (cold start / banner boot).
 
 ## Debugger
 
@@ -1016,7 +1016,7 @@ introduces a named token. Names are case-insensitive. Up to 128 events per seque
 | `\[J1XC]` `\[J1YC]` `\[J1C]` | Center one or both axes |
 
 Bare `OA` / `CA` / `B0` / `B1` tokens pulse (assert, wait one unit, deassert).
-Clipboard paste (**Opt+Ins**) is always plain text; it does not parse this language.
+Clipboard paste (**Alt+Ins**) is always plain text; it does not parse this language.
 
 Examples:
 
@@ -1028,7 +1028,7 @@ CATALOG\r            Type CATALOG and press Return
 ```
 
 Setting an execute breakpoint from the keyboard while the cursor is in the Disassembly
-view is faster: position the cursor and press **Opt+B**. A second press removes the
+view is faster: position the cursor and press **Alt+B**. A second press removes the
 breakpoint.
 
 ## Hardware
@@ -1087,7 +1087,7 @@ The Assembler tab provides access to the integrated two-pass 6502 assembler.
 | Rearm one-shots | If checked, re-enables every auto-disabled one-shot breakpoint (`repeat = 0`) and resets its hit counter before assembling |
 | **[Assemble]** | Assembles the source and loads bytes into Apple RAM |
 
-After configuring the source and options once, **Shift+Opt+A** invokes the same
+After configuring the source and options once, **Shift+Alt+A** invokes the same
 action globally without opening the panel.
 
 When **Reset machine** is checked (the default), assembly waits for the machine to
@@ -1525,15 +1525,15 @@ paused, so the CRT does not jump.
 
 **[-]** / **[+]** move to the adjacent snapshot. **F12** re-executes toward live and
 stops at a breakpoint or at live; you stay in Inspect. Leaving and immediately
-re-entering without a machine change reuses the same NOW endpoint. **Opt+Left**
+re-entering without a machine change reuses the same NOW endpoint. **Alt+Left**
 (set PC from the Disassembly cursor) is unbound while Inspecting.
 
-**Forensics...** (or **Opt+R**) opens the full-window FIND UI over the CPU flight
+**Forensics...** (or **Alt+R**) opens the full-window FIND UI over the CPU flight
 recorder. Land before / Land exact jump Inspect to a FIND hit's cycle; they do not
 drive the scrubber. A successful land opens the debugger on the Inspector tab. See
 **Forensics**.
 
-Breakpoints are one list in live and time travel. **Opt+B** toggles execute at the
+Breakpoints are one list in live and time travel. **Alt+B** toggles execute at the
 Disassembly cursor. Memory and register pokes are rejected while Inspect is on.
 
 **Record** does not arm or stop the CPU flight recorder (HST1 / Forensics). Those
@@ -1567,9 +1567,9 @@ below the tab body on every tab.
 | Pause on BRK | Auto-pause free-run at the next `BRK` (`$00`) as a crash aid; off by default; applies live |
 | Show disk LEDs | Draw green (Disk II motor-on) and red (write activity) LEDs in the window corner |
 
-The Keyboard Joystick stick selector matches the runtime **Shift+Opt+1** /
-**Shift+Opt+2** assignment; either place can change the active stick. Change the
-layout here or with **Shift+Opt+M**. Default at first launch is Stick 1 / Numpad so
+The Keyboard Joystick stick selector matches the runtime **Shift+Alt+1** /
+**Shift+Alt+2** assignment; either place can change the active stick. Change the
+layout here or with **Shift+Alt+M**. Default at first launch is Stick 1 / Numpad so
 titles that expect a gameport have a keyboard stick without a pad.
 
 ### Emulator
@@ -1580,7 +1580,7 @@ titles that expect a gameport have a keyboard stick without a pad.
 | Original DEL behaviour | Backspace sends Apple II DEL (`$7F`) instead of cursor-left (`$08`). The physical Delete key always sends DEL |
 | Symbol Files | Add symbol files and display the comma-separated list of selected files. Paths load at startup and again when Configure applies a changed list; labels appear in Disassembly / Symbol Lookup after the next symbol poll (no assemble required) |
 | Colour / Mono | Colour uses artefact colour (HGR neighbour LUT, DHGR 5-bit window). Mono paints discrete on/off bits in the selected phosphor. Live preview; Cancel restores the decoder that was active when Configure opened |
-| Mono Mode | Phosphor for Mono, and the target **Shift+Opt+C** switches to: White, Green, or Amber. Editable while Colour is selected |
+| Mono Mode | Phosphor for Mono, and the target **Shift+Alt+C** switches to: White, Green, or Amber. Editable while Colour is selected |
 | True Aspect Ratio | Keep a classic 4:3 Apple monitor shape; off stretches the picture to fill the view |
 | CRT Smoothing | Filter the picture instead of showing hard pixel edges; forced on by CRT Scanlines and CRT Curvature |
 | CRT Scanlines | Simulate the dark gap between raster lines; the slider sets strength from 1-100% |
@@ -1593,7 +1593,7 @@ values that were active when Configure opened. **[OK]** accepts them. All three
 effects are optional and independent; with them disabled, a2m uses the original
 rectangular render path.
 
-**Shift+Opt+C** toggles Colour and the configured Mono Mode. It works with Debug Mode
+**Shift+Alt+C** toggles Colour and the configured Mono Mode. It works with Debug Mode
 closed. While Configure is open it moves the radios (Cancel still undoes). Lo-res
 cells stay solid fills in 16 spaced phosphor shades; HGR and DHGR drop artefact
 colour and show the raw bits.
@@ -1612,7 +1612,7 @@ button that opens a folder picker:
 | smartport | Insert SmartPort volumes |
 | binary | Load/Save Binary |
 | basic | Load/Save Applesoft text |
-| snapshot | Save/Load State - and the quicksave folder (Shift+Opt+> / <) |
+| snapshot | Save/Load State - and the quicksave folder (Shift+Alt+> / <) |
 
 Edits to the browse folders take effect on the next browse immediately. The folder
 picker's **[Use This Folder]** button selects the folder currently shown. **[Save
@@ -1685,7 +1685,7 @@ Default layout: slot 4 Mockingboard, slot 6 Disk II, slot 7 SmartPort, others em
 |-----|-------|
 | `true_aspect` | `true`/`false`; true keeps 4:3, false fills the view |
 | `colour` | `true`/`false`; true is the artefact colour decoder (also read from `color`) |
-| `mono_mode` | `white`, `green`, or `amber`; phosphor for Mono and for **Shift+Opt+C** |
+| `mono_mode` | `white`, `green`, or `amber`; phosphor for Mono and for **Shift+Alt+C** |
 | `crt_smoothing` | `true`/`false`; filter the picture rather than show hard pixel edges |
 | `crt_scanlines` | `true`/`false`; enable scanlines |
 | `crt_scanline_strength` | Integer 1-100; scanline darkness (default `35`) |
@@ -1832,45 +1832,45 @@ break.55B8 = execute,map,type=\r
 
 ## Keyboard
 
-Keys listed here are intercepted by the emulator before reaching the Apple 2. On
-macOS, **Opt** = Option/Alt.
+Keys listed here are intercepted by the emulator before reaching the Apple 2.
+**Alt** is Option on Mac.
 
 ### Emulator Keys
 
 | Key | Action |
 |-----|--------|
 | **F9** | Toggle Debug Mode on/off |
-| **Opt+H** | Toggle in-emulator help on/off (**ESC** also closes it) |
-| **Opt+R** | Toggle Forensics (CPU flight recorder FIND UI) |
-| **Shift+Opt+A** | Assemble the configured source file using the Assembler settings |
-| **Shift+Opt+M** | Toggle keyboard joystick mapping between Numpad and WASD |
+| **Alt+H** | Toggle in-emulator help on/off (**ESC** also closes it) |
+| **Alt+R** | Toggle Forensics (CPU flight recorder FIND UI) |
+| **Shift+Alt+A** | Assemble the configured source file using the Assembler settings |
+| **Shift+Alt+M** | Toggle keyboard joystick mapping between Numpad and WASD |
 | **F10** | Live: step instruction (paused) or Pause (running). Time travel: sealed step (no-op at live) |
 | **Shift+F10** | Live: step out. Time travel: sealed step-out (no-op at live) |
 | **F11** | Live: step over JSR. Time travel: sealed step-over (no-op at live) |
 | **F12** | Live: run. Time travel: re-execute to a breakpoint or live; stay in Inspect |
 | **Shift+F12** | Live: run to cursor. Time travel: run-to-cursor; stop at a breakpoint or live |
-| **Opt+B** | Toggle execute breakpoint at disassembly cursor (same list in live and time travel) |
+| **Alt+B** | Toggle execute breakpoint at disassembly cursor (same list in live and time travel) |
 | **F8** | Warm reset (CTRL+RESET) |
-| **Opt+F8** | Cold reset (CTRL+Open-Apple+RESET) |
-| **Opt+T** | Cycle turbo mode |
-| **Shift+Opt+C** | Toggle Colour and the configured Mono CRT (White / Green / Amber) |
-| **Opt+Tab** | Cycle active view: Apple 2 -> Disassembly -> Misc -> Memory |
-| **Shift+Opt+Tab** | Cycle active view in reverse |
-| **Opt+1** | Map gamepad to stick 1 |
-| **Opt+2** | Map gamepad to stick 2 (or swap two pads) |
-| **Shift+Opt+1** | Assign the keyboard joystick to stick 1 (press again to disable) |
-| **Shift+Opt+2** | Assign the keyboard joystick to stick 2 (press again to disable) |
-| **Shift+Opt+0** | Disable the keyboard joystick |
-| **Shift+Opt+>** | Quicksave state to the snapshot folder (Configure -> Paths) |
-| **Shift+Opt+<** | Quickload the newest state from the snapshot folder |
+| **Alt+F8** | Cold reset (CTRL+Open-Apple+RESET) |
+| **Alt+T** | Cycle turbo mode |
+| **Shift+Alt+C** | Toggle Colour and the configured Mono CRT (White / Green / Amber) |
+| **Alt+Tab** | Cycle active view: Apple 2 -> Disassembly -> Misc -> Memory |
+| **Shift+Alt+Tab** | Cycle active view in reverse |
+| **Alt+1** | Map gamepad to stick 1 |
+| **Alt+2** | Map gamepad to stick 2 (or swap two pads) |
+| **Shift+Alt+1** | Assign the keyboard joystick to stick 1 (press again to disable) |
+| **Shift+Alt+2** | Assign the keyboard joystick to stick 2 (press again to disable) |
+| **Shift+Alt+0** | Disable the keyboard joystick |
+| **Shift+Alt+>** | Quicksave state to the snapshot folder (Configure -> Paths) |
+| **Shift+Alt+<** | Quickload the newest state from the snapshot folder |
 | **Cmd+Q** | Quit (macOS) |
-| **Opt+Q** | Quit (Windows / Linux) |
+| **Alt+Q** | Quit (Windows / Linux) |
 
 ### Paste and Clipboard
 
 | Key | Action |
 |-----|--------|
-| **Opt+Ins** | Paste OS clipboard into the Apple keyboard (`$C000` / `$C010`). //e keeps case; ][+ uppercases. Does not change turbo. |
+| **Alt+Ins** | Paste OS clipboard into the Apple keyboard (`$C000` / `$C010`). //e keeps case; ][+ uppercases. Does not change turbo. |
 
 ### Apple Key Mapping
 
@@ -1897,7 +1897,7 @@ Host function keys are product-shell shortcuts and are not forwarded to the Appl
 ### Keyboard Joystick
 
 The host keyboard can also act as an Apple gameport stick. Default at first launch is
-**Stick 1** / **Numpad**. Assign it with **Shift+Opt+1** / **Shift+Opt+2**, the
+**Stick 1** / **Numpad**. Assign it with **Shift+Alt+1** / **Shift+Alt+2**, the
 Keyboard Joystick control in the Configure dialog, or `--kbdjoy`.
 
 | Layout | Directions | Diagonals | Fire 0 | Fire 1 |
@@ -1915,7 +1915,7 @@ gameport instead of reaching the keyboard. They type normally when the stick is
 disabled or when a debugger view has keyboard focus. The `numpad` layout uses
 keypad key codes, so Num Lock must be on.
 
-SDL gamepads: D-pad/stick, A=BUTN0, B=BUTN1. **Opt+1** / **Opt+2** map a single pad
+SDL gamepads: D-pad/stick, A=BUTN0, B=BUTN1. **Alt+1** / **Alt+2** map a single pad
 to stick 1 or 2, or swap two pads.
 
 ## Remote
@@ -2100,7 +2100,7 @@ Accepted execution commands respond:
 <id> ok accepted=1
 ```
 
-`set-turbo` changes only the active mode; it does not modify the configured Opt+T
+`set-turbo` changes only the active mode; it does not modify the configured Alt+T
 turbo list. Its accepted response includes the requested mode:
 
 ```text
@@ -2114,7 +2114,7 @@ bus accesses in a bounded memory arena. The default budget is 256 MiB. Set it
 with `--history-memory=<MiB>` or `[debug] history_memory_mb`; `0` disables the
 feature and other valid values are 16 through 4096.
 
-In the debugger UI, **Forensics** (**Opt+R**) is the interactive FIND surface
+In the debugger UI, **Forensics** (**Alt+R**) is the interactive FIND surface
 over this recorder (see **Forensics**). The control-port verbs below are the
 same engine for scripts.
 
@@ -2407,7 +2407,7 @@ LED; write activity lights the red LED.
 ### Joystick
 
 See **Keyboard Joystick**. A connected gamepad defaults to stick 2 mapping unless
-**Opt+1** / **Opt+2** reassign it. A gamepad and the keyboard stick may share the
+**Alt+1** / **Alt+2** reassign it. A gamepad and the keyboard stick may share the
 same stick, in which case their directions and fire are combined.
 
 ### Display and Scaling

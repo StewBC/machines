@@ -168,14 +168,14 @@ static void test_enter_leave_edges(void) {
     frontend_mouse_reset(&mouse);
     frontend_mouse_set_enabled(&mouse, true);
 
-    /* Without Opt, click on CRT is ignored by mouse module. */
+    /* Without Alt, click on CRT is ignored by mouse module. */
     SDL_SetModState(KMOD_NONE);
     ev = button_at(SDL_MOUSEBUTTONDOWN, SDL_BUTTON_LEFT, 50, 50);
     expect_false("plain down ignored", frontend_mouse_handle_event(
         &mouse, &ev, crt_rect(), &ui, &action));
     expect_action("plain none", FRONTEND_MOUSE_ACTION_NONE, action);
 
-    /* Opt+down on CRT arms. */
+    /* Alt+down on CRT arms. */
     SDL_SetModState(KMOD_ALT);
     ev = button_at(SDL_MOUSEBUTTONDOWN, SDL_BUTTON_LEFT, 50, 50);
     expect_true("opt down arms", frontend_mouse_handle_event(
@@ -183,14 +183,14 @@ static void test_enter_leave_edges(void) {
     expect_true("armed", mouse.opt_click_armed);
     expect_false("not captured yet", mouse.captured);
 
-    /* Opt+up completes enter (may be outside CRT). */
+    /* Alt+up completes enter (may be outside CRT). */
     ev = button_at(SDL_MOUSEBUTTONUP, SDL_BUTTON_LEFT, 0, 0);
     expect_true("opt up enters", frontend_mouse_handle_event(
         &mouse, &ev, crt_rect(), &ui, &action));
     expect_action("enter", FRONTEND_MOUSE_ACTION_ENTER, action);
     expect_true("captured", mouse.captured);
 
-    /* Opt+down/up while captured leaves (no CRT required). */
+    /* Alt+down/up while captured leaves (no CRT required). */
     ev = button_at(SDL_MOUSEBUTTONDOWN, SDL_BUTTON_LEFT, 999, 999);
     expect_true("leave arm", frontend_mouse_handle_event(
         &mouse, &ev, crt_rect(), &ui, &action));

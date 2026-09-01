@@ -2173,7 +2173,7 @@ void forensics_view_render(
         nk_layout_row_dynamic(ctx, hint_h, 1);
         nk_label(
             ctx,
-            "Opt+R/Close return to entry. Land/F9 -> debugger (paused). Tab completes keys. Double-click id=/cyc=/pc=$ to copy.",
+            "Alt+R/Close return to entry. Land/F9 -> debugger (paused). Tab completes keys. Double-click id=/cyc=/pc=$ to copy.",
             NK_TEXT_LEFT);
 
         ctx->style.window.background = fr_bg;

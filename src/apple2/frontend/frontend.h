@@ -324,7 +324,7 @@ bool frontend_handle_help_key(frontend *ui, const SDL_KeyboardEvent *key, int sc
 /* Forensics full-window mode. Help may open over it (modal); opening Forensics
    while Help is up closes Help.
    from_debugger: opened with F9 debugger up; else full-screen CRT.
-   crt_was_running: recorded only for CRT entry (restore on Opt+R/Close). */
+   crt_was_running: recorded only for CRT entry (restore on Alt+R/Close). */
 void frontend_open_forensics(
     frontend *ui,
     bool from_debugger,

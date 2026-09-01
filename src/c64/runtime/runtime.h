@@ -13,7 +13,7 @@ typedef struct runtime_client runtime_client;
 #endif
 
 /* Turbo mode IDs (not wall-clock multipliers). Stored in active_turbo_multiplier
-   and turbo_speeds[] for historical field names / Opt+T list compatibility.
+   and turbo_speeds[] for historical field names / Alt+T list compatibility.
    CSV / CLI / set-turbo also accept the token "max" as an alias for mode 2. */
 enum {
     RUNTIME_TURBO_MODE_NORMAL = 1, /* real-time pace, live pixels */

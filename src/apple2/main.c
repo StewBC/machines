@@ -403,10 +403,10 @@ static void sdl_apple_gameport_publish(
     }
 }
 
-/* Option/Alt is both a host modifier (Opt+Shift+1 stick assign) and, while the
+/* Option/Alt is both a host modifier (Alt+Shift+1 stick assign) and, while the
    keyboard stick is on, a fire key. Sequence that stuck BUTN0:
      stick off → LALT down sets A2S_OPEN_APPLE
-     Opt+Shift+1 enables stick
+     Alt+Shift+1 enables stick
      LALT up is consumed by the stick (never clears OA)
    Release solid-apple whenever stick ownership changes or the stick eats Alt. */
 static void release_solid_apple_keys(runtime_client *client)
@@ -599,7 +599,7 @@ static void sdl_apple_controller_handle_event(
     }
 }
 
-/* Opt+1 / Opt+2: map the single pad to stick N, or swap two pads. */
+/* Alt+1 / Alt+2: map the single pad to stick N, or swap two pads. */
 static void sdl_apple_controller_switch_mapping(
     sdl_apple_controller_state *state,
     runtime_client *client,
@@ -725,7 +725,7 @@ static void forensics_history_close_cursor(runtime_client *client, frontend *ui)
 /*
  * Leave Forensics.
  * force_debugger (F9 or successful Land): always debugger, never resume.
- * Otherwise (Opt+R / Close): return to entry surface; resume only if that
+ * Otherwise (Alt+R / Close): return to entry surface; resume only if that
  * surface was full-screen CRT and it was running when Forensics opened.
  */
 static void leave_forensics_mode(
@@ -1219,7 +1219,7 @@ static bool find_newest_state_file(
     return found;
 }
 
-/* c64m muscle memory: Opt+Shift+. save, Opt+Shift+, load */
+/* c64m muscle memory: Alt+Shift+. save, Alt+Shift+, load */
 static bool key_is_quicksave_shortcut(const SDL_KeyboardEvent *key)
 {
     if (!frontend_input_has_option_modifier(key) ||
@@ -2743,8 +2743,8 @@ int main(int argc, char **argv)
     bool last_title_inspecting = false;
     /* Keep SDL text input off unless a UI field is focused (c64m / macOS). */
     bool text_input_active = false;
-    /* After Opt+letter host chords, swallow TEXTINPUT until Option is released
-       so e.g. Opt+R opening Forensics does not type 'r' into the query field. */
+    /* After Alt+letter host chords, swallow TEXTINPUT until Option is released
+       so e.g. Alt+R opening Forensics does not type 'r' into the query field. */
     bool suppress_text_after_option_chord = false;
     uint32_t pixels[APPLE2_VIDEO_WIDTH * APPLE2_VIDEO_HEIGHT];
 
@@ -3119,8 +3119,8 @@ int main(int argc, char **argv)
                 } else if (sym == SDLK_m &&
                            frontend_input_has_option_modifier(&event.key) &&
                            frontend_input_has_shift_modifier(&event.key)) {
-                    /* Opt+Shift+M: toggle keyboard-stick layout numpad ↔ WASD.
-                       (Bare Opt+M is memory-area cycle, handled by frontend.) */
+                    /* Alt+Shift+M: toggle keyboard-stick layout numpad ↔ WASD.
+                       (Bare Alt+M is memory-area cycle, handled by frontend.) */
                     frontend_joystick_layout next_layout =
                         kbd_joystick.layout == FRONTEND_JOYSTICK_LAYOUT_NUMPAD ?
                             FRONTEND_JOYSTICK_LAYOUT_WASD :
@@ -3143,7 +3143,7 @@ int main(int argc, char **argv)
                 } else if ((sym == SDLK_0 || sym == SDLK_1 || sym == SDLK_2) &&
                            frontend_input_has_option_modifier(&event.key) &&
                            frontend_input_has_shift_modifier(&event.key)) {
-                    /* Opt+Shift+0/1/2: assign keyboard stick (0=off); re-press
+                    /* Alt+Shift+0/1/2: assign keyboard stick (0=off); re-press
                        the active stick toggles it off. */
                     unsigned requested = sym == SDLK_1 ? 1u :
                                         sym == SDLK_2 ? 2u : 0u;
@@ -3171,7 +3171,7 @@ int main(int argc, char **argv)
                 } else if ((sym == SDLK_1 || sym == SDLK_2) &&
                            frontend_input_has_option_modifier(&event.key) &&
                            !frontend_input_has_shift_modifier(&event.key)) {
-                    /* Opt+1 / Opt+2: map single pad to stick, or swap two pads. */
+                    /* Alt+1 / Alt+2: map single pad to stick, or swap two pads. */
                     sdl_apple_controller_switch_mapping(
                         &controllers,
                         client,
@@ -3179,7 +3179,7 @@ int main(int argc, char **argv)
                     send_event_to_frontend = false;
                 } else if (sym == SDLK_INSERT &&
                            frontend_input_has_option_modifier(&event.key)) {
-                    /* Opt+Insert (and Opt+Shift+Insert): simple OS clipboard
+                    /* Alt+Insert (and Alt+Shift+Insert): simple OS clipboard
                        paste into Apple $C000 via KBDSTRB feed (a2m-style). */
                     if (!debug.inspecting) {
                         char *text = SDL_GetClipboardText();
@@ -3256,7 +3256,7 @@ int main(int argc, char **argv)
                     sym == SDLK_r &&
                     frontend_input_has_option_modifier(&event.key) &&
                     !frontend_input_has_shift_modifier(&event.key)) {
-                    /* Opt+R: toggle Forensics; leave returns to entry surface. */
+                    /* Alt+R: toggle Forensics; leave returns to entry surface. */
                     if (frontend_forensics_is_open(ui)) {
                         leave_forensics_mode(
                             window, client, ui, &ui_visible, false);
@@ -3653,7 +3653,7 @@ int main(int argc, char **argv)
         }
         if (!frontend_help_is_open(ui) &&
             frontend_forensics_consume_close_request(ui)) {
-            /* Close button == Opt+R (return to entry surface). */
+            /* Close button == Alt+R (return to entry surface). */
             leave_forensics_mode(window, client, ui, &ui_visible, false);
         }
         if (!frontend_help_is_open(ui) &&

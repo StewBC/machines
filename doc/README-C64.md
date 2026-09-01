@@ -57,7 +57,7 @@ cmake --build build -j
 Launch the application. The C64 display fills the window and the emulated machine boots
 normally — you should see the familiar blue BASIC screen within a moment.
 
-Press **Opt+H** (macOS) or **Alt+H** (Windows/Linux) at any time to open the built-in
+Press **Alt+H** at any time to open the built-in
 manual. Everything — keyboard shortcuts, debugger controls, assembler syntax, INI file
 format — is documented there.
 

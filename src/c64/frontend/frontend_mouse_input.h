@@ -33,7 +33,7 @@ typedef struct frontend_mouse_input {
     uint8_t counter_x;    /* 6-bit wrap (guest-visible) */
     uint8_t counter_y;
     uint8_t buttons;      /* FRONTEND_JOYSTICK_FIRE / UP */
-    bool opt_click_armed; /* Opt+LMB down seen (enter or leave) */
+    bool opt_click_armed; /* Alt+LMB down seen (enter or leave) */
     int pending_x;        /* counter-space deltas waiting for budget */
     int pending_y;
     uint32_t budget_ms;   /* SDL_GetTicks() of last budget commit */

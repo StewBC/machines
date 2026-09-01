@@ -42,7 +42,7 @@ slot7 = smartport
 
 [config]
 ; Turbo ladder: MHz targets and/or max (e.g. 1,max or 1,4,8,max).
-; First entry is the startup mode. Cycle with Opt+T (Alt+T).
+; First entry is the startup mode. Cycle with Alt+T.
 turbo_speeds = 1,max
 ; Host log policy: all | warn (default) | error | none. CLI: --log-level.
 ; log_level = warn

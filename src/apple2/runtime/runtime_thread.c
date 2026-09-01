@@ -2104,7 +2104,7 @@ static bool runtime_execute_breakpoint_actions(runtime *rt, const runtime_breakp
     }
 
     /*
-     * TYPE: Apple script (plain text + \[…] escapes). Clipboard Opt+Insert stays
+     * TYPE: Apple script (plain text + \[…] escapes). Clipboard Alt+Insert stays
      * plain apple2_paste_begin only — see runtime_type_script_*.
      */
     if ((breakpoint->action_mask & RUNTIME_BREAKPOINT_ACTION_TYPE) != 0 &&

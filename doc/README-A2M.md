@@ -80,7 +80,7 @@ cmake --build build -j
 Launch the application. The Apple display fills the window and the emulated
 machine boots — you should see the familiar Apple startup screen.
 
-Press **Opt+H** (macOS) or **Alt+H** (Windows/Linux) at any time to open the
+Press **Alt+H** at any time to open the
 built-in manual. Keyboard shortcuts, debugger controls, assembler syntax, and
 the INI format are documented there.
 

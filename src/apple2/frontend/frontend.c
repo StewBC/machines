@@ -771,7 +771,7 @@ static const char *frontend_memory_mode_label(runtime_memory_mode mode)
     }
 }
 
-/* Opt+M / cycle: leftover memview table order (Map→Main→Aux→LC1→LC2→ROM). */
+/* Alt+M / cycle: leftover memview table order (Map→Main→Aux→LC1→LC2→ROM). */
 static runtime_memory_mode frontend_memory_next_mode(runtime_memory_mode mode)
 {
     return (runtime_memory_mode)memory_source_cycle_next(
@@ -4062,7 +4062,7 @@ static void frontend_disassembly_handle_key(
         if (alt && debug_state != NULL &&
             debug_state->runtime_state == FRONTEND_RUNTIME_STATE_PAUSED) {
             if (debug_state->inspecting) {
-                /* Time travel: Opt+Left is unbound. */
+                /* Time travel: Alt+Left is unbound. */
             } else {
                 frontend_push_debugger_intent(
                     ui,
@@ -5685,7 +5685,7 @@ static void frontend_memory_handle_key(
         return;
     }
 
-    /* Opt+Shift+Up/Down: scroll one row with the cursor pinned on-screen. */
+    /* Alt+Shift+Up/Down: scroll one row with the cursor pinned on-screen. */
     if (alt && shift && sym == SDLK_UP &&
         memory->edit_field != FRONTEND_MEMORY_EDIT_ADDRESS) {
         int32_t delta = -(int32_t)memory->columns;
@@ -5703,7 +5703,7 @@ static void frontend_memory_handle_key(
         return;
     }
 
-    /* Virtual view navigation (Opt alone; Shift reserved above). */
+    /* Virtual view navigation (Alt alone; Shift reserved above). */
     if (alt && !shift && sym == SDLK_UP &&
         memory->edit_field != FRONTEND_MEMORY_EDIT_ADDRESS) {
         if (ui->memory_active_view_index > 0) {

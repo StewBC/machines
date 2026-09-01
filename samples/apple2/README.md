@@ -36,20 +36,20 @@ Manic Miner.
 
 Open **Misc → Assembler**. Browse to `samples/apple2/mminer/mminer-a2m.asm`. Enable
 **Auto-run at** `6000` if you want it to start immediately, then press
-**Assemble**. After the first setup, **Shift+Opt+A** re-runs the same Assemble
+**Assemble**. After the first setup, **Shift+Alt+A** re-runs the same Assemble
 action globally.
 
 Pretty much immediately Manic Miner should be running.
 
 You can now open Debug Mode with **F9** and pause with **F10**, edit the
-source, and press **Shift+Opt+A** (or **Assemble** again) to instantly see the
+source, and press **Shift+Alt+A** (or **Assemble** again) to instantly see the
 changes. You can also uncheck **Auto-run at**, in which case you could press
-**Opt+A** in the Disassembly view to jump to an address (say `6000`). Then press
-**Opt+Left** to set the program counter to the cursor address. Pressing **F12**
+**Alt+A** in the Disassembly view to jump to an address (say `6000`). Then press
+**Alt+Left** to set the program counter to the cursor address. Pressing **F12**
 will run from that address. With the mouse over the disassembly window and the
-debugger paused, press **Opt+S** to open the symbols view, and type `main` to
+debugger paused, press **Alt+S** to open the symbols view, and type `main` to
 show only symbols that match `main`. Click the `main` symbol itself and you
-should be at the place where `main` is assembled. Press **Opt+Left** to set the
+should be at the place where `main` is assembled. Press **Alt+Left** to set the
 PC to the disassembly cursor (from clicking on `main`). Press **F12** to run,
 **F10** to step one instruction, or **F11** to step over a `JSR`.
 

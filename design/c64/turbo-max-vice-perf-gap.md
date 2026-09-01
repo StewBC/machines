@@ -27,7 +27,7 @@ Notes:
 
 - Numeric **`2` is `RUNTIME_TURBO_MODE_MAX`**; CSV / CLI / `set-turbo` also
   accept the token **`max`** as an alias for 2.
-- Default Opt+T ladder is **`1,max`**.
+- Default Alt+T ladder is **`1,max`**.
 - Value **`3` is hard-rejected** on CLI `--turbo`, INI `turbo_speeds`, and
   control `set-turbo` (old warp / paint-off turbo path is gone).
 - Paint-off remains a useful **lab** probe (`profile_c64_hotloop … no-video`)

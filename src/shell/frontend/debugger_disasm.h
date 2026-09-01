@@ -35,8 +35,8 @@ typedef struct debugger_disasm_view {
 } debugger_disasm_view;
 
 /*
- * Mode-aware accessors. NULL callbacks are skipped (time travel: Opt+Left
- * unbound; Opt+B uses the one live breakpoint list).
+ * Mode-aware accessors. NULL callbacks are skipped (time travel: Alt+Left
+ * unbound; Alt+B uses the one live breakpoint list).
  */
 typedef struct debugger_disasm_ops {
     void *ctx;
@@ -61,12 +61,12 @@ typedef struct debugger_disasm_ops {
     void (*browse_home)(void *ctx, debugger_disasm_view *view, bool alt);
     void (*browse_end)(void *ctx, debugger_disasm_view *view, bool alt);
 
-    /* Opt+B: one list in live and time travel. Opt+Left: live set-PC; NULL
+    /* Alt+B: one list in live and time travel. Alt+Left: live set-PC; NULL
      * (unbound) in time travel. */
-    void (*on_toggle_execute_bp)(void *ctx); /* Opt+B */
-    void (*on_set_pc)(void *ctx, uint16_t address); /* Opt+Left */
-    void (*on_cycle_memory_mode)(void *ctx); /* Opt+M */
-    void (*on_symbol_lookup)(void *ctx); /* Opt+S */
+    void (*on_toggle_execute_bp)(void *ctx); /* Alt+B */
+    void (*on_set_pc)(void *ctx, uint16_t address); /* Alt+Left */
+    void (*on_cycle_memory_mode)(void *ctx); /* Alt+M */
+    void (*on_symbol_lookup)(void *ctx); /* Alt+S */
 } debugger_disasm_ops;
 
 void debugger_disasm_view_init(debugger_disasm_view *view);
