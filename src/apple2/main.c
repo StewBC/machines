@@ -2917,7 +2917,7 @@ int main(int argc, char **argv)
             while (SDL_GetTicks() - start < 80u) {
                 while (runtime_client_poll_event(client, &revent)) {
                     if (revent.type == RUNTIME_EVENT_ERROR) {
-                        fprintf(stderr, "a2m: runtime: %s\n", revent.data.error.message);
+                        log_error("runtime error: %s", revent.data.error.message);
                     }
                 }
                 SDL_Delay(1);
@@ -2954,7 +2954,7 @@ int main(int argc, char **argv)
                         &kbd_joystick);
                     log_info("load state complete: %s", revent.data.state_file.path);
                 } else if (revent.type == RUNTIME_EVENT_ERROR) {
-                    fprintf(stderr, "a2m: runtime: %s\n", revent.data.error.message);
+                    log_error("runtime error: %s", revent.data.error.message);
                 } else if (revent.type == RUNTIME_EVENT_STOPPED) {
                     running = false;
                 }
@@ -3397,10 +3397,7 @@ int main(int argc, char **argv)
                 log_info("load state complete: %s", revent.data.state_file.path);
             }
             if (revent.type == RUNTIME_EVENT_ERROR) {
-                fprintf(
-                    stderr,
-                    "a2m: runtime: %s\n",
-                    revent.data.error.message);
+                log_error("runtime error: %s", revent.data.error.message);
             }
             if (revent.type == RUNTIME_EVENT_ASSEMBLE_ERROR) {
                 frontend_show_assembler_errors(ui, revent.data.error.message);

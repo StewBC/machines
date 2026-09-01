@@ -7790,22 +7790,6 @@ int main(int argc, char **argv) {
             options.swiftlink_pace_baud);
     }
 
-    {
-        int i;
-        for (i = 0; i < C64M_DRIVE_COUNT; ++i) {
-            if (options.disk_slots[i].count > 0) {
-                runtime_client_mount_d64_ex(
-                    client,
-                    (uint8_t)i,
-                    options.disk_slots[i].paths[0],
-                    app_disk_slot_current_writable(&options.disk_slots[i]));
-            } else if (options.disk_slots[i].power_on_only &&
-                       (i == 8 || i == 9)) {
-                runtime_client_power_on_drive(client, (uint8_t)i);
-            }
-        }
-    }
-
     if (options.headless) {
         if (options.control_port > 0) {
             control = control_server_create((uint16_t)options.control_port);
@@ -7822,6 +7806,24 @@ int main(int argc, char **argv) {
         }
 
         send_run_command(client);
+
+        /* Mount after run so a missing/bad image pauses instead of being
+           cleared by the initial RUN command. */
+        {
+            int i;
+            for (i = 0; i < C64M_DRIVE_COUNT; ++i) {
+                if (options.disk_slots[i].count > 0) {
+                    runtime_client_mount_d64_ex(
+                        client,
+                        (uint8_t)i,
+                        options.disk_slots[i].paths[0],
+                        app_disk_slot_current_writable(&options.disk_slots[i]));
+                } else if (options.disk_slots[i].power_on_only &&
+                           (i == 8 || i == 9)) {
+                    runtime_client_power_on_drive(client, (uint8_t)i);
+                }
+            }
+        }
 
         if (options.sna_path != NULL) {
             runtime_client_load_state(client, options.sna_path);
@@ -7952,6 +7954,24 @@ int main(int argc, char **argv) {
     }
 
     send_run_command(client);
+
+    /* Mount after run so a missing/bad image pauses instead of being
+       cleared by the initial RUN command. */
+    {
+        int i;
+        for (i = 0; i < C64M_DRIVE_COUNT; ++i) {
+            if (options.disk_slots[i].count > 0) {
+                runtime_client_mount_d64_ex(
+                    client,
+                    (uint8_t)i,
+                    options.disk_slots[i].paths[0],
+                    app_disk_slot_current_writable(&options.disk_slots[i]));
+            } else if (options.disk_slots[i].power_on_only &&
+                       (i == 8 || i == 9)) {
+                runtime_client_power_on_drive(client, (uint8_t)i);
+            }
+        }
+    }
 
     if (options.sna_path != NULL) {
         runtime_client_load_state(client, options.sna_path);

@@ -1113,6 +1113,7 @@ static void runtime_publish_error(runtime *rt, const char *msg)
     if (msg != NULL) {
         strncpy(event.data.error.message, msg, sizeof(event.data.error.message) - 1);
     }
+    rt->last_stop_reason = RUNTIME_STOP_REASON_ERROR;
     runtime_publish_event(rt, &event);
 }
 
@@ -1128,7 +1129,24 @@ static void runtime_publish_error_code(
     if (msg != NULL) {
         strncpy(event.data.error.message, msg, sizeof(event.data.error.message) - 1);
     }
+    rt->last_stop_reason = RUNTIME_STOP_REASON_ERROR;
     runtime_publish_event(rt, &event);
+}
+
+/* Pause after an ERROR was already published. */
+static void runtime_pause_after_error(runtime *rt)
+{
+    rt->exec_state = RUNTIME_EXEC_PAUSED;
+    rt->last_stop_reason = RUNTIME_STOP_REASON_ERROR;
+    runtime_publish_simple(rt, RUNTIME_EVENT_PAUSED);
+    runtime_publish_machine(rt);
+}
+
+/* Publish ERROR then pause — for explicit media/load failures. */
+static void runtime_fail_with_error(runtime *rt, const char *msg)
+{
+    runtime_publish_error(rt, msg);
+    runtime_pause_after_error(rt);
 }
 
 static void runtime_publish_state_file_complete(
@@ -1294,12 +1312,12 @@ static void runtime_load_state(runtime *rt, const runtime_command *command)
     runtime_stop_reason previous_stop_reason = rt->last_stop_reason;
 
     if (!runtime_read_file_bytes(path, &bytes, &size)) {
-        runtime_publish_error(rt, "failed to read machine state snapshot");
+        runtime_fail_with_error(rt, "failed to read machine state snapshot");
         return;
     }
     if (!apple2_snapshot_load(&rt->machine, bytes, size)) {
         free(bytes);
-        runtime_publish_error(rt, "failed to load machine state snapshot");
+        runtime_fail_with_error(rt, "failed to load machine state snapshot");
         return;
     }
     free(bytes);
@@ -4462,11 +4480,21 @@ static void runtime_process_command(runtime *rt, const runtime_command *cmd, boo
             }
         }
         if (result != 0) {
-            runtime_publish_error(rt, "media insert failed");
+            char message[1100];
+            snprintf(
+                message,
+                sizeof(message),
+                "media insert failed `%s`",
+                cmd->data.media_insert.path);
+            runtime_publish_media_changed(
+                rt, RUNTIME_MEDIA_CHANGE_INSERT, slot, device, card_type,
+                false, cmd->data.media_insert.path);
+            runtime_fail_with_error(rt, message);
+            break;
         }
         runtime_publish_media_changed(
             rt, RUNTIME_MEDIA_CHANGE_INSERT, slot, device, card_type,
-            result == 0, cmd->data.media_insert.path);
+            true, cmd->data.media_insert.path);
         runtime_publish_machine(rt);
         break;
     }
@@ -5066,6 +5094,10 @@ int runtime_thread_main(void *userdata)
     }
     {
         int i;
+        bool media_failed = false;
+        char media_error[1100];
+
+        media_error[0] = '\0';
         for (i = 0; i < rt->diskii_mount_count; i++) {
             int slot = rt->diskii_slots[i];
             int drive = rt->diskii_drives[i];
@@ -5077,92 +5109,126 @@ int runtime_thread_main(void *userdata)
                 continue;
             }
             if (rt->machine.slot_type[slot] == SLOT_TYPE_DISKII) {
-                (void)apple2_disk_mount(&rt->machine, slot, drive, path);
-            }
-        }
-        /* Multi-image queues: start each drive on the first image (boot disk). */
-        for (i = 1; i <= 7; i++) {
-            int d;
-            if (!rt->machine.diskii_present[i]) {
-                continue;
-            }
-            for (d = 0; d < 2; d++) {
-                DISKII_DRIVE *dd = &rt->machine.diskii_controller[i].diskii_drive[d];
-                if (dd->images.items > 0u) {
-                    (void)apple2_disk_select_image(&rt->machine, i, d, 0);
+                if (apple2_disk_mount(&rt->machine, slot, drive, path) != 0) {
+                    snprintf(
+                        media_error,
+                        sizeof(media_error),
+                        "failed to mount Disk II image `%s`",
+                        path);
+                    media_failed = true;
+                    break;
                 }
             }
         }
-        for (i = 0; i < rt->smartport_mount_count; i++) {
-            int slot = rt->smartport_slots[i];
-            int unit = rt->smartport_units[i];
-            const char *path = rt->smartport_paths[i];
-            if (path == NULL || path[0] == '\0') {
-                continue;
-            }
-            if (slot < 1 || slot > 7) {
-                continue;
-            }
-            if (rt->machine.slot_type[slot] == SLOT_TYPE_SMARTPORT) {
-                (void)apple2_smartport_mount(&rt->machine, slot, unit, path);
+        /* Multi-image queues: start each drive on the first image (boot disk). */
+        if (!media_failed) {
+            for (i = 1; i <= 7; i++) {
+                int d;
+                if (!rt->machine.diskii_present[i]) {
+                    continue;
+                }
+                for (d = 0; d < 2; d++) {
+                    DISKII_DRIVE *dd = &rt->machine.diskii_controller[i].diskii_drive[d];
+                    if (dd->images.items > 0u) {
+                        (void)apple2_disk_select_image(&rt->machine, i, d, 0);
+                    }
+                }
             }
         }
-    }
-    apple2_reset(&rt->machine);
-    if (rt->config.smartport_boot_slot != 0) {
-        int slot = rt->config.smartport_boot_slot;
-        if (rt->machine.slot_type[slot] != SLOT_TYPE_SMARTPORT) {
-            runtime_publish_error(rt, "configured SmartPort boot slot has no SmartPort card");
-        } else if (!sp_unit_mounted(&rt->machine.sp_device[slot], 0)) {
-            runtime_publish_error(rt, "configured SmartPort boot slot has no mounted unit 0");
+        if (!media_failed) {
+            for (i = 0; i < rt->smartport_mount_count; i++) {
+                int slot = rt->smartport_slots[i];
+                int unit = rt->smartport_units[i];
+                const char *path = rt->smartport_paths[i];
+                if (path == NULL || path[0] == '\0') {
+                    continue;
+                }
+                if (slot < 1 || slot > 7) {
+                    continue;
+                }
+                if (rt->machine.slot_type[slot] == SLOT_TYPE_SMARTPORT) {
+                    if (apple2_smartport_mount(&rt->machine, slot, unit, path) != 0) {
+                        snprintf(
+                            media_error,
+                            sizeof(media_error),
+                            "failed to mount SmartPort image `%s`",
+                            path);
+                        media_failed = true;
+                        break;
+                    }
+                }
+            }
+        }
+        apple2_reset(&rt->machine);
+        if (!media_failed && rt->config.smartport_boot_slot != 0) {
+            int slot = rt->config.smartport_boot_slot;
+            if (rt->machine.slot_type[slot] != SLOT_TYPE_SMARTPORT) {
+                snprintf(
+                    media_error,
+                    sizeof(media_error),
+                    "%s",
+                    "configured SmartPort boot slot has no SmartPort card");
+                media_failed = true;
+            } else if (!sp_unit_mounted(&rt->machine.sp_device[slot], 0)) {
+                snprintf(
+                    media_error,
+                    sizeof(media_error),
+                    "%s",
+                    "configured SmartPort boot slot has no mounted unit 0");
+                media_failed = true;
+            } else {
+                rt->machine.cpu.cpu.pc = (uint16_t)(0xC000u + ((uint16_t)slot << 8));
+            }
+        }
+        rt->machine_ready = true;
+        runtime_apply_turbo_video_policy(rt, false);
+        if (rt->config.inspector) {
+            runtime_inspector_set_enabled(rt, true);
+        }
+        if (runtime_turbo_is_free_run(rt)) {
+            runtime_history_apply_max_policy(rt, true, false);
+        }
+        rt->exec_state = RUNTIME_EXEC_PAUSED;
+        rt->last_stop_reason = media_failed ?
+            RUNTIME_STOP_REASON_ERROR : RUNTIME_STOP_REASON_RESET;
+
+        /* Install flight-recorder observer when arena is available+recording. */
+        runtime_history_sync_observer(rt);
+        if (rt->history != NULL) {
+            runtime_history_status st;
+            runtime_history_get_status(rt->history, &st);
+            if (st.available && st.recording) {
+                (void)runtime_history_append_marker(
+                    rt->history,
+                    RUNTIME_HISTORY_MARKER_RESET_COMPLETE,
+                    RUNTIME_HISTORY_RESET_INITIAL_STARTUP,
+                    0u,
+                    apple2_cycles(&rt->machine));
+            }
+        }
+
+        /* [DEBUG] break.* from product INI (P4e). Same path as create_breakpoint. */
+        if (runtime_load_breakpoints_from_ini(rt)) {
+            runtime_refresh_rw_breakpoint_flag(rt);
+            runtime_publish_breakpoints(rt);
+        }
+
+        runtime_load_symbol_files(rt);
+
+        runtime_publish_simple(rt, RUNTIME_EVENT_STARTED);
+        runtime_publish_simple(rt, RUNTIME_EVENT_RESET_COMPLETE);
+        if (media_failed) {
+            runtime_fail_with_error(rt, media_error);
         } else {
-            rt->machine.cpu.cpu.pc = (uint16_t)(0xC000u + ((uint16_t)slot << 8));
+            runtime_publish_simple(rt, RUNTIME_EVENT_PAUSED);
+            runtime_publish_cpu(rt, 0u);
+            runtime_publish_machine(rt);
+            if (rt->config.start_running) {
+                rt->exec_state = RUNTIME_EXEC_RUNNING;
+                runtime_reset_pacer(rt);
+                runtime_publish_simple(rt, RUNTIME_EVENT_RUNNING);
+            }
         }
-    }
-    rt->machine_ready = true;
-    runtime_apply_turbo_video_policy(rt, false);
-    if (rt->config.inspector) {
-        runtime_inspector_set_enabled(rt, true);
-    }
-    if (runtime_turbo_is_free_run(rt)) {
-        runtime_history_apply_max_policy(rt, true, false);
-    }
-    rt->exec_state = RUNTIME_EXEC_PAUSED;
-    rt->last_stop_reason = RUNTIME_STOP_REASON_RESET;
-
-    /* Install flight-recorder observer when arena is available+recording. */
-    runtime_history_sync_observer(rt);
-    if (rt->history != NULL) {
-        runtime_history_status st;
-        runtime_history_get_status(rt->history, &st);
-        if (st.available && st.recording) {
-            (void)runtime_history_append_marker(
-                rt->history,
-                RUNTIME_HISTORY_MARKER_RESET_COMPLETE,
-                RUNTIME_HISTORY_RESET_INITIAL_STARTUP,
-                0u,
-                apple2_cycles(&rt->machine));
-        }
-    }
-
-    /* [DEBUG] break.* from product INI (P4e). Same path as create_breakpoint. */
-    if (runtime_load_breakpoints_from_ini(rt)) {
-        runtime_refresh_rw_breakpoint_flag(rt);
-        runtime_publish_breakpoints(rt);
-    }
-
-    runtime_load_symbol_files(rt);
-
-    runtime_publish_simple(rt, RUNTIME_EVENT_STARTED);
-    runtime_publish_simple(rt, RUNTIME_EVENT_RESET_COMPLETE);
-    runtime_publish_simple(rt, RUNTIME_EVENT_PAUSED);
-    runtime_publish_cpu(rt, 0u);
-    runtime_publish_machine(rt);
-
-    if (rt->config.start_running) {
-        rt->exec_state = RUNTIME_EXEC_RUNNING;
-        runtime_reset_pacer(rt);
-        runtime_publish_simple(rt, RUNTIME_EVENT_RUNNING);
     }
 
     {

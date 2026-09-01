@@ -63,6 +63,7 @@ static void runtime_commit_turbo_mode(runtime *rt, uint32_t multiplier);
 static void runtime_inspector_apply_max_policy(runtime *rt, bool entering, bool leaving);
 static void runtime_history_apply_max_policy(runtime *rt, bool entering_max, bool leaving_max);
 static void runtime_finish_to_instruction_boundary(runtime *rt);
+static void runtime_publish_machine_state(runtime *rt);
 
 /* Turbo mode helpers. Field name remains active_turbo_multiplier; values are
    RUNTIME_TURBO_MODE_* (1=normal, 2=max free-run full paint). */
@@ -439,6 +440,20 @@ static void runtime_publish_error_code(
     snprintf(event.data.error.message, sizeof(event.data.error.message), "%s", message);
     rt->last_stop_reason = RUNTIME_STOP_REASON_ERROR;
     runtime_publish_event(rt, &event);
+}
+
+/* Pause after an ERROR was already published (e.g. PRG/BIN open failure). */
+static void runtime_pause_after_error(runtime *rt) {
+    rt->exec_state = RUNTIME_EXEC_PAUSED;
+    rt->last_stop_reason = RUNTIME_STOP_REASON_ERROR;
+    runtime_publish_simple_event(rt, RUNTIME_EVENT_PAUSED);
+    runtime_publish_machine_state(rt);
+}
+
+/* Publish ERROR then pause — for explicit media/load failures. */
+static void runtime_fail_with_error(runtime *rt, const char *message) {
+    runtime_publish_error(rt, message);
+    runtime_pause_after_error(rt);
 }
 
 static void runtime_publish_symbols(runtime *rt);
@@ -1030,6 +1045,7 @@ static void runtime_mount_d64(runtime *rt, const runtime_command *command) {
     }
 
     if (!runtime_flush_disk_slot(rt, command->data.mount_d64.device, true)) {
+        runtime_pause_after_error(rt);
         return;
     }
 
@@ -1037,6 +1053,7 @@ static void runtime_mount_d64(runtime *rt, const runtime_command *command) {
        for HostFS lands in a later PR; mount + IEC isolation are live now. */
     if (c64_hostfs_path_is_dir(command->data.mount_d64.path)) {
         int slot_index = (int)(command->data.mount_d64.device - C64_DRIVE_MIN_DEVICE);
+        char message[1280];
         status_result = c64_mount_hostfs(
             &rt->machine,
             command->data.mount_d64.device,
@@ -1051,20 +1068,36 @@ static void runtime_mount_d64(runtime *rt, const runtime_command *command) {
                     command->data.mount_d64.path);
             }
             runtime_inspector_on_history_invalidate(rt);
-        } else if (slot_index >= 0 && slot_index < C64_DRIVE_SLOT_COUNT) {
+            runtime_publish_drive_status(rt, command->data.mount_d64.device);
+            /* HostFS is not a floppy bootstrap target; do not arm autorun. */
+            return;
+        }
+        if (slot_index >= 0 && slot_index < C64_DRIVE_SLOT_COUNT) {
             rt->machine.drives[slot_index].last_result = status_result;
         }
         runtime_publish_drive_status(rt, command->data.mount_d64.device);
-        /* HostFS is not a floppy bootstrap target; do not arm autorun. */
+        snprintf(
+            message,
+            sizeof(message),
+            "failed to mount HostFS `%s`",
+            command->data.mount_d64.path);
+        runtime_fail_with_error(rt, message);
         return;
     }
 
     if (!runtime_read_file_bytes(command->data.mount_d64.path, &bytes, &size)) {
         int slot_index = (int)(command->data.mount_d64.device - C64_DRIVE_MIN_DEVICE);
+        char message[1280];
         if (slot_index >= 0 && slot_index < C64_DRIVE_SLOT_COUNT) {
             rt->machine.drives[slot_index].last_result = C64_DRIVE_STATUS_IO_ERROR;
         }
         runtime_publish_drive_status(rt, command->data.mount_d64.device);
+        snprintf(
+            message,
+            sizeof(message),
+            "failed to open disk image `%s`",
+            command->data.mount_d64.path);
+        runtime_fail_with_error(rt, message);
         return;
     }
 
@@ -1093,29 +1126,46 @@ static void runtime_mount_d64(runtime *rt, const runtime_command *command) {
                     true);
             }
             runtime_inspector_on_history_invalidate(rt);
+            free(bytes);
+            runtime_publish_drive_status(rt, command->data.mount_d64.device);
+            if (arm_autorun) {
+                rt->autorun_d64_phase = 1;
+            }
+            return;
         } else {
             int slot_index = (int)(command->data.mount_d64.device - C64_DRIVE_MIN_DEVICE);
+            char message[1280];
             if (slot_index >= 0 && slot_index < C64_DRIVE_SLOT_COUNT) {
                 rt->machine.drives[slot_index].last_result = status_result;
             }
+            free(bytes);
+            runtime_publish_drive_status(rt, command->data.mount_d64.device);
+            snprintf(
+                message,
+                sizeof(message),
+                "failed to mount G64 `%s`",
+                command->data.mount_d64.path);
+            runtime_fail_with_error(rt, message);
+            return;
         }
-        free(bytes);
-        runtime_publish_drive_status(rt, command->data.mount_d64.device);
-        if (status_result == C64_DRIVE_STATUS_OK && arm_autorun) {
-            rt->autorun_d64_phase = 1;
-        }
-        return;
     }
 
     image = d64_image_create(bytes, size, &result);
     if (image == NULL) {
         int slot_index = (int)(command->data.mount_d64.device - C64_DRIVE_MIN_DEVICE);
+        char message[1280];
         status_result = runtime_drive_status_from_d64_result(result);
         if (slot_index >= 0 && slot_index < C64_DRIVE_SLOT_COUNT) {
             rt->machine.drives[slot_index].last_result = status_result;
         }
         free(bytes);
         runtime_publish_drive_status(rt, command->data.mount_d64.device);
+        snprintf(
+            message,
+            sizeof(message),
+            "failed to parse D64 `%s`",
+            command->data.mount_d64.path);
+        runtime_fail_with_error(rt, message);
         return;
     }
 
@@ -1142,12 +1192,19 @@ static void runtime_mount_d64(runtime *rt, const runtime_command *command) {
         entries = (c64_drive_directory_entry *)calloc(entry_count, sizeof(*entries));
         if (entries == NULL) {
             int slot_index = (int)(command->data.mount_d64.device - C64_DRIVE_MIN_DEVICE);
+            char message[1280];
             if (slot_index >= 0 && slot_index < C64_DRIVE_SLOT_COUNT) {
                 rt->machine.drives[slot_index].last_result = C64_DRIVE_STATUS_OUT_OF_MEMORY;
             }
             d64_image_destroy(image);
             free(bytes);
             runtime_publish_drive_status(rt, command->data.mount_d64.device);
+            snprintf(
+                message,
+                sizeof(message),
+                "failed to mount D64 `%s` (out of memory)",
+                command->data.mount_d64.path);
+            runtime_fail_with_error(rt, message);
             return;
         }
         for (i = 0; i < entry_count; ++i) {
@@ -1186,21 +1243,32 @@ static void runtime_mount_d64(runtime *rt, const runtime_command *command) {
             sizeof(rt->mounted_disk_paths[slot_index]),
             "%s",
             command->data.mount_d64.path);
+        d64_image_destroy(image);
+        free(entries);
+        free(bytes);
+        runtime_publish_drive_status(rt, command->data.mount_d64.device);
+        if (arm_autorun) {
+            rt->autorun_d64_phase = 1;
+        }
+        return;
     }
-    if (status_result != C64_DRIVE_STATUS_OK) {
+
+    {
         int slot_index = (int)(command->data.mount_d64.device - C64_DRIVE_MIN_DEVICE);
+        char message[1280];
         if (slot_index >= 0 && slot_index < C64_DRIVE_SLOT_COUNT) {
             rt->machine.drives[slot_index].last_result = status_result;
         }
-    }
-
-    d64_image_destroy(image);
-    free(entries);
-    free(bytes);
-    runtime_publish_drive_status(rt, command->data.mount_d64.device);
-
-    if (status_result == C64_DRIVE_STATUS_OK && arm_autorun) {
-        rt->autorun_d64_phase = 1;
+        d64_image_destroy(image);
+        free(entries);
+        free(bytes);
+        runtime_publish_drive_status(rt, command->data.mount_d64.device);
+        snprintf(
+            message,
+            sizeof(message),
+            "failed to mount D64 `%s`",
+            command->data.mount_d64.path);
+        runtime_fail_with_error(rt, message);
     }
 }
 
@@ -4086,6 +4154,7 @@ static void runtime_load_crt(runtime *rt, const runtime_command *command) {
     bool attached = false;
 
     if (!runtime_read_host_file(rt, command->data.load_crt.path, "CRT", &bytes, &length)) {
+        runtime_pause_after_error(rt);
         return;
     }
 
@@ -4094,7 +4163,7 @@ static void runtime_load_crt(runtime *rt, const runtime_command *command) {
     if (image == NULL) {
         char message[128];
         snprintf(message, sizeof(message), "failed to parse CRT: %s", crt_result_string(result));
-        runtime_publish_error(rt, message);
+        runtime_fail_with_error(rt, message);
         return;
     }
 
@@ -4108,14 +4177,14 @@ static void runtime_load_crt(runtime *rt, const runtime_command *command) {
             "unsupported CRT cartridge type %u",
             (unsigned)hw);
         crt_image_destroy(image);
-        runtime_publish_error(rt, message);
+        runtime_fail_with_error(rt, message);
         return;
     }
     hardware_type = header->hardware_type;
 
     if (c64_swiftlink_conflicts_with_hw(&rt->machine, hardware_type)) {
         crt_image_destroy(image);
-        runtime_publish_error(
+        runtime_fail_with_error(
             rt,
             "CRT attach conflicts with enabled SwiftLink I/O page");
         return;
@@ -4137,11 +4206,12 @@ static void runtime_load_crt(runtime *rt, const runtime_command *command) {
         attached = runtime_attach_dinamic_crt(rt, image, header);
     } else {
         crt_image_destroy(image);
-        runtime_publish_error(rt, "unsupported CRT cartridge type");
+        runtime_fail_with_error(rt, "unsupported CRT cartridge type");
         return;
     }
     crt_image_destroy(image);
     if (!attached) {
+        runtime_fail_with_error(rt, "failed to attach CRT cartridge");
         return;
     }
 
@@ -4241,10 +4311,7 @@ static void runtime_complete_pending_prg_load(runtime *rt, char *path) {
     rt->pending_prg_resume_running = false;
 
     if (!loaded) {
-        rt->exec_state = RUNTIME_EXEC_PAUSED;
-        rt->last_stop_reason = RUNTIME_STOP_REASON_ERROR;
-        runtime_publish_simple_event(rt, RUNTIME_EVENT_PAUSED);
-        runtime_publish_machine_state(rt);
+        runtime_pause_after_error(rt);
         return;
     }
 
@@ -4936,10 +5003,7 @@ static void runtime_complete_pending_bin_load(runtime *rt, char *path) {
     free(path);
 
     if (!loaded) {
-        rt->exec_state = RUNTIME_EXEC_PAUSED;
-        rt->last_stop_reason = RUNTIME_STOP_REASON_ERROR;
-        runtime_publish_simple_event(rt, RUNTIME_EVENT_PAUSED);
-        runtime_publish_machine_state(rt);
+        runtime_pause_after_error(rt);
         return;
     }
 
@@ -5198,13 +5262,13 @@ static void runtime_load_state(runtime *rt, const runtime_command *command) {
     runtime_stop_reason previous_stop_reason = rt->last_stop_reason;
 
     if (!runtime_read_file_bytes(path, &bytes, &size)) {
-        runtime_publish_error(rt, "failed to read machine state snapshot");
+        runtime_fail_with_error(rt, "failed to read machine state snapshot");
         return;
     }
 
     if (!c64_snapshot_load(&rt->machine, bytes, size)) {
         free(bytes);
-        runtime_publish_error(rt, "failed to load machine state snapshot");
+        runtime_fail_with_error(rt, "failed to load machine state snapshot");
         return;
     }
     free(bytes);
