@@ -137,6 +137,16 @@ endif()
 
 leftover_add_test(NAME sid COMMAND ${test_sid})
 
+leftover_exe(test_c64_mouse
+    ${MACHINES_ROOT}/tests/c64/machine/test_c64_mouse.c
+)
+target_compile_features(${test_c64_mouse} PRIVATE c_std_99)
+target_link_libraries(${test_c64_mouse} PRIVATE
+    ${machine}
+    ${util}
+)
+leftover_add_test(NAME c64_mouse COMMAND ${test_c64_mouse})
+
 leftover_exe(test_via6522
     ${MACHINES_ROOT}/tests/c64/machine/test_via6522.c
 )

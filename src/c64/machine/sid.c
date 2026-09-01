@@ -268,8 +268,10 @@ uint8_t sid_debug_read(const sid *s, uint16_t addr) {
     if (!s) return 0xFFu;
     reg = (uint8_t)(addr & 0x1Fu);
     switch (reg) {
-        case 0x19u: return 0xFFu;               /* POTX: not connected */
-        case 0x1Au: return 0xFFu;               /* POTY: not connected */
+        case 0x19u: /* POTX */
+            return (s->pot_read != NULL) ? s->pot_read(s->pot_user, 0) : 0xFFu;
+        case 0x1Au: /* POTY */
+            return (s->pot_read != NULL) ? s->pot_read(s->pot_user, 1) : 0xFFu;
         case 0x1Bu: return s->voice3_osc_read;  /* OSC3 */
         case 0x1Cu: return s->voice3_env_read;  /* ENV3 */
         case 0x1Du:
@@ -277,6 +279,14 @@ uint8_t sid_debug_read(const sid *s, uint16_t addr) {
         case 0x1Fu: return 0u;                  /* unused */
         default:    return s->regs[reg];        /* last written value */
     }
+}
+
+void sid_set_pot_reader(sid *s, sid_pot_read_fn fn, void *user) {
+    if (!s) {
+        return;
+    }
+    s->pot_read = fn;
+    s->pot_user = user;
 }
 
 /* ------------------------------------------------------------------ */

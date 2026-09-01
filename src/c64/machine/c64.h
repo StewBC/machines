@@ -466,6 +466,12 @@ typedef struct c64_t {
     c64_keyboard keyboard;
     uint8_t joystick1;
     uint8_t joystick2;
+    /* 1351 / pot lines: opaque POT bytes per control port (1→[0], 2→[1]).
+       Default $FF (not connected). mouse_active gates mux output. */
+    uint8_t pot_x[2];
+    uint8_t pot_y[2];
+    uint8_t mouse_port;   /* 0=none; 1 or 2 — last port from c64_set_mouse */
+    bool mouse_active;    /* host contributing; else mux returns $FF */
     uint8_t iec_external_pull;
     uint8_t iec_external_pull_other;
     uint8_t iec_external_pull_drive8;
@@ -557,6 +563,14 @@ bool c64_consume_instruction_complete(c64_t *machine);
 void c64_set_key(c64_t *machine, c64_key key, bool pressed);
 void c64_set_matrix(c64_t *machine, uint8_t row, uint8_t col, bool pressed);
 void c64_set_joystick(c64_t *machine, unsigned port, uint8_t inputs);
+/* Proportional 1351: potx/poty are already-encoded POT bytes; buttons use
+   C64_JOYSTICK_* (FIRE/UP). Does not emit Inspector input events (v1). */
+void c64_set_mouse(c64_t *machine, unsigned port,
+                   uint8_t potx, uint8_t poty, uint8_t buttons);
+/* Deactivate mouse: pots $FF, clear owned joystick bits, mouse_active=false. */
+void c64_clear_mouse(c64_t *machine);
+/* Rebind SID $D419/$D41A reader to this machine (after sid_init / snapshot). */
+void c64_bind_sid_pot_reader(c64_t *machine);
 void c64_set_iec_external_pull(c64_t *machine, uint8_t lines);
 void c64_set_iec_drive_pull(c64_t *machine, int device_number, uint8_t lines);
 uint8_t c64_get_iec_external_pull(c64_t *machine);

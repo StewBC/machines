@@ -2770,6 +2770,13 @@ void c64_init(c64_t *machine) {
     c64_bus_attach_cias(&machine->bus, &machine->cia1, &machine->cia2);
     c64_bus_attach_sid(&machine->bus, &machine->sid);
     c64_bus_attach_swiftlink(&machine->bus, &machine->swiftlink);
+    machine->pot_x[0] = 0xFFu;
+    machine->pot_x[1] = 0xFFu;
+    machine->pot_y[0] = 0xFFu;
+    machine->pot_y[1] = 0xFFu;
+    machine->mouse_port = 0;
+    machine->mouse_active = false;
+    c64_bind_sid_pot_reader(machine);
     c6510_init(&machine->cpu, machine, c64_cpu_read, c64_cpu_write);
     c6510_set_irq_pending_callback(&machine->cpu, c64_cpu_irq_pending);
     c6510_set_nmi_pending_callback(&machine->cpu, c64_cpu_nmi_pending);
@@ -2868,6 +2875,7 @@ bool c64_reset(c64_t *machine, char *error, size_t error_size) {
             VICII_VIDEO_STANDARD_PAL :
             VICII_VIDEO_STANDARD_NTSC);
     sid_init(&machine->sid, c64_config_clock_hz(&machine->config));
+    c64_bind_sid_pot_reader(machine);
     c64_swiftlink_reset(&machine->swiftlink);
     vicii_reset(&machine->vic);
     vicii_write_register(&machine->vic, C64_VICII_REG_MEMORY_POINTER, 0x15);
@@ -2878,6 +2886,12 @@ bool c64_reset(c64_t *machine, char *error, size_t error_size) {
     c64_keyboard_reset(&machine->keyboard);
     machine->joystick1 = 0;
     machine->joystick2 = 0;
+    machine->pot_x[0] = 0xFFu;
+    machine->pot_x[1] = 0xFFu;
+    machine->pot_y[0] = 0xFFu;
+    machine->pot_y[1] = 0xFFu;
+    machine->mouse_port = 0;
+    machine->mouse_active = false;
     machine->iec_external_pull = 0;
     machine->iec_external_pull_other = 0;
     machine->iec_external_pull_drive8 = 0;
@@ -3232,6 +3246,78 @@ void c64_set_joystick(c64_t *machine, unsigned port, uint8_t inputs) {
             (uint32_t)port,
             (uint32_t)(inputs & 0x1fu),
             0u);
+    }
+}
+
+/* SID pot mux: CIA1 PA6/PA7 must be *driven* high (PRA & DDRA). Undirected
+   pins are not selects — do not use cia_peek_port_a_output. */
+static uint8_t c64_sid_pot_read(void *user, int axis) {
+    c64_t *m = (c64_t *)user;
+    uint8_t pra;
+    uint8_t ddra;
+    uint8_t driven;
+    unsigned selected = 0u;
+
+    if (m == NULL) {
+        return 0xFFu;
+    }
+    pra = m->cia1.registers[0x00];
+    ddra = m->cia1.registers[0x02];
+    driven = (uint8_t)((pra & ddra) & 0xC0u);
+    if (driven == 0x40u) {
+        selected = 1u;
+    } else if (driven == 0x80u) {
+        selected = 2u;
+    }
+    if (selected == 0u) {
+        return 0xFFu;
+    }
+    if (!m->mouse_active || m->mouse_port != selected) {
+        return 0xFFu;
+    }
+    return (axis == 0) ? m->pot_x[selected - 1u] : m->pot_y[selected - 1u];
+}
+
+void c64_bind_sid_pot_reader(c64_t *machine) {
+    assert(machine);
+    sid_set_pot_reader(&machine->sid, c64_sid_pot_read, machine);
+}
+
+void c64_set_mouse(c64_t *machine, unsigned port,
+                   uint8_t potx, uint8_t poty, uint8_t buttons) {
+    assert(machine);
+
+    if (port != 1u && port != 2u) {
+        return;
+    }
+    machine->pot_x[port - 1u] = potx;
+    machine->pot_y[port - 1u] = poty;
+    machine->mouse_port = (uint8_t)port;
+    machine->mouse_active = true;
+    if (port == 1u) {
+        machine->joystick1 = (uint8_t)(buttons & 0x1fu);
+    } else {
+        machine->joystick2 = (uint8_t)(buttons & 0x1fu);
+    }
+    /* v1: no C64_INPUT_EVENT_MOUSE / no joystick event from mouse path. */
+}
+
+void c64_clear_mouse(c64_t *machine) {
+    unsigned port;
+
+    assert(machine);
+
+    port = machine->mouse_port;
+    machine->pot_x[0] = 0xFFu;
+    machine->pot_x[1] = 0xFFu;
+    machine->pot_y[0] = 0xFFu;
+    machine->pot_y[1] = 0xFFu;
+    machine->mouse_active = false;
+    machine->mouse_port = 0;
+    if (port == 1u) {
+        machine->joystick1 = 0;
+    } else if (port == 2u) {
+        machine->joystick2 = 0;
     }
 }
 

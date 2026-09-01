@@ -540,6 +540,12 @@ static void write_mach(snapshot_writer *w, const c64_t *m) {
     w_u8(w, (uint8_t)(m->config.emulate_1541 ? 1u : 0u));
     w_bool(w, m->instruction_complete);
     w_u8(w, (uint8_t)(m->config.media_1541 ? 1u : 0u));
+    /* v15: pot lines + last mouse port (mouse_active is host-only, not wired). */
+    w_u8(w, m->pot_x[0]);
+    w_u8(w, m->pot_x[1]);
+    w_u8(w, m->pot_y[0]);
+    w_u8(w, m->pot_y[1]);
+    w_u8(w, m->mouse_port);
     end_chunk(w, chunk);
 }
 
@@ -1095,7 +1101,7 @@ static void read_sid(snapshot_reader *r, c64_t *m) {
     s->voice3_env_read = r_u8(r);
 }
 
-static void read_mach(snapshot_reader *r, c64_t *m) {
+static void read_mach(snapshot_reader *r, c64_t *m, uint32_t version) {
     size_t i;
 
     for (i = 0; i < 8; ++i) {
@@ -1125,6 +1131,20 @@ static void read_mach(snapshot_reader *r, c64_t *m) {
     m->config.media_1541 = r_u8(r) != 0;
     /* c64_hz is derived (not snapshotted); refresh after video_standard load. */
     m->clock.c64_hz = c64_config_clock_hz(&m->config);
+    if (version >= 15u) {
+        (void)r_u8(r); /* pot_x[0] — discarded; load forces inactive pots */
+        (void)r_u8(r); /* pot_x[1] */
+        (void)r_u8(r); /* pot_y[0] */
+        (void)r_u8(r); /* pot_y[1] */
+        (void)r_u8(r); /* mouse_port */
+    }
+    /* Host grab is not restored; pots stay disconnected until re-capture. */
+    m->pot_x[0] = 0xFFu;
+    m->pot_x[1] = 0xFFu;
+    m->pot_y[0] = 0xFFu;
+    m->pot_y[1] = 0xFFu;
+    m->mouse_port = 0;
+    m->mouse_active = false;
 }
 
 static void read_slnk(snapshot_reader *r, c64_t *m) {
@@ -1736,6 +1756,12 @@ static void apply_loaded_machine(c64_t *dst, c64_t *src, bool restore_1541_core)
     dst->keyboard = src->keyboard;
     dst->joystick1 = src->joystick1;
     dst->joystick2 = src->joystick2;
+    dst->pot_x[0] = src->pot_x[0];
+    dst->pot_x[1] = src->pot_x[1];
+    dst->pot_y[0] = src->pot_y[0];
+    dst->pot_y[1] = src->pot_y[1];
+    dst->mouse_port = src->mouse_port;
+    dst->mouse_active = src->mouse_active;
     dst->iec_external_pull = src->iec_external_pull;
     dst->iec_external_pull_other = src->iec_external_pull_other;
     dst->iec_external_pull_drive8 = src->iec_external_pull_drive8;
@@ -1785,6 +1811,8 @@ static void apply_loaded_machine(c64_t *dst, c64_t *src, bool restore_1541_core)
     dst->cia2.keyboard = NULL;
     cia_attach_port_input(&dst->cia1, src->cia1.port_input, dst);
     cia_attach_port_input(&dst->cia2, src->cia2.port_input, dst);
+    /* sid was memcpy'd from src; pot_user must point at dst. */
+    c64_bind_sid_pot_reader(dst);
     dst->cpu.user = dst;
 
     move_drive_slot(&dst->drives[0], &src->drives[0]);
@@ -1937,7 +1965,7 @@ static bool read_snapshot_into_temp(
             seen.sid = chunk.ok;
             break;
         case TAG_MACH:
-            read_mach(&chunk, temp);
+            read_mach(&chunk, temp, version);
             seen.mach = chunk.ok;
             break;
         case TAG_SLNK:

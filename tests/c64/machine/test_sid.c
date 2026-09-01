@@ -220,8 +220,15 @@ static void test_disabled_sample_output_preserves_readback(void) {
     expect_zero_float("disabled_sample_output: sample remains silent", sid_sample(&s));
 }
 
+static uint8_t test_pot_provider(void *user, int axis) {
+    const uint8_t *pots = (const uint8_t *)user;
+    return (axis == 0) ? pots[0] : pots[1];
+}
+
 static void test_paddle_unused_reads(void) {
     sid s;
+    uint8_t pots[2] = {0x2Au, 0x54u};
+
     sid_init(&s, SID_CLK_PAL);
 
     expect_eq_u8("POTX_0xFF", 0xFF, sid_read(&s, 0xD419));
@@ -229,6 +236,14 @@ static void test_paddle_unused_reads(void) {
     expect_eq_u8("unused_0x1D", 0x00, sid_read(&s, 0xD41D));
     expect_eq_u8("unused_0x1E", 0x00, sid_read(&s, 0xD41E));
     expect_eq_u8("unused_0x1F", 0x00, sid_read(&s, 0xD41F));
+
+    sid_set_pot_reader(&s, test_pot_provider, pots);
+    expect_eq_u8("POTX_reader", 0x2A, sid_read(&s, 0xD419));
+    expect_eq_u8("POTY_reader", 0x54, sid_read(&s, 0xD41A));
+
+    sid_set_pot_reader(&s, NULL, NULL);
+    expect_eq_u8("POTX_cleared", 0xFF, sid_read(&s, 0xD419));
+    expect_eq_u8("POTY_cleared", 0xFF, sid_read(&s, 0xD41A));
 }
 
 /* ------------------------------------------------------------------ */
