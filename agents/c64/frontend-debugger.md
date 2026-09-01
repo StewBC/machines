@@ -98,18 +98,23 @@ disables; real controllers remain Alt+1/2. SDL text input is enabled only
 while an edit field has focus.
 
 CBM 1351 (proportional only): default off (`[input] mouse_enabled` /
-`--mouse`). Opt+Click CRT captures (relative mode); Opt+Click releases.
-Autorelease on focus loss, Help, Forensics, any dialog, or Inspector.
+`--mouse`). Opt+Click CRT captures (relative mode + warp to window center);
+Opt+Click releases. Autorelease on focus loss, Help, Forensics, any dialog,
+or Inspector. While captured, re-assert relative mode if SDL/OS dropped it
+(macOS after Alt-Tab can leave the host cursor free while xrel still moves
+the guest).
 Host motion: per-event clamp `±CBM1351_MAX_DELTA` (8) into a pending
-bucket, then a pot-window budget commits at most `±CBM1351_BUDGET_MAX`
-(8) into the 6-bit counters every `CBM1351_BUDGET_MS` (16) and drops the
-rest — approximates 1351 dump/reset so IRQ polls do not see a full burst
-wrap. While captured, that port's digital lines come only from the mouse
+bucket (capped at `±CBM1351_PENDING_MAX` 48), then a pot-window budget
+commits at most `±CBM1351_BUDGET_MAX` (8) into the 6-bit counters every
+`CBM1351_BUDGET_MS` (16) and **carries** the unused pending — so fast
+moves keep draining across windows instead of feeling laggy from drops. While captured, that port's digital lines come only from the mouse
 at the SDL/kbdjoy merge (control-port `joystick` can still overwrite
 until the next `set_mouse` — accepted v1 gap). No control `mouse` verb;
-no Inspector mouse log event. Do not "hold last pot" across mux deselect
-without a measured need (pots are not keyboard; stale pots can invent
-motion, not phantom keys).
+no Inspector mouse log event. SID pots use a **512 Ø2 latch** (sample on
+`mouse_port` select; keep on other edges; prime on `set_mouse`). Guest
+**reads** return the latch when mux selects `mouse_port` or is deselected,
+and `$FF` when the other port is exclusive (avoids dual-port). Inactive ⇒
+`$FF`.
 
 ## Loading and configuration
 

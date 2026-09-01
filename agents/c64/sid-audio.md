@@ -12,8 +12,9 @@ readback, `$D400-$D41F`. Rate tables, cutoff LUT, and HF rolloff come from
 the PAL/NTSC CPU clock passed to `sid_init()`.
 
 Not bit-perfect analog 6581. No runtime 8580 switch. Pot reads
-(`$D419/$D41A`) return `$FF` unless a CBM 1351 is attached and the CIA1
-PA6/PA7 mux selects that port (driven-high exclusive); generic paddles
+(`$D419/$D41A`) are a 512 Ø2 pot latch. With a CBM 1351 attached they update
+when CIA1 PA6/PA7 selects that port (kept across other mux edges); inactive
+⇒ `$FF`. Generic paddles
 stay stubbed. Audio changes must be measured with
 `tools/capture_sid_audio.py` / `tools/compare_sid_audio.py`, not judged
 only by listening.

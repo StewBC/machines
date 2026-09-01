@@ -4234,7 +4234,31 @@ static void mouse_publish_set(runtime_client *client, const frontend_mouse_input
         mouse->buttons);
 }
 
+/* Force SDL relative mode and park the OS cursor in the window center.
+   After Alt-Tab, macOS/SDL can leave relative mode half-applied so the
+   host cursor walks off-screen while xrel still feeds the guest. */
+static void mouse_grab_host(platform_window *window) {
+    SDL_Window *sdl_win;
+    int w = 0;
+    int h = 0;
+
+    (void)SDL_SetRelativeMouseMode(SDL_TRUE);
+    sdl_win = platform_window_get_sdl_window(window);
+    if (sdl_win == NULL) {
+        return;
+    }
+    SDL_GetWindowSize(sdl_win, &w, &h);
+    if (w > 0 && h > 0) {
+        SDL_WarpMouseInWindow(sdl_win, w / 2, h / 2);
+    }
+}
+
+static void mouse_ungrab_host(void) {
+    (void)SDL_SetRelativeMouseMode(SDL_FALSE);
+}
+
 static void mouse_apply_action(
+    platform_window *window,
     frontend_mouse_input *mouse,
     sdl_c64_controller_state *controller_state,
     runtime_client *client,
@@ -4244,11 +4268,11 @@ static void mouse_apply_action(
     }
     switch (action) {
     case FRONTEND_MOUSE_ACTION_ENTER:
-        (void)SDL_SetRelativeMouseMode(SDL_TRUE);
+        mouse_grab_host(window);
         mouse_publish_set(client, mouse);
         break;
     case FRONTEND_MOUSE_ACTION_LEAVE:
-        (void)SDL_SetRelativeMouseMode(SDL_FALSE);
+        mouse_ungrab_host();
         (void)runtime_client_clear_mouse(client);
         sdl_c64_controller_send_ports(controller_state, client);
         break;
@@ -4260,6 +4284,19 @@ static void mouse_apply_action(
     default:
         break;
     }
+}
+
+/* While captured, re-assert relative mode if SDL/OS dropped it (common after
+   focus cycles on macOS). */
+static void mouse_maintain_grab(
+    platform_window *window, const frontend_mouse_input *mouse) {
+    if (mouse == NULL || !mouse->enabled || !mouse->captured) {
+        return;
+    }
+    if (SDL_GetRelativeMouseMode() == SDL_TRUE) {
+        return;
+    }
+    mouse_grab_host(window);
 }
 
 static frontend_mouse_rect mouse_crt_rect(const frontend *ui) {
@@ -4879,6 +4916,7 @@ static void dispatch_debugger_intents(
                         frontend_mouse_set_enabled(mouse, options->mouse_enabled);
                         if (was_captured && !mouse->captured) {
                             mouse_apply_action(
+                                window,
                                 mouse,
                                 controller_state,
                                 client,
@@ -7099,7 +7137,11 @@ static bool run_main_loop(
                 &mouse_action);
             if (mouse_consumed) {
                 mouse_apply_action(
-                    &mouse_input, &controller_state, client, mouse_action);
+                    window,
+                    &mouse_input,
+                    &controller_state,
+                    client,
+                    mouse_action);
                 send_event_to_frontend = false;
             }
 
@@ -7364,18 +7406,21 @@ static bool run_main_loop(
                 if (frontend_mouse_poll_autorelease(
                         &mouse_input, &mouse_ui, &poll_action)) {
                     mouse_apply_action(
+                        window,
                         &mouse_input,
                         &controller_state,
                         client,
                         FRONTEND_MOUSE_ACTION_LEAVE);
                 } else if (poll_action == FRONTEND_MOUSE_ACTION_PUBLISH) {
                     mouse_apply_action(
+                        window,
                         &mouse_input,
                         &controller_state,
                         client,
                         FRONTEND_MOUSE_ACTION_PUBLISH);
                 }
             }
+            mouse_maintain_grab(window, &mouse_input);
             mouse_focus_lost = false;
         }
 

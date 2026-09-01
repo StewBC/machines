@@ -11,10 +11,11 @@ enum {
     /* Cap host xrel/yrel per SDL event before pending. */
     CBM1351_MAX_DELTA = 8,
     /* Pot-window budget: at most this many counts per axis commit into the
-       6-bit counter each BUDGET_MS (excess host motion dropped). Approximates
-       1351 dump/reset so IRQ polls do not see a full burst wrap. */
+       6-bit counter each BUDGET_MS. Unused pending is carried (not dropped)
+       up to PENDING_MAX so fast moves feel less laggy. */
     CBM1351_BUDGET_MAX = 8,
-    CBM1351_BUDGET_MS = 16
+    CBM1351_BUDGET_MS = 16,
+    CBM1351_PENDING_MAX = 48
 };
 
 /* Axis-aligned CRT hit rect (same layout as nk_rect; no nuklear dependency). */

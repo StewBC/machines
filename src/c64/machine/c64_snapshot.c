@@ -1145,6 +1145,8 @@ static void read_mach(snapshot_reader *r, c64_t *m, uint32_t version) {
     m->pot_y[1] = 0xFFu;
     m->mouse_port = 0;
     m->mouse_active = false;
+    sid_set_pot_latch(&m->sid, 0xFFu, 0xFFu);
+    m->sid.pot_cycle_acc = 0u;
 }
 
 static void read_slnk(snapshot_reader *r, c64_t *m) {

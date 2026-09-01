@@ -49,8 +49,18 @@ static void release_capture(frontend_mouse_input *mouse) {
     mouse->budget_ms = 0;
 }
 
-/* Commit at most ±BUDGET_MAX from pending into counters; drop the rest.
-   Returns true if the guest-visible counters changed. */
+static int clamp_pending(int value) {
+    if (value > CBM1351_PENDING_MAX) {
+        return CBM1351_PENDING_MAX;
+    }
+    if (value < -CBM1351_PENDING_MAX) {
+        return -CBM1351_PENDING_MAX;
+    }
+    return value;
+}
+
+/* Commit at most ±BUDGET_MAX from pending into counters; carry the rest
+   (clamped to ±PENDING_MAX on accumulate). Returns true if counters changed. */
 static bool commit_budget(frontend_mouse_input *mouse) {
     uint32_t now;
     int dx;
@@ -70,8 +80,8 @@ static bool commit_budget(frontend_mouse_input *mouse) {
     mouse->budget_ms = now;
     dx = clamp_budget(mouse->pending_x);
     dy = clamp_budget(mouse->pending_y);
-    mouse->pending_x = 0;
-    mouse->pending_y = 0;
+    mouse->pending_x -= dx;
+    mouse->pending_y -= dy;
     if (dx == 0 && dy == 0) {
         return false;
     }
@@ -261,8 +271,8 @@ bool frontend_mouse_handle_event(
         /* SDL +y is down; store counter-space delta (PotY grows on mouse-up). */
         int dy = clamp_delta(-(event->motion.yrel * CBM1351_SENS));
         if (dx != 0 || dy != 0) {
-            mouse->pending_x += dx;
-            mouse->pending_y += dy;
+            mouse->pending_x = clamp_pending(mouse->pending_x + dx);
+            mouse->pending_y = clamp_pending(mouse->pending_y + dy);
             consumed = true;
             if (commit_budget(mouse)) {
                 action = FRONTEND_MOUSE_ACTION_PUBLISH;

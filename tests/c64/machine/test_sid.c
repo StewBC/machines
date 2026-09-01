@@ -220,9 +220,11 @@ static void test_disabled_sample_output_preserves_readback(void) {
     expect_zero_float("disabled_sample_output: sample remains silent", sid_sample(&s));
 }
 
-static uint8_t test_pot_provider(void *user, int axis) {
+static bool test_pot_sample(void *user, uint8_t *out_x, uint8_t *out_y) {
     const uint8_t *pots = (const uint8_t *)user;
-    return (axis == 0) ? pots[0] : pots[1];
+    *out_x = pots[0];
+    *out_y = pots[1];
+    return true;
 }
 
 static void test_paddle_unused_reads(void) {
@@ -237,11 +239,18 @@ static void test_paddle_unused_reads(void) {
     expect_eq_u8("unused_0x1E", 0x00, sid_read(&s, 0xD41E));
     expect_eq_u8("unused_0x1F", 0x00, sid_read(&s, 0xD41F));
 
-    sid_set_pot_reader(&s, test_pot_provider, pots);
-    expect_eq_u8("POTX_reader", 0x2A, sid_read(&s, 0xD419));
-    expect_eq_u8("POTY_reader", 0x54, sid_read(&s, 0xD41A));
+    sid_set_pot_hooks(&s, test_pot_sample, NULL, pots);
+    /* Latch updates on the 512-cycle sample edge, not on install. */
+    expect_eq_u8("POTX_before_sample", 0xFF, sid_read(&s, 0xD419));
+    sid_advance_cycles(&s, (uint32_t)SID_POT_SAMPLE_PERIOD);
+    expect_eq_u8("POTX_after_sample", 0x2A, sid_read(&s, 0xD419));
+    expect_eq_u8("POTY_after_sample", 0x54, sid_read(&s, 0xD41A));
 
-    sid_set_pot_reader(&s, NULL, NULL);
+    sid_set_pot_latch(&s, 0x11u, 0x22u);
+    expect_eq_u8("POTX_forced", 0x11, sid_read(&s, 0xD419));
+
+    sid_set_pot_hooks(&s, NULL, NULL, NULL);
+    sid_set_pot_latch(&s, 0xFFu, 0xFFu);
     expect_eq_u8("POTX_cleared", 0xFF, sid_read(&s, 0xD419));
     expect_eq_u8("POTY_cleared", 0xFF, sid_read(&s, 0xD41A));
 }

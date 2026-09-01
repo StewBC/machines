@@ -3249,38 +3249,77 @@ void c64_set_joystick(c64_t *machine, unsigned port, uint8_t inputs) {
     }
 }
 
-/* SID pot mux: CIA1 PA6/PA7 must be *driven* high (PRA & DDRA). Undirected
-   pins are not selects — do not use cia_peek_port_a_output. */
-static uint8_t c64_sid_pot_read(void *user, int axis) {
-    c64_t *m = (c64_t *)user;
+/* CIA1 PA6/PA7 driven-high mux (not cia_peek_port_a_output). */
+static unsigned c64_pot_mux_selected(const c64_t *m) {
     uint8_t pra;
     uint8_t ddra;
     uint8_t driven;
-    unsigned selected = 0u;
 
     if (m == NULL) {
-        return 0xFFu;
+        return 0u;
     }
     pra = m->cia1.registers[0x00];
     ddra = m->cia1.registers[0x02];
     driven = (uint8_t)((pra & ddra) & 0xC0u);
     if (driven == 0x40u) {
-        selected = 1u;
-    } else if (driven == 0x80u) {
-        selected = 2u;
+        return 1u;
     }
-    if (selected == 0u) {
+    if (driven == 0x80u) {
+        return 2u;
+    }
+    return 0u; /* neither or both */
+}
+
+/* Every 512 Ø2: update latch only on exclusive mouse_port select; keep on
+   wrong/deselect; force $FF when inactive. */
+static bool c64_sid_pot_sample(void *user, uint8_t *out_x, uint8_t *out_y) {
+    c64_t *m = (c64_t *)user;
+    unsigned selected;
+    unsigned port;
+
+    if (m == NULL || out_x == NULL || out_y == NULL) {
+        return false;
+    }
+    if (!m->mouse_active || (m->mouse_port != 1u && m->mouse_port != 2u)) {
+        *out_x = 0xFFu;
+        *out_y = 0xFFu;
+        return true;
+    }
+    port = m->mouse_port;
+    selected = c64_pot_mux_selected(m);
+    if (selected != port) {
+        return false; /* keep prior latch */
+    }
+    *out_x = m->pot_x[port - 1u];
+    *out_y = m->pot_y[port - 1u];
+    return true;
+}
+
+/* Guest-visible read: latch on mouse_port select or deselect; $FF on the
+   other port so irqtesting does not see a mouse on both ports. */
+static uint8_t c64_sid_pot_visible(void *user, int axis) {
+    c64_t *m = (c64_t *)user;
+    unsigned selected;
+    unsigned port;
+
+    if (m == NULL) {
         return 0xFFu;
     }
-    if (!m->mouse_active || m->mouse_port != selected) {
+    if (!m->mouse_active || (m->mouse_port != 1u && m->mouse_port != 2u)) {
         return 0xFFu;
     }
-    return (axis == 0) ? m->pot_x[selected - 1u] : m->pot_y[selected - 1u];
+    port = m->mouse_port;
+    selected = c64_pot_mux_selected(m);
+    if (selected == port || selected == 0u) {
+        return (axis == 0) ? m->sid.pot_latch_x : m->sid.pot_latch_y;
+    }
+    return 0xFFu;
 }
 
 void c64_bind_sid_pot_reader(c64_t *machine) {
     assert(machine);
-    sid_set_pot_reader(&machine->sid, c64_sid_pot_read, machine);
+    sid_set_pot_hooks(
+        &machine->sid, c64_sid_pot_sample, c64_sid_pot_visible, machine);
 }
 
 void c64_set_mouse(c64_t *machine, unsigned port,
@@ -3299,6 +3338,8 @@ void c64_set_mouse(c64_t *machine, unsigned port,
     } else {
         machine->joystick2 = (uint8_t)(buttons & 0x1fu);
     }
+    /* Prime latch so guest reads are valid before the next 512-cycle edge. */
+    sid_set_pot_latch(&machine->sid, potx, poty);
     /* v1: no C64_INPUT_EVENT_MOUSE / no joystick event from mouse path. */
 }
 
@@ -3314,6 +3355,7 @@ void c64_clear_mouse(c64_t *machine) {
     machine->pot_y[1] = 0xFFu;
     machine->mouse_active = false;
     machine->mouse_port = 0;
+    sid_set_pot_latch(&machine->sid, 0xFFu, 0xFFu);
     if (port == 1u) {
         machine->joystick1 = 0;
     } else if (port == 2u) {

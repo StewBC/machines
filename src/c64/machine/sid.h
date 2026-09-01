@@ -50,8 +50,19 @@ typedef struct sid {
     uint8_t    voice3_osc_read;     /* $D41B shadow (top byte of voice 3 phase) */
     uint8_t    voice3_env_read;     /* $D41C shadow (voice 3 envelope) */
 
-    /* Optional pot provider for $D419/$D41A (axis 0=X, 1=Y). NULL ⇒ $FF. */
-    uint8_t  (*pot_read)(void *user, int axis);
+    /* POTX/POTY latch (datasheet: updated every 512 Ø2 cycles).
+       sid_advance_cycles polls pot_sample to refresh them. Reads call
+       pot_read_visible when set (mux gate); else return the latch. */
+    uint8_t    pot_latch_x;
+    uint8_t    pot_latch_y;
+    uint16_t   pot_cycle_acc;       /* 0..511 toward next sample edge */
+
+    /* Optional pot sampler. NULL ⇒ latch stays $FF.
+       Return true and write out_x/out_y to replace the latch; false to keep. */
+    bool     (*pot_sample)(void *user, uint8_t *out_x, uint8_t *out_y);
+    /* Optional read gate: return the guest-visible POT byte for axis 0/1
+       (typically latch on mouse-port/deselect, $FF on the other port). */
+    uint8_t  (*pot_read_visible)(void *user, int axis);
     void      *pot_user;
 
     /* Active CPU (Ø2) clock and the per-standard rate tables/coefficients it
@@ -65,7 +76,13 @@ typedef struct sid {
     float            hfroll_coeff;    /* output HF-rolloff one-pole coefficient */
 } sid;
 
-typedef uint8_t (*sid_pot_read_fn)(void *user, int axis);
+enum {
+    SID_POT_SAMPLE_PERIOD = 512  /* Ø2 cycles between pot latch updates */
+};
+
+/* Return true and write new POTX/POTY to update the latch; false keeps prior. */
+typedef bool (*sid_pot_sample_fn)(void *user, uint8_t *out_x, uint8_t *out_y);
+typedef uint8_t (*sid_pot_visible_fn)(void *user, int axis);
 
 /* Initialise SID to power-on state for the given CPU clock (PAL 985248 Hz /
    NTSC 1022727 Hz). The clock selects the envelope/filter rate tables. */
@@ -80,14 +97,18 @@ void    sid_set_sample_output_enabled(sid *s, bool enabled);
 
 /* CPU read: addr is the raw C64 address.
    $D41B returns voice 3 oscillator byte; $D41C returns voice 3 envelope.
-   $D419/$D41A use pot_read when set, else 0xFF (not connected). Other
+   $D419/$D41A use pot_read_visible when set, else the pot latch. Other
    registers return the last written value. Reads are non-destructive. */
 uint8_t sid_read(sid *s, uint16_t addr);
 uint8_t sid_debug_read(const sid *s, uint16_t addr);
 
-/* Install (or clear with fn=NULL) the pot reader for $D419/$D41A. Cleared by
-   sid_init / sid_reset — c64 rebinds after those calls. */
-void sid_set_pot_reader(sid *s, sid_pot_read_fn fn, void *user);
+/* Install (or clear with fn=NULL) pot sampler + optional read gate.
+   Cleared by sid_init / sid_reset — c64 rebinds after those calls. */
+void sid_set_pot_hooks(sid *s, sid_pot_sample_fn sample, sid_pot_visible_fn visible,
+                       void *user);
+
+/* Force pot latch bytes (e.g. prime on 1351 attach, $FF on detach). */
+void sid_set_pot_latch(sid *s, uint8_t potx, uint8_t poty);
 
 /* Advance oscillators, envelopes, and filter by |cycles| machine cycles.
    Called once per machine cycle from the c64 step path. */

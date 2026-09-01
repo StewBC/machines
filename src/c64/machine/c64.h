@@ -467,11 +467,12 @@ typedef struct c64_t {
     uint8_t joystick1;
     uint8_t joystick2;
     /* 1351 / pot lines: opaque POT bytes per control port (1→[0], 2→[1]).
-       Default $FF (not connected). mouse_active gates mux output. */
+       Default $FF. SID $D419/$D41A are a 512Ø2 latch: sampled when the
+       driven-high mux selects mouse_port; kept across wrong/deselect edges. */
     uint8_t pot_x[2];
     uint8_t pot_y[2];
     uint8_t mouse_port;   /* 0=none; 1 or 2 — last port from c64_set_mouse */
-    bool mouse_active;    /* host contributing; else mux returns $FF */
+    bool mouse_active;    /* host contributing; else sampler forces latch $FF */
     uint8_t iec_external_pull;
     uint8_t iec_external_pull_other;
     uint8_t iec_external_pull_drive8;

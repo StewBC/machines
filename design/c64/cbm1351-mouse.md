@@ -475,33 +475,36 @@ Implementation phases as **commits on `master`**. Phases 1–5 are done. Phase 6
 | Commit / change | What |
 |-----------------|------|
 | `dfecbdec` | Per-SDL-event clamp `±CBM1351_MAX_DELTA` (**8**) |
-| `2cc3172e` | Pot-window budget: pending deltas; each **`CBM1351_BUDGET_MS` (16)** commit at most **`±CBM1351_BUDGET_MAX` (8)** into 6-bit counters; **drop excess** |
+| `2cc3172e` | Pot-window budget: pending deltas; each **`CBM1351_BUDGET_MS` (16)** commit at most **`±CBM1351_BUDGET_MAX` (8)** into 6-bit counters (originally dropped excess) |
+| (Phase 6) | Budget **carry**: unused pending kept (cap **`±CBM1351_PENDING_MAX` 48**) so fast moves drain across windows |
+| (Phase 6) | Capture grab: warp cursor to window center on enter; re-assert relative mode each frame if SDL dropped it (Alt-Tab escape) |
+| (Phase 6) | **Hold-last pots** (deselect-only) — insufficient for irqtesting (`$40`↔`$80` only) |
+| (Phase 6) | **SID 512 Ø2 pot latch** + mux-gated read: sample/keep as above; visible = latch on select/deselect, `$FF` on other port |
 
-Code: `src/c64/frontend/frontend_mouse_input.{c,h}`; poll flush in `src/c64/main.c`; notes in `agents/c64/frontend-debugger.md`.
+Code: `src/c64/frontend/frontend_mouse_input.{c,h}`; poll flush in `src/c64/main.c`; pot reader in `src/c64/machine/c64.c`; notes in `agents/c64/frontend-debugger.md`.
 
 #### Measured symptoms (control-port watches)
 
-Oracle: CSDb #92222 `irqtesting.prg`, mouse port 1, Opt+Click capture, move in a circle; sample `$D419/$D41A` + `$DC00..$DC02` via `--control-port 6510`.
+Oracle: CSDb #92222 `irqtesting.prg`, mouse port 1, Opt+Click capture, move in a circle / L-R+down; sample `$D419/$D41A` via `--control-port 6510`.
 
 - Unclamped: valid port-1 deltas often **±24..32** (full signed 6-bit); mean \|d\| ~17–18 between sparse samples.
 - After clamp: better (~25–40% calmer); user: “much much better,” still rare pops.
-- After budget: not re-measured in-session; **re-run the circle watch first** in the new session.
-- Mux flips a lot under irqtesting (PA6/PA7); wrong-port reads return `$FF`. Diffing a real pot against `$FF` (ctr 63) invents huge jumps if a driver samples mid-keyboard-scan.
+- After budget (`2cc3172e`): consecutive-valid \|d\| capped at **16** (~two ±8 windows at ~28 ms sample dt); **no** large +PotY in the pot stream. ~**47%** of SID reads still `$FF` from irqtesting mux thrash — guest teleports to top match `$FF` (ctr 63) interleaved with real pots, not uncapped host deltas. Budget **drops** pending excess → laggy feel under fast motion.
+- Hold-last **deselect-only**: no-op under irqtesting (0× `$00`/`$C0`; only `$40`↔`$80`).
+- **SID 512 Ø2 pot latch** + mux-gated visible read (landed): sample on `mouse_port` select (keep otherwise); prime on `set_mouse`; reads return latch on select/deselect and `$FF` on the other port (no dual-port). Kill: single-port in irqtesting; fewer teleports if guest mostly reads after selecting the mouse port / during deselect. Wrong-port exclusive reads can still `$FF`-poison a careless driver.
 
 #### Product locks still in force
 
-- Proportional only; paddles stay `$FF` unless 1351 attached on mux-selected port.
+- Proportional only; paddles stay `$FF` unless a 1351 is attached (`mouse_active`).
 - Capture UX unchanged (Opt+Click CRT enter/leave; autorelease on focus/Help/Forensics/dialog/Inspector).
 - No control-port `mouse` verb; no Inspector mouse log event (v1).
 - Ownership only at SDL/kbdjoy merge; control `joystick` overwrite accepted.
 
 #### Recommended next steps (in order)
 
-1. **Re-measure** after `2cc3172e` with the same irqtesting circle + control-port script (valid port-1 non-`$FF` only). Confirm whether rare pops remain in the pot stream or are mostly guest/mux.
-2. **Tune budget** if still hot: lower `CBM1351_BUDGET_MAX` (e.g. 5) and/or shorten/lengthen `CBM1351_BUDGET_MS`; avoid another ad-hoc clamp-only pass without numbers.
-3. **Optional: hold last pot across mux deselect** while 1351 attached — only if measurement shows `$FF` interleaving still causes guest pops. **Not** phantom keys (pots are SID ADC, not CIA matrix); risk is **stale motion**, not keypresses. Owner was wary; do not land without a kill test.
-4. **SID pot-sample timing** (machine-side) only if 1–3 cannot get irqtesting/GEOS to “great.”
-5. **Out of Phase 6 (owner-owned):** better surfacing when pending PRG inject at `$E38B` fails (`stop=error` with empty `$0801` looked like a mouse regression when the PRG path was missing). Host already publishes `failed to open PRG file`; UI/title should show it.
+1. **Feel-test budget carry** (lag should improve on fast L/R); tune `PENDING_MAX` / `BUDGET_*` if needed.
+2. Teleports from wrong-port `$FF` remain an open tradeoff vs dual-port — do not return latch on other-port exclusive without a new kill plan.
+3. **Out of Phase 6 (owner-owned):** better surfacing when pending PRG inject at `$E38B` fails (`stop=error` with empty `$0801` looked like a mouse regression when the PRG path was missing). Host already publishes `failed to open PRG file`; UI/title should show it.
 
 #### How to continue (new session)
 

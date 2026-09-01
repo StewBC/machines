@@ -119,17 +119,19 @@ static void test_event_clamp_and_budget(void) {
     (void)frontend_mouse_handle_event(&mouse, &ev, crt_rect(), &ui, &action);
     expect_action("spike publish", FRONTEND_MOUSE_ACTION_PUBLISH, action);
     expect_u8("spike +budget", (uint8_t)(10 + CBM1351_BUDGET_MAX), mouse.counter_x);
-    expect_true("pending cleared", mouse.pending_x == 0);
+    /* Event was clamped to MAX_DELTA(8); all of it committed — pending 0. */
+    expect_true("pending spent", mouse.pending_x == 0);
 
     /* Same window: further motion pend but does not advance counters yet. */
     before = mouse.counter_x;
+    action = FRONTEND_MOUSE_ACTION_NONE;
     ev = motion(8, 0);
     (void)frontend_mouse_handle_event(&mouse, &ev, crt_rect(), &ui, &action);
     expect_action("same window consume", FRONTEND_MOUSE_ACTION_CONSUME, action);
     expect_u8("counter held", before, mouse.counter_x);
     expect_true("pending held", mouse.pending_x == 8);
 
-    /* Burst beyond budget: only ±BUDGET_MAX commits; excess dropped. */
+    /* Burst beyond budget: commit ±BUDGET_MAX; carry the remainder. */
     mouse.pending_x = 100;
     mouse.budget_ms = SDL_GetTicks() - (uint32_t)(CBM1351_BUDGET_MS + 1);
     before = mouse.counter_x;
@@ -141,7 +143,19 @@ static void test_event_clamp_and_budget(void) {
         "budget cap",
         (uint8_t)(before + CBM1351_BUDGET_MAX),
         mouse.counter_x);
-    expect_true("excess dropped", mouse.pending_x == 0);
+    expect_true("excess carried", mouse.pending_x == 100 - CBM1351_BUDGET_MAX);
+
+    /* Next window drains more of the carried pending. */
+    mouse.budget_ms = SDL_GetTicks() - (uint32_t)(CBM1351_BUDGET_MS + 1);
+    before = mouse.counter_x;
+    expect_false(
+        "poll2 no leave",
+        frontend_mouse_poll_autorelease(&mouse, &ui, &action));
+    expect_u8(
+        "second drain",
+        (uint8_t)(before + CBM1351_BUDGET_MAX),
+        mouse.counter_x);
+    expect_true("still carrying", mouse.pending_x == 100 - 2 * CBM1351_BUDGET_MAX);
 }
 
 static void test_enter_leave_edges(void) {

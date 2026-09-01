@@ -58,49 +58,48 @@ static void set_cia1_driven(c64_t *m, uint8_t ddra, uint8_t pra) {
     m->cia1.registers[CIA_REG_PORT_A] = pra;
 }
 
-static void test_mux_table(void) {
+static void test_mux_and_latch(void) {
     c64_t machine;
-    struct {
-        uint8_t ddra;
-        uint8_t pra;
-        uint8_t expect_x;
-        const char *name;
-    } cases[] = {
-        {0x00, 0xC0, 0xFF, "reset_undirected"},
-        {0xC0, 0x40, 0x2A, "port1_exclusive"},
-        {0xC0, 0x80, 0x54, "port2_exclusive"},
-        {0xC0, 0xC0, 0xFF, "both_driven"},
-        {0x40, 0x40, 0x2A, "port1_ddra40"},
-        {0x40, 0xC0, 0x2A, "port1_pra_c0_only_pa6_driven"},
-        {0x80, 0x80, 0x54, "port2_ddra80"},
-    };
-    size_t i;
 
     boot_machine(&machine);
+    /* Before attach, latch is $FF. */
+    expect_u8("pre_attach_ff", 0xFF, sid_read(&machine.sid, 0xD419));
+
     c64_set_mouse(&machine, 1u, 0x2Au, 0x11u, C64_JOYSTICK_FIRE);
-    c64_set_mouse(&machine, 2u, 0x54u, 0x22u, C64_JOYSTICK_UP);
-    /* Last set_mouse wins mouse_port; re-activate port1 for the port1 cases. */
-    c64_set_mouse(&machine, 1u, 0x2Au, 0x11u, C64_JOYSTICK_FIRE);
-
-    for (i = 0; i < sizeof(cases) / sizeof(cases[0]); ++i) {
-        uint8_t expect = cases[i].expect_x;
-
-        /* Port2 cases need mouse_port == 2. */
-        if (expect == 0x54u) {
-            c64_set_mouse(&machine, 2u, 0x54u, 0x22u, C64_JOYSTICK_UP);
-        } else if (expect == 0x2Au) {
-            c64_set_mouse(&machine, 1u, 0x2Au, 0x11u, C64_JOYSTICK_FIRE);
-        }
-        set_cia1_driven(&machine, cases[i].ddra, cases[i].pra);
-        expect_u8(cases[i].name, expect, sid_read(&machine.sid, 0xD419));
-    }
-
-    /* Inactive ⇒ $FF even with exclusive mux. */
-    c64_set_mouse(&machine, 1u, 0x2Au, 0x11u, 0);
     set_cia1_driven(&machine, 0xC0, 0x40);
+    /* set_mouse primes the latch; correct mux → visible. */
+    expect_u8("prime_port1_x", 0x2A, sid_read(&machine.sid, 0xD419));
+    expect_u8("prime_port1_y", 0x11, sid_read(&machine.sid, 0xD41A));
+
+    /* Wrong-port exclusive: guest-visible $FF (not dual-port). */
+    set_cia1_driven(&machine, 0xC0, 0x80);
+    expect_u8("wrong_port_visible_ff", 0xFF, sid_read(&machine.sid, 0xD419));
+    /* Latch itself still holds the primed value. */
+    expect_u8("wrong_port_latch_held", 0x2A, machine.sid.pot_latch_x);
+
+    /* Deselect: visible latch (hold against undirected keyboard scan). */
+    set_cia1_driven(&machine, 0x00, 0xC0);
+    expect_u8("deselect_visible_x", 0x2A, sid_read(&machine.sid, 0xD419));
+
+    /* Sample edge with correct mux picks up updated pots. */
+    machine.pot_x[0] = 0x4Cu;
+    machine.pot_y[0] = 0x5Eu;
+    set_cia1_driven(&machine, 0xC0, 0x40);
+    sid_advance_cycles(&machine.sid, (uint32_t)SID_POT_SAMPLE_PERIOD);
+    expect_u8("sample_edge_x", 0x4C, sid_read(&machine.sid, 0xD419));
+    expect_u8("sample_edge_y", 0x5E, sid_read(&machine.sid, 0xD41A));
+
+    /* Sample edge with wrong mux: latch kept; visible still $FF. */
+    machine.pot_x[0] = 0x70u;
+    set_cia1_driven(&machine, 0xC0, 0x80);
+    sid_advance_cycles(&machine.sid, (uint32_t)SID_POT_SAMPLE_PERIOD);
+    expect_u8("wrong_sample_latch", 0x4C, machine.sid.pot_latch_x);
+    expect_u8("wrong_sample_visible_ff", 0xFF, sid_read(&machine.sid, 0xD419));
+
     c64_clear_mouse(&machine);
-    expect_u8("inactive_after_clear", 0xFF, sid_read(&machine.sid, 0xD419));
-    expect_u8("inactive_poty", 0xFF, sid_read(&machine.sid, 0xD41A));
+    set_cia1_driven(&machine, 0xC0, 0x40);
+    expect_u8("clear_latch_x", 0xFF, sid_read(&machine.sid, 0xD419));
+    expect_u8("clear_latch_y", 0xFF, sid_read(&machine.sid, 0xD41A));
 }
 
 static void test_buttons_and_pots(void) {
@@ -120,13 +119,14 @@ static void test_buttons_and_pots(void) {
     set_cia1_driven(&machine, 0xC0, 0x80);
     expect_u8("potx_port2", 0x12, sid_read(&machine.sid, 0xD419));
     expect_u8("poty_port2", 0x34, sid_read(&machine.sid, 0xD41A));
-    /* Wrong mux ⇒ $FF even while active on the other port. */
+    /* Other port: guest-visible $FF. */
     set_cia1_driven(&machine, 0xC0, 0x40);
-    expect_u8("wrong_port_mux", 0xFF, sid_read(&machine.sid, 0xD419));
+    expect_u8("other_port_ff", 0xFF, sid_read(&machine.sid, 0xD419));
 
     c64_clear_mouse(&machine);
     expect_u8("clear_joy2", 0x00, machine.joystick2);
     expect_true("clear_inactive", !machine.mouse_active);
+    expect_u8("clear_sid_ff", 0xFF, sid_read(&machine.sid, 0xD419));
 }
 
 static void test_snapshot_v15_forces_inactive(void) {
@@ -167,13 +167,13 @@ static void test_snapshot_v15_forces_inactive(void) {
     expect_u8("post_load_poty0", 0xFF, loaded.pot_y[0]);
     set_cia1_driven(&loaded, 0xC0, 0x40);
     expect_u8("post_load_sid_potx", 0xFF, sid_read(&loaded.sid, 0xD419));
-    /* Pot reader still bound to loaded machine. */
+    /* Pot sampler still bound to loaded machine. */
     c64_set_mouse(&loaded, 1u, 0x77, 0x88, 0);
     expect_u8("rebind_works", 0x77, sid_read(&loaded.sid, 0xD419));
 }
 
 int main(void) {
-    test_mux_table();
+    test_mux_and_latch();
     test_buttons_and_pots();
     test_snapshot_v15_forces_inactive();
     printf("ok\n");

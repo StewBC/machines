@@ -168,6 +168,9 @@ void sid_init(sid *s, uint32_t cpu_clock_hz) {
     memset(s, 0, sizeof(*s));
     sid_select_clock(s, cpu_clock_hz);
     s->sample_output_enabled = true;
+    s->pot_latch_x = 0xFFu;
+    s->pot_latch_y = 0xFFu;
+    s->pot_cycle_acc = 0u;
     for (i = 0; i < 3; i++) {
         sid_voice_init(&s->voices[i]);
     }
@@ -269,9 +272,15 @@ uint8_t sid_debug_read(const sid *s, uint16_t addr) {
     reg = (uint8_t)(addr & 0x1Fu);
     switch (reg) {
         case 0x19u: /* POTX */
-            return (s->pot_read != NULL) ? s->pot_read(s->pot_user, 0) : 0xFFu;
+            if (s->pot_read_visible != NULL) {
+                return s->pot_read_visible(s->pot_user, 0);
+            }
+            return s->pot_latch_x;
         case 0x1Au: /* POTY */
-            return (s->pot_read != NULL) ? s->pot_read(s->pot_user, 1) : 0xFFu;
+            if (s->pot_read_visible != NULL) {
+                return s->pot_read_visible(s->pot_user, 1);
+            }
+            return s->pot_latch_y;
         case 0x1Bu: return s->voice3_osc_read;  /* OSC3 */
         case 0x1Cu: return s->voice3_env_read;  /* ENV3 */
         case 0x1Du:
@@ -281,12 +290,39 @@ uint8_t sid_debug_read(const sid *s, uint16_t addr) {
     }
 }
 
-void sid_set_pot_reader(sid *s, sid_pot_read_fn fn, void *user) {
+void sid_set_pot_hooks(sid *s, sid_pot_sample_fn sample, sid_pot_visible_fn visible,
+                       void *user) {
     if (!s) {
         return;
     }
-    s->pot_read = fn;
+    s->pot_sample = sample;
+    s->pot_read_visible = visible;
     s->pot_user = user;
+}
+
+void sid_set_pot_latch(sid *s, uint8_t potx, uint8_t poty) {
+    if (!s) {
+        return;
+    }
+    s->pot_latch_x = potx;
+    s->pot_latch_y = poty;
+}
+
+static void sid_advance_pot_cycles(sid *s, uint32_t cycles) {
+    if (s == NULL || cycles == 0u || s->pot_sample == NULL) {
+        return;
+    }
+    s->pot_cycle_acc = (uint16_t)(s->pot_cycle_acc + cycles);
+    while (s->pot_cycle_acc >= (uint16_t)SID_POT_SAMPLE_PERIOD) {
+        uint8_t x;
+        uint8_t y;
+
+        s->pot_cycle_acc = (uint16_t)(s->pot_cycle_acc - (uint16_t)SID_POT_SAMPLE_PERIOD);
+        if (s->pot_sample(s->pot_user, &x, &y)) {
+            s->pot_latch_x = x;
+            s->pot_latch_y = y;
+        }
+    }
 }
 
 /* ------------------------------------------------------------------ */
@@ -544,6 +580,9 @@ void sid_advance_cycles(sid *s, uint32_t cycles) {
     uint32_t prev_phase[3];
 
     if (!s || cycles == 0u) return;
+
+    /* Pot ADC latch runs even when host audio is muted. */
+    sid_advance_pot_cycles(s, cycles);
 
     /* Free-run / max: host sample path off. Still advance oscillators and
        envelopes so $D41B/$D41C and later 1x audio resume stay correct. */
