@@ -4874,6 +4874,15 @@ static void dispatch_debugger_intents(
                             options->printer_enabled,
                             printer_dir);
                     }
+                    /* Typed Output dir must refresh the printer browse slot so
+                       Paths / next [...] remember it, not a stale pick. */
+                    if (options->printer_output_dir != NULL &&
+                        options->printer_output_dir[0] != '\0') {
+                        frontend_set_browse_dir(
+                            ui,
+                            FRONTEND_BROWSE_SLOT_PRINTER,
+                            options->printer_output_dir);
+                    }
                     /* Pull live browse/ROM path edits into options before any save. */
                     for (slot = 0; slot < FRONTEND_BROWSE_SLOT_COUNT &&
                              slot < APP_BROWSE_DIR_COUNT; ++slot) {

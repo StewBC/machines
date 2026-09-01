@@ -92,7 +92,7 @@ bool runtime_client_set_swiftlink(
     c64_swiftlink_irq_mode irq_mode,
     bool pace_baud);
 /* Soft-attach MPS-803-class printer (device 4). Format is BMP for v1.
-   output_dir is required when enabling; may be NULL when disabling. */
+   Empty/NULL output_dir on enable is pushed; the runtime soft-fails. */
 bool runtime_client_set_printer(
     runtime_client *client,
     bool enabled,

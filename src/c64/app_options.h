@@ -133,7 +133,7 @@ typedef struct app_options {
     bool printer_enabled;
     uint8_t printer_device; /* default 4; v1 only accepts 4 */
     char *printer_output_dir; /* default "prints" */
-    char *printer_format; /* "bmp" only until PNG/PDF unlock */
+    char *printer_format; /* "bmp" only */
 } app_options;
 
 /* Returns 0xDE00 or 0xDF00 from options->swiftlink_base (default DE00). */

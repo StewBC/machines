@@ -2417,11 +2417,7 @@ static void frontend_draw_config_emulator_tab(frontend *ui, frontend_config_dial
             &dialog->edited.swiftlink_pace_baud);
     }
 
-    /* Printer is soft-attach host config — same family as SwiftLink. */
     {
-        static const char *const format_items[] = { "bmp" };
-        int selected;
-
         nk_layout_row_dynamic(ctx, 10.0f, 1);
         nk_spacing(ctx, 1);
         nk_layout_row_dynamic(ctx, 18.0f, 1);
@@ -2448,8 +2444,8 @@ static void frontend_draw_config_emulator_tab(frontend *ui, frontend_config_dial
             nk_filter_default);
         nk_layout_row_push(ctx, 0.14f);
         if (nk_button_label(ctx, "...")) {
-            if (ui->browse_dirs[FRONTEND_BROWSE_SLOT_PRINTER][0] == '\0' &&
-                dialog->edited.printer_output_dir != NULL &&
+            /* Prefer the live Output dir so a typed path is not ignored. */
+            if (dialog->edited.printer_output_dir != NULL &&
                 dialog->edited.printer_output_dir[0] != '\0') {
                 frontend_set_browse_dir(
                     ui,
@@ -2468,8 +2464,7 @@ static void frontend_draw_config_emulator_tab(frontend *ui, frontend_config_dial
         nk_layout_row_push(ctx, 0.30f);
         nk_label(ctx, "Format", NK_TEXT_LEFT);
         nk_layout_row_push(ctx, 0.70f);
-        selected = 0;
-        (void)nk_combo(ctx, format_items, 1, selected, 18, nk_vec2(120.0f, 80.0f));
+        nk_label(ctx, "bmp", NK_TEXT_LEFT);
         nk_layout_row_end(ctx);
     }
 }

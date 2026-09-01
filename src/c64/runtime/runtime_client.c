@@ -879,10 +879,9 @@ bool runtime_client_set_printer(
     if (!client) {
         return false;
     }
-    if (enabled && (output_dir == NULL || output_dir[0] == '\0')) {
-        return false;
-    }
 
+    /* Empty-dir enable is pushed so runtime_printer_set_enabled can soft-fail
+       (log + RUNTIME_EVENT_ERROR) under the same contract as a bad path. */
     command.data.set_printer.enabled = enabled ? 1u : 0u;
     if (output_dir != NULL && output_dir[0] != '\0') {
         snprintf(

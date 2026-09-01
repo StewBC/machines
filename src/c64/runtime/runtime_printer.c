@@ -4,8 +4,6 @@
 #include "host_page_writer.h"
 #include "runtime_internal.h"
 
-#include <string.h>
-
 bool runtime_printer_set_enabled(
     runtime *rt,
     bool enabled,
