@@ -76,8 +76,10 @@ static void test_pot_encode_and_wrap(void) {
     frontend_mouse_set_enabled(&mouse, true);
     frontend_mouse_set_port(&mouse, 1u);
 
-    /* Force captured to exercise motion without SDL Opt state. */
+    /* Force captured; budget already elapsed so the next motion commits. */
     mouse.captured = true;
+    mouse.budget_ms = SDL_GetTicks() - (uint32_t)(CBM1351_BUDGET_MS + 1);
+
     ev = motion(1, 0);
     expect_true("motion consumed", frontend_mouse_handle_event(
         &mouse, &ev, crt_rect(), &ui, &action));
@@ -85,6 +87,7 @@ static void test_pot_encode_and_wrap(void) {
     expect_u8("counter_x 1", 1, mouse.counter_x);
     expect_u8("potx <<1", 0x02, frontend_mouse_potx(&mouse));
 
+    mouse.budget_ms = SDL_GetTicks() - (uint32_t)(CBM1351_BUDGET_MS + 1);
     ev = motion(0, 1); /* SDL +y down ⇒ counter_y decreases */
     expect_true("y motion", frontend_mouse_handle_event(
         &mouse, &ev, crt_rect(), &ui, &action));
@@ -92,19 +95,53 @@ static void test_pot_encode_and_wrap(void) {
     expect_u8("poty", (uint8_t)(63u << 1), frontend_mouse_poty(&mouse));
 
     mouse.counter_x = 63;
+    mouse.budget_ms = SDL_GetTicks() - (uint32_t)(CBM1351_BUDGET_MS + 1);
     ev = motion(2, 0);
     (void)frontend_mouse_handle_event(&mouse, &ev, crt_rect(), &ui, &action);
     expect_u8("counter_x wrap", 1, mouse.counter_x);
+}
 
-    /* Large host spikes clamp to ±CBM1351_MAX_DELTA. */
+static void test_event_clamp_and_budget(void) {
+    frontend_mouse_input mouse;
+    frontend_mouse_ui_flags ui = ui_clear();
+    frontend_mouse_action action = FRONTEND_MOUSE_ACTION_NONE;
+    SDL_Event ev;
+    uint8_t before;
+
+    frontend_mouse_reset(&mouse);
+    frontend_mouse_set_enabled(&mouse, true);
+    mouse.captured = true;
+    mouse.budget_ms = SDL_GetTicks() - (uint32_t)(CBM1351_BUDGET_MS + 1);
     mouse.counter_x = 10;
+
+    /* One huge event: per-event clamp then budget commit (both max 8). */
     ev = motion(100, 0);
     (void)frontend_mouse_handle_event(&mouse, &ev, crt_rect(), &ui, &action);
-    expect_u8("clamp +max", (uint8_t)(10 + CBM1351_MAX_DELTA), mouse.counter_x);
-    mouse.counter_x = 10;
-    ev = motion(-100, 0);
+    expect_action("spike publish", FRONTEND_MOUSE_ACTION_PUBLISH, action);
+    expect_u8("spike +budget", (uint8_t)(10 + CBM1351_BUDGET_MAX), mouse.counter_x);
+    expect_true("pending cleared", mouse.pending_x == 0);
+
+    /* Same window: further motion pend but does not advance counters yet. */
+    before = mouse.counter_x;
+    ev = motion(8, 0);
     (void)frontend_mouse_handle_event(&mouse, &ev, crt_rect(), &ui, &action);
-    expect_u8("clamp -max", (uint8_t)(10 - CBM1351_MAX_DELTA), mouse.counter_x);
+    expect_action("same window consume", FRONTEND_MOUSE_ACTION_CONSUME, action);
+    expect_u8("counter held", before, mouse.counter_x);
+    expect_true("pending held", mouse.pending_x == 8);
+
+    /* Burst beyond budget: only ±BUDGET_MAX commits; excess dropped. */
+    mouse.pending_x = 100;
+    mouse.budget_ms = SDL_GetTicks() - (uint32_t)(CBM1351_BUDGET_MS + 1);
+    before = mouse.counter_x;
+    expect_false(
+        "poll no leave",
+        frontend_mouse_poll_autorelease(&mouse, &ui, &action));
+    expect_action("poll publish", FRONTEND_MOUSE_ACTION_PUBLISH, action);
+    expect_u8(
+        "budget cap",
+        (uint8_t)(before + CBM1351_BUDGET_MAX),
+        mouse.counter_x);
+    expect_true("excess dropped", mouse.pending_x == 0);
 }
 
 static void test_enter_leave_edges(void) {
@@ -184,27 +221,34 @@ static void test_buttons_while_captured(void) {
 static void test_autorelease(void) {
     frontend_mouse_input mouse;
     frontend_mouse_ui_flags ui = ui_clear();
+    frontend_mouse_action action = FRONTEND_MOUSE_ACTION_NONE;
 
     frontend_mouse_reset(&mouse);
     frontend_mouse_set_enabled(&mouse, true);
     mouse.captured = true;
     mouse.buttons = FRONTEND_JOYSTICK_FIRE;
 
-    expect_false("no release", frontend_mouse_poll_autorelease(&mouse, &ui));
+    expect_false(
+        "no release",
+        frontend_mouse_poll_autorelease(&mouse, &ui, &action));
     expect_true("still captured", mouse.captured);
 
     ui.help_open = true;
-    expect_true("help releases", frontend_mouse_poll_autorelease(&mouse, &ui));
+    expect_true(
+        "help releases",
+        frontend_mouse_poll_autorelease(&mouse, &ui, &action));
+    expect_action("leave", FRONTEND_MOUSE_ACTION_LEAVE, action);
     expect_false("cleared", mouse.captured);
     expect_u8("buttons cleared", 0, mouse.buttons);
 }
 
 int main(void) {
-    if (SDL_Init(SDL_INIT_EVENTS) != 0) {
+    if (SDL_Init(SDL_INIT_EVENTS | SDL_INIT_TIMER) != 0) {
         fprintf(stderr, "SDL_Init failed: %s\n", SDL_GetError());
         return 1;
     }
     test_pot_encode_and_wrap();
+    test_event_clamp_and_budget();
     test_enter_leave_edges();
     test_buttons_while_captured();
     test_autorelease();

@@ -7359,12 +7359,22 @@ static bool run_main_loop(
             frontend_mouse_ui_flags mouse_ui;
             mouse_fill_ui_flags(
                 &mouse_ui, ui, debug_state.inspecting, mouse_focus_lost);
-            if (frontend_mouse_poll_autorelease(&mouse_input, &mouse_ui)) {
-                mouse_apply_action(
-                    &mouse_input,
-                    &controller_state,
-                    client,
-                    FRONTEND_MOUSE_ACTION_LEAVE);
+            {
+                frontend_mouse_action poll_action = FRONTEND_MOUSE_ACTION_NONE;
+                if (frontend_mouse_poll_autorelease(
+                        &mouse_input, &mouse_ui, &poll_action)) {
+                    mouse_apply_action(
+                        &mouse_input,
+                        &controller_state,
+                        client,
+                        FRONTEND_MOUSE_ACTION_LEAVE);
+                } else if (poll_action == FRONTEND_MOUSE_ACTION_PUBLISH) {
+                    mouse_apply_action(
+                        &mouse_input,
+                        &controller_state,
+                        client,
+                        FRONTEND_MOUSE_ACTION_PUBLISH);
+                }
             }
             mouse_focus_lost = false;
         }

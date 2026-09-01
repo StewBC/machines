@@ -8,9 +8,13 @@
 
 enum {
     CBM1351_SENS = 1,
-    /* Cap host xrel/yrel per SDL event before 6-bit wrap. Unclamped macOS
-       spikes were saturating ±32 between IRQ polls (pointer teleports). */
-    CBM1351_MAX_DELTA = 8
+    /* Cap host xrel/yrel per SDL event before pending. */
+    CBM1351_MAX_DELTA = 8,
+    /* Pot-window budget: at most this many counts per axis commit into the
+       6-bit counter each BUDGET_MS (excess host motion dropped). Approximates
+       1351 dump/reset so IRQ polls do not see a full burst wrap. */
+    CBM1351_BUDGET_MAX = 8,
+    CBM1351_BUDGET_MS = 16
 };
 
 /* Axis-aligned CRT hit rect (same layout as nk_rect; no nuklear dependency). */
@@ -25,10 +29,13 @@ typedef struct frontend_mouse_input {
     bool enabled;         /* CLI / Config */
     unsigned port;        /* 1 or 2 */
     bool captured;
-    uint8_t counter_x;    /* 6-bit wrap */
+    uint8_t counter_x;    /* 6-bit wrap (guest-visible) */
     uint8_t counter_y;
     uint8_t buttons;      /* FRONTEND_JOYSTICK_FIRE / UP */
     bool opt_click_armed; /* Opt+LMB down seen (enter or leave) */
+    int pending_x;        /* counter-space deltas waiting for budget */
+    int pending_y;
+    uint32_t budget_ms;   /* SDL_GetTicks() of last budget commit */
 } frontend_mouse_input;
 
 typedef struct frontend_mouse_ui_flags {
@@ -65,8 +72,10 @@ bool frontend_mouse_handle_event(
     const frontend_mouse_ui_flags *ui,
     frontend_mouse_action *out_action);
 
-/* Call once per main-loop iteration while enabled. Returns true if capture
-   was released (caller should clear_mouse + drop relative mode). */
+/* Call once per main-loop iteration while enabled. Flushes the pot-window
+   budget (may set *out_action to PUBLISH). Returns true if capture was
+   released (*out_action LEAVE); caller should clear_mouse + ungrip. */
 bool frontend_mouse_poll_autorelease(
     frontend_mouse_input *mouse,
-    const frontend_mouse_ui_flags *ui);
+    const frontend_mouse_ui_flags *ui,
+    frontend_mouse_action *out_action);

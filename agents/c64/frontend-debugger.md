@@ -100,12 +100,16 @@ while an edit field has focus.
 CBM 1351 (proportional only): default off (`[input] mouse_enabled` /
 `--mouse`). Opt+Click CRT captures (relative mode); Opt+Click releases.
 Autorelease on focus loss, Help, Forensics, any dialog, or Inspector.
-Host motion uses `CBM1351_SENS` then clamps each SDL event to
-`±CBM1351_MAX_DELTA` (8) before the 6-bit wrap — unclamped macOS `xrel`
-spikes were saturating IRQ deltas. While captured, that port's digital
-lines come only from the mouse at the SDL/kbdjoy merge (control-port
-`joystick` can still overwrite until the next `set_mouse` — accepted v1
-gap). No control `mouse` verb; no Inspector mouse log event.
+Host motion: per-event clamp `±CBM1351_MAX_DELTA` (8) into a pending
+bucket, then a pot-window budget commits at most `±CBM1351_BUDGET_MAX`
+(8) into the 6-bit counters every `CBM1351_BUDGET_MS` (16) and drops the
+rest — approximates 1351 dump/reset so IRQ polls do not see a full burst
+wrap. While captured, that port's digital lines come only from the mouse
+at the SDL/kbdjoy merge (control-port `joystick` can still overwrite
+until the next `set_mouse` — accepted v1 gap). No control `mouse` verb;
+no Inspector mouse log event. Do not "hold last pot" across mux deselect
+without a measured need (pots are not keyboard; stale pots can invent
+motion, not phantom keys).
 
 ## Loading and configuration
 

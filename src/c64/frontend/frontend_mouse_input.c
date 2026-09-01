@@ -28,12 +28,56 @@ static int clamp_delta(int value) {
     return value;
 }
 
+static int clamp_budget(int value) {
+    if (value > CBM1351_BUDGET_MAX) {
+        return CBM1351_BUDGET_MAX;
+    }
+    if (value < -CBM1351_BUDGET_MAX) {
+        return -CBM1351_BUDGET_MAX;
+    }
+    return value;
+}
+
 static void release_capture(frontend_mouse_input *mouse) {
     mouse->captured = false;
     mouse->opt_click_armed = false;
     mouse->buttons = 0;
     mouse->counter_x = 0;
     mouse->counter_y = 0;
+    mouse->pending_x = 0;
+    mouse->pending_y = 0;
+    mouse->budget_ms = 0;
+}
+
+/* Commit at most ±BUDGET_MAX from pending into counters; drop the rest.
+   Returns true if the guest-visible counters changed. */
+static bool commit_budget(frontend_mouse_input *mouse) {
+    uint32_t now;
+    int dx;
+    int dy;
+
+    if (mouse == NULL || !mouse->captured) {
+        return false;
+    }
+    now = SDL_GetTicks();
+    if (mouse->budget_ms == 0u) {
+        mouse->budget_ms = now;
+        return false;
+    }
+    if ((uint32_t)(now - mouse->budget_ms) < (uint32_t)CBM1351_BUDGET_MS) {
+        return false;
+    }
+    mouse->budget_ms = now;
+    dx = clamp_budget(mouse->pending_x);
+    dy = clamp_budget(mouse->pending_y);
+    mouse->pending_x = 0;
+    mouse->pending_y = 0;
+    if (dx == 0 && dy == 0) {
+        return false;
+    }
+    mouse->counter_x = (uint8_t)(((int)mouse->counter_x + dx) & 63);
+    mouse->counter_y = (uint8_t)(((int)mouse->counter_y + dy) & 63);
+    return true;
 }
 
 void frontend_mouse_reset(frontend_mouse_input *mouse) {
@@ -88,14 +132,29 @@ bool frontend_mouse_point_in_rect(float x, float y, frontend_mouse_rect rect) {
 
 bool frontend_mouse_poll_autorelease(
     frontend_mouse_input *mouse,
-    const frontend_mouse_ui_flags *ui) {
-    if (mouse == NULL || !mouse->enabled || !mouse->captured) {
+    const frontend_mouse_ui_flags *ui,
+    frontend_mouse_action *out_action) {
+    if (out_action != NULL) {
+        *out_action = FRONTEND_MOUSE_ACTION_NONE;
+    }
+    if (mouse == NULL || !mouse->enabled) {
+        return false;
+    }
+    if (mouse->captured && commit_budget(mouse)) {
+        if (out_action != NULL) {
+            *out_action = FRONTEND_MOUSE_ACTION_PUBLISH;
+        }
+    }
+    if (!mouse->captured) {
         return false;
     }
     if (!ui_blocks_capture(ui)) {
         return false;
     }
     release_capture(mouse);
+    if (out_action != NULL) {
+        *out_action = FRONTEND_MOUSE_ACTION_LEAVE;
+    }
     return true;
 }
 
@@ -171,6 +230,9 @@ bool frontend_mouse_handle_event(
                 mouse->buttons = 0;
                 mouse->counter_x = 0;
                 mouse->counter_y = 0;
+                mouse->pending_x = 0;
+                mouse->pending_y = 0;
+                mouse->budget_ms = SDL_GetTicks();
                 consumed = true;
                 action = FRONTEND_MOUSE_ACTION_ENTER;
             } else {
@@ -196,15 +258,17 @@ bool frontend_mouse_handle_event(
             FRONTEND_MOUSE_ACTION_PUBLISH : FRONTEND_MOUSE_ACTION_CONSUME;
     } else if (event->type == SDL_MOUSEMOTION && mouse->captured) {
         int dx = clamp_delta(event->motion.xrel * CBM1351_SENS);
-        int dy = clamp_delta(event->motion.yrel * CBM1351_SENS);
+        /* SDL +y is down; store counter-space delta (PotY grows on mouse-up). */
+        int dy = clamp_delta(-(event->motion.yrel * CBM1351_SENS));
         if (dx != 0 || dy != 0) {
-            mouse->counter_x =
-                (uint8_t)(((int)mouse->counter_x + dx) & 63);
-            /* SDL +y is down; hardware PotY grows on mouse-up. */
-            mouse->counter_y =
-                (uint8_t)(((int)mouse->counter_y - dy) & 63);
+            mouse->pending_x += dx;
+            mouse->pending_y += dy;
             consumed = true;
-            action = FRONTEND_MOUSE_ACTION_PUBLISH;
+            if (commit_budget(mouse)) {
+                action = FRONTEND_MOUSE_ACTION_PUBLISH;
+            } else {
+                action = FRONTEND_MOUSE_ACTION_CONSUME;
+            }
         } else {
             consumed = true;
             action = FRONTEND_MOUSE_ACTION_CONSUME;
