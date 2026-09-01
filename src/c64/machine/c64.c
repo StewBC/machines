@@ -1385,7 +1385,6 @@ static bool c64_try_kernal_channel_traps(c64_t *machine)
                c64_try_hostfs_chrout_trap(machine);
     }
     if (pc == (uint16_t)C64_KERNAL_CLALL_ENTRY) {
-        /* Unified virtual-peripheral helper (printer + HostFS). */
         return c64_try_virtual_peripheral_clall_trap(machine);
     }
     return false;

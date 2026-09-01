@@ -326,6 +326,53 @@ static void test_printer_disabled_does_not_claim(void)
     printf("PASS: test_printer_disabled_does_not_claim\n");
 }
 
+static void test_printer_non_device_does_not_claim(void)
+{
+    static c64_t c64;
+    char dir[TEST_PATH_MAX];
+    char error[128];
+    uint8_t ldtnd_before;
+
+    make_tmpdir(dir, sizeof(dir));
+    reset_machine(&c64);
+    enable_printer(&c64, dir);
+
+    /* Device 5 ≠ printer.device (4): printer trap must not claim. */
+    setup_open_call(&c64, "", 5, 5, 0);
+    ldtnd_before = c64.bus.ram[ZP_LDTND];
+    expect_true("step open 5", c64_step_instruction(&c64, error, sizeof(error)));
+    expect_true("no rts for FA 5", c64.cpu.cpu.pc != (uint16_t)(TEST_RETURN_ADDRESS + 1u));
+    expect_true("lat unchanged", c64.bus.ram[ZP_LDTND] == ldtnd_before);
+
+    /* Device 8 with no HostFS: neither printer nor HostFS claims. */
+    setup_open_call(&c64, "X,S,W", 2, 8, 2);
+    ldtnd_before = c64.bus.ram[ZP_LDTND];
+    expect_true("step open 8", c64_step_instruction(&c64, error, sizeof(error)));
+    expect_true("no rts for FA 8", c64.cpu.cpu.pc != (uint16_t)(TEST_RETURN_ADDRESS + 1u));
+    expect_true("lat still empty", c64.bus.ram[ZP_LDTND] == ldtnd_before);
+
+    /* Device 8 with HostFS mounted still reaches HostFS after printer check. */
+    expect_true(
+        "mount",
+        c64_mount_hostfs(&c64, 8, dir, true) == C64_DRIVE_STATUS_OK);
+    open_hostfs_seq_write(&c64, 2, 8, "E,S,W");
+    expect_true("hostfs claimed FA 8", lat_find(&c64, 2) >= 0);
+    expect_true("fat is 8", c64.bus.ram[RAM_FAT + lat_find(&c64, 2)] == 8);
+
+    remove_tree(dir);
+    printf("PASS: test_printer_non_device_does_not_claim\n");
+}
+
+static void clall_and_expect_empty(c64_t *machine, const char *label)
+{
+    setup_clall_call(machine);
+    step_ok(machine, label);
+    expect_success_return(machine);
+    expect_true("ldtnd 0", machine->bus.ram[ZP_LDTND] == 0);
+    expect_true("dfltn 0", machine->bus.ram[ZP_DFLTN] == 0);
+    expect_true("dflto 3", machine->bus.ram[ZP_DFLTO] == 3);
+}
+
 static void test_printer_chkin_chrin_not_claimed(void)
 {
     static c64_t c64;
@@ -379,18 +426,22 @@ static void test_printer_sealed_skips_host_write(void)
     snprintf(path, sizeof(path), "%s/page_0001.bmp", dir);
     expect_true("no page sealed", !file_exists(path));
 
+    /* Dirty page then sealed CLALL must not write a host page. */
+    c64_set_replay_sealed(&c64, false);
+    open_printer(&c64, 4, 0);
+    setup_chkout_call(&c64, 4);
+    step_ok(&c64, "chkout dirty");
+    setup_chrout_call(&c64, (uint8_t)'A');
+    step_ok(&c64, "chrout dirty");
+    expect_true("dirty before sealed clall", c64_printer_page_dirty(&c64.printer));
+    c64_set_replay_sealed(&c64, true);
+    clall_and_expect_empty(&c64, "clall sealed");
+    expect_true("still dirty sealed clall", c64_printer_page_dirty(&c64.printer));
+    expect_true("no flush sealed clall", c64_printer_pages_flushed(&c64.printer) == 0u);
+    expect_true("no page sealed clall", !file_exists(path));
+
     remove_tree(dir);
     printf("PASS: test_printer_sealed_skips_host_write\n");
-}
-
-static void clall_and_expect_empty(c64_t *machine, const char *label)
-{
-    setup_clall_call(machine);
-    step_ok(machine, label);
-    expect_success_return(machine);
-    expect_true("ldtnd 0", machine->bus.ram[ZP_LDTND] == 0);
-    expect_true("dfltn 0", machine->bus.ram[ZP_DFLTN] == 0);
-    expect_true("dflto 3", machine->bus.ram[ZP_DFLTO] == 3);
 }
 
 static void test_clall_printer_only(void)
@@ -570,7 +621,7 @@ static void test_clall_foreign_at_head_with_hostfs(void)
         "mount",
         c64_mount_hostfs(&c64, 9, host_dir, true) == C64_DRIVE_STATUS_OK);
 
-    /* Screen at head, then HostFS — old HostFS CLALL aborted at head. */
+    /* Screen at head must survive; HostFS behind it still closes (no FA delete). */
     lat_add_manual(&c64, 3, 3, 0);
     open_hostfs_seq_write(&c64, 2, 9, "D,S,W");
     expect_true("screen head", c64.bus.ram[RAM_LAT] == 3);
@@ -592,6 +643,7 @@ int main(void)
 {
     test_printer_basic_open_print_close();
     test_printer_disabled_does_not_claim();
+    test_printer_non_device_does_not_claim();
     test_printer_chkin_chrin_not_claimed();
     test_printer_sealed_skips_host_write();
     test_clall_printer_only();
