@@ -37,6 +37,14 @@ static void expect_eq_u32(const char *name, uint32_t expected, uint32_t actual)
     }
 }
 
+static void expect_eq_u8(const char *name, uint8_t expected, uint8_t actual)
+{
+    if (expected != actual) {
+        fprintf(stderr, "FAIL: %s: expected %u, got %u\n", name, expected, actual);
+        exit(1);
+    }
+}
+
 static uint32_t read_u32_le(const uint8_t *p)
 {
     return (uint32_t)p[0]
@@ -95,6 +103,12 @@ static uint32_t bmp_expected_size(uint32_t width, uint32_t height, uint8_t bpp)
     return off_bits + stride * height;
 }
 
+static uint32_t bmp_expected_off_bits(uint8_t bpp)
+{
+    uint32_t palette = (bpp == 1u) ? (2u * 4u) : (256u * 4u);
+    return 14u + 40u + palette;
+}
+
 static void cleanup_path(const char *path)
 {
     remove(path);
@@ -123,6 +137,24 @@ static void test_reject_unsupported_formats(void)
     expect_false("null path rejected", host_page_writer_write(&page, HOST_PAGE_FORMAT_BMP, NULL));
 }
 
+static void test_reject_overflow_dimensions(void)
+{
+    uint8_t pixel = 0;
+    host_page_image page;
+
+    memset(&page, 0, sizeof(page));
+    /* 8bpp stride*height overflows uint32 (0x10000 * 0x10000). */
+    page.width = 0x10000u;
+    page.height = 0x10000u;
+    page.stride_bytes = 0x10000u;
+    page.bits_per_pixel = 8;
+    page.pixels = &pixel;
+
+    expect_false(
+        "overflow dimensions rejected",
+        host_page_writer_write(&page, HOST_PAGE_FORMAT_BMP, "hpw_overflow.bmp"));
+}
+
 static void test_ensure_dir(void)
 {
     const char *nested = "hpw_scratch/nested/out";
@@ -147,25 +179,32 @@ static void test_write_8bpp_bmp(void)
 {
     const char *path = "hpw_scratch_8.bmp";
     const char *tmp_path = "hpw_scratch_8.bmp.tmp";
-    uint8_t pixels[8 * 8];
+    /* width=2 => raw row 2 bytes, BMP stride 4 (2 pad bytes). */
+    uint8_t pixels[2 * 3];
     host_page_image page;
     uint8_t *body;
     size_t size;
     size_t tmp_size;
     uint32_t expected;
-    int i;
+    uint32_t off_bits;
+    const uint8_t *palette;
+    const uint8_t *first_row;
 
     cleanup_path(path);
     cleanup_path(tmp_path);
 
-    for (i = 0; i < 64; i++) {
-        pixels[i] = (uint8_t)((i & 1) ? 255u : 0u);
-    }
+    /* Distinct top/middle/bottom rows so bottom-up order is observable. */
+    pixels[0] = 0x11;
+    pixels[1] = 0x12; /* top */
+    pixels[2] = 0x21;
+    pixels[3] = 0x22; /* middle */
+    pixels[4] = 0x31;
+    pixels[5] = 0x32; /* bottom */
 
     memset(&page, 0, sizeof(page));
-    page.width = 8;
-    page.height = 8;
-    page.stride_bytes = 8;
+    page.width = 2;
+    page.height = 3;
+    page.stride_bytes = 2;
     page.bits_per_pixel = 8;
     page.pixels = pixels;
 
@@ -173,13 +212,29 @@ static void test_write_8bpp_bmp(void)
     expect_true("final path exists", (body = read_file_bytes(path, &size)) != NULL);
     expect_false("tmp removed after success", read_file_bytes(tmp_path, &tmp_size) != NULL);
 
-    expected = bmp_expected_size(8, 8, 8);
+    expected = bmp_expected_size(2, 3, 8);
+    off_bits = bmp_expected_off_bits(8);
     expect_eq_u32("8bpp file size", expected, (uint32_t)size);
     expect_true("BM magic", size >= 2u && body[0] == 'B' && body[1] == 'M');
     expect_eq_u32("bfSize", expected, read_u32_le(body + 2));
-    expect_eq_u32("biWidth", 8u, read_u32_le(body + 18));
-    expect_eq_u32("biHeight", 8u, read_u32_le(body + 22));
+    expect_eq_u32("bfOffBits", off_bits, read_u32_le(body + 10));
+    expect_eq_u32("biWidth", 2u, read_u32_le(body + 18));
+    expect_eq_u32("biHeight", 3u, read_u32_le(body + 22));
     expect_eq_u32("biBitCount", 8u, (uint32_t)read_u16_le(body + 28));
+
+    palette = body + 14u + 40u;
+    expect_eq_u8("palette0 B", 0u, palette[0]);
+    expect_eq_u8("palette0 G", 0u, palette[1]);
+    expect_eq_u8("palette0 R", 0u, palette[2]);
+    expect_eq_u8("palette255 B", 255u, palette[255 * 4 + 0]);
+    expect_eq_u8("palette255 G", 255u, palette[255 * 4 + 1]);
+    expect_eq_u8("palette255 R", 255u, palette[255 * 4 + 2]);
+
+    first_row = body + off_bits;
+    expect_eq_u8("bottom-up first pixel", 0x31u, first_row[0]);
+    expect_eq_u8("bottom-up second pixel", 0x32u, first_row[1]);
+    expect_eq_u8("8bpp pad0", 0u, first_row[2]);
+    expect_eq_u8("8bpp pad1", 0u, first_row[3]);
 
     free(body);
     cleanup_path(path);
@@ -188,11 +243,14 @@ static void test_write_8bpp_bmp(void)
 static void test_write_1bpp_bmp(void)
 {
     const char *path = "hpw_scratch_1.bmp";
-    uint8_t pixels[16 * 2]; /* 16x16 @ 1bpp => 2 bytes/row */
+    uint8_t pixels[16 * 2];
     host_page_image page;
     uint8_t *body;
     size_t size;
     uint32_t expected;
+    uint32_t off_bits;
+    const uint8_t *palette;
+    const uint8_t *first_row;
     int y;
 
     cleanup_path(path);
@@ -204,6 +262,9 @@ static void test_write_1bpp_bmp(void)
         pixels[y * 2 + 0] = 0xAAu;
         pixels[y * 2 + 1] = 0xAAu;
     }
+    /* Distinct bottom row so stored first row is identifiable. */
+    pixels[15 * 2 + 0] = 0xF0u;
+    pixels[15 * 2 + 1] = 0x0Fu;
 
     memset(&page, 0, sizeof(page));
     page.width = 16;
@@ -217,9 +278,26 @@ static void test_write_1bpp_bmp(void)
     expect_true("1bpp file readable", body != NULL);
 
     expected = bmp_expected_size(16, 16, 1);
+    off_bits = bmp_expected_off_bits(1);
     expect_eq_u32("1bpp file size", expected, (uint32_t)size);
     expect_true("BM magic 1bpp", size >= 2u && body[0] == 'B' && body[1] == 'M');
+    expect_eq_u32("1bpp bfOffBits", off_bits, read_u32_le(body + 10));
     expect_eq_u32("1bpp biBitCount", 1u, (uint32_t)read_u16_le(body + 28));
+
+    palette = body + 14u + 40u;
+    expect_eq_u8("1bpp palette0 B", 0u, palette[0]);
+    expect_eq_u8("1bpp palette0 G", 0u, palette[1]);
+    expect_eq_u8("1bpp palette0 R", 0u, palette[2]);
+    expect_eq_u8("1bpp palette1 B", 255u, palette[4]);
+    expect_eq_u8("1bpp palette1 G", 255u, palette[5]);
+    expect_eq_u8("1bpp palette1 R", 255u, palette[6]);
+
+    /* Raw row is 2 bytes; BMP stride is 4 — padding must be zero. */
+    first_row = body + off_bits;
+    expect_eq_u8("1bpp bottom-up byte0", 0xF0u, first_row[0]);
+    expect_eq_u8("1bpp bottom-up byte1", 0x0Fu, first_row[1]);
+    expect_eq_u8("1bpp pad0", 0u, first_row[2]);
+    expect_eq_u8("1bpp pad1", 0u, first_row[3]);
 
     free(body);
     cleanup_path(path);
@@ -269,6 +347,7 @@ static void test_atomic_overwrite(void)
 int main(void)
 {
     test_reject_unsupported_formats();
+    test_reject_overflow_dimensions();
     test_ensure_dir();
     test_write_8bpp_bmp();
     test_write_1bpp_bmp();

@@ -4,9 +4,9 @@
 #include <stdint.h>
 
 typedef enum host_page_format {
-    HOST_PAGE_FORMAT_BMP = 0, /* v1 required */
-    HOST_PAGE_FORMAT_PNG,     /* later: stb_image_write */
-    HOST_PAGE_FORMAT_PDF_IMAGES
+    HOST_PAGE_FORMAT_BMP = 0,
+    HOST_PAGE_FORMAT_PNG, /* reserved; unsupported */
+    HOST_PAGE_FORMAT_PDF_IMAGES /* reserved; unsupported */
 } host_page_format;
 
 typedef struct host_page_image {

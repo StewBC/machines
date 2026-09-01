@@ -8,6 +8,7 @@
 
 #if defined(_WIN32)
 #include <direct.h>
+#include <windows.h>
 #define host_page_mkdir(path) _mkdir(path)
 #else
 #include <sys/stat.h>
@@ -30,6 +31,24 @@ static uint32_t host_page_bmp_stride(uint32_t width, uint8_t bpp)
 {
     uint32_t raw = host_page_row_bytes(width, bpp);
     return (raw + 3u) & ~3u;
+}
+
+static bool host_page_mul_u32(uint32_t a, uint32_t b, uint32_t *out)
+{
+    if (a != 0u && b > UINT32_MAX / a) {
+        return false;
+    }
+    *out = a * b;
+    return true;
+}
+
+static bool host_page_add_u32(uint32_t a, uint32_t b, uint32_t *out)
+{
+    if (a > UINT32_MAX - b) {
+        return false;
+    }
+    *out = a + b;
+    return true;
 }
 
 static void host_page_write_u16_le(uint8_t *dst, uint16_t value)
@@ -145,9 +164,18 @@ static bool host_page_write_bmp(const host_page_image *page, const char *tmp_pat
     palette_entries = (bpp == 1u) ? 2u : 256u;
     palette_bytes = palette_entries * 4u;
     bmp_stride = host_page_bmp_stride(width, bpp);
-    pixel_bytes = bmp_stride * height;
-    off_bits = HOST_PAGE_BMP_FILE_HEADER_SIZE + HOST_PAGE_BMP_INFO_HEADER_SIZE + palette_bytes;
-    file_size = off_bits + pixel_bytes;
+    if (!host_page_mul_u32(bmp_stride, height, &pixel_bytes)) {
+        return false;
+    }
+    if (!host_page_add_u32(
+            HOST_PAGE_BMP_FILE_HEADER_SIZE + HOST_PAGE_BMP_INFO_HEADER_SIZE,
+            palette_bytes,
+            &off_bits)) {
+        return false;
+    }
+    if (!host_page_add_u32(off_bits, pixel_bytes, &file_size)) {
+        return false;
+    }
 
     memset(header, 0, sizeof(header));
     header[0] = 'B';
@@ -226,6 +254,23 @@ done:
     return ok;
 }
 
+static bool host_page_rename_replace(const char *tmp_path, const char *path)
+{
+#if defined(_WIN32)
+    if (MoveFileExA(tmp_path, path, MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
+        return true;
+    }
+    /* Fallback if MoveFileEx is unavailable or refused. */
+    remove(path);
+    if (rename(tmp_path, path) == 0) {
+        return true;
+    }
+    return false;
+#else
+    return rename(tmp_path, path) == 0;
+#endif
+}
+
 bool host_page_writer_write(
     const host_page_image *page,
     host_page_format format,
@@ -251,11 +296,7 @@ bool host_page_writer_write(
         return false;
     }
 
-#if defined(_WIN32)
-    /* Win32 rename() refuses to replace an existing destination. */
-    remove(path);
-#endif
-    if (rename(tmp_path, path) != 0) {
+    if (!host_page_rename_replace(tmp_path, path)) {
         remove(tmp_path);
         return false;
     }
