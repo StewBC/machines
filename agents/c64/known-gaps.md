@@ -17,7 +17,7 @@ the bottom.
 | Unstable undocumented opcodes | XAA, AHX, SHX, SHY, TAS, LAS, LAX #imm, JAM use the compatibility executor. No Harte corpus in ctest. |
 | Datasette / TAP bitstream | T64 is host convenience: first loadable PRG extract. No mounted tape. |
 | CIA tape, RS-232, user port | FLAG/SP/PC exist on the chip; no peripherals. Separate from SwiftLink (expansion-port ACIA). |
-| SwiftLink inbound ATA / listen, full Hayes Ethernet AT set | Soft-attach SwiftLink/Turbo232 (6551 + Hayes + outbound TCP) is shipped with optional NMI/IRQ, baud pacing, and Hayes 1s `+++` guard-time. See `design/c64/swiftlink-teensyrom.md`. |
+| SwiftLink inbound ATA / listen, full Hayes Ethernet AT set | Soft-attach SwiftLink/Turbo232 (6551 + Hayes + outbound TCP) is shipped with optional NMI/IRQ, baud pacing, and Hayes 1s `+++` guard-time. |
 | 1541: devices 10+, 1571, cross-drive copy | Devices 8 and 9 only. |
 | G64 empty-track grow / format rebuild | Length-preserving in-place write-back only. |
 | Broad fast-loader matrix | Arkanoid V-MAX and Robocop G64 are validated; that is not commercial coverage. |

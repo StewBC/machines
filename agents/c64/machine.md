@@ -109,7 +109,7 @@ Host irq mode is `none` (default, polled), `nmi`, or `irq`. Optional
 Online `+++` uses Hayes 1s quiet guard before/after. Status bit 6 is
 SwiftLink-swapped CD with 6551 active-low sense (0 = carrier). Hangup paths:
 status-register write (silent), guarded `+++`, `ATH`/`ATZ` in command/dialing,
-peer close. Design: `design/c64/swiftlink-teensyrom.md`.
+peer close.
 
 ## Snapshots
 

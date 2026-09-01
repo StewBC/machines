@@ -25,7 +25,6 @@ The agents index points here: [`agents/README.md`](../agents/README.md) → Desi
 
 | Design | Status | Last worked on | Path |
 |--------|--------|----------------|------|
-| c64m SwiftLink / Turbo232 (TeensyROM model) | landed | 2026-08-31 | [`c64/swiftlink-teensyrom.md`](c64/swiftlink-teensyrom.md) |
 | c64m turbo/max vs VICE perf gap | landed | 2026-08-29 | [`c64/turbo-max-vice-perf-gap.md`](c64/turbo-max-vice-perf-gap.md) |
 
 ## Conventions
