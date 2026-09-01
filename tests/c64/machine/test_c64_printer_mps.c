@@ -295,6 +295,51 @@ static void test_failed_flush_retains_cursor(void)
     (void)test_rmdir("printer_mps_tmp_iofail");
 }
 
+static void test_wrap_pagefull_hold_no_draw(void)
+{
+    c64_printer p;
+    int pre_x;
+    int y;
+    int x;
+    uint8_t snapshot[6 * 7];
+    int i = 0;
+
+    setup_printer(&p, "printer_mps_tmp_wraphold");
+    /* Seed dirty ink away from the wrap column. */
+    c64_printer_putc(&p, (uint8_t)'A');
+    c64_printer_set_output_dir(&p, "");
+
+    /* Next glyph both wraps (x+6 > 480) and page-fulls (y near bottom). */
+    pre_x = C64_PRINTER_WIDTH_DOTS - 4;
+    p.cursor_x_dots = pre_x;
+    p.cursor_y_dots = C64_PRINTER_HEIGHT_DOTS - C64_PRINTER_CHAR_LF_DOTS + 1;
+
+    for (y = 0; y < 7; ++y) {
+        for (x = 0; x < 6; ++x) {
+            snapshot[i++] = pixel_at(&p, pre_x + x, p.cursor_y_dots + y);
+        }
+    }
+
+    c64_printer_putc(&p, (uint8_t)'W');
+
+    expect_true("wrap+pagefull sets hold", p.flush_hold);
+    expect_eq_int("wrap fail keeps x", pre_x, p.cursor_x_dots);
+    i = 0;
+    for (y = 0; y < 7; ++y) {
+        for (x = 0; x < 6; ++x) {
+            if (pixel_at(&p, pre_x + x, p.cursor_y_dots + y) != snapshot[i]) {
+                fprintf(stderr, "FAIL: wrap hold drew at (%d,%d)\n",
+                        pre_x + x, p.cursor_y_dots + y);
+                exit(1);
+            }
+            i++;
+        }
+    }
+
+    teardown_printer(&p);
+    (void)test_rmdir("printer_mps_tmp_wraphold");
+}
+
 static void test_ascii_head_tab(void)
 {
     c64_printer p;
@@ -434,6 +479,7 @@ int main(void)
     test_dot_address_clip_and_wrap();
     test_bim_past_edge_no_overdraw();
     test_failed_flush_retains_cursor();
+    test_wrap_pagefull_hold_no_draw();
     test_ascii_head_tab();
     test_cr_leaves_bim();
     test_force_flush_dirty_and_blank();

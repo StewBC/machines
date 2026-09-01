@@ -302,6 +302,9 @@ static void print_char(c64_printer *p, uint8_t ch)
 
     if (p->cursor_x_dots + width > C64_PRINTER_WIDTH_DOTS) {
         advance_line(p);
+        if (p->flush_hold) {
+            return;
+        }
     }
 
     for (row = 0; row < 7; ++row) {
