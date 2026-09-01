@@ -72,7 +72,12 @@ void runtime_swiftlink_bridge_stop(runtime_swiftlink_bridge *b);
 /* Runtime-thread only: service ACIA/Hayes and exchange bytes/cmds with bridge. */
 void runtime_swiftlink_bridge_pump(runtime_swiftlink_bridge *b, c64_swiftlink *sl);
 
-bool runtime_swiftlink_set_enabled(struct runtime *rt, bool enabled, uint16_t base);
+bool runtime_swiftlink_set_enabled(
+    struct runtime *rt,
+    bool enabled,
+    uint16_t base,
+    c64_swiftlink_irq_mode irq_mode,
+    bool pace_baud);
 void runtime_swiftlink_pump(struct runtime *rt);
 void runtime_swiftlink_shutdown(struct runtime *rt);
 

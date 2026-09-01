@@ -29,6 +29,14 @@ static void clear_rings(c64_swiftlink *sl) {
     sl->rx_count = 0;
 }
 
+static void clear_escape(c64_swiftlink *sl) {
+    sl->escape_len = 0;
+    sl->escape_flushing = false;
+    sl->escape_flush_pos = 0;
+    sl->escape_abort_byte = 0;
+    sl->escape_after_guard = false;
+}
+
 static void modem_defaults(c64_swiftlink *sl) {
     sl->mode = C64_SWIFTLINK_MODE_COMMAND;
     sl->echo = true;
@@ -36,10 +44,7 @@ static void modem_defaults(c64_swiftlink *sl) {
     sl->at_len = 0;
     sl->ignore_lf = false;
     sl->at_overflow = false;
-    sl->escape_len = 0;
-    sl->escape_flushing = false;
-    sl->escape_flush_pos = 0;
-    sl->escape_abort_byte = 0;
+    clear_escape(sl);
 }
 
 static void cold_acia(c64_swiftlink *sl) {
@@ -52,8 +57,93 @@ static void cold_acia(c64_swiftlink *sl) {
     sl->rx_holding_full = false;
     sl->carrier_present = false;
     sl->overrun = false;
+    sl->irq_latched = false;
+    sl->prev_rdrf = false;
+    sl->prev_tdre = true; /* TDRE idle after reset */
     clear_rings(sl);
     modem_defaults(sl);
+}
+
+static uint64_t guard_cycles(const c64_swiftlink *sl) {
+    uint32_t hz = sl->time_hz != 0u ? sl->time_hz : 985248u;
+    return (uint64_t)hz;
+}
+
+static bool quiet_before_ok(const c64_swiftlink *sl) {
+    return (sl->time_cycle - sl->last_tx_cycle) >= guard_cycles(sl);
+}
+
+static bool tx_irq_enabled(const c64_swiftlink *sl) {
+    /* Command bits 3-2 == 01 and DTR (bit 0) set. */
+    return (sl->command & 0x01u) != 0u && ((sl->command >> 2) & 0x03u) == 0x01u;
+}
+
+static bool rx_irq_enabled(const c64_swiftlink *sl) {
+    /* DTR on and receiver IRQ not disabled (bit 1 == 0). */
+    return (sl->command & 0x01u) != 0u && (sl->command & 0x02u) == 0u;
+}
+
+static void note_tx_activity(c64_swiftlink *sl) {
+    sl->last_tx_cycle = sl->time_cycle;
+}
+
+static void update_irq_latch(c64_swiftlink *sl) {
+    bool rdrf = sl->rx_holding_full;
+    bool tdre = !sl->tx_holding_full;
+
+    if (rx_irq_enabled(sl) && rdrf && !sl->prev_rdrf) {
+        sl->irq_latched = true;
+    }
+    if (tx_irq_enabled(sl) && tdre && !sl->prev_tdre) {
+        sl->irq_latched = true;
+    }
+    if (sl->overrun && rx_irq_enabled(sl)) {
+        sl->irq_latched = true;
+    }
+    sl->prev_rdrf = rdrf;
+    sl->prev_tdre = tdre;
+}
+
+uint32_t c64_swiftlink_bps(const c64_swiftlink *sl) {
+    /* 6551 internal table; SwiftLink/Turbo232 doubles non-enhanced rates.
+       Enhanced (control baud nibble 0) uses Turbo232 $xx07 bits 1-0. */
+    static const uint32_t k_base[16] = {
+        0u, 50u, 75u, 110u, 135u, 150u, 300u, 600u,
+        1200u, 1800u, 2400u, 3600u, 4800u, 7200u, 9600u, 19200u
+    };
+    static const uint32_t k_enh[4] = { 230400u, 115200u, 57600u, 28800u };
+    uint8_t nibble;
+
+    assert(sl);
+    nibble = (uint8_t)(sl->control & 0x0Fu);
+    if (nibble == 0u) {
+        return k_enh[sl->turbo232 & 0x03u];
+    }
+    return k_base[nibble] * 2u;
+}
+
+static uint64_t cycles_per_byte(const c64_swiftlink *sl) {
+    uint32_t bps = c64_swiftlink_bps(sl);
+    uint32_t hz = sl->time_hz != 0u ? sl->time_hz : 985248u;
+    if (bps == 0u) {
+        return 1u;
+    }
+    /* 8N1 => 10 bit-times per byte. */
+    return ((uint64_t)hz * 10ull + (uint64_t)bps - 1ull) / (uint64_t)bps;
+}
+
+static bool tx_pace_ready(const c64_swiftlink *sl) {
+    if (!sl->pace_baud) {
+        return true;
+    }
+    return (sl->time_cycle - sl->last_tx_bit_cycle) >= cycles_per_byte(sl);
+}
+
+static bool rx_pace_ready(const c64_swiftlink *sl) {
+    if (!sl->pace_baud) {
+        return true;
+    }
+    return (sl->time_cycle - sl->last_rx_bit_cycle) >= cycles_per_byte(sl);
 }
 
 static bool tx_ring_push(c64_swiftlink *sl, uint8_t byte) {
@@ -103,6 +193,9 @@ static uint8_t status_byte(const c64_swiftlink *sl) {
     }
     if (sl->overrun) {
         status |= C64_SWIFTLINK_STATUS_OVERRUN;
+    }
+    if (sl->irq_latched) {
+        status |= C64_SWIFTLINK_STATUS_IRQ;
     }
     return status;
 }
@@ -210,8 +303,7 @@ static void hangup_to_command(c64_swiftlink *sl, bool emit_no_carrier) {
     }
     sl->carrier_present = false;
     sl->mode = C64_SWIFTLINK_MODE_COMMAND;
-    sl->escape_len = 0;
-    sl->escape_flushing = false;
+    clear_escape(sl);
     sl->at_len = 0;
     sl->at_overflow = false;
     sl->ignore_lf = false;
@@ -464,7 +556,17 @@ static bool online_flush_progress(c64_swiftlink *sl) {
     sl->escape_flushing = false;
     sl->escape_len = 0;
     sl->escape_flush_pos = 0;
+    sl->escape_after_guard = false;
+    note_tx_activity(sl);
     return true;
+}
+
+static bool begin_escape_flush(c64_swiftlink *sl, uint8_t abort_byte) {
+    sl->escape_flushing = true;
+    sl->escape_flush_pos = 0;
+    sl->escape_abort_byte = abort_byte;
+    sl->escape_after_guard = false;
+    return online_flush_progress(sl);
 }
 
 static bool consume_online_byte(c64_swiftlink *sl, uint8_t byte) {
@@ -472,34 +574,77 @@ static bool consume_online_byte(c64_swiftlink *sl, uint8_t byte) {
         if (!online_flush_progress(sl)) {
             return false;
         }
-        /* Holding still has the aborting byte only if we started flush from it;
-           once flush completes, holding was already the abort byte consumed into
-           escape_abort_byte — do not re-process. */
         return true;
     }
 
+    /* After-guard: any TX aborts the escape and sends +++ plus this byte. */
+    if (sl->escape_after_guard) {
+        sl->escape_len = 3;
+        return begin_escape_flush(sl, byte);
+    }
+
     if (byte == (uint8_t)'+') {
-        if (sl->escape_len < 2) {
-            sl->escape_len++;
+        if (sl->escape_len == 0) {
+            if (!quiet_before_ok(sl)) {
+                if (!tx_ring_push(sl, byte)) {
+                    return false;
+                }
+                note_tx_activity(sl);
+                return true;
+            }
+            sl->escape_len = 1;
+            sl->last_plus_cycle = sl->time_cycle;
             return true;
         }
-        /* Third '+': match — never send to TCP. */
+        if (sl->escape_len < 2) {
+            sl->escape_len++;
+            sl->last_plus_cycle = sl->time_cycle;
+            return true;
+        }
+        /* Third '+': start post-guard; never send to TCP yet. */
         sl->escape_len = 0;
-        hangup_to_command(sl, true);
+        sl->escape_after_guard = true;
+        sl->after_guard_start = sl->time_cycle;
         return true;
     }
 
     if (sl->escape_len > 0) {
-        sl->escape_flushing = true;
-        sl->escape_flush_pos = 0;
-        sl->escape_abort_byte = byte;
-        if (!online_flush_progress(sl)) {
-            return false;
-        }
-        return true;
+        return begin_escape_flush(sl, byte);
     }
 
-    return tx_ring_push(sl, byte);
+    if (!tx_ring_push(sl, byte)) {
+        return false;
+    }
+    note_tx_activity(sl);
+    return true;
+}
+
+static void service_escape_timers(c64_swiftlink *sl) {
+    if (sl->mode != C64_SWIFTLINK_MODE_ONLINE) {
+        return;
+    }
+
+    /* Stale partial +++ (gap > guard between pluses): flush as data. */
+    if (!sl->escape_after_guard && sl->escape_len > 0 && !sl->escape_flushing) {
+        if ((sl->time_cycle - sl->last_plus_cycle) >= guard_cycles(sl)) {
+            sl->escape_flushing = true;
+            sl->escape_flush_pos = 0;
+            sl->escape_abort_byte = 0; /* no abort byte; only flush pluses */
+            while (sl->escape_flush_pos < sl->escape_len) {
+                if (!tx_ring_push(sl, (uint8_t)'+')) {
+                    return;
+                }
+                sl->escape_flush_pos++;
+            }
+            clear_escape(sl);
+            note_tx_activity(sl);
+        }
+    }
+
+    if (sl->escape_after_guard &&
+        (sl->time_cycle - sl->after_guard_start) >= guard_cycles(sl)) {
+        hangup_to_command(sl, true);
+    }
 }
 
 void c64_swiftlink_init(c64_swiftlink *sl) {
@@ -507,6 +652,9 @@ void c64_swiftlink_init(c64_swiftlink *sl) {
     memset(sl, 0, sizeof(*sl));
     sl->enabled = false;
     sl->base = C64_SWIFTLINK_BASE_DE00;
+    sl->irq_mode = C64_SWIFTLINK_IRQ_NONE;
+    sl->pace_baud = false;
+    sl->time_hz = 985248u;
     cold_acia(sl);
     sl->pending_req.kind = C64_SWIFTLINK_HOST_REQ_NONE;
 }
@@ -533,14 +681,12 @@ void c64_swiftlink_drop_host_session(c64_swiftlink *sl) {
     sl->rx_holding_full = false;
     sl->carrier_present = false;
     sl->overrun = false;
+    sl->irq_latched = false;
     sl->mode = C64_SWIFTLINK_MODE_COMMAND;
     sl->at_len = 0;
     sl->ignore_lf = false;
     sl->at_overflow = false;
-    sl->escape_len = 0;
-    sl->escape_flushing = false;
-    sl->escape_flush_pos = 0;
-    sl->escape_abort_byte = 0;
+    clear_escape(sl);
     sl->pending_req.kind = C64_SWIFTLINK_HOST_REQ_NONE;
     memset(sl->pending_req.host, 0, sizeof(sl->pending_req.host));
     sl->pending_req.port = 0;
@@ -554,6 +700,38 @@ void c64_swiftlink_set_enabled(c64_swiftlink *sl, bool on) {
 void c64_swiftlink_set_base(c64_swiftlink *sl, uint16_t base) {
     assert(sl);
     sl->base = normalize_base(base);
+}
+
+void c64_swiftlink_set_irq_mode(c64_swiftlink *sl, c64_swiftlink_irq_mode mode) {
+    assert(sl);
+    sl->irq_mode = mode;
+}
+
+void c64_swiftlink_set_pace_baud(c64_swiftlink *sl, bool on) {
+    assert(sl);
+    sl->pace_baud = on;
+    if (on) {
+        /* Next byte is eligible immediately (unsigned wrap is fine). */
+        uint64_t cpb = cycles_per_byte(sl);
+        sl->last_tx_bit_cycle = sl->time_cycle - cpb;
+        sl->last_rx_bit_cycle = sl->last_tx_bit_cycle;
+    }
+}
+
+void c64_swiftlink_set_time(c64_swiftlink *sl, uint64_t cycle, uint32_t hz) {
+    assert(sl);
+    sl->time_cycle = cycle;
+    if (hz != 0u) {
+        sl->time_hz = hz;
+    }
+}
+
+bool c64_swiftlink_irq_line(const c64_swiftlink *sl) {
+    assert(sl);
+    if (!sl->enabled || sl->irq_mode == C64_SWIFTLINK_IRQ_NONE) {
+        return false;
+    }
+    return sl->irq_latched;
 }
 
 bool c64_swiftlink_owns(const c64_swiftlink *sl, uint16_t addr) {
@@ -588,6 +766,7 @@ uint8_t c64_swiftlink_read(c64_swiftlink *sl, uint16_t addr) {
     case 0x01: {
         uint8_t status = status_byte(sl);
         sl->overrun = false;
+        sl->irq_latched = false;
         return status;
     }
     case 0x02:
@@ -628,6 +807,7 @@ void c64_swiftlink_write(c64_swiftlink *sl, uint16_t addr, uint8_t val) {
         return;
     case 0x02:
         sl->command = val;
+        update_irq_latch(sl);
         return;
     case 0x03:
         sl->control = val;
@@ -645,24 +825,36 @@ void c64_swiftlink_service(c64_swiftlink *sl) {
 
     assert(sl);
 
-    if (sl->tx_holding_full) {
+    service_escape_timers(sl);
+
+    if (sl->escape_flushing) {
+        (void)online_flush_progress(sl);
+    }
+
+    if (sl->tx_holding_full && tx_pace_ready(sl)) {
         byte = sl->tx_holding;
         if (sl->mode == C64_SWIFTLINK_MODE_ONLINE) {
             if (consume_online_byte(sl, byte)) {
                 sl->tx_holding_full = false;
+                sl->last_tx_bit_cycle = sl->time_cycle;
             }
         } else {
             /* Command / dialing: Hayes path (with optional echo). */
             if (try_echo(sl, byte) && consume_command_byte(sl, byte)) {
                 sl->tx_holding_full = false;
+                sl->last_tx_bit_cycle = sl->time_cycle;
+                note_tx_activity(sl);
             }
         }
     }
 
-    if (!sl->rx_holding_full && rx_ring_pop(sl, &byte)) {
+    if (!sl->rx_holding_full && rx_pace_ready(sl) && rx_ring_pop(sl, &byte)) {
         sl->rx_holding = byte;
         sl->rx_holding_full = true;
+        sl->last_rx_bit_cycle = sl->time_cycle;
     }
+
+    update_irq_latch(sl);
 }
 
 bool c64_swiftlink_take_host_request(c64_swiftlink *sl, c64_swiftlink_host_req *out) {
@@ -693,8 +885,7 @@ void c64_swiftlink_host_connect_result(c64_swiftlink *sl, c64_swiftlink_connect_
     case C64_SWIFTLINK_CONN_OK:
         sl->mode = C64_SWIFTLINK_MODE_ONLINE;
         sl->carrier_present = true;
-        sl->escape_len = 0;
-        sl->escape_flushing = false;
+        clear_escape(sl);
         enqueue_response(sl, RESP_CONNECT);
         break;
     case C64_SWIFTLINK_CONN_NO_DIALTONE:
@@ -718,8 +909,7 @@ void c64_swiftlink_host_peer_closed(c64_swiftlink *sl) {
     /* Peer close: no host HANGUP request (socket already dead); AT response yes. */
     sl->carrier_present = false;
     sl->mode = C64_SWIFTLINK_MODE_COMMAND;
-    sl->escape_len = 0;
-    sl->escape_flushing = false;
+    clear_escape(sl);
     sl->at_len = 0;
     sl->at_overflow = false;
     sl->ignore_lf = false;

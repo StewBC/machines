@@ -1173,6 +1173,8 @@ static void read_slnk(snapshot_reader *r, c64_t *m) {
     sl->escape_flushing = false;
     sl->escape_flush_pos = 0;
     sl->escape_abort_byte = 0;
+    sl->escape_after_guard = false;
+    sl->irq_latched = false;
     sl->pending_req.kind = C64_SWIFTLINK_HOST_REQ_NONE;
     memset(sl->pending_req.host, 0, sizeof(sl->pending_req.host));
     sl->pending_req.port = 0;
@@ -1714,13 +1716,17 @@ static void apply_loaded_machine(c64_t *dst, c64_t *src, bool restore_1541_core)
     c64_bus_attach_cias(&dst->bus, &dst->cia1, &dst->cia2);
     c64_bus_attach_sid(&dst->bus, &dst->sid);
     {
-        /* Host owns enable+base; SLNK (or cold ACIA on temp) supplies chip/Hayes. */
+        /* Host owns enable/base/irq/pace; SLNK (or cold ACIA) supplies chip/Hayes. */
         bool sl_enabled = dst->swiftlink.enabled;
         uint16_t sl_base = dst->swiftlink.base;
+        c64_swiftlink_irq_mode sl_irq = dst->swiftlink.irq_mode;
+        bool sl_pace = dst->swiftlink.pace_baud;
 
         dst->swiftlink = src->swiftlink;
         dst->swiftlink.enabled = sl_enabled;
         dst->swiftlink.base = sl_base;
+        dst->swiftlink.irq_mode = sl_irq;
+        dst->swiftlink.pace_baud = sl_pace;
         dst->swiftlink.pending_req.kind = C64_SWIFTLINK_HOST_REQ_NONE;
         memset(dst->swiftlink.pending_req.host, 0, sizeof(dst->swiftlink.pending_req.host));
         dst->swiftlink.pending_req.port = 0;

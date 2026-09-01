@@ -77,7 +77,12 @@ bool runtime_client_cycle_turbo_speed(runtime_client *client);
 bool runtime_client_set_turbo_multiplier(runtime_client *client, uint32_t multiplier);
 /* Soft-attach SwiftLink/Turbo232. base is 0xDE00 or 0xDF00. Conflict refuses
    enable and publishes RUNTIME_EVENT_ERROR. */
-bool runtime_client_set_swiftlink(runtime_client *client, bool enabled, uint16_t base);
+bool runtime_client_set_swiftlink(
+    runtime_client *client,
+    bool enabled,
+    uint16_t base,
+    c64_swiftlink_irq_mode irq_mode,
+    bool pace_baud);
 /* rom_paths, when non-NULL, carries the effective ROM file paths (any member may
    be NULL/empty for "unset"); pass reload_roms=true to have the runtime re-read
    them as part of this apply (requires reset to take visible effect). */

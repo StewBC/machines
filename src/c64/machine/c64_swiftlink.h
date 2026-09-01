@@ -39,6 +39,12 @@ typedef enum c64_swiftlink_mode {
     C64_SWIFTLINK_MODE_ONLINE
 } c64_swiftlink_mode;
 
+typedef enum c64_swiftlink_irq_mode {
+    C64_SWIFTLINK_IRQ_NONE = 0,
+    C64_SWIFTLINK_IRQ_NMI,
+    C64_SWIFTLINK_IRQ_IRQ
+} c64_swiftlink_irq_mode;
+
 typedef enum c64_swiftlink_host_req_kind {
     C64_SWIFTLINK_HOST_REQ_NONE = 0,
     C64_SWIFTLINK_HOST_REQ_CONNECT,
@@ -66,6 +72,10 @@ struct c64_swiftlink {
     bool enabled;
     uint16_t base; /* 0xDE00 or 0xDF00 */
 
+    /* Host config (not snapshotted in SLNK). */
+    c64_swiftlink_irq_mode irq_mode;
+    bool pace_baud;
+
     uint8_t command;
     uint8_t control;
     uint8_t turbo232; /* bits 1-0 enhanced baud; mode bit is derived on read */
@@ -78,6 +88,9 @@ struct c64_swiftlink {
 
     bool carrier_present; /* status bit 6: 0 when true */
     bool overrun;
+    bool irq_latched; /* status bit 7; cleared on status read */
+    bool prev_rdrf;
+    bool prev_tdre;
 
     uint8_t tx_ring[C64_SWIFTLINK_TX_RING_SIZE];
     uint16_t tx_head;
@@ -98,10 +111,23 @@ struct c64_swiftlink {
     bool ignore_lf; /* CR already ended the line; swallow following LF */
     bool at_overflow;
 
+    /* Online +++ escape with Hayes 1s guard-time. */
     uint8_t escape_len; /* 0..2 withheld '+' bytes while online */
     bool escape_flushing;
     uint8_t escape_flush_pos; /* next '+' index to flush, or 3 = abort byte */
     uint8_t escape_abort_byte;
+    bool escape_after_guard; /* three '+' matched; waiting post-guard quiet */
+    uint64_t last_tx_cycle; /* last DTE byte committed to wire / Hayes */
+    uint64_t last_plus_cycle;
+    uint64_t after_guard_start;
+
+    /* Machine time (Phi2). Updated by c64_swiftlink_set_time. */
+    uint64_t time_cycle;
+    uint32_t time_hz;
+
+    /* Baud pacing (when pace_baud). */
+    uint64_t last_tx_bit_cycle;
+    uint64_t last_rx_bit_cycle;
 
     c64_swiftlink_host_req pending_req;
 };
@@ -110,12 +136,17 @@ void c64_swiftlink_init(c64_swiftlink *sl);
 void c64_swiftlink_reset(c64_swiftlink *sl); /* status-write / cold ACIA semantics */
 
 /* Host load/land path: clear FIFOs/CD/escape, force command mode, clear pending
-   host_req. Keeps enabled/base and chip regs (command/control/turbo) plus
-   echo/verbose. No AT response bytes. */
+   host_req. Keeps enabled/base/irq_mode/pace_baud and chip regs
+   (command/control/turbo) plus echo/verbose. No AT response bytes. */
 void c64_swiftlink_drop_host_session(c64_swiftlink *sl);
 
 void c64_swiftlink_set_enabled(c64_swiftlink *sl, bool on);
 void c64_swiftlink_set_base(c64_swiftlink *sl, uint16_t base); /* DE00 or DF00 */
+void c64_swiftlink_set_irq_mode(c64_swiftlink *sl, c64_swiftlink_irq_mode mode);
+void c64_swiftlink_set_pace_baud(c64_swiftlink *sl, bool on);
+
+/* Feed Phi2 time for guard-time and optional baud pacing. */
+void c64_swiftlink_set_time(c64_swiftlink *sl, uint64_t cycle, uint32_t hz);
 
 bool c64_swiftlink_owns(const c64_swiftlink *sl, uint16_t addr);
 uint8_t c64_swiftlink_read(c64_swiftlink *sl, uint16_t addr);
@@ -123,6 +154,9 @@ void c64_swiftlink_write(c64_swiftlink *sl, uint16_t addr, uint8_t val);
 
 /* Runtime thread only: advance Hayes, escape scanner, holding↔rings. */
 void c64_swiftlink_service(c64_swiftlink *sl);
+
+/* True when the ACIA IRQ latch is set and host irq_mode is not NONE. */
+bool c64_swiftlink_irq_line(const c64_swiftlink *sl);
 
 bool c64_swiftlink_take_host_request(c64_swiftlink *sl, c64_swiftlink_host_req *out);
 void c64_swiftlink_host_connect_result(c64_swiftlink *sl, c64_swiftlink_connect_err err);
@@ -133,6 +167,9 @@ size_t c64_swiftlink_push_rx(c64_swiftlink *sl, const uint8_t *in, size_t n);
 /* Free bytes in the machine RX ring (not counting RX holding). */
 size_t c64_swiftlink_rx_space(const c64_swiftlink *sl);
 void c64_swiftlink_set_carrier(c64_swiftlink *sl, bool present);
+
+/* SwiftLink/Turbo232 effective bit rate from control + turbo232 regs. */
+uint32_t c64_swiftlink_bps(const c64_swiftlink *sl);
 
 #ifdef __cplusplus
 }

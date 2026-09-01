@@ -253,6 +253,8 @@ typedef struct runtime_command {
         struct {
             uint8_t enabled;
             uint16_t base; /* 0xDE00 or 0xDF00 */
+            uint8_t irq_mode; /* c64_swiftlink_irq_mode */
+            uint8_t pace_baud;
         } set_swiftlink;
 
         struct {

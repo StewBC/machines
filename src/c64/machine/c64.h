@@ -497,6 +497,8 @@ typedef struct c64_t {
     bool instruction_complete;
     bool restore_pending;
     bool cia2_nmi_line;
+    /* Edge detect for SwiftLink NMI (same pattern as cia2_nmi_line). */
+    bool swiftlink_nmi_line;
     /* When the 6510 is BA-stalled *between* instructions and an interrupt is
        pending, the resume cycle is the interrupt's opcode (dummy) fetch and the
        sequence begins the following cycle. cpu_prev_between_stall records that

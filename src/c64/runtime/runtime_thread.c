@@ -6025,7 +6025,9 @@ static bool runtime_process_command(runtime *rt, const runtime_command *command,
             (void)runtime_swiftlink_set_enabled(
                 rt,
                 command->data.set_swiftlink.enabled != 0u,
-                command->data.set_swiftlink.base);
+                command->data.set_swiftlink.base,
+                (c64_swiftlink_irq_mode)command->data.set_swiftlink.irq_mode,
+                command->data.set_swiftlink.pace_baud != 0u);
             break;
 
         case RUNTIME_COMMAND_PASTE_TEXT: {

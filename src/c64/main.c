@@ -4739,7 +4739,9 @@ static void dispatch_debugger_intents(
                         (void)runtime_client_set_swiftlink(
                             client,
                             options->swiftlink_enabled,
-                            app_options_swiftlink_base_addr(options));
+                            app_options_swiftlink_base_addr(options),
+                            app_options_swiftlink_irq_mode(options),
+                            options->swiftlink_pace_baud);
                     }
                     /* Pull live browse/ROM path edits into options before any save. */
                     for (slot = 0; slot < FRONTEND_BROWSE_SLOT_COUNT &&
@@ -7590,7 +7592,9 @@ int main(int argc, char **argv) {
         (void)runtime_client_set_swiftlink(
             client,
             true,
-            app_options_swiftlink_base_addr(&options));
+            app_options_swiftlink_base_addr(&options),
+            app_options_swiftlink_irq_mode(&options),
+            options.swiftlink_pace_baud);
     }
 
     {

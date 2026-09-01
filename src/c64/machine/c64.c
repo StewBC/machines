@@ -440,6 +440,8 @@ static void c64_finish_cycle(c64_t *machine) {
     /* Per-cycle backstop: keep the drive current when no IEC access catches it
        up. IEC accesses advance it precisely ahead of this point. */
     c64_drive_sync_to(machine, machine->clock.cycle);
+    c64_swiftlink_set_time(
+        &machine->swiftlink, machine->clock.cycle, machine->clock.c64_hz);
 }
 
 static void c64_advance_one_cycle(c64_t *machine) {
@@ -2662,7 +2664,10 @@ static uint8_t c64_cpu_irq_pending(void *user) {
     /* VIC IRQ uses VICE's INTERRUPT_DELAY (2 Phi2 clocks) so the 6510 cannot
      * enter the interrupt sequence on the same cycle the VIC sets the flag. */
     bool vic_irq = machine->vic_irq_delay >= 2u;
-    return (cia_irq || vic_irq) ? 1u : 0u;
+    bool swift_irq =
+        machine->swiftlink.irq_mode == C64_SWIFTLINK_IRQ_IRQ &&
+        c64_swiftlink_irq_line(&machine->swiftlink);
+    return (cia_irq || vic_irq || swift_irq) ? 1u : 0u;
 }
 
 static uint8_t c64_cpu_nmi_pending(void *user) {
@@ -2671,8 +2676,13 @@ static uint8_t c64_cpu_nmi_pending(void *user) {
      * same one-cycle interrupt delay as CIA #1 IRQ. */
     bool cia2_line = cia_interrupt_line(&machine->cia2);
     bool cia2_edge = cia2_line && !machine->cia2_nmi_line;
-    bool pending = machine->restore_pending || cia2_edge;
+    bool swift_line =
+        machine->swiftlink.irq_mode == C64_SWIFTLINK_IRQ_NMI &&
+        c64_swiftlink_irq_line(&machine->swiftlink);
+    bool swift_edge = swift_line && !machine->swiftlink_nmi_line;
+    bool pending = machine->restore_pending || cia2_edge || swift_edge;
     machine->cia2_nmi_line = cia2_line;
+    machine->swiftlink_nmi_line = swift_line;
     machine->restore_pending = false;
     return pending ? 1u : 0u;
 }
@@ -2892,6 +2902,7 @@ bool c64_reset(c64_t *machine, char *error, size_t error_size) {
     machine->restore_requests = 0;
     machine->restore_pending = false;
     machine->cia2_nmi_line = false;
+    machine->swiftlink_nmi_line = false;
     machine->cpu_prev_between_stall = false;
     machine->cpu_deferred_interrupt = C6510_INTERRUPT_NONE;
     machine->cpu_cycles_remaining = 0;

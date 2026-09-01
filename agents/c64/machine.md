@@ -104,10 +104,12 @@ base is `$DE00`, or Super Games and base is `$DF00`. Refuse CRT load that would
 conflict with enabled SwiftLink. Normal/no-cart coexistence is fine. Bus
 decode runs `c64_swiftlink_owns` before cart IO1/IO2 side-effects.
 
-v1 is polled only (no IRQ/NMI). Status bit 6 is SwiftLink-swapped CD with 6551
-active-low sense (0 = carrier). Hangup paths: status-register write (silent),
-`+++`, `ATH`/`ATZ` in command/dialing, peer close. Design:
-`design/c64/swiftlink-teensyrom.md`.
+Host irq mode is `none` (default, polled), `nmi`, or `irq`. Optional
+`pace_baud` gates holding to SwiftLink/Turbo232 bps (default off = ASAP).
+Online `+++` uses Hayes 1s quiet guard before/after. Status bit 6 is
+SwiftLink-swapped CD with 6551 active-low sense (0 = carrier). Hangup paths:
+status-register write (silent), guarded `+++`, `ATH`/`ATZ` in command/dialing,
+peer close. Design: `design/c64/swiftlink-teensyrom.md`.
 
 ## Snapshots
 

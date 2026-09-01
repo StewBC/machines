@@ -106,9 +106,29 @@ static void expect_rx_contains(c64_swiftlink *sl, const char *needle) {
     }
 }
 
+enum { TEST_HZ = 1000000u };
+
 static void setup(c64_swiftlink *sl) {
     c64_swiftlink_init(sl);
     c64_swiftlink_set_enabled(sl, true);
+    c64_swiftlink_set_time(sl, 0, TEST_HZ);
+}
+
+/* Advance Phi2 time and pump service (for Hayes 1s +++ guard-time). */
+static void advance_cycles(c64_swiftlink *sl, uint64_t *cycle, uint64_t delta) {
+    *cycle += delta;
+    c64_swiftlink_set_time(sl, *cycle, TEST_HZ);
+    c64_swiftlink_service(sl);
+}
+
+static void quiet_guard(c64_swiftlink *sl, uint64_t *cycle) {
+    advance_cycles(sl, cycle, (uint64_t)TEST_HZ);
+}
+
+static void hangup_plus_plus_plus(c64_swiftlink *sl, uint64_t *cycle) {
+    quiet_guard(sl, cycle);
+    write_bytes(sl, "+++");
+    quiet_guard(sl, cycle);
 }
 
 static void test_at_ok(void) {
@@ -188,7 +208,10 @@ static void test_ath_matrices(void) {
     drain_rx(&sl, sink, sizeof(sink));
     /* Online data path is TCP/escape only; hang up with +++ (ATH would be
        forwarded to the peer as payload until classic +++ command-mode exists). */
-    write_bytes(&sl, "+++");
+    {
+        uint64_t cycle = sl.time_cycle;
+        hangup_plus_plus_plus(&sl, &cycle);
+    }
     expect_rx_contains(&sl, "NO CARRIER\r");
     expect_false("carrier clear", sl.carrier_present);
 }
@@ -215,7 +238,10 @@ static void test_atz_matrices(void) {
     c64_swiftlink_host_connect_result(&sl, C64_SWIFTLINK_CONN_OK);
     service_pump(&sl);
     drain_rx(&sl, sink, sizeof(sink));
-    write_bytes(&sl, "+++");
+    {
+        uint64_t cycle = sl.time_cycle;
+        hangup_plus_plus_plus(&sl, &cycle);
+    }
     expect_rx_contains(&sl, "NO CARRIER\r");
     expect_eq_u8("command mode", (uint8_t)C64_SWIFTLINK_MODE_COMMAND, (uint8_t)sl.mode);
 }
@@ -225,6 +251,7 @@ static void test_plus_plus_plus_escape(void) {
     c64_swiftlink_host_req req;
     uint8_t tx[8];
     char sink[64];
+    uint64_t cycle;
 
     setup(&sl);
     write_bytes(&sl, "ATDT127.0.0.1:9\r");
@@ -233,7 +260,13 @@ static void test_plus_plus_plus_escape(void) {
     service_pump(&sl);
     drain_rx(&sl, sink, sizeof(sink));
 
-    write_bytes(&sl, "+++");
+    cycle = sl.time_cycle;
+    /* Without pre-guard quiet, '+' is payload. */
+    write_bytes(&sl, "+");
+    expect_eq_u8("early plus to wire", 1, (uint8_t)c64_swiftlink_pull_tx(&sl, tx, sizeof(tx)));
+    expect_eq_u8("early plus byte", (uint8_t)'+', tx[0]);
+
+    hangup_plus_plus_plus(&sl, &cycle);
     expect_rx_contains(&sl, "NO CARRIER\r");
     expect_eq_u8("no tx leak", 0, (uint8_t)c64_swiftlink_pull_tx(&sl, tx, sizeof(tx)));
     expect_true("hangup req", c64_swiftlink_take_host_request(&sl, &req));
@@ -246,6 +279,7 @@ static void test_plus_abort_flush(void) {
     uint8_t tx[8];
     size_t n;
     char sink[64];
+    uint64_t cycle;
 
     setup(&sl);
     write_bytes(&sl, "ATDT127.0.0.1:9\r");
@@ -254,6 +288,8 @@ static void test_plus_abort_flush(void) {
     service_pump(&sl);
     drain_rx(&sl, sink, sizeof(sink));
 
+    cycle = sl.time_cycle;
+    quiet_guard(&sl, &cycle);
     write_bytes(&sl, "++X");
     n = c64_swiftlink_pull_tx(&sl, tx, sizeof(tx));
     expect_eq_u8("flushed len", 3, (uint8_t)n);
@@ -261,6 +297,95 @@ static void test_plus_abort_flush(void) {
     expect_eq_u8("f1", (uint8_t)'+', tx[1]);
     expect_eq_u8("f2", (uint8_t)'X', tx[2]);
     expect_eq_u8("still online", (uint8_t)C64_SWIFTLINK_MODE_ONLINE, (uint8_t)sl.mode);
+}
+
+static void test_plus_after_guard_abort(void) {
+    c64_swiftlink sl;
+    c64_swiftlink_host_req req;
+    uint8_t tx[8];
+    size_t n;
+    char sink[64];
+    uint64_t cycle;
+
+    setup(&sl);
+    write_bytes(&sl, "ATDT127.0.0.1:9\r");
+    c64_swiftlink_take_host_request(&sl, &req);
+    c64_swiftlink_host_connect_result(&sl, C64_SWIFTLINK_CONN_OK);
+    service_pump(&sl);
+    drain_rx(&sl, sink, sizeof(sink));
+
+    cycle = sl.time_cycle;
+    quiet_guard(&sl, &cycle);
+    write_bytes(&sl, "+++");
+    expect_true("still online during after-guard", sl.mode == C64_SWIFTLINK_MODE_ONLINE);
+    write_bytes(&sl, "A");
+    n = c64_swiftlink_pull_tx(&sl, tx, sizeof(tx));
+    expect_eq_u8("abort flush len", 4, (uint8_t)n);
+    expect_eq_u8("a0", (uint8_t)'+', tx[0]);
+    expect_eq_u8("a1", (uint8_t)'+', tx[1]);
+    expect_eq_u8("a2", (uint8_t)'+', tx[2]);
+    expect_eq_u8("a3", (uint8_t)'A', tx[3]);
+    expect_eq_u8("still online", (uint8_t)C64_SWIFTLINK_MODE_ONLINE, (uint8_t)sl.mode);
+}
+
+static void test_irq_latch_rdrf(void) {
+    c64_swiftlink sl;
+    uint8_t st;
+
+    setup(&sl);
+    c64_swiftlink_set_irq_mode(&sl, C64_SWIFTLINK_IRQ_NMI);
+    /* DTR on (bit0), Rx IRQ enabled (bit1=0), TIC=10 ($09). Note: RetroMate's
+       $0B sets bit1 and disables Rx IRQ — that is the polled path. */
+    c64_swiftlink_write(&sl, 0xDE02, 0x09u);
+    expect_false("no irq yet", c64_swiftlink_irq_line(&sl));
+
+    expect_eq_u8("push", 1, (uint8_t)c64_swiftlink_push_rx(&sl, (const uint8_t *)"X", 1));
+    c64_swiftlink_service(&sl);
+    expect_true("RDRF holding", sl.rx_holding_full);
+    expect_true("irq latched", sl.irq_latched);
+    expect_true("irq line", c64_swiftlink_irq_line(&sl));
+    st = status(&sl);
+    expect_true("status IRQ bit was set", (st & C64_SWIFTLINK_STATUS_IRQ) != 0);
+    expect_false("cleared after status read", sl.irq_latched);
+    expect_false("line clear", c64_swiftlink_irq_line(&sl));
+}
+
+static void test_pace_baud_tx(void) {
+    c64_swiftlink sl;
+    c64_swiftlink_host_req req;
+    char sink[64];
+    uint64_t cycle;
+    uint64_t need;
+    uint32_t bps;
+    uint8_t tx[4];
+
+    setup(&sl);
+    /* control $10 => baud nibble 0 => enhanced; turbo 0 => 230400 bps. */
+    c64_swiftlink_write(&sl, 0xDE03, 0x10u);
+    c64_swiftlink_write(&sl, 0xDE07, 0x00u);
+    write_bytes(&sl, "ATDT127.0.0.1:9\r");
+    c64_swiftlink_take_host_request(&sl, &req);
+    c64_swiftlink_host_connect_result(&sl, C64_SWIFTLINK_CONN_OK);
+    service_pump(&sl);
+    drain_rx(&sl, sink, sizeof(sink));
+    /* Enable pacing only once online so AT dial bytes stay ASAP. */
+    c64_swiftlink_set_pace_baud(&sl, true);
+
+    cycle = sl.time_cycle;
+    bps = c64_swiftlink_bps(&sl);
+    expect_true("bps", bps == 230400u);
+    need = ((uint64_t)TEST_HZ * 10ull + (uint64_t)bps - 1ull) / (uint64_t)bps;
+
+    while ((status(&sl) & C64_SWIFTLINK_STATUS_TDRE) == 0) {
+        c64_swiftlink_service(&sl);
+    }
+    c64_swiftlink_write(&sl, 0xDE00, (uint8_t)'A');
+    expect_true("first absorbed", (status(&sl) & C64_SWIFTLINK_STATUS_TDRE) != 0);
+    c64_swiftlink_write(&sl, 0xDE00, (uint8_t)'B');
+    expect_false("second held", (status(&sl) & C64_SWIFTLINK_STATUS_TDRE) != 0);
+    advance_cycles(&sl, &cycle, need);
+    expect_true("second absorbed after pace", (status(&sl) & C64_SWIFTLINK_STATUS_TDRE) != 0);
+    expect_eq_u8("two bytes on wire", 2, (uint8_t)c64_swiftlink_pull_tx(&sl, tx, sizeof(tx)));
 }
 
 static void test_connect_failures_and_peer_close(void) {
@@ -353,6 +478,9 @@ int main(void) {
     test_atz_matrices();
     test_plus_plus_plus_escape();
     test_plus_abort_flush();
+    test_plus_after_guard_abort();
+    test_irq_latch_rdrf();
+    test_pace_baud_tx();
     test_connect_failures_and_peer_close();
     test_status_write_silent();
     test_overlong_line_error();

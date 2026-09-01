@@ -1623,11 +1623,6 @@ static void apply_config(app_options *options, config *cfg)
         if (strcmp(value, "none") == 0 || strcmp(value, "nmi") == 0 ||
             strcmp(value, "irq") == 0) {
             replace_string(&options->swiftlink_irq, value);
-            if (strcmp(value, "none") != 0) {
-                fprintf(stderr,
-                        "[swiftlink] irq=`%s` reserved; v1 uses none\n",
-                        value);
-            }
         } else {
             fprintf(stderr,
                     "invalid [swiftlink] irq `%s`; using none\n",
@@ -1635,6 +1630,8 @@ static void apply_config(app_options *options, config *cfg)
             replace_string(&options->swiftlink_irq, "none");
         }
     }
+    options->swiftlink_pace_baud = config_get_bool(
+        cfg, "swiftlink", "pace_baud", options->swiftlink_pace_baud);
     value = config_get(cfg, "debug", "inspector_memory_mb");
     if (value != NULL) {
         char *end = NULL;
@@ -1827,6 +1824,9 @@ static bool parse_command_line_overrides(app_options *options, int argc, char **
     int swiftlink = 0;
     int swiftlink_cli = -1;
     const char *swiftlink_base = NULL;
+    const char *swiftlink_irq = NULL;
+    int swiftlink_pace_baud = 0;
+    int swiftlink_pace_baud_cli = -1;
     int i;
     struct argparse argparse;
     const char *const usages[] = {
@@ -1884,6 +1884,11 @@ static bool parse_command_line_overrides(app_options *options, int argc, char **
                     NULL, 0, 0),
         OPT_STRING('\0', "swiftlink-base", &swiftlink_base,
                    "SwiftLink base: de00 or df00 (default de00)", NULL, 0, 0),
+        OPT_STRING('\0', "swiftlink-irq", &swiftlink_irq,
+                   "SwiftLink interrupt: none, nmi, or irq (default none)", NULL, 0, 0),
+        OPT_BOOLEAN('\0', "swiftlink-pace-baud", &swiftlink_pace_baud,
+                    "pace SwiftLink TX/RX to configured baud (default off; --no-swiftlink-pace-baud)",
+                    NULL, 0, 0),
 
         OPT_STRING('\0', "video", &video_standard, "video standard: PAL or NTSC", NULL, 0, 0),
         OPT_BOOLEAN('P', "pal", &video_pal, "use PAL video timing", NULL, 0, OPT_NONEG),
@@ -1931,6 +1936,10 @@ static bool parse_command_line_overrides(app_options *options, int argc, char **
             swiftlink_cli = 1;
         } else if (strcmp(argv[i], "--no-swiftlink") == 0) {
             swiftlink_cli = 0;
+        } else if (strcmp(argv[i], "--swiftlink-pace-baud") == 0) {
+            swiftlink_pace_baud_cli = 1;
+        } else if (strcmp(argv[i], "--no-swiftlink-pace-baud") == 0) {
+            swiftlink_pace_baud_cli = 0;
         }
     }
 
@@ -1946,6 +1955,7 @@ static bool parse_command_line_overrides(app_options *options, int argc, char **
     (void)history_off_on_max_flag;
     (void)inspector_off_on_max_flag;
     (void)swiftlink;
+    (void)swiftlink_pace_baud;
     (void)disk; /* help placeholder; mounts come from apply_disk_args */
 
     if (show_version) {
@@ -2078,6 +2088,9 @@ static bool parse_command_line_overrides(app_options *options, int argc, char **
     if (swiftlink_cli >= 0) {
         options->swiftlink_enabled = swiftlink_cli != 0;
     }
+    if (swiftlink_pace_baud_cli >= 0) {
+        options->swiftlink_pace_baud = swiftlink_pace_baud_cli != 0;
+    }
     if (swiftlink_base != NULL) {
         const char *p = swiftlink_base;
         char normalized[8];
@@ -2098,6 +2111,15 @@ static bool parse_command_line_overrides(app_options *options, int argc, char **
             return false;
         }
         replace_string(&options->swiftlink_base, normalized);
+    }
+    if (swiftlink_irq != NULL) {
+        if (strcmp(swiftlink_irq, "none") != 0 &&
+            strcmp(swiftlink_irq, "nmi") != 0 &&
+            strcmp(swiftlink_irq, "irq") != 0) {
+            fprintf(stderr, "--swiftlink-irq expects none, nmi, or irq\n");
+            return false;
+        }
+        replace_string(&options->swiftlink_irq, swiftlink_irq);
     }
     if (inspector_memory != NULL) {
         char *end = NULL;
@@ -2201,6 +2223,7 @@ void app_options_init(app_options *options)
     options->history_off_on_max = true; /* pause HST1 in max by default */
     options->inspector_off_on_max = true;
     options->swiftlink_enabled = false;
+    options->swiftlink_pace_baud = false;
     replace_string(&options->swiftlink_base, "de00");
     replace_string(&options->swiftlink_irq, "none");
 }
@@ -2216,6 +2239,19 @@ uint16_t app_options_swiftlink_base_addr(const app_options *options)
         }
     }
     return 0xDE00u;
+}
+
+c64_swiftlink_irq_mode app_options_swiftlink_irq_mode(const app_options *options)
+{
+    if (options != NULL && options->swiftlink_irq != NULL) {
+        if (strcmp(options->swiftlink_irq, "nmi") == 0) {
+            return C64_SWIFTLINK_IRQ_NMI;
+        }
+        if (strcmp(options->swiftlink_irq, "irq") == 0) {
+            return C64_SWIFTLINK_IRQ_IRQ;
+        }
+    }
+    return C64_SWIFTLINK_IRQ_NONE;
 }
 
 bool app_options_apply_ini_file(app_options *options, const char *path)
@@ -2292,6 +2328,7 @@ bool app_options_copy(app_options *dest, const app_options *src)
     dest->history_off_on_max = src->history_off_on_max;
     dest->inspector_off_on_max = src->inspector_off_on_max;
     dest->swiftlink_enabled = src->swiftlink_enabled;
+    dest->swiftlink_pace_baud = src->swiftlink_pace_baud;
 
     if (!replace_string(&dest->keyboard_joystick_layout, src->keyboard_joystick_layout) ||
         !replace_string(&dest->ini_path, src->ini_path) ||
@@ -2462,6 +2499,7 @@ bool app_options_save_shutdown(const app_options *options)
     } else {
         config_set(cfg, "swiftlink", "irq", "none");
     }
+    config_set_bool(cfg, "swiftlink", "pace_baud", options->swiftlink_pace_baud);
     /* The snapshot folder is now [browse] snapshot; drop the legacy key. */
     config_remove_prefix(cfg, "state", "quicksave_folder");
     if (options->symbol_files != NULL &&

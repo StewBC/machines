@@ -466,7 +466,12 @@ void runtime_swiftlink_bridge_pump(runtime_swiftlink_bridge *b, c64_swiftlink *s
     c64_swiftlink_service(sl);
 }
 
-bool runtime_swiftlink_set_enabled(runtime *rt, bool enabled, uint16_t base)
+bool runtime_swiftlink_set_enabled(
+    runtime *rt,
+    bool enabled,
+    uint16_t base,
+    c64_swiftlink_irq_mode irq_mode,
+    bool pace_baud)
 {
     if (rt == NULL) {
         return false;
@@ -475,12 +480,18 @@ bool runtime_swiftlink_set_enabled(runtime *rt, bool enabled, uint16_t base)
     if (enabled) {
         uint16_t prev_base = rt->machine.swiftlink.base;
         bool prev_on = rt->machine.swiftlink.enabled;
+        c64_swiftlink_irq_mode prev_irq = rt->machine.swiftlink.irq_mode;
+        bool prev_pace = rt->machine.swiftlink.pace_baud;
 
         c64_swiftlink_set_base(&rt->machine.swiftlink, base);
+        c64_swiftlink_set_irq_mode(&rt->machine.swiftlink, irq_mode);
+        c64_swiftlink_set_pace_baud(&rt->machine.swiftlink, pace_baud);
         c64_swiftlink_set_enabled(&rt->machine.swiftlink, true);
         if (c64_swiftlink_conflicts(&rt->machine)) {
             c64_swiftlink_set_enabled(&rt->machine.swiftlink, prev_on);
             c64_swiftlink_set_base(&rt->machine.swiftlink, prev_base);
+            c64_swiftlink_set_irq_mode(&rt->machine.swiftlink, prev_irq);
+            c64_swiftlink_set_pace_baud(&rt->machine.swiftlink, prev_pace);
             runtime_publish_error(
                 rt,
                 "SwiftLink conflicts with mounted cartridge I/O page");
@@ -489,6 +500,8 @@ bool runtime_swiftlink_set_enabled(runtime *rt, bool enabled, uint16_t base)
         if (!runtime_swiftlink_bridge_start(&rt->swiftlink)) {
             c64_swiftlink_set_enabled(&rt->machine.swiftlink, prev_on);
             c64_swiftlink_set_base(&rt->machine.swiftlink, prev_base);
+            c64_swiftlink_set_irq_mode(&rt->machine.swiftlink, prev_irq);
+            c64_swiftlink_set_pace_baud(&rt->machine.swiftlink, prev_pace);
             return false;
         }
         return true;
@@ -505,6 +518,10 @@ void runtime_swiftlink_pump(runtime *rt)
     if (rt == NULL) {
         return;
     }
+    c64_swiftlink_set_time(
+        &rt->machine.swiftlink,
+        rt->machine.clock.cycle,
+        rt->machine.clock.c64_hz);
     runtime_swiftlink_bridge_pump(&rt->swiftlink, &rt->machine.swiftlink);
 }
 
@@ -513,7 +530,8 @@ void runtime_swiftlink_shutdown(runtime *rt)
     if (rt == NULL) {
         return;
     }
-    runtime_swiftlink_set_enabled(rt, false, C64_SWIFTLINK_BASE_DE00);
+    runtime_swiftlink_set_enabled(
+        rt, false, C64_SWIFTLINK_BASE_DE00, C64_SWIFTLINK_IRQ_NONE, false);
 }
 
 void runtime_swiftlink_hangup(runtime *rt)

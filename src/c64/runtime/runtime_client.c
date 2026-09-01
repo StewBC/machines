@@ -807,7 +807,13 @@ bool runtime_client_set_turbo_multiplier(runtime_client *client, uint32_t multip
     return runtime_client_push(client, &command);
 }
 
-bool runtime_client_set_swiftlink(runtime_client *client, bool enabled, uint16_t base) {
+bool runtime_client_set_swiftlink(
+    runtime_client *client,
+    bool enabled,
+    uint16_t base,
+    c64_swiftlink_irq_mode irq_mode,
+    bool pace_baud)
+{
     runtime_command command = {
         .type = RUNTIME_COMMAND_SET_SWIFTLINK,
     };
@@ -818,9 +824,14 @@ bool runtime_client_set_swiftlink(runtime_client *client, bool enabled, uint16_t
     if (base != 0xDE00u && base != 0xDF00u) {
         return false;
     }
+    if (irq_mode > C64_SWIFTLINK_IRQ_IRQ) {
+        return false;
+    }
 
     command.data.set_swiftlink.enabled = enabled ? 1u : 0u;
     command.data.set_swiftlink.base = base;
+    command.data.set_swiftlink.irq_mode = (uint8_t)irq_mode;
+    command.data.set_swiftlink.pace_baud = pace_baud ? 1u : 0u;
     return runtime_client_push(client, &command);
 }
 

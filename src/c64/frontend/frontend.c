@@ -2303,7 +2303,8 @@ static void frontend_draw_config_emulator_tab(frontend *ui, frontend_config_dial
     /* SwiftLink is soft-attach host config — not part of CRT preview/Cancel. */
     {
         static const char *const base_items[] = { "$DE00", "$DF00" };
-        static const char *const irq_items[] = { "None" };
+        static const char *const irq_items[] = { "None", "NMI", "IRQ" };
+        static const char *const irq_values[] = { "none", "nmi", "irq" };
         int selected;
         int next;
 
@@ -2333,14 +2334,30 @@ static void frontend_draw_config_emulator_tab(frontend *ui, frontend_config_dial
         }
         nk_layout_row_end(ctx);
 
+        if (dialog->edited.swiftlink_irq == NULL) {
+            app_options_set_string(&dialog->edited.swiftlink_irq, "none");
+        }
         nk_layout_row_begin(ctx, NK_DYNAMIC, 22.0f, 2);
         nk_layout_row_push(ctx, 0.30f);
         nk_label(ctx, "Interrupt", NK_TEXT_LEFT);
         nk_layout_row_push(ctx, 0.70f);
-        nk_widget_disable_begin(ctx);
-        (void)nk_combo(ctx, irq_items, 1, 0, 18, nk_vec2(120.0f, 80.0f));
-        nk_widget_disable_end(ctx);
+        selected = 0;
+        if (frontend_string_equal(dialog->edited.swiftlink_irq, "nmi")) {
+            selected = 1;
+        } else if (frontend_string_equal(dialog->edited.swiftlink_irq, "irq")) {
+            selected = 2;
+        }
+        next = nk_combo(ctx, irq_items, 3, selected, 18, nk_vec2(120.0f, 120.0f));
+        if (next != selected && next >= 0 && next < 3) {
+            app_options_set_string(&dialog->edited.swiftlink_irq, irq_values[next]);
+        }
         nk_layout_row_end(ctx);
+
+        nk_layout_row_dynamic(ctx, 22.0f, 1);
+        frontend_checkbox_bool(
+            ctx,
+            "Pace to baud rate",
+            &dialog->edited.swiftlink_pace_baud);
     }
 }
 

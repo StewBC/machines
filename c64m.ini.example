@@ -78,10 +78,12 @@ turbo_speeds = 1,max
 
 [swiftlink]
 ; Soft-attach SwiftLink/Turbo232 (Hayes modem over outbound TCP).
-; CLI: --swiftlink / --no-swiftlink, --swiftlink-base de00|df00
+; CLI: --swiftlink / --no-swiftlink, --swiftlink-base de00|df00,
+;      --swiftlink-irq none|nmi|irq, --swiftlink-pace-baud / --no-swiftlink-pace-baud
 ; enabled = false
 ; base = de00
 ; irq = none
+; pace_baud = false
 
 [assembler]
 ; file = samples/c64/hello.asm

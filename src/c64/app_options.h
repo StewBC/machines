@@ -1,5 +1,6 @@
 #pragma once
 
+#include "c64_swiftlink.h"
 #include "host_log.h"
 
 #include <stdbool.h>
@@ -123,11 +124,14 @@ typedef struct app_options {
     /* SwiftLink / Turbo232 soft-attach (Hayes modem over outbound TCP). Default off. */
     bool swiftlink_enabled;
     char *swiftlink_base; /* "de00" or "df00" */
-    char *swiftlink_irq;  /* "none" in v1; reserved nmi|irq */
+    char *swiftlink_irq;  /* "none" | "nmi" | "irq" */
+    bool swiftlink_pace_baud; /* gate TX/RX holding to configured baud (default off) */
 } app_options;
 
 /* Returns 0xDE00 or 0xDF00 from options->swiftlink_base (default DE00). */
 uint16_t app_options_swiftlink_base_addr(const app_options *options);
+/* Maps options->swiftlink_irq to the machine enum (default NONE). */
+c64_swiftlink_irq_mode app_options_swiftlink_irq_mode(const app_options *options);
 
 void app_options_init(app_options *options);
 bool app_options_load_startup(app_options *options, int argc, char **argv);
