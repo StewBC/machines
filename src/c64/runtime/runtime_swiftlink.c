@@ -54,6 +54,21 @@ static void clear_rings_locked(runtime_swiftlink_bridge *b)
     b->from_net_count = 0;
 }
 
+static void clear_to_net_locked(runtime_swiftlink_bridge *b)
+{
+    b->to_net_head = 0;
+    b->to_net_tail = 0;
+    b->to_net_count = 0;
+}
+
+/* Peer closed: drop TX (socket is dead) but keep from_net so pending peer
+   bytes can still reach the guest before NO CARRIER. */
+static void note_peer_closed_locked(runtime_swiftlink_bridge *b)
+{
+    clear_to_net_locked(b);
+    b->peer_eof = true;
+}
+
 static int bridge_thread_main(void *userdata)
 {
     runtime_swiftlink_bridge *b = userdata;
@@ -105,6 +120,7 @@ static int bridge_thread_main(void *userdata)
             }
             mutex_lock(b->mu);
             clear_rings_locked(b);
+            b->peer_eof = false;
             mutex_unlock(b->mu);
         } else if (cmd == RUNTIME_SWIFTLINK_CMD_CONNECT) {
             runtime_swiftlink_result res;
@@ -115,6 +131,7 @@ static int bridge_thread_main(void *userdata)
             }
             mutex_lock(b->mu);
             clear_rings_locked(b);
+            b->peer_eof = false;
             mutex_unlock(b->mu);
 
             conn = platform_socket_connect(
@@ -162,8 +179,7 @@ static int bridge_thread_main(void *userdata)
                     platform_socket_connection_destroy(conn);
                     conn = NULL;
                     mutex_lock(b->mu);
-                    b->result = RUNTIME_SWIFTLINK_RES_PEER_CLOSED;
-                    clear_rings_locked(b);
+                    note_peer_closed_locked(b);
                     mutex_unlock(b->mu);
                     break;
                 }
@@ -187,8 +203,7 @@ static int bridge_thread_main(void *userdata)
                     platform_socket_connection_destroy(conn);
                     conn = NULL;
                     mutex_lock(b->mu);
-                    b->result = RUNTIME_SWIFTLINK_RES_PEER_CLOSED;
-                    clear_rings_locked(b);
+                    note_peer_closed_locked(b);
                     mutex_unlock(b->mu);
                 }
             } else {
@@ -198,8 +213,7 @@ static int bridge_thread_main(void *userdata)
                     platform_socket_connection_destroy(conn);
                     conn = NULL;
                     mutex_lock(b->mu);
-                    b->result = RUNTIME_SWIFTLINK_RES_PEER_CLOSED;
-                    clear_rings_locked(b);
+                    note_peer_closed_locked(b);
                     mutex_unlock(b->mu);
                 } else if (ready > 0) {
                     uint8_t rx_buf[512];
@@ -214,8 +228,7 @@ static int bridge_thread_main(void *userdata)
                         platform_socket_connection_destroy(conn);
                         conn = NULL;
                         mutex_lock(b->mu);
-                        b->result = RUNTIME_SWIFTLINK_RES_PEER_CLOSED;
-                        clear_rings_locked(b);
+                        note_peer_closed_locked(b);
                         mutex_unlock(b->mu);
                     } else if (got > 0) {
                         mutex_lock(b->mu);
@@ -289,6 +302,7 @@ bool runtime_swiftlink_bridge_start(runtime_swiftlink_bridge *b)
     b->stop_requested = false;
     b->cmd = RUNTIME_SWIFTLINK_CMD_NONE;
     b->result = RUNTIME_SWIFTLINK_RES_NONE;
+    b->peer_eof = false;
     clear_rings_locked(b);
     mutex_unlock(b->mu);
 
@@ -332,6 +346,7 @@ void runtime_swiftlink_bridge_stop(runtime_swiftlink_bridge *b)
     b->stop_requested = false;
     b->cmd = RUNTIME_SWIFTLINK_CMD_NONE;
     b->result = RUNTIME_SWIFTLINK_RES_NONE;
+    b->peer_eof = false;
     clear_rings_locked(b);
     mutex_unlock(b->mu);
 }
@@ -373,8 +388,6 @@ void runtime_swiftlink_bridge_pump(runtime_swiftlink_bridge *b, c64_swiftlink *s
         c64_swiftlink_host_connect_result(sl, C64_SWIFTLINK_CONN_NO_DIALTONE);
     } else if (res == RUNTIME_SWIFTLINK_RES_NO_ANSWER) {
         c64_swiftlink_host_connect_result(sl, C64_SWIFTLINK_CONN_NO_ANSWER);
-    } else if (res == RUNTIME_SWIFTLINK_RES_PEER_CLOSED) {
-        c64_swiftlink_host_peer_closed(sl);
     }
 
     {
@@ -431,6 +444,22 @@ void runtime_swiftlink_bridge_pump(runtime_swiftlink_bridge *b, c64_swiftlink *s
             size_t accepted = c64_swiftlink_push_rx(sl, chunk, moved);
             /* accepted must equal moved when space was checked first. */
             (void)accepted;
+        }
+    }
+
+    /* Apply peer EOF only after from_net is empty so pending peer bytes
+       (FICS goodbye, etc.) reach the guest before NO CARRIER. */
+    {
+        bool apply_eof = false;
+
+        mutex_lock(b->mu);
+        if (b->peer_eof && b->from_net_count == 0) {
+            b->peer_eof = false;
+            apply_eof = true;
+        }
+        mutex_unlock(b->mu);
+        if (apply_eof) {
+            c64_swiftlink_host_peer_closed(sl);
         }
     }
 

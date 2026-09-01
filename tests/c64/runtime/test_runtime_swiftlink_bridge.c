@@ -173,12 +173,45 @@ int main(void) {
     }
     expect_true("guest got WORLD", strstr(rx, "WORLD") != NULL);
 
-    write_bytes(&sl, "+++");
-    pump_until(&bridge, &sl, mode_command, 2000);
-    drain_rx(&sl, rx, sizeof(rx));
-    expect_true("NO CARRIER", strstr(rx, "NO CARRIER") != NULL);
-
+    /* Peer close must keep unread from_net bytes, then NO CARRIER after drain.
+       Do not pump the guest until after close so goodbye sits in from_net when
+       EOF is noted (the race that used to wipe the FICS logout banner). */
+    expect_true(
+        "peer goodbye",
+        platform_socket_write_all(
+            peer, "(http://www.freechess.org).\n", 28));
+    sleep_ms(150); /* bridge thread recv → from_net */
     platform_socket_connection_destroy(peer);
+    peer = NULL;
+    sleep_ms(100); /* bridge thread notes peer_eof, keeps from_net */
+    {
+        int saw_goodbye = 0;
+        int saw_nocarrier = 0;
+        int goodbye_before_nocarrier = 0;
+        for (i = 0; i < 200; ++i) {
+            runtime_swiftlink_bridge_pump(&bridge, &sl);
+            drain_rx(&sl, rx, sizeof(rx));
+            if (!saw_goodbye &&
+                strstr(rx, "(http://www.freechess.org).") != NULL) {
+                saw_goodbye = 1;
+                if (!saw_nocarrier) {
+                    goodbye_before_nocarrier = 1;
+                }
+            }
+            if (strstr(rx, "NO CARRIER") != NULL) {
+                saw_nocarrier = 1;
+            }
+            if (saw_goodbye && saw_nocarrier && mode_command(&sl)) {
+                break;
+            }
+            sleep_ms(10);
+        }
+        expect_true("peer-close kept goodbye", saw_goodbye);
+        expect_true("goodbye before NO CARRIER", goodbye_before_nocarrier);
+        expect_true("peer-close NO CARRIER after", saw_nocarrier);
+        expect_true("peer-close command mode", mode_command(&sl));
+    }
+
     platform_socket_listener_destroy(listener);
     runtime_swiftlink_bridge_stop(&bridge);
     runtime_swiftlink_bridge_destroy(&bridge);

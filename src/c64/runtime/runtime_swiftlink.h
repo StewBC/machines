@@ -47,6 +47,11 @@ typedef struct runtime_swiftlink_bridge {
 
     runtime_swiftlink_result result;
 
+    /* Sticky peer EOF: set when the TCP peer closes. from_net is kept until the
+       runtime pump drains it to the guest; only then is PEER_CLOSED applied so
+       goodbye banners (e.g. FICS quit) are not wiped or buried under NO CARRIER. */
+    bool peer_eof;
+
     uint8_t to_net[RUNTIME_SWIFTLINK_TO_NET_SIZE];
     size_t to_net_head;
     size_t to_net_tail;
