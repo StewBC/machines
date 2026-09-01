@@ -1956,6 +1956,73 @@ static void test_keyboard_joystick_saved_to_ini(void) {
     remove("test_kbdjoy_save.ini");
 }
 
+static void test_mouse_defaults_and_overrides(void) {
+    app_options options;
+    char *default_argv[] = {"test_app_options", "--noini"};
+    char *cli_argv[] = {
+        "test_app_options", "--noini", "--mouse", "--mouse-port", "2",
+    };
+    char *cli_off_argv[] = {
+        "test_app_options", "--noini", "--no-mouse", "--mouse-port", "1",
+    };
+
+    if (!app_options_load_startup(&options, 2, default_argv)) {
+        fprintf(stderr, "mouse default load failed\n");
+        exit(1);
+    }
+    expect_bool("mouse default enabled", 0, options.mouse_enabled);
+    expect_int("mouse default port", 1, options.mouse_port);
+    app_options_destroy(&options);
+
+    if (!app_options_load_startup(&options, 5, cli_argv)) {
+        fprintf(stderr, "mouse cli load failed\n");
+        exit(1);
+    }
+    expect_bool("mouse cli enabled", 1, options.mouse_enabled);
+    expect_int("mouse cli port", 2, options.mouse_port);
+    app_options_destroy(&options);
+
+    if (!app_options_load_startup(&options, 5, cli_off_argv)) {
+        fprintf(stderr, "mouse cli off load failed\n");
+        exit(1);
+    }
+    expect_bool("mouse cli disabled", 0, options.mouse_enabled);
+    expect_int("mouse cli port 1", 1, options.mouse_port);
+    app_options_destroy(&options);
+}
+
+static void test_mouse_saved_to_ini(void) {
+    app_options options;
+    char *argv[] = {
+        "test_app_options", "--inifile", "test_mouse_save.ini",
+    };
+
+    remove("test_mouse_save.ini");
+    if (!app_options_load_startup(&options, 3, argv)) {
+        fprintf(stderr, "mouse save load failed\n");
+        exit(1);
+    }
+
+    options.mouse_enabled = true;
+    options.mouse_port = 2;
+
+    if (!app_options_save_shutdown(&options)) {
+        fprintf(stderr, "mouse save_shutdown failed\n");
+        exit(1);
+    }
+    app_options_destroy(&options);
+
+    if (!app_options_load_startup(&options, 3, argv)) {
+        fprintf(stderr, "mouse reload failed\n");
+        exit(1);
+    }
+    expect_bool("saved mouse enabled", 1, options.mouse_enabled);
+    expect_int("saved mouse port", 2, options.mouse_port);
+
+    app_options_destroy(&options);
+    remove("test_mouse_save.ini");
+}
+
 static void test_assembler_auto_adjust_segments_ini(void) {
     app_options options;
     char *default_argv[] = {"test_app_options", "--noini"};
@@ -2054,6 +2121,8 @@ int main(void) {
     test_disk_slot_copy();
     test_keyboard_joystick_defaults_and_overrides();
     test_keyboard_joystick_saved_to_ini();
+    test_mouse_defaults_and_overrides();
+    test_mouse_saved_to_ini();
     test_assembler_auto_adjust_segments_ini();
 
     leave_scratch(home, scratch);

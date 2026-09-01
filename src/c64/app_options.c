@@ -1461,6 +1461,13 @@ static void apply_config(app_options *options, config *cfg)
     if (options->keyboard_joystick_port < 0 || options->keyboard_joystick_port > 2) {
         options->keyboard_joystick_port = 0;
     }
+    options->mouse_enabled = config_get_bool(
+        cfg, "input", "mouse_enabled", options->mouse_enabled);
+    options->mouse_port = config_get_int(
+        cfg, "input", "mouse_port", options->mouse_port);
+    if (options->mouse_port < 1 || options->mouse_port > 2) {
+        options->mouse_port = 1;
+    }
 
     options->window_width = config_get_int(
         cfg, "Window", "width", options->window_width);
@@ -2498,6 +2505,8 @@ bool app_options_save_shutdown(const app_options *options)
     }
     config_set_int(cfg, "input", "keyboard_joystick_port",
                    options->keyboard_joystick_port);
+    config_set_bool(cfg, "input", "mouse_enabled", options->mouse_enabled);
+    config_set_int(cfg, "input", "mouse_port", options->mouse_port);
 
     config_remove_prefix(cfg, "runtime", "turbo");
     if (options->turbo_multipliers != NULL) {

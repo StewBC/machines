@@ -2095,6 +2095,9 @@ static void frontend_draw_breakpoint_editor(frontend *ui, int width, int height)
 
 static bool frontend_config_validate(frontend_config_dialog_state *dialog)
 {
+    if (dialog->edited.mouse_port < 1 || dialog->edited.mouse_port > 2) {
+        dialog->edited.mouse_port = 1;
+    }
     if (dialog->edited.scroll_wheel_lines < 1 || dialog->edited.scroll_wheel_lines > 100) {
         snprintf(dialog->error, sizeof(dialog->error), "Scroll wheel speed must be 1..100");
         return false;
@@ -2222,6 +2225,25 @@ static void frontend_draw_config_machine_tab(frontend *ui, frontend_config_dialo
         }
     }
     nk_layout_row_end(ctx);
+
+    {
+        static const char *const mouse_port_items[] = { "Port 1", "Port 2" };
+        int mouse_port_selected;
+
+        nk_layout_row_begin(ctx, NK_DYNAMIC, 22.0f, 3);
+        nk_layout_row_push(ctx, 0.30f);
+        nk_label(ctx, "Mouse (1351)", NK_TEXT_LEFT);
+        nk_layout_row_push(ctx, 0.35f);
+        frontend_checkbox_bool(ctx, "Enabled", &dialog->edited.mouse_enabled);
+        nk_layout_row_push(ctx, 0.35f);
+        mouse_port_selected = dialog->edited.mouse_port == 2 ? 1 : 0;
+        next = nk_combo(
+            ctx, mouse_port_items, 2, mouse_port_selected, 18, nk_vec2(120.0f, 100.0f));
+        if (next != mouse_port_selected) {
+            dialog->edited.mouse_port = next == 1 ? 2 : 1;
+        }
+        nk_layout_row_end(ctx);
+    }
 
     nk_layout_row_begin(ctx, NK_DYNAMIC, 22.0f, 2);
     nk_layout_row_push(ctx, 0.30f);

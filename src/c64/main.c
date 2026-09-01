@@ -4542,7 +4542,8 @@ static void dispatch_debugger_intents(
     const frontend_debug_state *debug_state,
     app_options *options,
     sdl_c64_controller_state *controller_state,
-    frontend_joystick_input *kbd_joystick) {
+    frontend_joystick_input *kbd_joystick,
+    frontend_mouse_input *mouse) {
     frontend_debugger_intent intent;
 
     if (client == NULL || ui == NULL) {
@@ -4869,6 +4870,19 @@ static void dispatch_debugger_intents(
                             kbd_joystick, (unsigned)options->keyboard_joystick_port);
                         if (controller_state != NULL) {
                             sdl_c64_controller_send_ports(controller_state, client);
+                        }
+                    }
+                    /* Apply 1351 mouse config; release capture if disabled/port changed. */
+                    if (mouse != NULL) {
+                        bool was_captured = mouse->captured;
+                        frontend_mouse_set_port(mouse, (unsigned)options->mouse_port);
+                        frontend_mouse_set_enabled(mouse, options->mouse_enabled);
+                        if (was_captured && !mouse->captured) {
+                            mouse_apply_action(
+                                mouse,
+                                controller_state,
+                                client,
+                                FRONTEND_MOUSE_ACTION_LEAVE);
                         }
                     }
                     if (intent.config_result.symbols_changed) {
@@ -7472,7 +7486,8 @@ static bool run_main_loop(
             &debug_state,
             options,
             &controller_state,
-            &kbd_joystick);
+            &kbd_joystick,
+            &mouse_input);
         platform_window_present(window);
     }
     control_session_release(client, &session_bind);
