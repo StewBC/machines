@@ -4,6 +4,7 @@
 #include "c64_bus.h"
 #include "c64_frame.h"
 #include "c64_rom.h"
+#include "c64_printer.h"
 #include "c64_swiftlink.h"
 #include "c6510.h"
 #include "cia.h"
@@ -463,6 +464,7 @@ typedef struct c64_t {
     cia cia2;
     sid sid;
     c64_swiftlink swiftlink;
+    c64_printer printer;
     c64_keyboard keyboard;
     uint8_t joystick1;
     uint8_t joystick2;

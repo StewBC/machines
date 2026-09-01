@@ -204,6 +204,18 @@ target_link_libraries(${test_swiftlink_conflict} PRIVATE
 
 leftover_add_test(NAME swiftlink_conflict COMMAND ${test_swiftlink_conflict})
 
+leftover_exe(test_c64_printer_mps
+    ${MACHINES_ROOT}/tests/c64/machine/test_c64_printer_mps.c
+)
+
+target_compile_features(${test_c64_printer_mps} PRIVATE c_std_99)
+
+target_link_libraries(${test_c64_printer_mps} PRIVATE
+    ${machine}
+)
+
+leftover_add_test(NAME printer_mps COMMAND ${test_c64_printer_mps})
+
 leftover_exe(test_c1541
     ${MACHINES_ROOT}/tests/c64/machine/test_c1541.c
 )
