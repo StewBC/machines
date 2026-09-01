@@ -52,6 +52,8 @@ Useful flags:
 | `--video PAL|NTSC`, `-P`, `-N` | Override the configured video standard for this run |
 | `--kbdjoy <0|1|2>`     | Drive the keyboard joystick on the given C64 port (`0` disables) |
 | `--kbdjoy-layout <numpad|wasd>` | Select the keyboard joystick key layout        |
+| `--mouse` / `--no-mouse` | Enable CBM 1351 mouse capture (default off) |
+| `--mouse-port <1|2>`   | Control port for the 1351 (default `1`) |
 | `--turbo <list>` / `-t`| Turbo mode list for Opt+T, e.g. `1,max` (1=normal, 2/`max`=max; `3` rejected) |
 | `--audio-smoke`        | Emit a 440 Hz test tone to verify audio output      |
 
@@ -1657,6 +1659,7 @@ below the tab body on every tab.
 |-------------------|--------|
 | Video             | Select `NTSC` or `PAL`; changes take effect on reboot |
 | Keyboard Joystick | Select `Off`, `Port 1`, or `Port 2`, plus the `Numpad` or `WASD` key layout |
+| Mouse (1351)      | Enable proportional mouse capture, and choose control port `1` or `2` (default off, port 1) |
 | Turbo Modes       | Comma-separated mode list, e.g. `1,max` (1=normal, 2/`max`=max; `3` rejected) |
 | Pause on BRK      | Auto-pause free-run at the next `BRK` (`$00`) as a crash aid; off by default so carts that hit a KERNAL-handled BRK during boot (e.g. Ocean's Wonderboy) keep running; applies live |
 | Emulate 1541      | Route disk I/O through the real 1541 DOS ROM (needs a 1541 ROM); applies live |
@@ -1665,9 +1668,12 @@ below the tab body on every tab.
 
 The Keyboard Joystick port selector matches the runtime **Shift+Opt+1** /
 **Shift+Opt+2** assignment; either place can change the active port. Change the layout
-here or with **Shift+Opt+M**. Changing Video reboots the emulated machine while
-preserving its running state. Emulate 1541, 1541 media (GCR), Show disk LEDs, and the
-other Machine settings apply immediately when you press **[OK]** or **[Save INI now]**.
+here or with **Shift+Opt+M**. Mouse (1351) matches `--mouse` / `--mouse-port` and the
+`[input]` INI keys; enabling it does not grab the pointer until you **Opt+Click** the
+CRT (see **Mouse (1351)** under Implementation Notes). Changing Video reboots the
+emulated machine while preserving its running state. Emulate 1541, 1541 media (GCR),
+Show disk LEDs, and the other Machine settings apply immediately when you press
+**[OK]** or **[Save INI now]**.
 
 ### Emulator
 
@@ -1804,9 +1810,12 @@ emulator removes comments.
 |----------------------------|-----------------------------------------------------|
 | `keyboard_joystick_layout` | `numpad` or `wasd` (default `numpad`)               |
 | `keyboard_joystick_port`   | `0` (disabled), `1`, or `2` (default `0`)           |
+| `mouse_enabled`            | `true`/`false`; enable CBM 1351 capture (default `false`) |
+| `mouse_port`               | `1` or `2`; control port for the 1351 (default `1`) |
 
-The port can also be set for one launch with `--kbdjoy <0|1|2>`, and the layout with
-`--kbdjoy-layout <numpad|wasd>`.
+The keyboard joystick port can also be set for one launch with `--kbdjoy <0|1|2>`, and
+the layout with `--kbdjoy-layout <numpad|wasd>`. The mouse can also be set with
+`--mouse` / `--no-mouse` and `--mouse-port <1|2>`.
 
 ### [browse]
 
@@ -2005,6 +2014,7 @@ Keys listed here are intercepted by the emulator before reaching the C64. On mac
 | **Shift+Opt+1** | Assign the keyboard joystick to port 1 (press again to disable) |
 | **Shift+Opt+2** | Assign the keyboard joystick to port 2 (press again to disable) |
 | **Shift+Opt+0** | Disable the keyboard joystick on any port                       |
+| **Opt+Click**   | When Mouse (1351) is enabled: click the CRT to capture; Opt+Click again to release |
 | **Shift+Opt+>** | Quicksave state to the snapshot folder (Configure -> Paths)     |
 | **Shift+Opt+<** | Quickload the newest state from the snapshot folder             |
 | **Cmd+Q**       | Quit (macOS)                                               |
@@ -2921,7 +2931,9 @@ accumulator, four waveforms (triangle, sawtooth, pulse with 12-bit width, noise 
 23-bit LFSR), TEST bit, hard sync and ring modulation against the preceding voice, ADSR
 envelope with a fractional double accumulator and clock-parameterized rate tables (PAL and
 NTSC constants selected at `sid_init`), and gate control. Voice 3 oscillator (phase bits
-23-16) and envelope are readable at $D41B/$D41C. Paddle reads ($D419/$D41A) return $FF.
+23-16) and envelope are readable at $D41B/$D41C. Pot reads ($D419/$D41A) return $FF
+unless a CBM 1351 is attached and CIA1 PA6/PA7 select that control port (see
+**Mouse (1351)**). Generic paddles remain stubbed.
 
 The mixer scales each voice by its envelope, divides by 3 for headroom, and applies the
 master volume ($D418 bits 0-3). Voice 3 can be disconnected from the mix via $D418 bit 7.
@@ -2940,8 +2952,8 @@ continues to advance. The SDL audio callback reads from the ring buffer on a sep
 thread; it never calls runtime or machine code.
 
 **SID deferred:** exact 6581 combined-waveform analog blending (a deterministic
-approximation is used), runtime 8580 switching, and paddle input beyond the
-not-connected policy. The model is not bit-perfect analog 6581.
+approximation is used), runtime 8580 switching, and paddle potentiometers (1351
+proportional pots when attached are separate). The model is not bit-perfect analog 6581.
 
 ### Disk
 
@@ -3008,6 +3020,30 @@ drive the joystick instead of reaching the C64. They type normally when the keyb
 joystick is disabled or when a debugger view has keyboard focus. The `numpad` layout
 uses keypad key codes, so Num Lock must be on. The port and layout are saved in the
 `[input]` INI section.
+
+### Mouse (1351)
+
+c64m emulates a Commodore 1351 in **proportional mode** only (not 1350 joystick-mouse
+mode). The feature is off by default so ordinary play keeps a normal host cursor.
+
+Enable it with **Configure -> Machine -> Mouse (1351)**, `[input] mouse_enabled` /
+`mouse_port`, or `--mouse` / `--mouse-port`. Enabling alone does not grab the pointer.
+
+**Capture:**
+
+1. With the mouse enabled, **Opt+Click** the CRT picture to capture (host cursor hides;
+   relative motion feeds the guest).
+2. **Opt+Click** again to release (no need to hit the CRT while captured).
+3. Capture also ends when the window loses focus, Help or Forensics opens, a modal
+   dialog opens, or you enter Inspector.
+
+While captured: left button is FIRE, right button is UP on the chosen control port;
+motion updates SID pot registers `$D419`/`$D41A` for that port when CIA1 PA6/PA7 select
+it (driven-high exclusive mux). The captured mouse owns that port's digital lines so
+a gamepad or keyboard stick on the same port does not fight the buttons.
+
+Load-state forces the mouse inactive; re-capture after load if you need it again.
+There is no control-port `mouse` verb and Inspector does not log mouse motion.
 
 ### Display and Scaling
 

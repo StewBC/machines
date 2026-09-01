@@ -9,7 +9,7 @@ leftover C64 Misc tabs, input, CRT, and memory-source cycles.
 Leftover `src/frontend/`, integration in leftover `src/main.c`, leftover
 `src/runtime/runtime_client.h` extras, leftover `src/platform/platform_audio.*`.
 Shared panes live in `src/shell/frontend/`. Automated
-coverage: `frontend_input`, `frontend_joystick`, `help_view`, `forensics_view`,
+coverage: `frontend_input`, `frontend_joystick`, `frontend_mouse`, `help_view`, `forensics_view`,
 `window_title`, `crt_renderer`, `disasm_pc_lock`. Most Nuklear UI is manual smoke.
 
 SDL events become frontend intents, intents become `runtime_client` commands,
@@ -85,15 +85,25 @@ ASCII-only. User docs: `manual/c64m/manual.md` (**Forensics**).
 
 ## Input
 
-`SDL event -> frontend_input` / `frontend_joystick_input ->`
-`runtime_client_keyboard_key` or `runtime_client_set_joystick`. Do not write
-CIA or keyboard state from frontend code. Dialogs are modal: outside clicks
-must not focus or activate base views.
+`SDL event -> frontend_input` / `frontend_joystick_input` /
+`frontend_mouse_input ->` `runtime_client_keyboard_key`,
+`runtime_client_set_joystick`, or `runtime_client_set_mouse` /
+`runtime_client_clear_mouse`. Do not write CIA, SID pots, or keyboard state
+from frontend code. Dialogs are modal: outside clicks must not focus or
+activate base views.
 
 Keyboard joystick layouts: `numpad` and `wasd`. WASD is consumed only while
 assigned and C64 keyboard focus is active. Assignment: Alt+Shift+1/2, Alt+Shift+0
 disables; real controllers remain Alt+1/2. SDL text input is enabled only
 while an edit field has focus.
+
+CBM 1351 (proportional only): default off (`[input] mouse_enabled` /
+`--mouse`). Opt+Click CRT captures (relative mode); Opt+Click releases.
+Autorelease on focus loss, Help, Forensics, any dialog, or Inspector.
+While captured, that port's digital lines come only from the mouse at the
+SDL/kbdjoy merge (control-port `joystick` can still overwrite until the next
+`set_mouse` — accepted v1 gap). No control `mouse` verb; no Inspector mouse
+log event.
 
 ## Loading and configuration
 

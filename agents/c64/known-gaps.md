@@ -11,7 +11,7 @@ the bottom.
 | EasyFlash (CRT type 32) | Types 0, 5, 7, 8, 15, 17, 19 are implemented. Freeze carts are out. |
 | REU / GeoRAM | Expansion RAM + DMA; not a CRT game type. |
 | Ultimax attach | Decode exists; generic attach rejects Ultimax. |
-| SID 8580 / analog blend / paddles | 6581-style functional model. `$D419/$D41A` read `$FF`. No runtime chip switch. Combined-wave is a deterministic approximation. |
+| SID 8580 / analog blend / paddles | 6581-style functional model. No runtime chip switch. Combined-wave is a deterministic approximation. Generic paddles stay `$FF`; CBM 1351 proportional pots when attached (CIA1 PA6/PA7 mux) are separate. |
 | Light pen `$D013/$D014` | Stub: register store only. |
 | Half-cycle / analog AEC, RDY, IEC, CIA serial | Cycle granularity. General last-byte-on-bus is not modeled; BA-lead VIC cbuf (`ram[PC] & 0x0f`) is. |
 | Unstable undocumented opcodes | XAA, AHX, SHX, SHY, TAS, LAS, LAX #imm, JAM use the compatibility executor. No Harte corpus in ctest. |

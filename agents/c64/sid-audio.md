@@ -11,8 +11,10 @@ filter routing, state-variable filter, voice mixer, voice-3 phase/envelope
 readback, `$D400-$D41F`. Rate tables, cutoff LUT, and HF rolloff come from
 the PAL/NTSC CPU clock passed to `sid_init()`.
 
-Not bit-perfect analog 6581. No runtime 8580 switch. Paddle reads
-(`$D419/$D41A`) return `$FF`. Audio changes must be measured with
+Not bit-perfect analog 6581. No runtime 8580 switch. Pot reads
+(`$D419/$D41A`) return `$FF` unless a CBM 1351 is attached and the CIA1
+PA6/PA7 mux selects that port (driven-high exclusive); generic paddles
+stay stubbed. Audio changes must be measured with
 `tools/capture_sid_audio.py` / `tools/compare_sid_audio.py`, not judged
 only by listening.
 

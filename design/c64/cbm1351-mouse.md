@@ -2,12 +2,12 @@
 
 | Field | Value |
 |-------|--------|
-| Status | **active** |
+| Status | **landed** |
 | Author | design session |
 | Date | 2026-09-01 |
 | Audience | c64m implementers |
 | Path | [`design/c64/cbm1351-mouse.md`](cbm1351-mouse.md) |
-| Tracker | `TODO.txt` — `TODO CBM1351 Mouse emulation` |
+| Tracker | `TODO.txt` — `DONE CBM1351 Mouse emulation` |
 
 ## Overview
 
