@@ -47,10 +47,11 @@ typedef struct c64_printer {
     uint32_t pages_flushed;
     bool page_dirty;
     bool page_cap_hit;
+    /* Set on flush I/O failure; putc refuses mutation until a flush succeeds. */
+    bool flush_hold;
 
     c64_printer_parse parse_state;
     uint8_t parse_buf[4];
-    uint8_t parse_need;
 
     char output_dir[C64_PRINTER_PATH_MAX];
 } c64_printer;

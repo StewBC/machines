@@ -216,14 +216,83 @@ static void test_dot_address_clip_and_wrap(void)
     c64_printer_putc(&p, 128);
     expect_eq_int("dot addr >639 wrap", 0, p.cursor_x_dots);
 
-    /* BIM past edge does not advance X beyond 479 */
-    p.cursor_x_dots = C64_PRINTER_WIDTH_DOTS - 1;
-    c64_printer_putc(&p, 8);
-    c64_printer_putc(&p, 0x01u);
-    expect_eq_int("BIM clip x stays", C64_PRINTER_WIDTH_DOTS - 1, p.cursor_x_dots);
-
     teardown_printer(&p);
     (void)test_rmdir("printer_mps_tmp_dot");
+}
+
+static void test_bim_past_edge_no_overdraw(void)
+{
+    c64_printer p;
+    int edge = C64_PRINTER_WIDTH_DOTS - 1;
+
+    setup_printer(&p, "printer_mps_tmp_edge");
+
+    c64_printer_putc(&p, 8);
+    p.cursor_x_dots = edge;
+    /* First column: top pin only at x=479, then X → sentinel 480. */
+    c64_printer_putc(&p, 0x01u);
+    expect_eq_int("BIM after edge plot → sentinel", C64_PRINTER_WIDTH_DOTS, p.cursor_x_dots);
+    expect_true("first col top ink", pixel_at(&p, edge, 0) == 0);
+    expect_true("first col mid clear", pixel_at(&p, edge, 3) == 255);
+
+    /* Second distinct column must be ignored (no overdraw on 479). */
+    c64_printer_putc(&p, 0x08u); /* bit3 only */
+    expect_eq_int("BIM past-edge x stays sentinel", C64_PRINTER_WIDTH_DOTS, p.cursor_x_dots);
+    expect_true("no overdraw mid", pixel_at(&p, edge, 3) == 255);
+    expect_true("first col top still only", pixel_at(&p, edge, 0) == 0);
+
+    teardown_printer(&p);
+    (void)test_rmdir("printer_mps_tmp_edge");
+}
+
+static void test_failed_flush_retains_cursor(void)
+{
+    c64_printer p;
+    int saved_y;
+
+    setup_printer(&p, "printer_mps_tmp_iofail");
+    c64_printer_putc(&p, (uint8_t)'A');
+    expect_true("dirty before fail", c64_printer_page_dirty(&p));
+
+    /* Force page-full with no usable output dir → I/O failure. */
+    c64_printer_set_output_dir(&p, "");
+    saved_y = C64_PRINTER_HEIGHT_DOTS - C64_PRINTER_CHAR_LF_DOTS + 1;
+    p.cursor_y_dots = saved_y;
+    c64_printer_putc(&p, 10); /* LF → page-full flush attempt */
+
+    expect_true("still dirty after I/O fail", c64_printer_page_dirty(&p));
+    expect_eq_int("Y not reset on I/O fail", saved_y, p.cursor_y_dots);
+    expect_true("flush_hold set", p.flush_hold);
+    expect_eq_u32("no page written", 0u, c64_printer_pages_flushed(&p));
+
+    /* Further putc must not mutate the retained page. */
+    {
+        uint8_t before = pixel_at(&p, 0, 0);
+        c64_printer_putc(&p, (uint8_t)'Z');
+        expect_true("hold blocks putc", pixel_at(&p, 0, 0) == before);
+    }
+
+    /* Restore dir and force-flush recovers. */
+    c64_printer_set_output_dir(&p, "printer_mps_tmp_iofail");
+    c64_printer_force_flush(&p);
+    expect_false("hold cleared", p.flush_hold);
+    expect_eq_u32("retry wrote page", 1u, c64_printer_pages_flushed(&p));
+    expect_false("clean after retry", c64_printer_page_dirty(&p));
+
+    /* FF with I/O failure must not zero the cursor either. */
+    c64_printer_putc(&p, (uint8_t)'B');
+    p.cursor_x_dots = 33;
+    p.cursor_y_dots = 44;
+    c64_printer_set_output_dir(&p, "");
+    c64_printer_putc(&p, 12);
+    expect_eq_int("FF fail keeps x", 33, p.cursor_x_dots);
+    expect_eq_int("FF fail keeps y", 44, p.cursor_y_dots);
+    expect_true("FF fail dirty", c64_printer_page_dirty(&p));
+    expect_true("FF fail hold", p.flush_hold);
+
+    cleanup_dir_file("printer_mps_tmp_iofail", "page_0001.bmp");
+    teardown_printer(&p);
+    (void)test_rmdir("printer_mps_tmp_iofail");
 }
 
 static void test_ascii_head_tab(void)
@@ -363,6 +432,8 @@ int main(void)
     test_page_full_flush();
     test_bim_column_and_repeat();
     test_dot_address_clip_and_wrap();
+    test_bim_past_edge_no_overdraw();
+    test_failed_flush_retains_cursor();
     test_ascii_head_tab();
     test_cr_leaves_bim();
     test_force_flush_dirty_and_blank();

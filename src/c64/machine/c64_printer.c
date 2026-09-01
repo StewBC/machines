@@ -142,7 +142,6 @@ static void reset_modes(c64_printer *p)
     p->reverse = false;
     p->bit_image = false;
     p->parse_state = C64_PRINTER_PARSE_IDLE;
-    p->parse_need = 0;
     memset(p->parse_buf, 0, sizeof(p->parse_buf));
 }
 
@@ -166,37 +165,46 @@ static void set_pixel(c64_printer *p, int x, int y)
     p->page_dirty = true;
 }
 
-static bool flush_page(c64_printer *p, bool force)
+/* true: page buffer reusable (blank, written, or cap-scratched).
+   false: I/O failure — dirty page retained; flush_hold set. */
+static bool flush_page(c64_printer *p)
 {
     host_page_image page;
     char path[C64_PRINTER_PATH_MAX + 32];
     uint32_t next;
 
-    (void)force;
-
     if (!p->page_dirty) {
+        p->flush_hold = false;
         return true;
     }
     if (p->page_cap_hit || p->pages_flushed >= (uint32_t)C64_PRINTER_PAGE_CAP) {
-        p->page_cap_hit = true;
-        log_warn("printer: page cap (%d) reached; skipping write", C64_PRINTER_PAGE_CAP);
-        return false;
+        if (!p->page_cap_hit) {
+            log_warn("printer: page cap (%d) reached; skipping write", C64_PRINTER_PAGE_CAP);
+            p->page_cap_hit = true;
+        }
+        clear_page(p);
+        p->flush_hold = false;
+        return true;
     }
     if (p->output_dir[0] == '\0') {
         log_error("printer: flush failed (no output_dir)");
+        p->flush_hold = true;
         return false;
     }
     if (p->raster == NULL) {
+        p->flush_hold = true;
         return false;
     }
     if (!host_page_writer_ensure_dir(p->output_dir)) {
         log_error("printer: ensure_dir failed for %s", p->output_dir);
+        p->flush_hold = true;
         return false;
     }
 
     next = p->pages_flushed + 1u;
     if (snprintf(path, sizeof(path), "%s/page_%04u.bmp", p->output_dir, next) >= (int)sizeof(path)) {
         log_error("printer: path too long");
+        p->flush_hold = true;
         return false;
     }
 
@@ -209,12 +217,14 @@ static bool flush_page(c64_printer *p, bool force)
 
     if (!host_page_writer_write(&page, HOST_PAGE_FORMAT_BMP, path)) {
         log_error("printer: write failed for %s", path);
+        p->flush_hold = true;
         return false;
     }
 
     log_info("printer: wrote %s (%ux%u)", path, page.width, page.height);
     p->pages_flushed = next;
     clear_page(p);
+    p->flush_hold = false;
     return true;
 }
 
@@ -222,12 +232,14 @@ static void advance_line(c64_printer *p)
 {
     int pitch = lf_pitch(p);
 
-    p->cursor_x_dots = 0;
     if (p->cursor_y_dots + pitch > C64_PRINTER_HEIGHT_DOTS) {
-        (void)flush_page(p, false);
-        p->cursor_y_dots = 0;
+        if (flush_page(p)) {
+            p->cursor_x_dots = 0;
+            p->cursor_y_dots = 0;
+        }
         return;
     }
+    p->cursor_x_dots = 0;
     p->cursor_y_dots += pitch;
 }
 
@@ -235,9 +247,7 @@ static const c64_printer_glyph *lookup_glyph(const c64_printer *p, uint8_t ch)
 {
     uint8_t mapped = ch;
 
-    /* Local graphic CHR$(145) / business CHR$(17) already toggled graphic_charset.
-       PETSCII business often sends lowercase as $41-$5A; map to ASCII a-z when
-       business charset is active so both ASCII and PETSCII letters render. */
+    /* Business: PETSCII $41-$5A are lowercase. */
     if (!p->graphic_charset) {
         if (ch >= 0x41u && ch <= 0x5Au) {
             mapped = (uint8_t)(ch - 0x41u + (uint8_t)'a');
@@ -248,7 +258,6 @@ static const c64_printer_glyph *lookup_glyph(const c64_printer *p, uint8_t ch)
         if (ch >= 0xC1u && ch <= 0xDAu) {
             mapped = (uint8_t)(ch - 0xC1u + (uint8_t)'A');
         }
-        /* Common PETSCII graphics used in tests / listings. */
         if (ch == 0xA0u) {
             return &k_glyph_block_full;
         }
@@ -272,7 +281,6 @@ static void plot_bim_column(c64_printer *p, uint8_t data)
     int row;
 
     if (p->cursor_x_dots >= C64_PRINTER_WIDTH_DOTS) {
-        p->cursor_x_dots = C64_PRINTER_WIDTH_DOTS - 1;
         return;
     }
     x = p->cursor_x_dots;
@@ -281,9 +289,7 @@ static void plot_bim_column(c64_printer *p, uint8_t data)
             set_pixel(p, x, p->cursor_y_dots + row);
         }
     }
-    if (p->cursor_x_dots < C64_PRINTER_WIDTH_DOTS - 1) {
-        p->cursor_x_dots += 1;
-    }
+    p->cursor_x_dots += 1;
 }
 
 static void print_char(c64_printer *p, uint8_t ch)
@@ -367,9 +373,10 @@ static void handle_control(c64_printer *p, uint8_t ch)
         p->reverse = false;
         break;
     case 12: /* FF — emulator convenience */
-        (void)flush_page(p, true);
-        p->cursor_x_dots = 0;
-        p->cursor_y_dots = 0;
+        if (flush_page(p)) {
+            p->cursor_x_dots = 0;
+            p->cursor_y_dots = 0;
+        }
         break;
     case 13: /* CR: print line, leave BIM */
         advance_line(p);
@@ -459,6 +466,7 @@ void c64_printer_reset(c64_printer *p)
     }
     clear_page(p);
     reset_modes(p);
+    p->flush_hold = false;
     p->sa = 0;
     p->graphic_charset = true;
     /* Keep enabled, output_dir, pages_flushed / page_cap_hit across soft reset. */
@@ -493,6 +501,7 @@ void c64_printer_set_enabled(c64_printer *p, bool on)
     p->enabled = true;
     p->pages_flushed = 0;
     p->page_cap_hit = false;
+    p->flush_hold = false;
     clear_page(p);
     reset_modes(p);
     p->sa = 0;
@@ -541,7 +550,7 @@ void c64_printer_putc(c64_printer *p, uint8_t ch)
     unsigned n;
     unsigned i;
 
-    if (p == NULL || !p->enabled) {
+    if (p == NULL || !p->enabled || p->flush_hold) {
         return;
     }
 
@@ -606,7 +615,7 @@ void c64_printer_force_flush(c64_printer *p)
     if (p == NULL || !p->enabled) {
         return;
     }
-    (void)flush_page(p, true);
+    (void)flush_page(p);
 }
 
 uint32_t c64_printer_pages_flushed(const c64_printer *p)
