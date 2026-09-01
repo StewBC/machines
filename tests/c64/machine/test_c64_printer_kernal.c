@@ -203,7 +203,7 @@ static void setup_chkout_call(c64_t *machine, uint8_t la)
 {
     machine->cpu.cpu.pc = 0xffc9;
     push_return(machine);
-    machine->cpu.cpu.A = la;
+    machine->cpu.cpu.X = la;
     machine->cpu.cpu.flags |= 0x01;
 }
 

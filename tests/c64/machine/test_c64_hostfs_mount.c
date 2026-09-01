@@ -807,7 +807,8 @@ static void setup_chkout_call(c64_t *machine, uint8_t la)
     machine->cpu.cpu.sp = 0x01fd;
     machine->bus.ram[0x01fe] = (uint8_t)(TEST_RETURN_ADDRESS & 0xff);
     machine->bus.ram[0x01ff] = (uint8_t)(TEST_RETURN_ADDRESS >> 8);
-    machine->cpu.cpu.A = la;
+    /* KERNAL CHKOUT: logical file number is in X. */
+    machine->cpu.cpu.X = la;
     machine->cpu.cpu.flags |= 0x01;
 }
 

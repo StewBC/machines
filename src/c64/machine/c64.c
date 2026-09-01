@@ -946,7 +946,8 @@ static bool c64_try_hostfs_chkout_trap(c64_t *machine)
         return false;
     }
 
-    la = machine->cpu.cpu.A;
+    /* KERNAL CHKOUT: logical file number is in X (same as CHKIN). */
+    la = machine->cpu.cpu.X;
     idx = c64_kernal_file_table_find(machine, la);
     if (idx < 0) {
         return false;
@@ -1252,7 +1253,8 @@ static bool c64_try_printer_chkout_trap(c64_t *machine)
         return false;
     }
 
-    la = machine->cpu.cpu.A;
+    /* KERNAL CHKOUT: logical file number is in X (same as CHKIN). */
+    la = machine->cpu.cpu.X;
     idx = c64_kernal_file_table_find(machine, la);
     if (idx < 0) {
         return false;
