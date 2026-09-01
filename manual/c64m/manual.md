@@ -146,7 +146,7 @@ while a cartridge is running only becomes reachable after such a reset.
 c64m can soft-attach a SwiftLink/Turbo232 cartridge (6551 ACIA at `$DE00` or `$DF00`,
 plus Turbo232 enhanced baud at base+`$07`) with an embedded Hayes modem that opens
 **outbound TCP** connections. Guest software speaks AT commands over the ACIA byte
-stream (TeensyROM-style), not a raw null-modem tunnel and not VICE+tcpser.
+stream, not a raw null-modem tunnel and not VICE+tcpser.
 
 Enable with `--swiftlink`, INI `[swiftlink] enabled=true`, or
 **Misc -> Machine -> Configure -> Emulator** (section under the CRT controls). Base
@@ -162,8 +162,9 @@ SwiftLink. A Normal cart (no IO1 latch) can coexist at `$DE00`.
 Supported Hayes subset includes `AT`, `ATDT host[:port]` (default port 23), `ATE`/`ATV`
 (with or without `=`), `ATH`/`ATH0` and `ATZ` in command/dialing, and online `+++`
 hangup. Status-register write is a silent chip reset hangup (used by RetroMate).
-`ATH` hangs up in command/dialing (intentional divergence from TeensyROM's dummy ATH).
-There is no inbound answer (`ATA`), no PETSCII translation in the modem, and no IRQ/NMI.
+`ATH` hangs up in command/dialing (Hayes-classic; some hardware firmwares treat ATH as a
+no-op and expect `+++` instead). There is no inbound answer (`ATA`), no PETSCII translation
+in the modem, and no IRQ/NMI.
 
 Snapshots store chip/Hayes flags only (`SLNK`); they do not restore an open TCP session.
 Load-state and Inspector land hang up the bridge. Soft reset keeps host enable/base.
@@ -1673,7 +1674,7 @@ other Machine settings apply immediately when you press **[OK]** or **[Save INI 
 | CRT Smoothing     | Filter the picture instead of showing hard pixel edges; forced on by CRT Scanlines and CRT Curvature |
 | CRT Scanlines     | Simulate the dark gap between raster lines; the slider sets strength from 1-100% |
 | CRT Curvature     | Bend the picture toward a curved CRT surface; the slider sets amount from 1-100% |
-| Enable SwiftLink (Hayes / TeensyROM) | Soft-attach a SwiftLink/Turbo232 ACIA with an embedded Hayes modem that opens outbound TCP |
+| Enable SwiftLink (Hayes modem) | Soft-attach a SwiftLink/Turbo232 ACIA with an embedded Hayes modem that opens outbound TCP |
 | Base address      | `$DE00` (default) or `$DF00` |
 | Interrupt         | `None` (v1 is polled only) |
 

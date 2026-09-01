@@ -2315,7 +2315,7 @@ static void frontend_draw_config_emulator_tab(frontend *ui, frontend_config_dial
         nk_layout_row_dynamic(ctx, 22.0f, 1);
         frontend_checkbox_bool(
             ctx,
-            "Enable SwiftLink (Hayes / TeensyROM)",
+            "Enable SwiftLink (Hayes modem)",
             &dialog->edited.swiftlink_enabled);
 
         if (dialog->edited.swiftlink_base == NULL) {

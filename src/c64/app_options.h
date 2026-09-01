@@ -120,7 +120,7 @@ typedef struct app_options {
        it drives (0 = disabled, 1 or 2 = active). */
     char *keyboard_joystick_layout;
     int keyboard_joystick_port;
-    /* SwiftLink / Turbo232 soft-attach (TeensyROM-style Hayes modem). Default off. */
+    /* SwiftLink / Turbo232 soft-attach (Hayes modem over outbound TCP). Default off. */
     bool swiftlink_enabled;
     char *swiftlink_base; /* "de00" or "df00" */
     char *swiftlink_irq;  /* "none" in v1; reserved nmi|irq */

@@ -122,7 +122,7 @@ static void test_tdre_holding_and_ignore(void) {
 
     /* Command mode ASAP: write is absorbed into the Hayes line on the data
        write itself, so a following status poll already shows TDRE again
-       (TeensyROM-style; not "TDRE stuck until a later batch service"). */
+       (ASAP holding; not "TDRE stuck until a later batch service"). */
     expect_true("TDRE ready", (status(&sl) & C64_SWIFTLINK_STATUS_TDRE) != 0);
     c64_swiftlink_write(&sl, 0xDE00, 0x41);
     expect_true("TDRE after ASAP absorb", (status(&sl) & C64_SWIFTLINK_STATUS_TDRE) != 0);

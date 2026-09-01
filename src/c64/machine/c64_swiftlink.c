@@ -269,7 +269,7 @@ static bool parse_atdt(const char *arg, char *host_out, size_t host_cap, uint16_
     if (arg == NULL || arg[0] == '\0' || host_cap == 0) {
         return false;
     }
-    /* No embedded spaces (TeensyROM style). */
+    /* No embedded spaces in host/port. */
     if (strchr(arg, ' ') != NULL || strchr(arg, '\t') != NULL) {
         return false;
     }
@@ -570,10 +570,10 @@ uint8_t c64_swiftlink_read(c64_swiftlink *sl, uint16_t addr) {
     assert(sl);
 
     offset = (uint8_t)(addr & 0xFFu);
-    /* TeensyROM-style ASAP: drain TX holding / refill RX holding on every
-       guest poll of data/status. Without this, service only runs at runtime
-       batch boundaries (~1 byte per 1024 Phi2) and feels far slower than
-       real hardware. Command/control/turbo reads do not need it. */
+    /* ASAP holding: drain TX holding / refill RX holding on every guest poll
+       of data/status. Without this, service only runs at runtime batch
+       boundaries (~1 byte per 1024 Phi2) and feels far slower than real
+       hardware. Command/control/turbo reads do not need it. */
     if (offset == 0x00u || offset == 0x01u) {
         c64_swiftlink_service(sl);
     }
@@ -608,7 +608,7 @@ void c64_swiftlink_write(c64_swiftlink *sl, uint16_t addr, uint8_t val) {
 
     offset = (uint8_t)(addr & 0xFFu);
     /* Drain any prior TX byte before accepting a new data write, so TDRE
-       observed by a tight poll/write loop matches TeensyROM ASAP delivery. */
+       observed by a tight poll/write loop matches ASAP holding delivery. */
     if (offset == 0x00u) {
         c64_swiftlink_service(sl);
     }
