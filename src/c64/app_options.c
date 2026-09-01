@@ -1800,6 +1800,9 @@ static bool parse_command_line_overrides(app_options *options, int argc, char **
     int video_ntsc = 0;
     int kbdjoy_port = -1;
     const char *kbdjoy_layout = NULL;
+    int mouse_flag = 0;
+    int mouse_cli = -1;
+    int mouse_port = -1;
     float audio_record_start = 0.0f;
     float audio_record_duration = 0.0f;
     const char *basic_path = NULL;
@@ -1897,6 +1900,11 @@ static bool parse_command_line_overrides(app_options *options, int argc, char **
                     "keyboard joystick on C64 port: 0 off, 1 or 2", NULL, 0, 0),
         OPT_STRING('\0', "kbdjoy-layout", &kbdjoy_layout,
                    "keyboard joystick layout: numpad or wasd", NULL, 0, 0),
+        OPT_BOOLEAN('\0', "mouse", &mouse_flag,
+                    "enable CBM 1351 mouse capture (default off; --no-mouse)",
+                    NULL, 0, 0),
+        OPT_INTEGER('\0', "mouse-port", &mouse_port,
+                    "CBM 1351 control port: 1 or 2 (default 1)", NULL, 0, 0),
 
         OPT_STRING('t', "turbo", &turbo,
                    "turbo modes CSV: 1=normal, 2|max (e.g. 1,max)", NULL, 0, 0),
@@ -1940,6 +1948,10 @@ static bool parse_command_line_overrides(app_options *options, int argc, char **
             swiftlink_pace_baud_cli = 1;
         } else if (strcmp(argv[i], "--no-swiftlink-pace-baud") == 0) {
             swiftlink_pace_baud_cli = 0;
+        } else if (strcmp(argv[i], "--mouse") == 0) {
+            mouse_cli = 1;
+        } else if (strcmp(argv[i], "--no-mouse") == 0) {
+            mouse_cli = 0;
         }
     }
 
@@ -1956,6 +1968,7 @@ static bool parse_command_line_overrides(app_options *options, int argc, char **
     (void)inspector_off_on_max_flag;
     (void)swiftlink;
     (void)swiftlink_pace_baud;
+    (void)mouse_flag;
     (void)disk; /* help placeholder; mounts come from apply_disk_args */
 
     if (show_version) {
@@ -2016,6 +2029,16 @@ static bool parse_command_line_overrides(app_options *options, int argc, char **
             return false;
         }
         replace_string(&options->keyboard_joystick_layout, kbdjoy_layout);
+    }
+    if (mouse_cli >= 0) {
+        options->mouse_enabled = mouse_cli != 0;
+    }
+    if (mouse_port >= 0) {
+        if (mouse_port < 1 || mouse_port > 2) {
+            fprintf(stderr, "--mouse-port expects 1 or 2\n");
+            return false;
+        }
+        options->mouse_port = mouse_port;
     }
     if (log_level_s != NULL) {
         host_log_level parsed_log = HOST_LOG_LEVEL_WARN;
@@ -2201,6 +2224,8 @@ void app_options_init(app_options *options)
     replace_string(&options->keyboard_joystick_layout,
                    C64M_DEFAULT_KEYBOARD_JOYSTICK_LAYOUT);
     options->keyboard_joystick_port = 0;
+    options->mouse_enabled = false;
+    options->mouse_port = 1;
     options->window_width = 0;
     options->window_height = 0;
     options->layout_split_display_right = C64M_DEFAULT_LAYOUT_SPLIT_DISPLAY_RIGHT;
@@ -2320,6 +2345,8 @@ bool app_options_copy(app_options *dest, const app_options *src)
     dest->headless = src->headless;
     dest->show_version = src->show_version;
     dest->keyboard_joystick_port = src->keyboard_joystick_port;
+    dest->mouse_enabled = src->mouse_enabled;
+    dest->mouse_port = src->mouse_port;
     dest->history_memory_mb = src->history_memory_mb;
     dest->frame_ring_memory_mb = src->frame_ring_memory_mb;
     dest->vic_ring_memory_mb = src->vic_ring_memory_mb;

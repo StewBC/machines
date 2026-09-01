@@ -27,6 +27,8 @@ add_library(${frontend} STATIC
     frontend_input.h
     frontend_joystick_input.c
     frontend_joystick_input.h
+    frontend_mouse_input.c
+    frontend_mouse_input.h
     ${MACHINES_ROOT}/src/shell/frontend/help_view.c
     window_title.c
     window_title.h

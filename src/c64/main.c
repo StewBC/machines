@@ -7,6 +7,7 @@
 #include "frontend.h"
 #include "frontend_input.h"
 #include "frontend_joystick_input.h"
+#include "frontend_mouse_input.h"
 #include "paste_parser.h"
 #include "platform.h"
 #include "platform_audio.h"
@@ -106,6 +107,8 @@ typedef struct sdl_c64_controller_state {
     /* Optional host-keyboard joystick source, OR'd into its assigned C64 port
        when the port states are published. NULL when not wired. */
     const frontend_joystick_input *kbd_joystick;
+    /* Optional 1351 mouse; while enabled+captured owns that port's digital. */
+    const frontend_mouse_input *mouse;
 } sdl_c64_controller_state;
 
 /* deferred_control_response / table: control_deferred.h */
@@ -4201,8 +4204,83 @@ static void sdl_c64_controller_send_ports(
         ports[state->kbd_joystick->port] |= state->kbd_joystick->inputs;
     }
 
-    runtime_client_set_joystick(client, 1u, ports[1]);
-    runtime_client_set_joystick(client, 2u, ports[2]);
+    {
+        unsigned mouse_port = 0u;
+        if (state->mouse != NULL && state->mouse->enabled &&
+            state->mouse->captured &&
+            (state->mouse->port == 1u || state->mouse->port == 2u)) {
+            mouse_port = state->mouse->port;
+        }
+        if (mouse_port == 0u) {
+            runtime_client_set_joystick(client, 1u, ports[1]);
+            runtime_client_set_joystick(client, 2u, ports[2]);
+        } else {
+            unsigned other = mouse_port == 1u ? 2u : 1u;
+            runtime_client_set_joystick(client, other, ports[other]);
+            /* mouse port digital comes only from runtime_client_set_mouse */
+        }
+    }
+}
+
+static void mouse_publish_set(runtime_client *client, const frontend_mouse_input *mouse) {
+    if (client == NULL || mouse == NULL || !mouse->enabled || !mouse->captured) {
+        return;
+    }
+    (void)runtime_client_set_mouse(
+        client,
+        mouse->port,
+        frontend_mouse_potx(mouse),
+        frontend_mouse_poty(mouse),
+        mouse->buttons);
+}
+
+static void mouse_apply_action(
+    frontend_mouse_input *mouse,
+    sdl_c64_controller_state *controller_state,
+    runtime_client *client,
+    frontend_mouse_action action) {
+    if (mouse == NULL || client == NULL) {
+        return;
+    }
+    switch (action) {
+    case FRONTEND_MOUSE_ACTION_ENTER:
+        (void)SDL_SetRelativeMouseMode(SDL_TRUE);
+        mouse_publish_set(client, mouse);
+        break;
+    case FRONTEND_MOUSE_ACTION_LEAVE:
+        (void)SDL_SetRelativeMouseMode(SDL_FALSE);
+        (void)runtime_client_clear_mouse(client);
+        sdl_c64_controller_send_ports(controller_state, client);
+        break;
+    case FRONTEND_MOUSE_ACTION_PUBLISH:
+        mouse_publish_set(client, mouse);
+        break;
+    case FRONTEND_MOUSE_ACTION_CONSUME:
+    case FRONTEND_MOUSE_ACTION_NONE:
+    default:
+        break;
+    }
+}
+
+static frontend_mouse_rect mouse_crt_rect(const frontend *ui) {
+    frontend_mouse_rect rect = {0.0f, 0.0f, 0.0f, 0.0f};
+    frontend_display_rect(ui, &rect.x, &rect.y, &rect.w, &rect.h);
+    return rect;
+}
+
+static void mouse_fill_ui_flags(
+    frontend_mouse_ui_flags *flags,
+    const frontend *ui,
+    bool inspecting,
+    bool focus_lost) {
+    if (flags == NULL) {
+        return;
+    }
+    flags->help_open = frontend_help_is_open(ui);
+    flags->forensics_open = frontend_forensics_is_open(ui);
+    flags->any_dialog_open = frontend_any_dialog_open(ui);
+    flags->inspecting = inspecting;
+    flags->focus_lost = focus_lost;
 }
 
 static uint8_t sdl_c64_controller_read_inputs(SDL_GameController *controller) {
@@ -6953,6 +7031,8 @@ static bool run_main_loop(
     frontend_input_mapper input_mapper;
     sdl_c64_controller_state controller_state;
     frontend_joystick_input kbd_joystick;
+    frontend_mouse_input mouse_input;
+    bool mouse_focus_lost = false;
     deferred_control_table deferred_control = {0};
     control_cached_state control_cache = {0};
     control_event_latch event_latch = {0};
@@ -6968,7 +7048,11 @@ static bool run_main_loop(
         &kbd_joystick,
         frontend_joystick_layout_from_string(options->keyboard_joystick_layout));
     frontend_joystick_set_port(&kbd_joystick, (unsigned)options->keyboard_joystick_port);
+    frontend_mouse_reset(&mouse_input);
+    frontend_mouse_set_port(&mouse_input, (unsigned)options->mouse_port);
+    frontend_mouse_set_enabled(&mouse_input, options->mouse_enabled);
     controller_state.kbd_joystick = &kbd_joystick;
+    controller_state.mouse = &mouse_input;
     sdl_c64_controllers_open_existing(&controller_state, client);
     sdl_c64_controller_send_ports(&controller_state, client);
     request_debug_state(client);
@@ -6982,6 +7066,28 @@ static bool run_main_loop(
             bool send_event_to_frontend =
                 ui_visible || frontend_help_is_open(ui) ||
                 frontend_forensics_is_open(ui);
+            frontend_mouse_action mouse_action = FRONTEND_MOUSE_ACTION_NONE;
+            frontend_mouse_ui_flags mouse_ui;
+            bool mouse_consumed = false;
+
+            if (event.type == SDL_WINDOWEVENT &&
+                event.window.event == SDL_WINDOWEVENT_FOCUS_LOST) {
+                mouse_focus_lost = true;
+            }
+
+            mouse_fill_ui_flags(
+                &mouse_ui, ui, debug_state.inspecting, mouse_focus_lost);
+            mouse_consumed = frontend_mouse_handle_event(
+                &mouse_input,
+                &event,
+                mouse_crt_rect(ui),
+                &mouse_ui,
+                &mouse_action);
+            if (mouse_consumed) {
+                mouse_apply_action(
+                    &mouse_input, &controller_state, client, mouse_action);
+                send_event_to_frontend = false;
+            }
 
             if (event.type == SDL_TEXTINPUT && suppress_text_after_option_chord) {
                 send_event_to_frontend = false;
@@ -6990,12 +7096,15 @@ static bool run_main_loop(
                 suppress_text_after_option_chord = false;
             }
 
-            if (!debug_state.inspecting && !frontend_help_is_open(ui)) {
+            if (!mouse_consumed && !debug_state.inspecting &&
+                !frontend_help_is_open(ui)) {
                 sdl_c64_controller_handle_event(&controller_state, client, &event);
             }
 
             if (event.type == SDL_QUIT) {
                 running = false;
+            } else if (mouse_consumed) {
+                /* Opt+Click / captured motion already handled above. */
             } else if (event.type == SDL_KEYDOWN && event.key.repeat != 0 &&
                        frontend_handle_help_key(ui, &event.key, options->scroll_wheel_lines)) {
                 send_event_to_frontend = false;
@@ -7231,6 +7340,20 @@ static bool run_main_loop(
             }
         }
         frontend_end_input(ui);
+
+        {
+            frontend_mouse_ui_flags mouse_ui;
+            mouse_fill_ui_flags(
+                &mouse_ui, ui, debug_state.inspecting, mouse_focus_lost);
+            if (frontend_mouse_poll_autorelease(&mouse_input, &mouse_ui)) {
+                mouse_apply_action(
+                    &mouse_input,
+                    &controller_state,
+                    client,
+                    FRONTEND_MOUSE_ACTION_LEAVE);
+            }
+            mouse_focus_lost = false;
+        }
 
         poll_runtime_events(
             client,

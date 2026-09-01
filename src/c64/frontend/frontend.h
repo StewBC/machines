@@ -318,6 +318,11 @@ void frontend_open_help(frontend *ui, bool from_debugger, bool paused_by_help);
 bool frontend_close_help(frontend *ui);
 bool frontend_help_is_open(const frontend *ui);
 bool frontend_help_paused_by_help(const frontend *ui);
+/* CRT hit-test helpers for 1351 capture (layout.display, stamped each render). */
+bool frontend_display_contains(const frontend *ui, float x, float y);
+void frontend_display_rect(
+    const frontend *ui, float *out_x, float *out_y, float *out_w, float *out_h);
+bool frontend_any_dialog_open(const frontend *ui);
 bool frontend_handle_help_key(frontend *ui, const SDL_KeyboardEvent *key, int scroll_wheel_lines);
 /* Forensics full-window mode. Help may open over it (modal); opening Forensics
    while Help is up closes Help.

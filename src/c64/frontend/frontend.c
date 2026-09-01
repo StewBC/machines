@@ -700,8 +700,11 @@ static void frontend_draw_disk_activity_leds(
     }
 }
 
-static bool frontend_any_dialog_open(const frontend *ui)
+bool frontend_any_dialog_open(const frontend *ui)
 {
+    if (ui == NULL) {
+        return false;
+    }
     return ui->config_dialog.open
         || ui->breakpoint_dialog.open
         || ui->load_bin_dialog.open
@@ -1088,6 +1091,36 @@ static bool frontend_point_in_rect(float x, float y, struct nk_rect rect)
 {
     return x >= rect.x && x < rect.x + rect.w &&
         y >= rect.y && y < rect.y + rect.h;
+}
+
+bool frontend_display_contains(const frontend *ui, float x, float y)
+{
+    if (ui == NULL) {
+        return false;
+    }
+    return frontend_point_in_rect(x, y, ui->layout.display);
+}
+
+void frontend_display_rect(
+    const frontend *ui, float *out_x, float *out_y, float *out_w, float *out_h)
+{
+    struct nk_rect r = nk_rect(0.0f, 0.0f, 0.0f, 0.0f);
+
+    if (ui != NULL) {
+        r = ui->layout.display;
+    }
+    if (out_x != NULL) {
+        *out_x = r.x;
+    }
+    if (out_y != NULL) {
+        *out_y = r.y;
+    }
+    if (out_w != NULL) {
+        *out_w = r.w;
+    }
+    if (out_h != NULL) {
+        *out_h = r.h;
+    }
 }
 
 static bool frontend_click_in_any_dialog(const frontend *ui, float x, float y)
@@ -9837,6 +9870,10 @@ static void frontend_render_display_only(frontend *ui)
         return;
     }
 
+    /* Keep CRT hit-test in sync for 1351 Opt+Click when debugger UI is hidden. */
+    ui->layout.display = nk_rect(
+        (float)dest.x, (float)dest.y, (float)dest.w, (float)dest.h);
+
     render_texture = frontend_display_texture_for_render(ui);
     texture_scale = render_texture == ui->crt_texture ? FRONTEND_CRT_RENDER_SCALE : 1;
     src.x = frontend_display_crop_x_for_frame(&ui->current_frame) * texture_scale;
@@ -9887,6 +9924,8 @@ void frontend_render(frontend *ui, bool ui_visible, const frontend_debug_state *
                 frontend_display_fit_source(ui, &fit_w, &fit_h);
                 dest = frontend_fit_rect(0, 0, width, height, fit_w, fit_h);
             }
+            ui->layout.display = nk_rect(
+                (float)dest.x, (float)dest.y, (float)dest.w, (float)dest.h);
             SDL_SetRenderDrawColor(ui->renderer, 255, 0, 255, 255);
             SDL_RenderFillRect(ui->renderer, &dest);
         } else {

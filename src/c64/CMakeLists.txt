@@ -472,6 +472,19 @@ target_link_libraries(${test_frontend_joystick} PRIVATE
 
 leftover_add_test(NAME frontend_joystick COMMAND ${test_frontend_joystick})
 
+leftover_exe(test_frontend_mouse
+    ${MACHINES_ROOT}/tests/c64/frontend/test_frontend_mouse.c
+)
+target_compile_features(${test_frontend_mouse} PRIVATE c_std_99)
+target_compile_definitions(${test_frontend_mouse} PRIVATE SDL_MAIN_HANDLED)
+target_include_directories(${test_frontend_mouse} PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/frontend
+)
+target_link_libraries(${test_frontend_mouse} PRIVATE
+    ${frontend}
+)
+leftover_add_test(NAME frontend_mouse COMMAND ${test_frontend_mouse})
+
 leftover_exe(test_window_title
     frontend/window_title.c
     ${MACHINES_ROOT}/src/shell/frontend/window_title.c
@@ -627,6 +640,7 @@ target_compile_features(${test_app_options} PRIVATE c_std_99)
 
 target_include_directories(${test_app_options} PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/machine
 )
 
 target_link_libraries(${test_app_options} PRIVATE

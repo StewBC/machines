@@ -121,6 +121,9 @@ typedef struct app_options {
        it drives (0 = disabled, 1 or 2 = active). */
     char *keyboard_joystick_layout;
     int keyboard_joystick_port;
+    /* CBM 1351 proportional mouse (default off). Port 1 or 2. Phase 3: CLI only. */
+    bool mouse_enabled;
+    int mouse_port;
     /* SwiftLink / Turbo232 soft-attach (Hayes modem over outbound TCP). Default off. */
     bool swiftlink_enabled;
     char *swiftlink_base; /* "de00" or "df00" */
