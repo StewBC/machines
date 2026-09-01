@@ -2341,11 +2341,6 @@ static void frontend_draw_config_emulator_tab(frontend *ui, frontend_config_dial
         (void)nk_combo(ctx, irq_items, 1, 0, 18, nk_vec2(120.0f, 80.0f));
         nk_widget_disable_end(ctx);
         nk_layout_row_end(ctx);
-
-        nk_layout_row_dynamic(ctx, 36.0f, 1);
-        nk_label_wrap(
-            ctx,
-            "Conflicts with IO1 CRT mappers at $DE00; Super Games at $DF00.");
     }
 }
 
