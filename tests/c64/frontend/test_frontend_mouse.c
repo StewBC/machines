@@ -95,6 +95,16 @@ static void test_pot_encode_and_wrap(void) {
     ev = motion(2, 0);
     (void)frontend_mouse_handle_event(&mouse, &ev, crt_rect(), &ui, &action);
     expect_u8("counter_x wrap", 1, mouse.counter_x);
+
+    /* Large host spikes clamp to ±CBM1351_MAX_DELTA. */
+    mouse.counter_x = 10;
+    ev = motion(100, 0);
+    (void)frontend_mouse_handle_event(&mouse, &ev, crt_rect(), &ui, &action);
+    expect_u8("clamp +max", (uint8_t)(10 + CBM1351_MAX_DELTA), mouse.counter_x);
+    mouse.counter_x = 10;
+    ev = motion(-100, 0);
+    (void)frontend_mouse_handle_event(&mouse, &ev, crt_rect(), &ui, &action);
+    expect_u8("clamp -max", (uint8_t)(10 - CBM1351_MAX_DELTA), mouse.counter_x);
 }
 
 static void test_enter_leave_edges(void) {

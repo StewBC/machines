@@ -7,7 +7,10 @@
 #include "frontend_joystick_input.h"
 
 enum {
-    CBM1351_SENS = 1
+    CBM1351_SENS = 1,
+    /* Cap host xrel/yrel per SDL event before 6-bit wrap. Unclamped macOS
+       spikes were saturating ±32 between IRQ polls (pointer teleports). */
+    CBM1351_MAX_DELTA = 8
 };
 
 /* Axis-aligned CRT hit rect (same layout as nk_rect; no nuklear dependency). */

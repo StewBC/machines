@@ -18,6 +18,16 @@ static uint8_t pot_from_counter(uint8_t counter6) {
     return (uint8_t)((counter6 & 0x3fu) << 1);
 }
 
+static int clamp_delta(int value) {
+    if (value > CBM1351_MAX_DELTA) {
+        return CBM1351_MAX_DELTA;
+    }
+    if (value < -CBM1351_MAX_DELTA) {
+        return -CBM1351_MAX_DELTA;
+    }
+    return value;
+}
+
 static void release_capture(frontend_mouse_input *mouse) {
     mouse->captured = false;
     mouse->opt_click_armed = false;
@@ -185,8 +195,8 @@ bool frontend_mouse_handle_event(
         action = (mouse->buttons != prev) ?
             FRONTEND_MOUSE_ACTION_PUBLISH : FRONTEND_MOUSE_ACTION_CONSUME;
     } else if (event->type == SDL_MOUSEMOTION && mouse->captured) {
-        int dx = event->motion.xrel * CBM1351_SENS;
-        int dy = event->motion.yrel * CBM1351_SENS;
+        int dx = clamp_delta(event->motion.xrel * CBM1351_SENS);
+        int dy = clamp_delta(event->motion.yrel * CBM1351_SENS);
         if (dx != 0 || dy != 0) {
             mouse->counter_x =
                 (uint8_t)(((int)mouse->counter_x + dx) & 63);
