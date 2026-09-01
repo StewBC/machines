@@ -36,14 +36,18 @@ dispatch live in `src/main.c`. There is no `control_dispatch.c`.
 
 ## Thread and state ownership
 
-Four threads; one live `c64_t`.
+Four threads always; a fifth when SwiftLink is enabled. One live `c64_t`.
 
 | Thread | Owns | Must not |
 |--------|------|----------|
 | SDL / main | Window, Nuklear, frontend, `runtime_client` dispatch, control request drain, deferred table | Touch `c64_t` |
-| Runtime worker `"c64m-runtime"` | Live `c64_t`, HST1, Inspector, breakpoints, assembler, save/load, SID into the audio buffer, frame/VIC rings | Be polled from the socket thread |
+| Runtime worker `"c64m-runtime"` | Live `c64_t`, HST1, Inspector, breakpoints, assembler, save/load, SID into the audio buffer, frame/VIC rings, SwiftLink `service` / host pump | Be polled from the socket thread; call `platform_socket_*` for SwiftLink |
 | SDL audio callback | Read the shared audio buffer | Call runtime or machine |
 | Control socket | TCP I/O, request/response queues | `runtime_client` single-consumer surfaces or the machine |
+| SwiftLink bridge `"c64m-swiftlink"` (lazy) | Outbound TCP connect/read/partial write for the embedded Hayes modem | Touch `c64_t`; use `platform_socket_write_all` |
+
+The bridge is created on first successful SwiftLink enable and joined on disable
+or runtime destroy. It is absent when SwiftLink is off.
 
 Frontend and control consumers receive copied snapshots, frames, memory,
 symbols, and events. No live machine pointer crosses a thread boundary.

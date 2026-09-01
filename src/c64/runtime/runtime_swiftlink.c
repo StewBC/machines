@@ -515,3 +515,26 @@ void runtime_swiftlink_shutdown(runtime *rt)
     }
     runtime_swiftlink_set_enabled(rt, false, C64_SWIFTLINK_BASE_DE00);
 }
+
+void runtime_swiftlink_hangup(runtime *rt)
+{
+    runtime_swiftlink_bridge *b;
+
+    if (rt == NULL) {
+        return;
+    }
+
+    b = &rt->swiftlink;
+    if (b->mu != NULL) {
+        mutex_lock(b->mu);
+        if (b->thread_running) {
+            b->cmd = RUNTIME_SWIFTLINK_CMD_HANGUP;
+            b->result = RUNTIME_SWIFTLINK_RES_NONE;
+            b->peer_eof = false;
+            clear_rings_locked(b);
+        }
+        mutex_unlock(b->mu);
+    }
+
+    c64_swiftlink_drop_host_session(&rt->machine.swiftlink);
+}

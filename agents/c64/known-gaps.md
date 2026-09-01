@@ -16,7 +16,8 @@ the bottom.
 | Half-cycle / analog AEC, RDY, IEC, CIA serial | Cycle granularity. General last-byte-on-bus is not modeled; BA-lead VIC cbuf (`ram[PC] & 0x0f`) is. |
 | Unstable undocumented opcodes | XAA, AHX, SHX, SHY, TAS, LAS, LAX #imm, JAM use the compatibility executor. No Harte corpus in ctest. |
 | Datasette / TAP bitstream | T64 is host convenience: first loadable PRG extract. No mounted tape. |
-| CIA tape, RS-232, user port | FLAG/SP/PC exist on the chip; no peripherals. |
+| CIA tape, RS-232, user port | FLAG/SP/PC exist on the chip; no peripherals. Separate from SwiftLink (expansion-port ACIA). |
+| SwiftLink IRQ/NMI, baud pacing, Hayes 1s `+++` guard-time, inbound ATA | Soft-attach SwiftLink/Turbo232 (6551 + Hayes + outbound TCP, TeensyROM model) is shipped polled-only. Optional polish is PR7 in `design/c64/swiftlink-teensyrom.md`. |
 | 1541: devices 10+, 1571, cross-drive copy | Devices 8 and 9 only. |
 | G64 empty-track grow / format rebuild | Length-preserving in-place write-back only. |
 | Broad fast-loader matrix | Arkanoid V-MAX and Robocop G64 are validated; that is not commercial coverage. |

@@ -817,7 +817,13 @@ bool runtime_inspector_load_nearest_checkpoint(
         return false;
     }
     inspector_prep_dst(rt, dst);
-    return c64_snapshot_load(dst, cp->blob, cp->size);
+    if (!c64_snapshot_load(dst, cp->blob, cp->size)) {
+        return false;
+    }
+    if (dst == &rt->machine) {
+        runtime_swiftlink_hangup(rt);
+    }
+    return true;
 }
 
 bool runtime_inspector_materialize(runtime *rt, uint64_t cycle, c64_t *dst)
@@ -858,6 +864,9 @@ bool runtime_inspector_materialize(runtime *rt, uint64_t cycle, c64_t *dst)
     inspector_prep_dst(rt, dst);
     if (!c64_snapshot_load(dst, cp->blob, cp->size)) {
         return false;
+    }
+    if (dst == &rt->machine) {
+        runtime_swiftlink_hangup(rt);
     }
     inspector_enter_seal(dst);
     if (!inspector_replay_to(rec, dst, cp->cycle, cycle)) {
@@ -1125,7 +1134,11 @@ bool runtime_inspector_restore_blob(runtime *rt, const uint8_t *blob, size_t siz
     if (rt == NULL || blob == NULL || size == 0u) {
         return false;
     }
-    return c64_snapshot_load(&rt->machine, blob, size);
+    if (!c64_snapshot_load(&rt->machine, blob, size)) {
+        return false;
+    }
+    runtime_swiftlink_hangup(rt);
+    return true;
 }
 
 void runtime_inspector_destroy(runtime *rt)

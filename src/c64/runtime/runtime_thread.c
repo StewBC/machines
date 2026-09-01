@@ -5128,6 +5128,8 @@ static void runtime_clear_host_transients_after_state_load(runtime *rt) {
     }
     runtime_update_sid_sample_output(rt);
     runtime_update_video_output(rt);
+    /* Drop any open SwiftLink TCP session; host enable/base stay as-is. */
+    runtime_swiftlink_hangup(rt);
 }
 
 static bool runtime_finish_pending_state_snapshot_instruction(runtime *rt) {

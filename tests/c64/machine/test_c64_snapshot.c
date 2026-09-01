@@ -1296,6 +1296,136 @@ static void test_hostfs_path_cwd_round_trip(void) {
     printf("PASS: test_hostfs_path_cwd_round_trip\n");
 }
 
+static uint8_t *strip_chunk_by_tag(
+    const uint8_t *in, size_t in_len, uint32_t tag, size_t *out_len)
+{
+    size_t pos = 32; /* header */
+    uint8_t *out;
+    size_t out_pos = 0;
+
+    if (in_len < 32) {
+        fail("strip: short snapshot");
+    }
+    out = (uint8_t *)malloc(in_len);
+    if (out == NULL) {
+        fail("strip: alloc");
+    }
+    memcpy(out, in, 32);
+    out_pos = 32;
+    while (pos + 8 <= in_len) {
+        uint32_t t = read_le32(in + pos);
+        uint32_t len = read_le32(in + pos + 4);
+        size_t total;
+
+        if (len > in_len - (pos + 8)) {
+            fail("strip: bad chunk length");
+        }
+        total = 8u + (size_t)len;
+        if (t != tag) {
+            memcpy(out + out_pos, in + pos, total);
+            out_pos += total;
+        }
+        pos += total;
+    }
+    if (pos != in_len) {
+        fail("strip: trailing bytes");
+    }
+    *out_len = out_pos;
+    return out;
+}
+
+static void test_swiftlink_slnk_chunk(void) {
+    c64_t source;
+    c64_t target;
+    uint8_t *snapshot;
+    uint8_t *without_slnk;
+    size_t snapshot_size;
+    size_t stripped_size;
+    const uint32_t tag_slnk =
+        (uint32_t)'S' | ((uint32_t)'L' << 8) | ((uint32_t)'N' << 16) |
+        ((uint32_t)'K' << 24);
+
+    init_ready_machine(&source);
+    init_ready_machine(&target);
+
+    c64_swiftlink_set_enabled(&source.swiftlink, true);
+    c64_swiftlink_set_base(&source.swiftlink, C64_SWIFTLINK_BASE_DF00);
+    source.swiftlink.command = 0x0Bu;
+    source.swiftlink.control = 0x10u;
+    source.swiftlink.turbo232 = 0x02u;
+    source.swiftlink.mode = C64_SWIFTLINK_MODE_ONLINE;
+    source.swiftlink.echo = false;
+    source.swiftlink.verbose = false;
+    source.swiftlink.carrier_present = true;
+    source.swiftlink.rx_ring[0] = 0x41u;
+    source.swiftlink.rx_count = 1u;
+
+    /* Dirty destination chip state; host enable stays off / DE00. */
+    target.swiftlink.command = 0xFFu;
+    target.swiftlink.control = 0xFFu;
+    target.swiftlink.turbo232 = 0x03u;
+    target.swiftlink.mode = C64_SWIFTLINK_MODE_DIALING;
+    target.swiftlink.echo = true;
+    target.swiftlink.verbose = true;
+    target.swiftlink.carrier_present = true;
+    c64_swiftlink_set_enabled(&target.swiftlink, false);
+    c64_swiftlink_set_base(&target.swiftlink, C64_SWIFTLINK_BASE_DE00);
+
+    snapshot = save_snapshot(&source, &snapshot_size);
+    expect_true(
+        "load SLNK snapshot",
+        c64_snapshot_load(&target, snapshot, snapshot_size));
+
+    expect_false("host enable unchanged (off)", target.swiftlink.enabled);
+    expect_u16("host base unchanged (DE00)", C64_SWIFTLINK_BASE_DE00, target.swiftlink.base);
+    expect_u8("restored command", 0x0Bu, target.swiftlink.command);
+    expect_u8("restored control", 0x10u, target.swiftlink.control);
+    expect_u8("restored turbo", 0x02u, target.swiftlink.turbo232);
+    expect_true(
+        "restored mode online",
+        target.swiftlink.mode == C64_SWIFTLINK_MODE_ONLINE);
+    expect_false("restored echo off", target.swiftlink.echo);
+    expect_false("restored verbose off", target.swiftlink.verbose);
+    expect_false("FIFOs empty on load", target.swiftlink.rx_count != 0u);
+    expect_false("no phantom carrier from FIFO", target.swiftlink.carrier_present);
+
+    c64_swiftlink_drop_host_session(&target.swiftlink);
+    expect_true(
+        "hangup forces command",
+        target.swiftlink.mode == C64_SWIFTLINK_MODE_COMMAND);
+    expect_u8("hangup keeps command reg", 0x0Bu, target.swiftlink.command);
+    expect_false("hangup keeps echo", target.swiftlink.echo);
+    expect_false("hangup keeps host enable", target.swiftlink.enabled);
+
+    /* Missing SLNK -> cold ACIA; host enable/base unchanged. */
+    without_slnk =
+        strip_chunk_by_tag(snapshot, snapshot_size, tag_slnk, &stripped_size);
+    c64_swiftlink_set_enabled(&target.swiftlink, true);
+    c64_swiftlink_set_base(&target.swiftlink, C64_SWIFTLINK_BASE_DF00);
+    target.swiftlink.command = 0xAAu;
+    target.swiftlink.mode = C64_SWIFTLINK_MODE_ONLINE;
+    target.swiftlink.carrier_present = true;
+    expect_true(
+        "load without SLNK",
+        c64_snapshot_load(&target, without_slnk, stripped_size));
+    expect_true("host enable kept on", target.swiftlink.enabled);
+    expect_u16("host base kept DF00", C64_SWIFTLINK_BASE_DF00, target.swiftlink.base);
+    expect_u8("cold command", 0x00u, target.swiftlink.command);
+    expect_u8("cold control", 0x00u, target.swiftlink.control);
+    expect_true(
+        "cold command mode",
+        target.swiftlink.mode == C64_SWIFTLINK_MODE_COMMAND);
+    expect_false("cold no carrier", target.swiftlink.carrier_present);
+    expect_true("cold echo default", target.swiftlink.echo);
+    expect_true("cold verbose default", target.swiftlink.verbose);
+
+    free(snapshot);
+    free(without_slnk);
+    c64_unmount_all_drives(&source);
+    c64_unmount_all_drives(&target);
+    printf("PASS: test_swiftlink_slnk_chunk\n");
+}
+
 int main(void) {
     test_round_trip();
     test_ignores_unknown_chunk();
@@ -1310,5 +1440,6 @@ int main(void) {
     test_cia2_nmi_line_stable_across_load();
     test_load_clears_host_micro_state();
     test_hostfs_path_cwd_round_trip();
+    test_swiftlink_slnk_chunk();
     return 0;
 }

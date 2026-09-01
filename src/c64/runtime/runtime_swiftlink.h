@@ -76,6 +76,11 @@ bool runtime_swiftlink_set_enabled(struct runtime *rt, bool enabled, uint16_t ba
 void runtime_swiftlink_pump(struct runtime *rt);
 void runtime_swiftlink_shutdown(struct runtime *rt);
 
+/* Runtime-thread only: hang up TCP (if bridge live), clear bridge+machine
+   FIFOs/CD, force command mode. Does not change host enable/base. Used after
+   load-state and Inspector land/re-execute snapshot restores. */
+void runtime_swiftlink_hangup(struct runtime *rt);
+
 #ifdef __cplusplus
 }
 #endif

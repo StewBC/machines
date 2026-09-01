@@ -92,17 +92,38 @@ Loaders: `runtime_client_load_prg()` (PRG/T64), `runtime_client_load_crt()`,
 `runtime_client_load_bin()`, `runtime_client_load_state()`. CLI `--sna`
 wins over `--crt`/`--prg`/`--basic`.
 
+## SwiftLink / Turbo232
+
+Soft-attach special I/O (not a CRT file): 6551 ACIA at `$DE00` or `$DF00` plus
+Turbo232 `$xx07`, embedded Hayes subset, outbound TCP via the lazy
+`"c64m-swiftlink"` bridge. Host config owns enable+base (`app_options` / CLI /
+Configure Emulator tab). Decode claims the **selected** I/O page only.
+
+Conflict: refuse enable (runtime error event) when an IO1 mapper is mounted and
+base is `$DE00`, or Super Games and base is `$DF00`. Refuse CRT load that would
+conflict with enabled SwiftLink. Normal/no-cart coexistence is fine. Bus
+decode runs `c64_swiftlink_owns` before cart IO1/IO2 side-effects.
+
+v1 is polled only (no IRQ/NMI). Status bit 6 is SwiftLink-swapped CD with 6551
+active-low sense (0 = carrier). Hangup paths: status-register write (silent),
+`+++`, `ATH`/`ATZ` in command/dialing, peer close. Design:
+`design/c64/swiftlink-teensyrom.md`.
+
 ## Snapshots
 
-`c64_snapshot.{c,h}`: versioned, chunked, all-or-nothing. Format version 13;
-`VERSION_MIN` is 13. Older files are rejected and the machine is left
+`c64_snapshot.{c,h}`: versioned, chunked, all-or-nothing. Format version 14;
+`VERSION_MIN` is 13. Older files below MIN are rejected and the machine is left
 untouched.
 
 Includes CPU, RAM/color RAM, banking, VIC chip state (not paint buffers), CIA
-pin pipeline, SID, controls, cart, and **powered** 1541 cores (`DR8C`/`DR9C`:
-CPU micro, VIAs, RAM, media scalars, GCR tracks). Unpowered units are a
-`powered=false` stub. Unmounted carts are a one-byte `CART` stub. C64 ROMs
-are hashed/referenced, not embedded; 1541 ROM stays host-side.
+pin pipeline, SID, controls, cart, optional additive `SLNK` (SwiftLink chip
+regs + Hayes mode/echo/verbose only; no enable/base, no TCP/FIFOs), and
+**powered** 1541 cores (`DR8C`/`DR9C`: CPU micro, VIAs, RAM, media scalars, GCR
+tracks). Unpowered units are a `powered=false` stub. Unmounted carts are a
+one-byte `CART` stub. C64 ROMs are hashed/referenced, not embedded; 1541 ROM
+stays host-side. Missing `SLNK` yields a cold ACIA; host SwiftLink enable/base
+are unchanged. Runtime load-state and Inspector land/re-execute always hang up
+TCP via `runtime_swiftlink_hangup`.
 
 Save refuses if `micro_active` or a pending CPU trace is active. Load clears
 host 6510 micro/BA-defer fields. Paint buffers are zeroed; the first correct

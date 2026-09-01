@@ -109,6 +109,11 @@ struct c64_swiftlink {
 void c64_swiftlink_init(c64_swiftlink *sl);
 void c64_swiftlink_reset(c64_swiftlink *sl); /* status-write / cold ACIA semantics */
 
+/* Host load/land path: clear FIFOs/CD/escape, force command mode, clear pending
+   host_req. Keeps enabled/base and chip regs (command/control/turbo) plus
+   echo/verbose. No AT response bytes. */
+void c64_swiftlink_drop_host_session(c64_swiftlink *sl);
+
 void c64_swiftlink_set_enabled(c64_swiftlink *sl, bool on);
 void c64_swiftlink_set_base(c64_swiftlink *sl, uint16_t base); /* DE00 or DF00 */
 

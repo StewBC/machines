@@ -2,7 +2,7 @@
 
 | Field | Value |
 |-------|--------|
-| Status | **Accepted** |
+| Status | **Landed** |
 | Author | _(implementer)_ |
 | Date | 2026-08-31 |
 | Audience | c64m implementers |

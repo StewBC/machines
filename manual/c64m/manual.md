@@ -40,6 +40,8 @@ Useful flags:
 | `--prg <file>` / `-p`  | Load a file as PRG at startup                       |
 | `--basic <file>` / `-B`| Load a file as BASIC program at startup             |
 | `--crt <file>`         | Attach a CRT cartridge at startup (types 0, 5, 19)  |
+| `--swiftlink` / `--no-swiftlink` | Enable SwiftLink/Turbo232 Hayes modem (outbound TCP; default off) |
+| `--swiftlink-base de00|df00` | SwiftLink ACIA base page (default `de00`)      |
 | `--sna <file>`         | Load a machine snapshot (`.c64state`) at startup    |
 | `--autorun` / `-a`     | Run automatically after load (combine with `--prg`, `--basic`, or `--disk`) |
 | `--inspector` / `--no-inspector` | Enable Inspector recording (checkpoints; default off). `--inspector-memory=<MiB>` sets the budget (0 or 16..4096) |
@@ -138,6 +140,33 @@ from a running cartridge to BASIC without loading a program - for example to rea
 you have mounted - use **[Reset]** and leave **Unmount cartridge on reset** checked (see
 **Emulator Controls**). Because mounting a disk does not reset the machine, mounting a disk
 while a cartridge is running only becomes reachable after such a reset.
+
+### SwiftLink / Turbo232
+
+c64m can soft-attach a SwiftLink/Turbo232 cartridge (6551 ACIA at `$DE00` or `$DF00`,
+plus Turbo232 enhanced baud at base+`$07`) with an embedded Hayes modem that opens
+**outbound TCP** connections. Guest software speaks AT commands over the ACIA byte
+stream (TeensyROM-style), not a raw null-modem tunnel and not VICE+tcpser.
+
+Enable with `--swiftlink`, INI `[swiftlink] enabled=true`, or
+**Misc -> Machine -> Configure -> Emulator** (section under the CRT controls). Base
+defaults to `$DE00`; use `--swiftlink-base df00` or the Configure combo for `$DF00`.
+v1 is polled only (Interrupt stays `None`).
+
+SwiftLink claims the selected I/O page while enabled. It conflicts with IO1 CRT
+mappers (Ocean, Magic Desk, Fun Play, C64GS, Dinamic) at `$DE00`, and with Super Games
+at `$DF00`. Enable is refused with a runtime error if a conflicting cart is mounted;
+loading a conflicting CRT while SwiftLink is on fails rather than auto-disabling
+SwiftLink. A Normal cart (no IO1 latch) can coexist at `$DE00`.
+
+Supported Hayes subset includes `AT`, `ATDT host[:port]` (default port 23), `ATE`/`ATV`
+(with or without `=`), `ATH`/`ATH0` and `ATZ` in command/dialing, and online `+++`
+hangup. Status-register write is a silent chip reset hangup (used by RetroMate).
+`ATH` hangs up in command/dialing (intentional divergence from TeensyROM's dummy ATH).
+There is no inbound answer (`ATA`), no PETSCII translation in the modem, and no IRQ/NMI.
+
+Snapshots store chip/Hayes flags only (`SLNK`); they do not restore an open TCP session.
+Load-state and Inspector land hang up the bridge. Soft reset keeps host enable/base.
 
 ### Auto Run
 
@@ -894,6 +923,10 @@ literally, but their exact bytes are always preserved through the numeric escape
 State snapshots preserve the emulated machine state, RAM, color RAM, CPU, VIC-II, CIA,
 SID, attached cartridge (including Magic Desk multi-bank state), mounted D64/G64
 drive-slot data, and live 1541 drive-object state when real 1541 emulation is on.
+When SwiftLink is present, an optional `SLNK` chunk stores ACIA chip registers and Hayes
+mode flags only. Host SwiftLink enable/base come from Configure/INI/CLI, not from the
+snapshot. Load and Inspector land always hang up any open TCP session and clear modem
+FIFOs; a live BBS or FICS connection is never restored from a snapshot.
 Host-side extras stored with the snapshot include the keyboard joystick layout/port and
 the disk path queues for devices 8 and 9 (so a multi-disk CLI queue is restored for UI
 swap after load). C64 ROM bytes are referenced and hash-validated rather than fully
@@ -1640,11 +1673,20 @@ other Machine settings apply immediately when you press **[OK]** or **[Save INI 
 | CRT Smoothing     | Filter the picture instead of showing hard pixel edges; forced on by CRT Scanlines and CRT Curvature |
 | CRT Scanlines     | Simulate the dark gap between raster lines; the slider sets strength from 1-100% |
 | CRT Curvature     | Bend the picture toward a curved CRT surface; the slider sets amount from 1-100% |
+| Enable SwiftLink (Hayes / TeensyROM) | Soft-attach a SwiftLink/Turbo232 ACIA with an embedded Hayes modem that opens outbound TCP |
+| Base address      | `$DE00` (default) or `$DF00` |
+| Interrupt         | `None` (v1 is polled only) |
 
 The CRT controls are a live preview: checkboxes and sliders update the C64 display while
 Configure remains open. **[Cancel]** or the dialog close button restores the values that
 were active when Configure opened. **[OK]** accepts them. All three effects are optional
 and independent; with them disabled, c64m uses the original rectangular render path.
+
+SwiftLink settings sit under the CRT block in the same Emulator tab. They are not part of
+the CRT live preview; Cancel restores them with the other non-CRT options. Enable can be
+refused after Apply if a mounted cartridge already claims the same I/O page (IO1 mappers
+at `$DE00`, Super Games at `$DF00`); the runtime publishes an error event and leaves the
+cart as-is. See **SwiftLink / Turbo232**.
 
 ### Paths
 

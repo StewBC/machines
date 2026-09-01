@@ -30,7 +30,14 @@ enum {
     TAG_DRV8 = C64_SNAPSHOT_TAG('D', 'R', 'V', '8'),
     TAG_DRV9 = C64_SNAPSHOT_TAG('D', 'R', 'V', '9'),
     TAG_DR8C = C64_SNAPSHOT_TAG('D', 'R', '8', 'C'),
-    TAG_DR9C = C64_SNAPSHOT_TAG('D', 'R', '9', 'C')
+    TAG_DR9C = C64_SNAPSHOT_TAG('D', 'R', '9', 'C'),
+    /* Additive optional: SwiftLink chip + Hayes mode (no enable/base, no TCP). */
+    TAG_SLNK = C64_SNAPSHOT_TAG('S', 'L', 'N', 'K')
+};
+
+enum {
+    /* Layout byte inside SLNK; bump only if the SLNK payload shape changes. */
+    SLNK_LAYOUT_V1 = 1u
 };
 
 typedef struct snapshot_writer {
@@ -75,6 +82,7 @@ typedef struct parsed_chunks {
     bool drv9;
     bool drv8_core;
     bool drv9_core;
+    bool slnk; /* optional */
 } parsed_chunks;
 
 static uint64_t snapshot_hash64(const uint8_t *data, size_t size) {
@@ -535,6 +543,21 @@ static void write_mach(snapshot_writer *w, const c64_t *m) {
     end_chunk(w, chunk);
 }
 
+static void write_slnk(snapshot_writer *w, const c64_t *m) {
+    const c64_swiftlink *sl = &m->swiftlink;
+    size_t chunk;
+
+    begin_chunk(w, TAG_SLNK, &chunk);
+    w_u8(w, (uint8_t)SLNK_LAYOUT_V1);
+    w_u8(w, sl->command);
+    w_u8(w, sl->control);
+    w_u8(w, sl->turbo232);
+    w_u8(w, (uint8_t)sl->mode);
+    w_bool(w, sl->echo);
+    w_bool(w, sl->verbose);
+    end_chunk(w, chunk);
+}
+
 static void write_cart(snapshot_writer *w, const c64_t *m) {
     const c64_bus_t *bus = &m->bus;
     size_t chunk;
@@ -797,6 +820,7 @@ static bool write_snapshot(const c64_t *m, uint8_t *out, size_t out_cap, size_t 
     write_cia(&w, TAG_CIA2, &m->cia2);
     write_sid(&w, m);
     write_mach(&w, m);
+    write_slnk(&w, m);
     write_cart(&w, m);
     write_drive(&w, TAG_DRV8, &m->drives[0]);
     write_drive(&w, TAG_DRV9, &m->drives[1]);
@@ -1101,6 +1125,57 @@ static void read_mach(snapshot_reader *r, c64_t *m) {
     m->config.media_1541 = r_u8(r) != 0;
     /* c64_hz is derived (not snapshotted); refresh after video_standard load. */
     m->clock.c64_hz = c64_config_clock_hz(&m->config);
+}
+
+static void read_slnk(snapshot_reader *r, c64_t *m) {
+    c64_swiftlink *sl = &m->swiftlink;
+    uint8_t layout;
+    uint8_t mode;
+
+    layout = r_u8(r);
+    if (!r->ok || layout != (uint8_t)SLNK_LAYOUT_V1) {
+        r->ok = false;
+        return;
+    }
+
+    /* Chip + Hayes only. Host enable/base stay whatever apply_loaded_machine
+       preserves from the destination; FIFOs are always empty on load. */
+    sl->command = r_u8(r);
+    sl->control = r_u8(r);
+    sl->turbo232 = (uint8_t)(r_u8(r) & 0x03u);
+    mode = r_u8(r);
+    sl->echo = r_bool(r);
+    sl->verbose = r_bool(r);
+    if (!r->ok) {
+        return;
+    }
+    if (mode > (uint8_t)C64_SWIFTLINK_MODE_ONLINE) {
+        r->ok = false;
+        return;
+    }
+    sl->mode = (c64_swiftlink_mode)mode;
+    sl->tx_holding = 0;
+    sl->tx_holding_full = false;
+    sl->rx_holding = 0;
+    sl->rx_holding_full = false;
+    sl->carrier_present = false;
+    sl->overrun = false;
+    sl->tx_head = 0;
+    sl->tx_tail = 0;
+    sl->tx_count = 0;
+    sl->rx_head = 0;
+    sl->rx_tail = 0;
+    sl->rx_count = 0;
+    sl->at_len = 0;
+    sl->ignore_lf = false;
+    sl->at_overflow = false;
+    sl->escape_len = 0;
+    sl->escape_flushing = false;
+    sl->escape_flush_pos = 0;
+    sl->escape_abort_byte = 0;
+    sl->pending_req.kind = C64_SWIFTLINK_HOST_REQ_NONE;
+    memset(sl->pending_req.host, 0, sizeof(sl->pending_req.host));
+    sl->pending_req.port = 0;
 }
 
 static void read_cart(snapshot_reader *r, c64_t *m) {
@@ -1638,6 +1713,18 @@ static void apply_loaded_machine(c64_t *dst, c64_t *src, bool restore_1541_core)
     c64_bus_attach_vicii(&dst->bus, &dst->vic);
     c64_bus_attach_cias(&dst->bus, &dst->cia1, &dst->cia2);
     c64_bus_attach_sid(&dst->bus, &dst->sid);
+    {
+        /* Host owns enable+base; SLNK (or cold ACIA on temp) supplies chip/Hayes. */
+        bool sl_enabled = dst->swiftlink.enabled;
+        uint16_t sl_base = dst->swiftlink.base;
+
+        dst->swiftlink = src->swiftlink;
+        dst->swiftlink.enabled = sl_enabled;
+        dst->swiftlink.base = sl_base;
+        dst->swiftlink.pending_req.kind = C64_SWIFTLINK_HOST_REQ_NONE;
+        memset(dst->swiftlink.pending_req.host, 0, sizeof(dst->swiftlink.pending_req.host));
+        dst->swiftlink.pending_req.port = 0;
+    }
     c64_bus_attach_swiftlink(&dst->bus, &dst->swiftlink);
     dst->bus.vic_bank_base = src->bus.vic_bank_base;
     dst->keyboard = src->keyboard;
@@ -1846,6 +1933,10 @@ static bool read_snapshot_into_temp(
         case TAG_MACH:
             read_mach(&chunk, temp);
             seen.mach = chunk.ok;
+            break;
+        case TAG_SLNK:
+            read_slnk(&chunk, temp);
+            seen.slnk = chunk.ok;
             break;
         case TAG_CART:
             read_cart(&chunk, temp);

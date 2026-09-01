@@ -524,6 +524,28 @@ void c64_swiftlink_reset(c64_swiftlink *sl) {
     cold_acia(sl);
 }
 
+void c64_swiftlink_drop_host_session(c64_swiftlink *sl) {
+    assert(sl);
+    clear_rings(sl);
+    sl->tx_holding = 0;
+    sl->tx_holding_full = false;
+    sl->rx_holding = 0;
+    sl->rx_holding_full = false;
+    sl->carrier_present = false;
+    sl->overrun = false;
+    sl->mode = C64_SWIFTLINK_MODE_COMMAND;
+    sl->at_len = 0;
+    sl->ignore_lf = false;
+    sl->at_overflow = false;
+    sl->escape_len = 0;
+    sl->escape_flushing = false;
+    sl->escape_flush_pos = 0;
+    sl->escape_abort_byte = 0;
+    sl->pending_req.kind = C64_SWIFTLINK_HOST_REQ_NONE;
+    memset(sl->pending_req.host, 0, sizeof(sl->pending_req.host));
+    sl->pending_req.port = 0;
+}
+
 void c64_swiftlink_set_enabled(c64_swiftlink *sl, bool on) {
     assert(sl);
     sl->enabled = on;
