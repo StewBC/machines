@@ -13,6 +13,7 @@ target_compile_features(stb_image PUBLIC c_std_99)
 add_library(logc STATIC logc/log.c)
 target_include_directories(logc PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/logc)
 target_compile_features(logc PUBLIC c_std_99)
+target_compile_definitions(logc PRIVATE LOG_USE_COLOR)
 
 add_library(argparse STATIC argparse/argparse.c)
 target_include_directories(argparse PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/argparse)
