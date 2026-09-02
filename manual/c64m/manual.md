@@ -239,8 +239,8 @@ The file extension determines how the file is handled:
 
 | Extension | Action                                                         |
 |-----------|----------------------------------------------------------------|
-| `.d64`    | Mount the image on device 8 (replaces any previously mounted disk) |
-| `.g64`    | Mount the G64 image on device 8 (same as D64; use media path for GCR) |
+| `.d64`    | Replace-mount on device 8 (clears that unit's queue; Machine tab shows the selector and Write checkbox like [8] Open) |
+| `.g64`    | Same as `.d64` for G64 (GCR media path) |
 | `.c64state` | Load a saved machine state snapshot                         |
 | `.crt`    | Attach a supported CRT (types 0, 5, 19) and reset with it running |
 | `.bas`    | Load as a BASIC program (reset, boot to BASIC, inject, update `$2B-$2E`) |
@@ -864,13 +864,14 @@ A unit turns **off** when you:
 - Use control-port `power-drive 8 off`
 
 **[8] / [9]** - Soft power-on for that unit, then open a file browser (**Mount Disk /
-HostFS**). **Open** mounts a selected image and replaces the queue; **Use This Folder**
-mounts the shown directory as HostFS (also replaces any queue).
+HostFS**). **Open** mounts a selected image and **replaces the queue** (that image is the
+only entry). Cancel leaves the queue unchanged. **Use This Folder** mounts the shown
+directory as HostFS (also replaces any queue).
 
 **Shift+[8] / Shift+[9]** - Soft power-on, then open a file browser to **add** an image
-into the IMAGE queue after the current disk. If the unit is empty, the image is added
-and mounted. While HostFS is mounted, Shift+add replaces HostFS with that image (HostFS
-is never a queue entry).
+into the IMAGE queue after the current disk and mount it (it becomes current). If the
+unit is empty, the image is added and mounted. While HostFS is mounted, add replaces
+HostFS with that image (HostFS is never a queue entry).
 
 **(LED)** - Power **switch** for that unit: **green** = powered (click to eject media and
 power off), **red** = off (click to power on). Separate from the corner activity LEDs
@@ -885,8 +886,12 @@ nothing.
 and leaves the drive empty (still powered).
 
 The selector to the right of the buttons shows the basename of the currently mounted
-image. Clicking it opens a drop-down listing every image in the queue; selecting one
-mounts it immediately and makes it current.
+image (IMAGE queues only; HostFS is a plain label). Clicking it opens a drop-down of
+every image in the queue, plus **Add Disk** at the bottom when the queue is not full.
+Selecting an image mounts it immediately. Selecting **Add Disk** opens the same add
+file browser as Shift+[8] / Shift+[9]: cancel keeps the previous selection; a chosen
+image is inserted after the current entry and mounted. **Add Disk** appears only when
+the unit already has at least one IMAGE (use [8] / [9] to mount the first).
 
 The queue order and current index are not saved when the emulator quits. On the next
 launch the first image in the saved list is mounted.

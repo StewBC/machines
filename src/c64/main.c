@@ -5105,7 +5105,7 @@ static void dispatch_debugger_intents(
                                 platform_fs_is_dir(slot->paths[0]);
 
                             /* HostFS is never a queue entry: folder picks and
-                               Shift+add while HostFS is mounted both replace. */
+                               add-while-HostFS both replace. */
                             if (path_is_dir || hostfs_mounted) {
                                 sent = runtime_client_mount_d64_ex(
                                     client,
@@ -5117,17 +5117,20 @@ static void dispatch_debugger_intents(
                                     frontend_set_disk_queue(ui, intent.disk_device, slot);
                                 }
                             } else {
-                                bool was_empty = slot->count == 0;
+                                /* Insert after current, then mount/select the new image
+                                   (combo Add Disk and Shift+[8]/[9] share this path). */
+                                int insert_at =
+                                    slot->count == 0 ? 0 : slot->current + 1;
                                 if (app_disk_slot_add_after_current(
                                         slot, intent.file_browser_path)) {
-                                    if (was_empty) {
+                                    const char *path =
+                                        app_disk_slot_select(slot, insert_at);
+                                    if (path != NULL) {
                                         sent = runtime_client_mount_d64_ex(
                                             client,
                                             intent.disk_device,
-                                            slot->paths[0],
+                                            path,
                                             app_disk_slot_current_writable(slot));
-                                    } else {
-                                        sent = true;
                                     }
                                     frontend_set_disk_queue(ui, intent.disk_device, slot);
                                 }
@@ -5369,10 +5372,16 @@ static void handle_keyboard_input(
     dispatch_input_actions(client, actions, count);
 }
 
-static void handle_drop_file(runtime_client *client, app_options *options, char *path) {
+static void handle_drop_file(
+    runtime_client *client, app_options *options, frontend *ui, char *path)
+{
     if (path_has_extension(path, "d64") || path_has_extension(path, "g64")) {
+        /* Replace-mount on device 8 (same queue/UI sync as [8] Open). */
         if (runtime_client_mount_d64_ex(client, 8, path, false) && options != NULL) {
             app_disk_slot_set(&options->disk_slots[8], path);
+            if (ui != NULL) {
+                frontend_set_disk_queue(ui, 8, &options->disk_slots[8]);
+            }
         }
     } else if (path_has_extension(path, "c64state")) {
         runtime_client_load_state(client, path);
@@ -7427,7 +7436,7 @@ static bool run_main_loop(
                 send_event_to_frontend = false;
             } else if (event.type == SDL_DROPFILE) {
                 if (!debug_state.inspecting && !frontend_help_is_open(ui)) {
-                    handle_drop_file(client, options, event.drop.file);
+                    handle_drop_file(client, options, ui, event.drop.file);
                 }
                 send_event_to_frontend = false;
             }

@@ -6122,17 +6122,31 @@ static void frontend_draw_misc_programs(frontend *ui, const frontend_debug_state
                 }
                 nk_label(ctx, label != NULL ? label : "HostFS", NK_TEXT_LEFT);
             } else if (slot->count > 0) {
-                const char *labels[C64M_DRIVE_COUNT];
-                int label_count = slot->count < C64M_DRIVE_COUNT ? slot->count : C64M_DRIVE_COUNT;
+                /* IMAGE queue basenames, plus Add Disk when the queue can grow.
+                   Add Disk is a sentinel: selecting it opens the add browser and
+                   must not stick as the closed combo label (slot->current stays). */
+                const char *labels[C64M_DRIVE_COUNT + 1];
+                int image_count =
+                    slot->count < C64M_DRIVE_COUNT ? slot->count : C64M_DRIVE_COUNT;
+                int label_count = image_count;
+                bool offer_add = slot->count < C64M_DRIVE_COUNT;
                 int i;
+                int selected =
+                    (slot->current >= 0 && slot->current < image_count) ? slot->current : 0;
 
-                for (i = 0; i < label_count; ++i) {
+                for (i = 0; i < image_count; ++i) {
                     labels[i] = path_basename(slot->paths[i]);
+                }
+                if (offer_add) {
+                    labels[label_count++] = "Add Disk";
                 }
 
                 new_sel = nk_combo(
-                    ctx, labels, label_count, slot->current, 18, nk_vec2(200.0f, 200.0f));
-                if (new_sel != slot->current) {
+                    ctx, labels, label_count, selected, 18, nk_vec2(200.0f, 200.0f));
+                if (offer_add && new_sel == image_count) {
+                    frontend_push_disk_intent(
+                        ui, FRONTEND_DEBUGGER_INTENT_DISK_ADD_DIALOG, device);
+                } else if (new_sel != selected && new_sel >= 0 && new_sel < image_count) {
                     frontend_push_disk_select_intent(ui, device, new_sel);
                 }
             } else {
