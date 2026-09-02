@@ -608,6 +608,77 @@ bool app_options_symbol_files_absolute(
     return transform_symbol_files(options, options->symbol_files, true, out, out_size);
 }
 
+static bool rewrite_path_field(app_options *options, char **field, bool absolute)
+{
+    char transformed[PATH_MAX];
+
+    if (field == NULL || *field == NULL || (*field)[0] == '\0') {
+        return true;
+    }
+    if (absolute) {
+        if (!path_absolute_from_ini(options, *field, transformed, sizeof(transformed))) {
+            return false;
+        }
+    } else {
+        if (!app_options_path_relative_to_ini(options, *field, transformed, sizeof(transformed))) {
+            return false;
+        }
+    }
+    return replace_string(field, transformed);
+}
+
+static bool rewrite_path_fields(app_options *options, bool absolute)
+{
+    char transformed_symbols[PATH_MAX * 4];
+    int i;
+
+    if (options == NULL) {
+        return false;
+    }
+
+    if (!rewrite_path_field(options, &options->system_rom_path, absolute) ||
+        !rewrite_path_field(options, &options->basic_rom_path, absolute) ||
+        !rewrite_path_field(options, &options->char_rom_path, absolute) ||
+        !rewrite_path_field(options, &options->kernal_rom_path, absolute) ||
+        !rewrite_path_field(options, &options->rom1541_path, absolute) ||
+        !rewrite_path_field(options, &options->printer_output_dir, absolute) ||
+        !rewrite_path_field(options, &options->assembler_file, absolute)) {
+        return false;
+    }
+
+    if (options->symbol_files != NULL && options->symbol_files[0] != '\0') {
+        if (!transform_symbol_files(
+                options,
+                options->symbol_files,
+                absolute,
+                transformed_symbols,
+                sizeof(transformed_symbols))) {
+            return false;
+        }
+        if (!replace_string(&options->symbol_files, transformed_symbols)) {
+            return false;
+        }
+    }
+
+    for (i = 0; i < APP_BROWSE_DIR_COUNT; ++i) {
+        if (!rewrite_path_field(options, &options->browse_dirs[i], absolute)) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+bool app_options_prefer_display_paths(app_options *options)
+{
+    return rewrite_path_fields(options, false);
+}
+
+bool app_options_absolutize_paths(app_options *options)
+{
+    return rewrite_path_fields(options, true);
+}
+
 static bool string_equal_ignore_case(const char *a, const char *b)
 {
     unsigned char ca;

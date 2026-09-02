@@ -2584,13 +2584,21 @@ static void frontend_draw_config_existing_ini_prompt(frontend *ui, frontend_conf
             app_options parsed;
             memset(&parsed, 0, sizeof(parsed));
             if (app_options_copy(&parsed, &dialog->edited) &&
-                app_options_apply_ini_file(&parsed, dialog->edited.ini_path)) {
+                app_options_apply_ini_file(&parsed, dialog->edited.ini_path) &&
+                app_options_prefer_display_paths(&parsed)) {
                 char path[1024];
+                int slot;
                 frontend_copy_text(path, sizeof(path), dialog->edited.ini_path);
                 app_options_destroy(&dialog->edited);
                 dialog->edited = parsed;
                 app_options_set_string(&dialog->edited.ini_path, path);
                 frontend_config_prepare_edit_buffers(dialog);
+                for (slot = 0; slot < FRONTEND_BROWSE_SLOT_COUNT &&
+                         slot < APP_BROWSE_DIR_COUNT; ++slot) {
+                    const char *dir = dialog->edited.browse_dirs[slot];
+                    frontend_set_browse_dir(
+                        ui, (frontend_browse_slot)slot, dir != NULL ? dir : "");
+                }
             } else {
                 snprintf(dialog->error, sizeof(dialog->error), "Could not parse selected INI");
                 app_options_destroy(&parsed);
@@ -8110,6 +8118,8 @@ void frontend_set_config_state(frontend *ui, const app_options *options)
     frontend_config_dialog_reset(&ui->config_dialog);
     if (!app_options_copy(&ui->config_dialog.original, options) ||
         !app_options_copy(&ui->config_dialog.edited, options) ||
+        !app_options_prefer_display_paths(&ui->config_dialog.original) ||
+        !app_options_prefer_display_paths(&ui->config_dialog.edited) ||
         !frontend_config_prepare_edit_buffers(&ui->config_dialog)) {
         frontend_config_dialog_reset(&ui->config_dialog);
         return;
@@ -8119,6 +8129,18 @@ void frontend_set_config_state(frontend *ui, const app_options *options)
     ui->config_dialog.open = keep_open;
     if (keep_open) {
         ui->config_dialog.active_tab = keep_tab;
+    }
+
+    /* Paths-tab browse folders bind to ui->browse_dirs (not edited.*); keep them
+       INI-relative so the fields match ROMs / printer / symbols. */
+    {
+        int slot;
+        for (slot = 0; slot < FRONTEND_BROWSE_SLOT_COUNT && slot < APP_BROWSE_DIR_COUNT;
+             ++slot) {
+            const char *dir = ui->config_dialog.edited.browse_dirs[slot];
+            frontend_set_browse_dir(
+                ui, (frontend_browse_slot)slot, dir != NULL ? dir : "");
+        }
     }
 }
 
@@ -8154,6 +8176,7 @@ bool frontend_apply_selected_ini(frontend *ui, const app_options *options)
 
     app_options_destroy(&dialog->edited);
     if (!app_options_copy(&dialog->edited, options) ||
+        !app_options_prefer_display_paths(&dialog->edited) ||
         !frontend_config_prepare_edit_buffers(dialog)) {
         frontend_config_dialog_reset(dialog);
         return false;

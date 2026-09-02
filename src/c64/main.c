@@ -4834,6 +4834,8 @@ static void dispatch_debugger_intents(
                     memset(&intent.config, 0, sizeof(intent.config));
                     /* Auto-save preference is options->remember; session save follows it. */
                     options->save_ini = options->remember;
+                    /* Dialog edits are INI-relative; runtime needs absolute paths. */
+                    (void)app_options_absolutize_paths(options);
                     runtime_client_rom_paths rom_paths;
                     if (!app_options_symbol_files_absolute(options, absolute_symbol_files, sizeof(absolute_symbol_files))) {
                         snprintf(absolute_symbol_files, sizeof(absolute_symbol_files), "%s", options->symbol_files ? options->symbol_files : "");
@@ -4896,6 +4898,8 @@ static void dispatch_debugger_intents(
                         app_options_set_string(&options->browse_dirs[slot], dir[0] ? dir : NULL);
                     }
                     frontend_config_export_rom_paths(ui, options);
+                    /* Keep live options absolute after pulling relative dialog edits. */
+                    (void)app_options_absolutize_paths(options);
                     if (save_now) {
                         /* Configure's copied options still hold the load-time
                            geometry; refresh from the live window/layout like quit. */
@@ -4976,6 +4980,8 @@ static void dispatch_debugger_intents(
                     }
                     frontend_config_export_rom_paths(ui, options);
                     app_options_save_paths_only(options);
+                    (void)app_options_absolutize_paths(options);
+                    frontend_set_config_state(ui, options);
                 }
                 break;
 
@@ -7969,14 +7975,7 @@ int main(int argc, char **argv) {
     frontend_set_config_state(ui, &options);
     frontend_set_disk_queue(ui, 8, &options.disk_slots[8]);
     frontend_set_disk_queue(ui, 9, &options.disk_slots[9]);
-    /* Seed the file browser's remembered folders from the INI. The slot enum and
-       options.browse_dirs share the same order (see frontend_browse_slot). */
-    {
-        int slot;
-        for (slot = 0; slot < FRONTEND_BROWSE_SLOT_COUNT && slot < APP_BROWSE_DIR_COUNT; ++slot) {
-            frontend_set_browse_dir(ui, (frontend_browse_slot)slot, options.browse_dirs[slot]);
-        }
-    }
+    /* Browse folders are seeded INI-relative inside frontend_set_config_state. */
     {
         frontend_assembler_options asm_opts;
         memset(&asm_opts, 0, sizeof(asm_opts));

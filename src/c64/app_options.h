@@ -164,6 +164,11 @@ bool app_options_symbol_files_absolute(
     const app_options *options,
     char *out,
     size_t out_size);
+/* Rewrite path fields to INI-relative form for Configure display (and INI
+   portability). Leaves already-relative strings alone. ini_path itself is kept. */
+bool app_options_prefer_display_paths(app_options *options);
+/* Rewrite path fields to absolute form for runtime use (mount/load/apply). */
+bool app_options_absolutize_paths(app_options *options);
 void app_options_destroy(app_options *options);
 
 /* Disk slot helpers used by callers that manage live mount state. */
