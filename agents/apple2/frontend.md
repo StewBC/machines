@@ -65,15 +65,17 @@ unbound.
 ## Configure
 
 Machine tab: model + Slot 1–7 card selectors (Empty / Disk II / SmartPort /
-Mockingboard). One Mockingboard. Slot cards persist in `[Slots]`; media from
-Misc → Machine persists in `[DiskII]` / `[SmartPort]`.
+Mockingboard / Super Serial). One Mockingboard and one SSC. Slot cards persist
+in `[Slots]`; media from Misc → Machine persists in `[DiskII]` / `[SmartPort]`.
+SSC presence implies ImageWriter II; Misc → Machine shows Force flush `[n]`
+(no soft-power LED).
 
 OK / Save INI now: no model/card change means no reset; a model/card change is
 applied on the worker then a cold power-cycle-style reset. The turbo ladder is
 live-applied either way (keep current speed if it is still on the list).
 
-Paths: Assembler, Floppy, SmartPort, Binary, Basic, Snapshot browser folders
-only.
+Paths: Assembler, Floppy, SmartPort, Binary, Basic, Snapshot, Printer browser
+folders.
 
 Emulator: **Original DEL behaviour** (`[config] original_del`) live-switches
 Backspace between cursor-left `$08` (off) and Apple DEL `$7F` (on). Delete is

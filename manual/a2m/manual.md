@@ -2,8 +2,9 @@
 
 a2m is an Apple ][+ and Apple //e Enhanced emulator. It runs on Windows, Linux, and
 macOS. It boots Disk II floppy images and SmartPort block devices (including a host
-folder as a ProDOS volume), can save and restore full machine snapshots, and
-includes a debugger and assembler for Apple II development.
+folder as a ProDOS volume), can soft-present a Super Serial Card with an ImageWriter II
+host-page sink, can save and restore full machine snapshots, and includes a debugger
+and assembler for Apple II development.
 
 System ROMs are embedded. No separate ROM files are required.
 
@@ -27,12 +28,14 @@ Common flags (see `--help` for the full list):
 | `--remember` / `-r` | Force save-on-quit into the INI file |
 | `--defaults` / `-f` | Start from built-in defaults |
 | `--log-level <level>` | Host log policy: `all`, `warn` (default), `error`, or `none` |
-| `--control-port N` | Listen on localhost TCP for A2M/15 remote control (`0`=off) |
+| `--control-port N` | Listen on localhost TCP for A2M/16 remote control (`0`=off) |
 | `--headless` | No window; short smoke exit unless `--control-port` is set |
 | `--model enh\|plus` / `-m` | `enh` is Apple //e Enhanced (default); `plus` is Apple ][+ |
 | `--disk <spec>` / `-d` | Mount a Disk II image; `path` or `s6d0=path` (repeatable) |
 | `--hd <spec>` / `--smart` | Mount SmartPort media; image file or host folder; `path` or `s7d0=path` (repeatable) |
 | `--mb-slot N` | Mockingboard slot `1..7`; `0` disables (default slot 4) |
+| `--printer-dir <path>` | ImageWriter host page output directory (default `prints`) |
+| `--printer-format bmp` | Host page format (`bmp` only in v1) |
 | `--sna <file>` | Load a machine snapshot (`.a2state`) at startup |
 | `--break <addr>` / `-b` | Install an execute breakpoint at a hex address |
 | `--symbols <file>` | Load a simple symbol file (`NAME` hex per line) |
@@ -152,6 +155,56 @@ line, `[SmartPort]` in the INI, or Machine **[Insert]** on a SmartPort unit:
 **[Open]** mounts a selected image file; **[Use This Folder]** mounts the directory
 currently shown as HostFS (same button as Configure -> Paths). Disk II Insert stays
 file-only.
+
+### Printer (ImageWriter II)
+
+a2m can soft-present one **Super Serial Card (SSC)** in slots 1-7. Installing an SSC
+implies an **ImageWriter II** mono sink: guest serial TX from the card becomes host
+page files. There is no separate printer enable flag and no Misc soft-power toggle -
+presence is the SSC slot only. Soft-disable means set that slot to Empty in
+**Configure -> Machine** (detach flushes a dirty page).
+
+Install the card from **Configure -> Machine** (slot combo **Super Serial**), or set
+`[Slots] slotN = ssc` in the INI. Only one SSC is allowed; choosing a second slot
+clears the first. Default layout has no SSC.
+
+Pages are written as host BMP files under the configured output directory (default
+`prints`). Each flushed page is named `YYYYMMDD-HHMMSSXX.bmp` (local time; `XX` is a
+two-digit counter that increments when more than one page is written in the same
+second). Choose the directory with `--printer-dir`, `[printer] output_dir`, or
+Configure **Paths -> printer**. Format is **`bmp` only** in v1 (colour ImageWriter
+ribbon support is planned later).
+
+From Applesoft, `PR#n` (where `n` is the SSC slot) sends subsequent `PRINT` output to
+the ImageWriter sink. Tip: after `LIST`, send a form feed (`PRINT CHR$(12)`) or use
+Force flush if the page stays Dirty. `PR#0` returns output to the screen and does
+**not** flush the current page. Print Shop's Apple ImageWriter path uses the same SSC
+slot; a manual smoke checklist is in `tests/apple2/printshop_imagewriter_smoke.md`.
+
+Pages flush on:
+
+| Trigger | Behavior |
+|---------|----------|
+| Page-full | Flush; continue on a new page |
+| Form feed (`$0C`) | Flush if dirty |
+| ImageWriter reset (ESC reset) | Flush if dirty, then clear modes |
+| SSC detach / slot clear / emulator shutdown | Flush if dirty |
+| Configure Apply / cold reset while SSC stays installed | Force-flush if dirty, then reset |
+| **`[n]`** (Misc -> Machine) / `printer-flush` | Flush if dirty; blank pages are suppressed |
+| Warm reset (card remains) | Discard the in-progress page (no host write) |
+| `PR#0` | No write; page stays dirty until FF / force / detach / page-full |
+
+When an SSC is installed, **Misc -> Machine** shows a printer row:
+
+```
+[n]  ImageWriter II  Pages N  Clean|Dirty|Flush
+```
+
+`[n]` is the SSC slot number and Force flush. The status flashes **Flush** briefly so
+the button always answers, even when the page was already clean (no-op). Steady states
+are **Clean** and **Dirty**. Over the control port, `printer-flush` is the same
+fire-and-forget flush (`ok accepted=1`). Presence, directory, and format are not
+changed by the control port in v1.
 
 ### Machine Snapshots
 
@@ -759,8 +812,9 @@ media, machine files, and emulator management.
 
 ### Slots and Media
 
-Each installed Disk II or SmartPort card is listed by slot. Empty slots and
-Mockingboard cards have no media row. A Disk II or SmartPort row looks like:
+Each installed Disk II or SmartPort card is listed by slot. Empty slots,
+Mockingboard, and Super Serial cards have no media row. A Disk II or SmartPort
+row looks like:
 
 ```
 Slot 6: Disk II
@@ -782,9 +836,10 @@ mounts the current directory as HostFS.
 
 The name to the right of the buttons is the basename of the currently mounted image.
 
-Configure the cards themselves (Empty / Disk II / SmartPort / Mockingboard) in
-**Configure -> Machine**. Applying a changed model or card layout performs a
-power-cycle reset.
+Configure the cards themselves (Empty / Disk II / SmartPort / Mockingboard /
+Super Serial) in **Configure -> Machine**. Applying a changed model or card
+layout performs a power-cycle reset. An installed SSC also shows the ImageWriter
+row below the media list (see **Printer (ImageWriter II)**).
 
 ### Machine Files
 
@@ -828,10 +883,13 @@ Duplicate or malformed lines are rejected.
 ### State
 
 Snapshots preserve the emulated machine: RAM (main and aux), CPU, soft switches,
-video beam, Disk II, SmartPort, and Mockingboard. Host-side extras stored with the
-snapshot include the keyboard joystick port, layout, and swap-fire setting (so a
-quickload restores stick assignment without rewriting the INI). A failed load leaves
-the live machine unchanged.
+video beam, Disk II, SmartPort, Mockingboard, and Super Serial slot presence.
+ImageWriter page raster and ACIA shift state are not persisted; load re-attaches
+the SSC and resets the printer sink. Host `printer` output directory comes from
+options / INI, not from the snapshot. Host-side extras stored with the snapshot
+include the keyboard joystick port, layout, and swap-fire setting (so a quickload
+restores stick assignment without rewriting the INI). A failed load leaves the live
+machine unchanged.
 
 **Shift+Alt+>** quicksaves to the snapshot folder (Configure -> Paths -> `snapshot`,
 which defaults to the current directory). Each quicksave creates a new timestamped
@@ -844,6 +902,19 @@ control port, use `load-state <path>` and `save-state <path>` (see **Remote**).
 ### Emulator Controls
 
 **[Configure...]** opens the Configure dialog (see **Configure**).
+
+When an SSC is installed, Misc -> Machine shows a printer row below the media list:
+
+```
+[n]  ImageWriter II  Pages N  Clean|Dirty|Flush
+```
+
+**[n]** - Force flush (slot number of the SSC). Flushes a dirty ImageWriter page to
+the host output directory; blank pages are suppressed. The status flashes **Flush**
+briefly even on a no-op. There is no soft-power / enable LED - presence is the SSC
+slot only (clear the slot in Configure to remove the printer). Control-port
+`printer-flush` is the same flush without the UI flash. See **Printer (ImageWriter
+II)**.
 
 **[Reset]** performs a warm reset of the emulated Apple 2 and preserves its running
 state: it resumes automatically if it was running, or remains paused if it was
@@ -1558,7 +1629,7 @@ below the tab body on every tab.
 | Control | Effect |
 |---------|--------|
 | Model | `//e Enhanced` or `][+`; applying a change power-cycles the machine |
-| Slot 1-7 | Card in that slot: `Empty`, `Disk II`, `SmartPort`, or `Mockingboard`. Only one Mockingboard is allowed; choosing a second slot clears the first. Applying a changed layout power-cycles the machine |
+| Slot 1-7 | Card in that slot: `Empty`, `Disk II`, `SmartPort`, `Mockingboard`, or `Super Serial`. Only one Mockingboard and one Super Serial Card are allowed; choosing a second slot clears the first. Installing Super Serial implies the ImageWriter II host-page sink. Applying a changed layout power-cycles the machine |
 | Keyboard Joystick | `Off`, `Stick 1`, or `Stick 2`, plus the `Numpad` or `WASD` key layout |
 | Swap fire keys | While the stick is on: Space is button 0 and Option is button 1 (WASD-friendly). Off when the stick is Off |
 | Turbo | Comma-separated ladder, e.g. `1,max` or `1,4,8,max` |
@@ -1613,6 +1684,7 @@ button that opens a folder picker:
 | binary | Load/Save Binary |
 | basic | Load/Save Applesoft text |
 | snapshot | Save/Load State - and the quicksave folder (Shift+Alt+> / <) |
+| printer | ImageWriter host page output folder (default `prints`) |
 
 Edits to the browse folders take effect on the next browse immediately. The folder
 picker's **[Use This Folder]** button selects the folder currently shown. **[Save
@@ -1662,9 +1734,11 @@ emulator removes comments.
 
 | Key | Value |
 |-----|-------|
-| `slot1` ... `slot7` | `empty`, `diskii`, `smartport`, or `mockingboard` |
+| `slot1` ... `slot7` | `empty`, `diskii`, `smartport`, `mockingboard`, or `ssc` |
 
 Default layout: slot 4 Mockingboard, slot 6 Disk II, slot 7 SmartPort, others empty.
+Only one `ssc` (Super Serial) is allowed; placing a second clears the first.
+Presence of an SSC implies the ImageWriter II sink (there is no `[printer] enabled=`).
 
 ### [config]
 
@@ -1716,6 +1790,17 @@ dialog's Paths tab). Any missing key defaults to the current working directory.
 | `binary` | Load/Save Binary |
 | `basic` | Load/Save Applesoft text |
 | `snapshot` | Save/Load State and the quicksave folder |
+| `printer` | ImageWriter host page output folder (default `prints`) |
+
+### [printer]
+
+Used when an SSC is installed. Presence is `[Slots] slotN = ssc` (not an
+`enabled=` key). CLI: `--printer-dir`, `--printer-format`.
+
+| Key | Value |
+|-----|-------|
+| `output_dir` | Host page output directory (default `prints`) |
+| `format` | `bmp` only in v1 |
 
 ### [Window]
 
@@ -1942,7 +2027,7 @@ combine headless mode with `--sna`:
 
 The server always binds to `127.0.0.1` and accepts one client at a time. Network I/O
 runs on a socket thread; commands are handled by the main loop, the same path the GUI
-debugger uses. The protocol name is `A2M/15`.
+debugger uses. The protocol name is `A2M/16`.
 
 Python helpers:
 
@@ -2062,8 +2147,8 @@ for low-latency automation; a windowed session is still paced by present/vsync.
 
 | Command | Response |
 |---------|----------|
-| `hello` | `ok name=a2m protocol=A2M/15` |
-| `version` | `ok protocol=A2M/15 app=a2m` |
+| `hello` | `ok name=a2m protocol=A2M/16` |
+| `version` | `ok protocol=A2M/16 app=a2m` |
 | `capabilities` | Space-separated capability names |
 | `ping` | `ok` |
 | `quit-client` | `ok`, then the server closes the client connection |
@@ -2071,7 +2156,9 @@ for low-latency automation; a windowed session is still paced by present/vsync.
 `capabilities` currently includes `connection`, `introspection`, `execution`,
 `state`, `softswitches`, `step`, `turbo`, `frame`, `frame-ring`, `memory`,
 `breakpoints`, `wait`, `key`, `disk`, `snapshot`, `history`, `assemble`,
-`symbols`, `sessions`, `state-changed`, and `inspector`.
+`symbols`, `sessions`, `state-changed`, `inspector`, and `printer-flush`.
+`printer-flush` force-flushes a dirty ImageWriter page when an SSC is installed
+(see **Printer (ImageWriter II)**).
 
 The TCP client is bound to one runtime **session** (history FIND/NEXT cursor
 state). Disconnect frees that session. Mutations (step, run, poke, reset, ...)
@@ -2093,6 +2180,7 @@ machine reaches a new state. Use `wait-*` commands when a script needs to synchr
 | `step-over` | Step over a JSR |
 | `step-out` | Run until the current subroutine returns |
 | `set-turbo <MHz\|max\|-1>` | Set turbo to a MHz target or `max` |
+| `printer-flush` | Force-flush dirty ImageWriter page (no-op if clean/blank/absent) |
 
 Accepted execution commands respond:
 

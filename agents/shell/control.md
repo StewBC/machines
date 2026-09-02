@@ -24,7 +24,7 @@ Tests: `tests/shell/control/`. Shared framing does not mention
 - Leftover binaries supply `{name, capability, parse}` tables.
 - `capabilities` is a **static advertisement** generated from the table.
   Unknown verbs error. No negotiate/enable.
-- `hello` / `version` are parameterized: `name=a2m protocol=A2M/15` or
+- `hello` / `version` are parameterized: `name=a2m protocol=A2M/16` or
   `name=c64m protocol=C64M/10`. Do not invent `MACHINES/1`.
 - Bind is `127.0.0.1` only, one client. `quit-client` closes the socket,
   not the process. `--headless` requires `--control-port`.

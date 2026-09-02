@@ -27,10 +27,15 @@ Serialize on the **runtime thread**. Host never touches `apple2_t`.
 | `RAM_` | **//e**: full **128K + 32K LC**. **][+ (v3)**: **main 64K + main LC 16K** only (no aux). Payload sizes `(64K\|128K)` × `(16K\|32K)`. Load accepts either; omitted aux restores the cold-reset baseline (zeros + floating-IO underlay). v1/v2 loads are always full. |
 | `SOFT` | `state_flags`, key, strobed_slot, speaker, gameport |
 | `VID_` | Beam H/V, frame_number/gen, last_video_byte, paint_enabled — **not** framebuffer / mono / phosphor |
-| `SLOT` | per-slot type + diskii_present + mb_slot |
+| `SLOT` | per-slot type (incl. SSC) + diskii_present + mb_slot |
 | `DSKs` | Disk II path queue + mechanical state |
 | `SPrt` | SmartPort paths + handshake buffer |
 | `MBrd` | VIA + AY chip state |
+
+SSC slot type is restored like other cards (`detach` then `attach_ssc` when the
+type differs). ImageWriter raster / ACIA shift state are **not** persisted —
+load re-attaches and resets the printer sink. Host `[printer] output_dir` comes
+from options, not the snapshot blob.
 
 **Referenced media only.** Snapshots store paths (`A2_SNAPSHOT_CONTENT_REFERENCED`);
 there is no self-contained blob mode. Missing media path on load is a **hard
@@ -38,8 +43,8 @@ failure**. Dirty Disk II images are flushed to their files before save; a
 failed flush fails the save.
 
 Never serialize: host pointers, page maps, framebuffer, paste, write_history,
-mono/phosphor. After load: `softswitch_apply_full_map`, rebind CPU callbacks,
-paint one frame.
+mono/phosphor, ImageWriter page buffer. After load: `softswitch_apply_full_map`,
+rebind CPU callbacks, paint one frame.
 
 Host `main.c` may append a **HOST** trailer (window/layout) outside the machine
 blob. That is not part of `apple2_snapshot_*`.

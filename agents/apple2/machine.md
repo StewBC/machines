@@ -20,11 +20,12 @@ stores the full banks.
 ## Public API
 
 `apple2.h`: init / shutdown / warm `apple2_reset` / `apple2_cold_reset`;
-`apple2_set_model`; attach Disk II / SmartPort / Mockingboard in slots **1–7**
-(one Mockingboard total); slot+device mount/eject/swap/writable; step cycle /
-instruction / max-instruction; `apple2_read_in_view` / `write_in_view`;
-gameport; paste; observers (`apple2_set_memory_access_callback`,
-`apple2_set_cpu_observer`); `apple2_set_replay_sealed`.
+`apple2_set_model`; attach Disk II / SmartPort / Mockingboard / SSC in slots
+**1–7** (one Mockingboard and one SSC total); slot+device mount/eject/swap/writable;
+step cycle / instruction / max-instruction; `apple2_read_in_view` /
+`write_in_view`; gameport; paste; observers (`apple2_set_memory_access_callback`,
+`apple2_set_cpu_observer`); `apple2_set_replay_sealed`;
+`apple2_imagewriter_force_flush`.
 
 Snapshots: `apple2_snapshot_*` — [`snapshots.md`](snapshots.md).
 
@@ -39,15 +40,27 @@ Snapshots: `apple2_snapshot_*` — [`snapshots.md`](snapshots.md).
 | `diskii.c` / `image.c` | Disk II + images — [`disk.md`](disk.md) |
 | `smrtprt.c` / `hostfs.c` | SmartPort + HostFS |
 | `mboard.c` / `ay38910.c` / `via6522.c` | Mockingboard |
+| `ssc.c` / `ssc_rom.c` / `acia6551*` | Super Serial Card + 6551 + firmware |
+| `imagewriter.c` / `.h` | ImageWriter II mono raster + host pages |
 | `keyboard.c` | Host key → strobe / Open-Apple |
 | `memview.h` | VIEW_FLAGS debug areas |
 | `rom_data.c` | Embedded ROMs |
 
 ## Slots
 
-`EMPTY | DISKII | SMARTPORT | MOCKINGBOARD`. Defaults: Disk II in **slot 6**,
-Mockingboard in **slot 4**. Configure / `[Slots]` can put cards in 1–7.
-Selecting a second Mockingboard clears the previous one.
+`EMPTY | DISKII | SMARTPORT | MOCKINGBOARD | SSC`. Defaults: Disk II in
+**slot 6**, Mockingboard in **slot 4**, no SSC. Configure / `[Slots]` can put
+cards in 1–7. Selecting a second Mockingboard or second SSC clears the previous
+one.
+
+**SSC / ImageWriter (v1):** presence is the SSC slot only (`slotN = ssc` /
+Configure **Super Serial**). Installing an SSC always sinks ACIA TX into the
+ImageWriter II mono rasterizer; there is no `[printer] enabled=` and no Misc
+soft-power toggle. Host pages go to `[printer] output_dir` (default `prints`,
+`bmp` only). `apple2_attach_ssc` **fails** if the target slot already holds a
+different card type — Configure Apply and snapshot `SLOT` restore must detach
+first, then attach. Force flush: Misc → Machine `[n]` or control
+`printer-flush` (A2M/16).
 
 ## Banking / CXXX
 
@@ -57,13 +70,14 @@ CXXX slot map — `cxxx_map` tests are the contract.
 - Empty-slot `$Cn` shadows are captured from RAM underlay **before** bank apply.
 - `SETCXROM` (`$C007`): internal `$C100–$CFFF` ROM **hides** slot-card I/O
   (Mockingboard `$Cn` must not intercept while INTCXROM is on).
-- `$C800` card latch: first I/O SELECT (`$Cnxx` read or write) until `$CFFF`.
-  SmartPort claims like an expansion-ROM card; there is no ROM image, so the
-  host trap *is* that mapping. Internal `$C3xx` sets a motherboard 80-col
-  overlay (does not drop the card latch). INTCXROM overlays `$C100–$CFFF`
-  and restores the card latch when cleared. `$CFFF` drops both latches.
-  `SETC3ROM` (`$C00B`) is not I/O SELECT; the overlay stays until `$CFFF`
-  (a2audit E000B).
+- `$C800` card latch: first I/O SELECT (`$Cnxx` read or write) until `$CFFF`
+  (first claimant only). SmartPort claims like an expansion-ROM card; there is
+  no ROM image, so the host trap *is* that mapping. SSC claims the same way and
+  maps the embedded 2K firmware under `$C800` when latched. Internal `$C3xx`
+  sets a motherboard 80-col overlay (does not drop the card latch). INTCXROM
+  overlays `$C100–$CFFF` and restores the card latch when cleared. `$CFFF`
+  drops both latches. `SETC3ROM` (`$C00B`) is not I/O SELECT; the overlay stays
+  until `$CFFF` (a2audit E000B).
 
 `apple2_debug_read` / `write` skip softswitch side effects. Live bus is
 `apple2_bus_*`. Host traps (SmartPort `$C800`) are **not** 6502 opcode fetches
@@ -90,4 +104,5 @@ Product UI cycles named presets. Control/BP INI tokens: `map`, `main`, `aux`,
 ## Tests
 
 `apple2_stub`, `softswitch`, `rom_boot`, `video_beam`, `diskii`, `peripherals`,
-`cxxx_map`, `memview`, `cpu65_basic`, `apple2_snapshot`.
+`cxxx_map`, `memview`, `cpu65_basic`, `apple2_snapshot`, `imagewriter`,
+`ssc_printshop_smoke`.

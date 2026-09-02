@@ -72,7 +72,7 @@ Window headers are dark cobalt while inspecting. Do not tint the panel fill.
 
 Control wire: `get-state` reports `mode=live|inspector`; **`enter-inspector`**,
 **`leave-inspector`**, **`land-inspector cycle=N`**, and
-**`land-inspector-exact cycle=N`** exist (A2M/15). Land from live implies enter.
+**`land-inspector-exact cycle=N`** exist (A2M/16). Land from live implies enter.
 While Inspecting, socket `run` / `step-*` are sealed execute. Catalog `[-]`/`[+]`
 stay UI / `runtime_client`. FIND stays (`history-find` / `history-next` /
 `history-read`).

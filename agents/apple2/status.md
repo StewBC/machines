@@ -10,12 +10,12 @@ What the product is **now**. Source of truth is `src/`. User-facing catalog:
 | Layer | Reality |
 |-------|---------|
 | Shell | Debugger UI: Apple display, CPU, disasm, memory, Misc, Configure, CRT |
-| Machine | Apple II `src/apple2/machine` (//e Enhanced default, or ][+). Disk II, SmartPort/HostFS, Mockingboard |
+| Machine | Apple II `src/apple2/machine` (//e Enhanced default, or ][+). Disk II, SmartPort/HostFS, Mockingboard, SSC + ImageWriter II mono host pages |
 | Runtime | Two-thread; worker owns `apple2_t`; UI/control use `runtime_client` only |
 | Display | ARGB **560×192** throughout (`display_frame` / runtime slot / frontend) |
 | Video | Beam-stepped a2m-class: LORES, DLORES, 40/80 text, HGR colour, DHGR; host Colour vs discrete-bit Mono (White/Green/Amber). Max uses full-frame block paint |
 | Memory areas | Map · Main · Aux · LC1 · LC2 · ROM |
-| Control port | **A2M/15** on `--control-port` (windowed or headless). Ops: [`control-tools.md`](control-tools.md) |
+| Control port | **A2M/16** on `--control-port` (windowed or headless). Ops: [`control-tools.md`](control-tools.md) |
 | Snapshots | **`.a2state`** — drop, `--sna`, Alt+Shift+`.`/`,`, control, Machine tab. [`snapshots.md`](snapshots.md) |
 | Time travel | Misc → Inspector: Record / Inspect / Leave. Land on checkpoints; HST1 is FIND only. [`timemachine.md`](timemachine.md) |
 | Assembler | Misc → Assembler + standalone `am65`. Optional MLI launch. `src/shell/tools/am65/` |
@@ -66,8 +66,9 @@ not latch BUTN0.
 | Display | Full frame in display-only and F9 debugger |
 | Breakpoints | Exec + R/W, mapping, FAST/SLOW, TYPE, SWAP, INI, control RPC. [`breakpoints.md`](breakpoints.md) |
 | Disk II / SmartPort | Cards in slots 1–7; Configure live-applies model/cards via power-cycle reset; live insert/eject + slot boot; `[SmartPort] boot_slot=N`; Disk II queue/swap with dirty flush; ProDOS `$C0s4/5`; `$C800` host trap; **HostFS** folder volumes |
+| SSC / ImageWriter | One soft-present SSC (`[Slots] slotN=ssc` / Configure Super Serial); TX → ImageWriter II mono BMP under `prints/` (or `[printer] output_dir`); Misc Force flush + `printer-flush`; no Misc soft-power |
 | Gameport | Paddles, buttons, kbd stick, SDL pads, motor LEDs |
-| Control | `--control-port` A2M/15; `tools/a2m_control_client.py` (`Ctl`); `tools/a2m_coop_watch.py` |
+| Control | `--control-port` A2M/16; `tools/a2m_control_client.py` (`Ctl`); `tools/a2m_coop_watch.py` |
 
 ## Tree
 
@@ -77,7 +78,7 @@ src/apple2/frontend/  leftover UI (exclusive tabs, input, CRT)
 src/shell/frontend/               shared chrome
 src/apple2/runtime/   Apple-backed runtime
 src/apple2/machine/   Apple II silicon
-src/apple2/control/   A2M/15 leftover verbs
+src/apple2/control/   A2M/16 leftover verbs
 src/shell/control/                framing + verb runner
 src/apple2/platform/  leftover audio
 src/shell/tools/am65/             assembler library + CLI

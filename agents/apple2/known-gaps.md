@@ -9,10 +9,10 @@ next work. Do not reopen them as implicit TODOs.
 | Self-contained snapshots | Not implemented. `.a2state` stores **paths** only; missing media fails the load. |
 | WOZ writes | `.woz` mounts read; `image_put_byte` fails. |
 | SmartPort command set | Host trap implements STATUS / READ_BLOCK / WRITE_BLOCK only. No full DIB / extended SP firmware. |
-| Extra slot cards | Disk II, SmartPort, Mockingboard. No SSC, mouse, clock, Videx, Franklin. |
+| Extra slot cards | Disk II, SmartPort, Mockingboard, SSC (+ ImageWriter II mono host pages). No mouse, clock, Videx, Franklin. Colour ImageWriter is deferred (V2). |
 | NTSC composite artifact | Current paint is a2m-class colour + discrete-bit mono. A later decoder would swap the paint backend, not the shell. |
 | Frame-ring film | Kept as a preview cache (pink CRT where there is no still). Whether that ARGB budget is worth keeping is undecided; the checkpoint is the source of truth. |
-| Control catalog ± | Wire has enter/leave/land (A2M/15). Adjacent catalog sample `[-]`/`[+]` stay `runtime_client` / UI. |
+| Control catalog ± | Wire has enter/leave/land (A2M/16). Adjacent catalog sample `[-]`/`[+]` stay `runtime_client` / UI. |
 | BP Swap drive 1 | Swap action targets drive 0. |
 
 Closed debates (do not re-litigate without new measurements) live in

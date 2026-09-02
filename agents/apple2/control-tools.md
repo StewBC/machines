@@ -87,7 +87,7 @@ printer-flush` (generated from the leftover verb table).
 | Symbols | `find-symbol <name>` → `ok address=$XXXX name=…` / `not-ready` / `not-found` |
 | Input | `key <byte>` (`$8D` / CR → Return) |
 | Snapshot | `save-state` `load-state` |
-| Printer | `printer-flush` — fire-and-forget (`ok accepted=1`); force-flushes a dirty ImageWriter page when SSC is installed (no-op if clean/blank/absent). Enable/dir/format stay Configure/INI/CLI — no `set-printer` / `get-printer` in v1. |
+| Printer | `printer-flush` — fire-and-forget (`ok accepted=1`); force-flushes a dirty ImageWriter page when an SSC is installed (no-op if clean/blank/absent). Presence is the SSC slot (`[Slots]` / Configure); dir/format stay `[printer]` / CLI / Paths — no `set-printer` / `get-printer` in v1. |
 | Media | see below |
 
 ### Media (Disk II + SmartPort)
