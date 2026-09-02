@@ -920,7 +920,7 @@ static void test_capabilities_from_table(void)
         "connection introspection execution state step turbo frame memory "
         "debug-memory call-stack input disk file snapshot breakpoints wait "
         "assemble symbols drive-cpu vic cia run-to-raster history power-drive "
-        "frame-ring vic-ring sessions state-changed inspector",
+        "frame-ring vic-ring sessions state-changed inspector printer-flush",
         caps);
 }
 

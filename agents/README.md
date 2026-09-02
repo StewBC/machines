@@ -112,7 +112,7 @@ Control **framing + verb runner + memory-source type** is `src/shell/control/`.
 Product binaries supply verb tables and memory-source tables. `capabilities`
 is generated from the product table (static advertisement). Deferred
 capacity (a2m 1, c64m 16) and product `control_server.c` loops stay product-local.
-`hello` is `A2M/15` / `C64M/9`.
+`hello` is `A2M/15` / `C64M/10`.
 
 HST1 store / find grammar / wire, breakpoint-condition parse (published
 LHS table: Apple `cycle_in_line`, C64 `vic_cycle` / `raster`), Forensics,

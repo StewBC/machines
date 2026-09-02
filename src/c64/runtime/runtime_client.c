@@ -895,6 +895,11 @@ bool runtime_client_set_printer(
     return runtime_client_push(client, &command);
 }
 
+bool runtime_client_printer_flush(runtime_client *client)
+{
+    return runtime_client_send_command(client, RUNTIME_COMMAND_PRINTER_FLUSH);
+}
+
 bool runtime_client_apply_machine_config(
     runtime_client *client,
     const c64_config *config,

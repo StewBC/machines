@@ -105,7 +105,8 @@ static const c64_control_verb k_c64_verbs[] = {
     { { "enter-inspector", "inspector", NULL, NULL }, CONTROL_COMMAND_ENTER_INSPECTOR },
     { { "land-inspector", "inspector", NULL, NULL }, CONTROL_COMMAND_LAND_INSPECTOR },
     { { "land-inspector-exact", "inspector", NULL, NULL },
-      CONTROL_COMMAND_LAND_INSPECTOR_EXACT }
+      CONTROL_COMMAND_LAND_INSPECTOR_EXACT },
+    { { "printer-flush", "printer-flush", NULL, NULL }, CONTROL_COMMAND_PRINTER_FLUSH }
 };
 
 control_command_type c64_control_command_from_name(const char *name, size_t length)

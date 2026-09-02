@@ -13,7 +13,7 @@ enum {
 };
 
 /* Product wire identity. Bump when scripts must learn new behaviour. */
-#define CONTROL_PROTOCOL_VERSION "C64M/9"
+#define CONTROL_PROTOCOL_VERSION "C64M/10"
 #define CONTROL_PROTOCOL_APP_NAME "c64m"
 
 typedef enum control_command_type {
@@ -95,7 +95,8 @@ typedef enum control_command_type {
     CONTROL_COMMAND_LEAVE_INSPECTOR,
     CONTROL_COMMAND_ENTER_INSPECTOR,
     CONTROL_COMMAND_LAND_INSPECTOR,
-    CONTROL_COMMAND_LAND_INSPECTOR_EXACT
+    CONTROL_COMMAND_LAND_INSPECTOR_EXACT,
+    CONTROL_COMMAND_PRINTER_FLUSH
 } control_command_type;
 
 enum {

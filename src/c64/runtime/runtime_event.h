@@ -221,6 +221,9 @@ typedef struct runtime_machine_snapshot {
     c64_sid_hardware_snapshot sid_hardware;
     c64_1541_hardware_snapshot drive8_hardware;
     c64_1541_hardware_snapshot drive9_hardware;
+    uint8_t printer_enabled;
+    uint32_t printer_pages_flushed;
+    uint8_t printer_page_dirty;
     uint8_t inspector_mode; /* runtime_inspector_mode */
     uint8_t inspector_enabled;
     uint64_t inspector_focus_cycle;

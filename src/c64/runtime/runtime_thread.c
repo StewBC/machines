@@ -591,6 +591,13 @@ static void runtime_publish_machine_state(runtime *rt) {
             (rt->inspector_off_on_max && runtime_turbo_is_free_run(rt)) ? 1u : 0u;
     }
 
+    event.data.machine_state.printer_enabled =
+        c64_printer_enabled(&rt->machine.printer) ? 1u : 0u;
+    event.data.machine_state.printer_pages_flushed =
+        c64_printer_pages_flushed(&rt->machine.printer);
+    event.data.machine_state.printer_page_dirty =
+        c64_printer_page_dirty(&rt->machine.printer) ? 1u : 0u;
+
     runtime_publish_event(rt, &event);
 }
 
@@ -5330,6 +5337,7 @@ static bool runtime_inspector_command_mutates_machine(runtime_command_type type)
     case RUNTIME_COMMAND_INSPECTOR_SET_ENABLED:
     case RUNTIME_COMMAND_SET_SWIFTLINK:
     case RUNTIME_COMMAND_SET_PRINTER:
+    case RUNTIME_COMMAND_PRINTER_FLUSH:
         return true;
     default:
         return false;
@@ -6116,6 +6124,10 @@ static bool runtime_process_command(runtime *rt, const runtime_command *command,
                 rt,
                 command->data.set_printer.enabled != 0u,
                 command->data.set_printer.output_dir);
+            break;
+
+        case RUNTIME_COMMAND_PRINTER_FLUSH:
+            runtime_printer_force_flush(rt);
             break;
 
         case RUNTIME_COMMAND_PASTE_TEXT: {

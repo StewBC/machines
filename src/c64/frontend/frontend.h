@@ -65,6 +65,9 @@ typedef struct frontend_debug_state {
     bool has_disk_status[2];
     bool has_call_stack;
     bool cartridge_attached;
+    bool printer_enabled;
+    uint32_t printer_pages_flushed;
+    bool printer_page_dirty;
     uint8_t inspector_mode;
     uint8_t inspector_enabled;
     uint64_t inspector_focus_cycle;
@@ -157,7 +160,8 @@ typedef enum frontend_debugger_intent_type {
     FRONTEND_DEBUGGER_INTENT_HISTORY_READ,
     FRONTEND_DEBUGGER_INTENT_HISTORY_INFO,
     FRONTEND_DEBUGGER_INTENT_HISTORY_CLOSE,
-    FRONTEND_DEBUGGER_INTENT_SET_SYMBOL_SOURCE_ENABLED
+    FRONTEND_DEBUGGER_INTENT_SET_SYMBOL_SOURCE_ENABLED,
+    FRONTEND_DEBUGGER_INTENT_PRINTER_FLUSH
 } frontend_debugger_intent_type;
 
 typedef enum frontend_history_verb {

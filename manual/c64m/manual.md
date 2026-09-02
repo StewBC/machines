@@ -34,7 +34,7 @@ Useful flags:
 | `--saveini` / `-v`     | Save INI on quit (one-time override)                |
 | `--remember` / `-r`    | Force save-on-quit into the INI file                |
 | `--log-level <level>`  | Host log policy: `all`, `warn` (default), `error`, or `none` |
-| `--control-port N`     | Listen on localhost TCP for C64M/9 remote control (`0`=off) |
+| `--control-port N`     | Listen on localhost TCP for C64M/10 remote control (`0`=off) |
 | `--headless`           | No window; requires `--control-port`                |
 | `--disk <drive>=<image[,image...]>` | Mount a D64/G64 image at startup, e.g. `--disk 8=game.d64`; comma-separated to pre-load a queue. Empty path (`--disk 8=`) soft-powers that unit without media |
 | `--prg <file>` / `-p`  | Load a file as PRG at startup                       |
@@ -44,6 +44,9 @@ Useful flags:
 | `--swiftlink-base de00|df00` | SwiftLink ACIA base page (default `de00`)      |
 | `--swiftlink-irq none|nmi|irq` | SwiftLink interrupt routing (default `none`) |
 | `--swiftlink-pace-baud` / `--no-swiftlink-pace-baud` | Pace ACIA TX/RX holding to the configured baud (default off = ASAP) |
+| `--printer` / `--no-printer` | Enable MPS-803-class IEC printer device 4 (default off) |
+| `--printer-dir <path>` | Printer host page output directory (default `prints`) |
+| `--printer-format bmp` | Printer host page format (`bmp` only in v1) |
 | `--sna <file>`         | Load a machine snapshot (`.c64state`) at startup    |
 | `--autorun` / `-a`     | Run automatically after load (combine with `--prg`, `--basic`, or `--disk`) |
 | `--inspector` / `--no-inspector` | Enable Inspector recording (checkpoints; default off). `--inspector-memory=<MiB>` sets the budget (0 or 16..4096) |
@@ -175,6 +178,35 @@ translation in the modem.
 
 Snapshots store chip/Hayes flags only (`SLNK`); they do not restore an open TCP session.
 Load-state and Inspector land hang up the bridge. Soft reset keeps host enable/base.
+
+### Printer (MPS-803)
+
+c64m can soft-attach an MPS-803-class virtual printer as IEC **device 4**. Guest
+output arrives through KERNAL channel traps (`OPEN 4,4` / `PRINT#` / `CLOSE`, and
+Print Shop's MPS path). Pages are written as host BMP files under the configured
+output directory (default `prints`).
+
+Enable with `--printer`, INI `[printer] enabled=true`, or
+**Misc -> Machine -> Configure -> Emulator** (Printer block). Choose the output
+directory with `--printer-dir` / `[printer] output_dir` / Configure browse.
+Format is **`bmp` only** until a later release unlocks PNG/PDF.
+
+Pages flush on:
+
+| Trigger | Behavior |
+|---------|----------|
+| Page-full | Flush; continue on a new page |
+| CLOSE of the printer logical file | Flush if dirty |
+| CLALL that includes a printer LA | Flush if dirty |
+| Disable printer / emulator shutdown | Flush if dirty |
+| **Force flush** (Misc -> Machine / `printer-flush`) | Flush if dirty; blank pages are suppressed |
+| CHR$(12) form feed | Optional emulator convenience flush (not authentic MPS-803) |
+
+When the printer is enabled, **Misc -> Machine** shows
+`Printer: on | pages N | dirty|clean` and a **Force flush** button that works while
+the emulator is running. Over the control port, `printer-flush` is the same
+fire-and-forget action (`ok accepted=1`). Enable/dir/format are not changed by
+the control port in v1.
 
 ### Auto Run
 
@@ -954,6 +986,12 @@ and **Remote**).
 
 **[Configure...]** opens the Configure dialog (see **Configure**).
 
+When the MPS-803 printer is enabled, a **Printer** status line
+(`Printer: on | pages N | dirty|clean`) and a **[Force flush]** button appear
+above Configure. Force flush writes the current dirty page to the host output
+directory (no-op if clean or blank) and works while the emulator is running.
+See **Printer (MPS-803)**.
+
 **[Reset]** performs a hard reset of the emulated C64 and preserves its running state:
 it resumes automatically if it was running, or remains paused if it was stopped. Any
 pending PRG injection or assembler-queued run is cancelled. If a cartridge is attached,
@@ -1689,6 +1727,9 @@ Show disk LEDs, and the other Machine settings apply immediately when you press
 | Base address      | `$DE00` (default) or `$DF00` |
 | Interrupt         | `None` (polled), `NMI`, or `IRQ` |
 | Pace to baud rate | When on, gate TX/RX holding to the configured baud; off delivers ASAP |
+| Printer (MPS-803) | Soft-attach IEC printer device 4; host pages under Output dir (`bmp` only in v1) |
+| Output dir        | Host folder for flushed page files (default `prints`) |
+| Format            | `bmp` (PNG/PDF unlock later) |
 
 The CRT controls are a live preview: checkboxes and sliders update the C64 display while
 Configure remains open. **[Cancel]** or the dialog close button restores the values that
@@ -2093,7 +2134,7 @@ combine headless mode with `--sna`:
 The server always binds to `127.0.0.1`. It accepts one client at a time. The socket
 thread performs network I/O only; runtime commands and snapshot requests are dispatched
 by the main loop, so remote control follows the same thread-ownership rules as the GUI
-debugger. The current protocol name is `C64M/9`.
+debugger. The current protocol name is `C64M/10`.
 
 Unsolicited events may arrive with request id `0`, for example
 `0 event state-changed reason=step session=2 cycles=... frame=... epoch=...`. Scripts that
@@ -2215,8 +2256,8 @@ is still paced by present/vsync (~16 ms class).
 
 | Command | Response |
 |---------|----------|
-| `hello` | `ok name=c64m protocol=C64M/9` |
-| `version` | `ok protocol=C64M/9 app=c64m` |
+| `hello` | `ok name=c64m protocol=C64M/10` |
+| `version` | `ok protocol=C64M/10 app=c64m` |
 | `capabilities` | Space-separated capability names |
 | `ping` | `ok` |
 | `quit-client` | `ok`, then the server closes the client connection |
@@ -2225,10 +2266,12 @@ is still paced by present/vsync (~16 ms class).
 `execution`, `state`, `step`, `turbo`, `frame`, `memory`, `debug-memory`, `call-stack`,
 `input`, `disk`, `file`, `snapshot`, `breakpoints`, `wait`, `assemble`, `symbols`,
 `drive-cpu`, `vic`, `cia`, `run-to-raster`, `history`, `frame-ring`, `vic-ring`,
-`sessions`, and `state-changed`. The `snapshot` token means machine save/load
-(`.c64state`) via `load-state` / `save-state`. The `state` token means runtime
-inspection (`get-state`), not file snapshots. `sessions` / `state-changed` mean
-per-asker history cursors and unsolicited mutation informs (open mutation; no lock).
+`sessions`, `state-changed`, and `printer-flush`. The `snapshot` token means machine
+save/load (`.c64state`) via `load-state` / `save-state`. The `state` token means
+runtime inspection (`get-state`), not file snapshots. `sessions` / `state-changed`
+mean per-asker history cursors and unsolicited mutation informs (open mutation; no
+lock). `printer-flush` force-flushes a dirty MPS-803 page when the soft-attached
+printer is enabled (see **Printer (MPS-803)**).
 
 ### Execution Control
 
@@ -2250,6 +2293,7 @@ machine reaches a new state. Use `wait-*` commands when a script needs to synchr
 | `run-instructions <count>` | Run for a positive instruction count |
 | `run-to <addr>` | Run until the PC reaches a 16-bit address |
 | `set-turbo <1\|2\|max>` | Set turbo mode: 1=normal, 2/`max`=max (`3` rejected) |
+| `printer-flush` | Force-flush dirty MPS-803 page (no-op if clean/blank/disabled) |
 
 Accepted execution commands respond:
 

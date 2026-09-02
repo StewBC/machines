@@ -52,9 +52,11 @@ There is no dual-path compatibility layer. When wire behavior or control
 concurrency semantics change in a way that scripts must learn, bump `N` in
 the same change as the code and this document.
 
-**Current: C64M/9** — Inspect honesty (`mode=live|inspector`, enter/leave/land,
-capability `inspector`, `state-changed` reasons `inspector-*`), sessions,
-unsolicited `state-changed`, VIC ring, frame ring, guarded breakpoints, HST1.
+**Current: C64M/10** — `printer-flush` (force-flush dirty MPS-803 page when
+printer enabled); prior C64M/9 inspect honesty (`mode=live|inspector`,
+enter/leave/land, capability `inspector`, `state-changed` reasons `inspector-*`),
+sessions, unsolicited `state-changed`, VIC ring, frame ring, guarded breakpoints,
+HST1.
 
 ## Wire format
 
@@ -262,14 +264,20 @@ N run-cycles <positive-count>
 N run-instructions <positive-count>
 N run-to <address>
 N set-turbo <mode 1|2|max>
+N printer-flush
 ```
+
+`printer-flush` is fire-and-forget (`ok accepted=1`). It force-flushes a dirty
+MPS-803 page when the soft-attached printer is enabled (no-op if clean/blank/
+disabled). Enable/dir/format stay Configure/INI/CLI — no `set-printer` /
+`get-printer` in v1.
 
 Current fixed responses:
 
 ```text
-hello        -> ok name=c64m protocol=C64M/9
-version      -> ok protocol=C64M/9 app=c64m
-capabilities -> ok connection introspection execution state step turbo frame memory debug-memory call-stack input disk file snapshot breakpoints wait assemble symbols drive-cpu vic cia run-to-raster history power-drive frame-ring vic-ring sessions state-changed inspector
+hello        -> ok name=c64m protocol=C64M/10
+version      -> ok protocol=C64M/10 app=c64m
+capabilities -> ok connection introspection execution state step turbo frame memory debug-memory call-stack input disk file snapshot breakpoints wait assemble symbols drive-cpu vic cia run-to-raster history power-drive frame-ring vic-ring sessions state-changed inspector printer-flush
 (generated from the leftover verb table)
 ping         -> ok
 ```

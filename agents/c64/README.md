@@ -37,7 +37,7 @@ C64 `film_cycle` / pink / vic-ring stay in `runtime-control.md`.
 c64m is a C99 Commodore 64 emulator. It boots real ROM, runs PAL and NTSC, and
 covers BASIC, PRG inject, D64/G64 (devices 8 and 9), CRT types 0, 5, 7, 8, 15,
 17, and 19, SID audio, a debugger, Inspector time travel, an always-on CPU
-flight recorder, and a localhost control port (`C64M/9`).
+flight recorder, and a localhost control port (`C64M/10`).
 
 It is not a promise of cycle-perfect demo-scene behavior, every cartridge
 mapper, analog SID, or full 1541 mechanics. See `known-gaps.md`.

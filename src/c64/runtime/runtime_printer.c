@@ -39,3 +39,11 @@ bool runtime_printer_set_enabled(
     c64_printer_set_enabled(printer, true);
     return true;
 }
+
+void runtime_printer_force_flush(runtime *rt)
+{
+    if (rt == NULL) {
+        return;
+    }
+    c64_printer_force_flush(&rt->machine.printer);
+}

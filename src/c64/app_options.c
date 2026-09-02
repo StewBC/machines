@@ -1895,7 +1895,7 @@ static bool parse_command_line_overrides(app_options *options, int argc, char **
         OPT_STRING('\0', "log-level", &log_level_s,
                    "host log policy: all|warn|error|none (default warn)", NULL, 0, 0),
         OPT_INTEGER('\0', "control-port", &control_port,
-                    "listen on localhost TCP for C64M/9 remote control (0=off)", NULL, 0, 0),
+                    "listen on localhost TCP for C64M/10 remote control (0=off)", NULL, 0, 0),
         OPT_BOOLEAN('\0', "headless", &headless,
                     "no window; requires --control-port", NULL, 0, OPT_NONEG),
 

@@ -6193,6 +6193,26 @@ static void frontend_draw_misc_programs(frontend *ui, const frontend_debug_state
         frontend_push_simple_intent(ui, FRONTEND_DEBUGGER_INTENT_STATE_SAVE_AS_DIALOG);
     }
 
+    /* Printer (status + Force flush when soft-attached) */
+    if (debug_state != NULL && debug_state->printer_enabled) {
+        char status[96];
+
+        nk_layout_row_dynamic(ctx, 18.0f, 1);
+        nk_label(ctx, "Printer", NK_TEXT_LEFT);
+        snprintf(
+            status,
+            sizeof(status),
+            "Printer: on | pages %u | %s",
+            (unsigned)debug_state->printer_pages_flushed,
+            debug_state->printer_page_dirty ? "dirty" : "clean");
+        nk_layout_row_dynamic(ctx, 18.0f, 1);
+        nk_label(ctx, status, NK_TEXT_LEFT);
+        nk_layout_row_dynamic(ctx, 24.0f, 1);
+        if (nk_button_label(ctx, "Force flush")) {
+            frontend_push_simple_intent(ui, FRONTEND_DEBUGGER_INTENT_PRINTER_FLUSH);
+        }
+    }
+
     /* Emulator */
     nk_layout_row_dynamic(ctx, 18.0f, 1);
     nk_label(ctx, "Emulator", NK_TEXT_LEFT);

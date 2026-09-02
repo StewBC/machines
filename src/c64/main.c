@@ -1371,6 +1371,12 @@ static void update_debug_state_from_event(
                 event->data.machine_state.inspector_clock_hz;
             debug_state->inspector_stopped_for_max =
                 event->data.machine_state.inspector_stopped_for_max != 0u;
+            debug_state->printer_enabled =
+                event->data.machine_state.printer_enabled != 0u;
+            debug_state->printer_pages_flushed =
+                event->data.machine_state.printer_pages_flushed;
+            debug_state->printer_page_dirty =
+                event->data.machine_state.printer_page_dirty != 0u;
             debug_state->has_cpu = true;
             debug_state->has_memory_banking = true;
             debug_state->has_hardware = true;
@@ -5335,6 +5341,10 @@ static void dispatch_debugger_intents(
                 break;
             }
 
+            case FRONTEND_DEBUGGER_INTENT_PRINTER_FLUSH:
+                sent = runtime_client_printer_flush(client);
+                break;
+
             case FRONTEND_DEBUGGER_INTENT_NONE:
             default:
                 break;
@@ -5405,6 +5415,7 @@ static bool control_command_inspector_forbidden(control_command_type type)
         case CONTROL_COMMAND_ASSEMBLE:
         case CONTROL_COMMAND_HISTORY_CLEAR:
         case CONTROL_COMMAND_HISTORY_RECORD:
+        case CONTROL_COMMAND_PRINTER_FLUSH:
             return true;
         default:
             return false;
@@ -6399,6 +6410,10 @@ static void dispatch_control_request(
             accepted = runtime_client_restore(client);
             break;
 
+        case CONTROL_COMMAND_PRINTER_FLUSH:
+            accepted = runtime_client_printer_flush(client);
+            break;
+
         case CONTROL_COMMAND_JOYSTICK:
             accepted = runtime_client_set_joystick(
                 client,
@@ -6978,6 +6993,7 @@ static void dispatch_control_request(
         case CONTROL_COMMAND_MOUNT_D64:
         case CONTROL_COMMAND_UNMOUNT_DISK:
         case CONTROL_COMMAND_POWER_DRIVE:
+        case CONTROL_COMMAND_PRINTER_FLUSH:
             if (accepted) {
                 /* Optimistic RUNNING so a following wait-paused in the same
                    round-trip cannot false-complete on the previous pause before

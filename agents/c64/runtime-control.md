@@ -76,7 +76,7 @@ owns I/O; SDL/main drains requests. `--headless` requires a control port and
 skips window/renderer/frontend/host audio; the headless loop wakes when a
 control request is queued. `quit-client` closes the socket, not the process.
 
-Wire is **C64M/9**. Grammar, payloads, and client sketch: `control-port.md`.
+Wire is **C64M/10**. Grammar, payloads, and client sketch: `control-port.md`.
 Recipes: `using-c64m.md`.
 
 ## CPU flight recorder (HST1)
