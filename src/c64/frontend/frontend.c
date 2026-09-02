@@ -291,6 +291,12 @@ typedef enum frontend_config_tab {
     FRONTEND_CONFIG_TAB_PATHS
 } frontend_config_tab;
 
+typedef enum frontend_config_machine_tab {
+    FRONTEND_CONFIG_MACHINE_TAB_GENERAL = 0,
+    FRONTEND_CONFIG_MACHINE_TAB_PERIPHERALS,
+    FRONTEND_CONFIG_MACHINE_TAB_INPUT
+} frontend_config_machine_tab;
+
 typedef enum frontend_ini_prompt_state {
     FRONTEND_INI_PROMPT_NONE = 0,
     FRONTEND_INI_PROMPT_EXISTING
@@ -300,6 +306,7 @@ typedef struct frontend_config_dialog_state {
     bool open;
     bool initialized;
     frontend_config_tab active_tab;
+    frontend_config_machine_tab active_machine_tab;
     frontend_ini_prompt_state prompt;
     app_options original;
     app_options edited;
@@ -1626,6 +1633,7 @@ static bool frontend_config_dialog_open(frontend *ui)
 
     ui->config_dialog.open = true;
     ui->config_dialog.active_tab = FRONTEND_CONFIG_TAB_MACHINE;
+    ui->config_dialog.active_machine_tab = FRONTEND_CONFIG_MACHINE_TAB_GENERAL;
     ui->config_dialog.error[0] = '\0';
     return true;
 }
@@ -2121,9 +2129,15 @@ static bool frontend_config_validate(frontend_config_dialog_state *dialog)
     {
         runtime_config turbo_check = {0};
 
+        /* Blank means the runtime default list (1,max), same as --noini. */
         if (dialog->edited.turbo_multipliers == NULL ||
-            dialog->edited.turbo_multipliers[0] == '\0' ||
-            !runtime_config_set_turbo_csv(
+            dialog->edited.turbo_multipliers[0] == '\0') {
+            if (!app_options_set_string(&dialog->edited.turbo_multipliers, "1,max")) {
+                snprintf(dialog->error, sizeof(dialog->error), "Out of memory");
+                return false;
+            }
+        }
+        if (!runtime_config_set_turbo_csv(
                 &turbo_check, dialog->edited.turbo_multipliers)) {
             snprintf(
                 dialog->error,
@@ -2179,21 +2193,51 @@ static void frontend_draw_config_tab_button(frontend *ui, frontend_config_tab ta
     ui->ctx->style.button = saved_button;
 }
 
-static void frontend_draw_config_machine_tab(frontend *ui, frontend_config_dialog_state *dialog, struct nk_context *ctx)
+static void frontend_draw_config_machine_tab_button(
+    frontend *ui,
+    frontend_config_machine_tab tab,
+    const char *label)
+{
+    struct nk_style_button saved_button = ui->ctx->style.button;
+
+    /* Sub-tabs are shorter and use a muted teal palette so they read as nested
+       under Machine/Emulator/Paths rather than as a second primary strip. */
+    ui->ctx->style.button.padding = nk_vec2(4.0f, 1.0f);
+    ui->ctx->style.button.rounding = 2.0f;
+    if (ui->config_dialog.active_machine_tab == tab) {
+        ui->ctx->style.button.normal = nk_style_item_color(nk_rgb(58, 86, 78));
+        ui->ctx->style.button.hover = nk_style_item_color(nk_rgb(68, 98, 88));
+        ui->ctx->style.button.active = nk_style_item_color(nk_rgb(50, 76, 68));
+        ui->ctx->style.button.text_normal = nk_rgb(220, 240, 230);
+        ui->ctx->style.button.text_hover = nk_rgb(230, 248, 238);
+        ui->ctx->style.button.text_active = nk_rgb(220, 240, 230);
+    } else {
+        ui->ctx->style.button.normal = nk_style_item_color(nk_rgb(42, 50, 58));
+        ui->ctx->style.button.hover = nk_style_item_color(nk_rgb(50, 60, 70));
+        ui->ctx->style.button.active = nk_style_item_color(nk_rgb(36, 44, 52));
+        ui->ctx->style.button.text_normal = nk_rgb(176, 192, 204);
+        ui->ctx->style.button.text_hover = nk_rgb(200, 214, 224);
+        ui->ctx->style.button.text_active = nk_rgb(176, 192, 204);
+    }
+
+    if (nk_button_label(ui->ctx, label)) {
+        ui->config_dialog.active_machine_tab = tab;
+    }
+
+    ui->ctx->style.button = saved_button;
+}
+
+static void frontend_draw_config_machine_general_tab(
+    frontend_config_dialog_state *dialog,
+    struct nk_context *ctx)
 {
     static const char *const video_items[] = { "NTSC", "PAL" };
-    static const char *const joystick_port_items[] = { "Off", "Port 1", "Port 2" };
-    static const char *const joystick_layout_items[] = { "Numpad", "WASD" };
     int selected;
     int next;
 
-    (void)ui;
-
-    if (dialog->edited.turbo_multipliers == NULL) {
+    if (dialog->edited.turbo_multipliers == NULL ||
+        dialog->edited.turbo_multipliers[0] == '\0') {
         app_options_set_string(&dialog->edited.turbo_multipliers, "1,max");
-    }
-    if (dialog->edited.keyboard_joystick_layout == NULL) {
-        app_options_set_string(&dialog->edited.keyboard_joystick_layout, "numpad");
     }
 
     nk_layout_row_begin(ctx, NK_DYNAMIC, 22.0f, 2);
@@ -2206,6 +2250,118 @@ static void frontend_draw_config_machine_tab(frontend *ui, frontend_config_dialo
         app_options_set_string(&dialog->edited.video_standard, video_items[next]);
     }
     nk_layout_row_end(ctx);
+
+    nk_layout_row_begin(ctx, NK_DYNAMIC, 22.0f, 2);
+    nk_layout_row_push(ctx, 0.30f);
+    nk_label(ctx, "Turbo Modes (1,max)", NK_TEXT_LEFT);
+    nk_layout_row_push(ctx, 0.70f);
+    frontend_edit_replace(ctx, NK_EDIT_FIELD, dialog->edited.turbo_multipliers, 256, nk_filter_default);
+    nk_layout_row_end(ctx);
+
+    nk_layout_row_dynamic(ctx, 22.0f, 1);
+    frontend_checkbox_bool(
+        ctx,
+        "History off on max (pause CPU flight recorder only)",
+        &dialog->edited.history_off_on_max);
+    nk_layout_row_dynamic(ctx, 22.0f, 1);
+    frontend_checkbox_bool(
+        ctx,
+        "Inspector off on max (wipe Record)",
+        &dialog->edited.inspector_off_on_max);
+    nk_layout_row_dynamic(ctx, 22.0f, 1);
+    frontend_checkbox_bool(ctx, "Pause on BRK", &dialog->edited.pause_on_brk);
+}
+
+static void frontend_draw_config_machine_peripherals_tab(
+    frontend_config_dialog_state *dialog,
+    struct nk_context *ctx)
+{
+    static const char *const base_items[] = { "$DE00", "$DF00" };
+    static const char *const irq_items[] = { "None", "NMI", "IRQ" };
+    static const char *const irq_values[] = { "none", "nmi", "irq" };
+    int selected;
+    int next;
+
+    nk_layout_row_dynamic(ctx, 22.0f, 1);
+    frontend_checkbox_bool(ctx, "Emulate 1541", &dialog->edited.emulate_1541);
+
+    nk_layout_row_dynamic(ctx, 10.0f, 1);
+    nk_spacing(ctx, 1);
+
+    nk_layout_row_dynamic(ctx, 18.0f, 1);
+    nk_label(ctx, "SwiftLink / Turbo232", NK_TEXT_LEFT);
+
+    nk_layout_row_dynamic(ctx, 22.0f, 1);
+    frontend_checkbox_bool(
+        ctx,
+        "Enable SwiftLink (Hayes modem)",
+        &dialog->edited.swiftlink_enabled);
+
+    if (dialog->edited.swiftlink_base == NULL) {
+        app_options_set_string(&dialog->edited.swiftlink_base, "de00");
+    }
+    nk_layout_row_begin(ctx, NK_DYNAMIC, 22.0f, 2);
+    nk_layout_row_push(ctx, 0.30f);
+    nk_label(ctx, "Base address", NK_TEXT_LEFT);
+    nk_layout_row_push(ctx, 0.70f);
+    selected = frontend_string_equal(dialog->edited.swiftlink_base, "df00") ? 1 : 0;
+    next = nk_combo(ctx, base_items, 2, selected, 18, nk_vec2(120.0f, 100.0f));
+    if (next != selected) {
+        app_options_set_string(
+            &dialog->edited.swiftlink_base, next == 1 ? "df00" : "de00");
+    }
+    nk_layout_row_end(ctx);
+
+    if (dialog->edited.swiftlink_irq == NULL) {
+        app_options_set_string(&dialog->edited.swiftlink_irq, "none");
+    }
+    nk_layout_row_begin(ctx, NK_DYNAMIC, 22.0f, 2);
+    nk_layout_row_push(ctx, 0.30f);
+    nk_label(ctx, "Interrupt", NK_TEXT_LEFT);
+    nk_layout_row_push(ctx, 0.70f);
+    selected = 0;
+    if (frontend_string_equal(dialog->edited.swiftlink_irq, "nmi")) {
+        selected = 1;
+    } else if (frontend_string_equal(dialog->edited.swiftlink_irq, "irq")) {
+        selected = 2;
+    }
+    next = nk_combo(ctx, irq_items, 3, selected, 18, nk_vec2(120.0f, 120.0f));
+    if (next != selected && next >= 0 && next < 3) {
+        app_options_set_string(&dialog->edited.swiftlink_irq, irq_values[next]);
+    }
+    nk_layout_row_end(ctx);
+
+    nk_layout_row_dynamic(ctx, 22.0f, 1);
+    frontend_checkbox_bool(
+        ctx,
+        "Pace to baud rate",
+        &dialog->edited.swiftlink_pace_baud);
+
+    nk_layout_row_dynamic(ctx, 10.0f, 1);
+    nk_spacing(ctx, 1);
+
+    nk_layout_row_dynamic(ctx, 22.0f, 1);
+    frontend_checkbox_bool(
+        ctx,
+        "Enable MPS-803 Printer as device 4",
+        &dialog->edited.printer_enabled);
+    /* Output dir is Paths -> printer; format is bmp-only in v1. */
+}
+
+static void frontend_draw_config_machine_input_tab(
+    frontend_config_dialog_state *dialog,
+    struct nk_context *ctx)
+{
+    static const char *const joystick_port_items[] = { "Off", "Port 1", "Port 2" };
+    static const char *const joystick_layout_items[] = { "Numpad", "WASD" };
+    static const char *const mouse_port_items[] = { "Port 1", "Port 2" };
+    int selected;
+    int next;
+    int mouse_port_selected;
+
+    if (dialog->edited.keyboard_joystick_layout == NULL) {
+        app_options_set_string(&dialog->edited.keyboard_joystick_layout, "numpad");
+    }
 
     nk_layout_row_begin(ctx, NK_DYNAMIC, 22.0f, 3);
     nk_layout_row_push(ctx, 0.30f);
@@ -2228,48 +2384,65 @@ static void frontend_draw_config_machine_tab(frontend *ui, frontend_config_dialo
     }
     nk_layout_row_end(ctx);
 
-    {
-        static const char *const mouse_port_items[] = { "Port 1", "Port 2" };
-        int mouse_port_selected;
+    nk_layout_row_begin(ctx, NK_DYNAMIC, 22.0f, 3);
+    nk_layout_row_push(ctx, 0.30f);
+    nk_label(ctx, "Mouse (1351)", NK_TEXT_LEFT);
+    nk_layout_row_push(ctx, 0.35f);
+    frontend_checkbox_bool(ctx, "Enabled", &dialog->edited.mouse_enabled);
+    nk_layout_row_push(ctx, 0.35f);
+    mouse_port_selected = dialog->edited.mouse_port == 2 ? 1 : 0;
+    next = nk_combo(
+        ctx, mouse_port_items, 2, mouse_port_selected, 18, nk_vec2(120.0f, 100.0f));
+    if (next != mouse_port_selected) {
+        dialog->edited.mouse_port = next == 1 ? 2 : 1;
+    }
+    nk_layout_row_end(ctx);
+}
 
-        nk_layout_row_begin(ctx, NK_DYNAMIC, 22.0f, 3);
-        nk_layout_row_push(ctx, 0.30f);
-        nk_label(ctx, "Mouse (1351)", NK_TEXT_LEFT);
-        nk_layout_row_push(ctx, 0.35f);
-        frontend_checkbox_bool(ctx, "Enabled", &dialog->edited.mouse_enabled);
-        nk_layout_row_push(ctx, 0.35f);
-        mouse_port_selected = dialog->edited.mouse_port == 2 ? 1 : 0;
-        next = nk_combo(
-            ctx, mouse_port_items, 2, mouse_port_selected, 18, nk_vec2(120.0f, 100.0f));
-        if (next != mouse_port_selected) {
-            dialog->edited.mouse_port = next == 1 ? 2 : 1;
+static void frontend_draw_config_machine_tab(frontend *ui, frontend_config_dialog_state *dialog, struct nk_context *ctx)
+{
+    /* Hairline under the group top edge, then an indented shorter sub-tab row so
+       left/right margins balance and the strip reads as nested, not primary. */
+    nk_layout_row_dynamic(ctx, 6.0f, 1);
+    {
+        struct nk_rect line = nk_widget_bounds(ctx);
+        struct nk_command_buffer *canvas = nk_window_get_canvas(ctx);
+        if (canvas != NULL) {
+            float y = line.y + line.h * 0.5f;
+            nk_stroke_line(
+                canvas,
+                line.x + 8.0f,
+                y,
+                line.x + line.w - 8.0f,
+                y,
+                1.0f,
+                nk_rgb(70, 88, 98));
         }
-        nk_layout_row_end(ctx);
     }
 
-    nk_layout_row_begin(ctx, NK_DYNAMIC, 22.0f, 2);
-    nk_layout_row_push(ctx, 0.30f);
-    nk_label(ctx, "Turbo Modes (1,max)", NK_TEXT_LEFT);
-    nk_layout_row_push(ctx, 0.70f);
-    frontend_edit_replace(ctx, NK_EDIT_FIELD, dialog->edited.turbo_multipliers, 256, nk_filter_default);
+    nk_layout_row_begin(ctx, NK_DYNAMIC, 20.0f, 5);
+    nk_layout_row_push(ctx, 0.06f);
+    nk_spacing(ctx, 1);
+    nk_layout_row_push(ctx, 0.2933f);
+    frontend_draw_config_machine_tab_button(ui, FRONTEND_CONFIG_MACHINE_TAB_GENERAL, "General");
+    nk_layout_row_push(ctx, 0.2934f);
+    frontend_draw_config_machine_tab_button(ui, FRONTEND_CONFIG_MACHINE_TAB_PERIPHERALS, "Peripherals");
+    nk_layout_row_push(ctx, 0.2933f);
+    frontend_draw_config_machine_tab_button(ui, FRONTEND_CONFIG_MACHINE_TAB_INPUT, "Input");
+    nk_layout_row_push(ctx, 0.06f);
+    nk_spacing(ctx, 1);
     nk_layout_row_end(ctx);
 
-    nk_layout_row_dynamic(ctx, 22.0f, 1);
-    frontend_checkbox_bool(
-        ctx,
-        "History off on max (pause CPU flight recorder only)",
-        &dialog->edited.history_off_on_max);
-    nk_layout_row_dynamic(ctx, 22.0f, 1);
-    frontend_checkbox_bool(
-        ctx,
-        "Inspector off on max (wipe Record)",
-        &dialog->edited.inspector_off_on_max);
-    nk_layout_row_dynamic(ctx, 22.0f, 1);
-    frontend_checkbox_bool(ctx, "Pause on BRK", &dialog->edited.pause_on_brk);
-    nk_layout_row_dynamic(ctx, 22.0f, 1);
-    frontend_checkbox_bool(ctx, "Emulate 1541", &dialog->edited.emulate_1541);
-    nk_layout_row_dynamic(ctx, 22.0f, 1);
-    frontend_checkbox_bool(ctx, "Show disk LEDs", &dialog->edited.show_disk_leds);
+    nk_layout_row_dynamic(ctx, 6.0f, 1);
+    nk_spacing(ctx, 1);
+
+    if (dialog->active_machine_tab == FRONTEND_CONFIG_MACHINE_TAB_GENERAL) {
+        frontend_draw_config_machine_general_tab(dialog, ctx);
+    } else if (dialog->active_machine_tab == FRONTEND_CONFIG_MACHINE_TAB_PERIPHERALS) {
+        frontend_draw_config_machine_peripherals_tab(dialog, ctx);
+    } else {
+        frontend_draw_config_machine_input_tab(dialog, ctx);
+    }
 }
 
 static void frontend_draw_config_emulator_tab(frontend *ui, frontend_config_dialog_state *dialog, struct nk_context *ctx)
@@ -2284,6 +2457,9 @@ static void frontend_draw_config_emulator_tab(frontend *ui, frontend_config_dial
     nk_layout_row_push(ctx, 0.45f);
     nk_property_int(ctx, "#L", 1, &dialog->edited.scroll_wheel_lines, 100, 1, 4.0f);
     nk_layout_row_end(ctx);
+
+    nk_layout_row_dynamic(ctx, 22.0f, 1);
+    frontend_checkbox_bool(ctx, "Show disk LEDs", &dialog->edited.show_disk_leds);
 
     nk_layout_row_begin(ctx, NK_DYNAMIC, 22.0f, 3);
     nk_layout_row_push(ctx, 0.30f);
@@ -2301,6 +2477,7 @@ static void frontend_draw_config_emulator_tab(frontend *ui, frontend_config_dial
 
     nk_layout_row_dynamic(ctx, 10.0f, 1);
     nk_spacing(ctx, 1);
+
     nk_layout_row_dynamic(ctx, 18.0f, 1);
     nk_label(ctx, "CRT display", NK_TEXT_LEFT);
     nk_layout_row_dynamic(ctx, 22.0f, 1);
@@ -2354,77 +2531,6 @@ static void frontend_draw_config_emulator_tab(frontend *ui, frontend_config_dial
     /* CRT presentation is a transactional live preview: edited values drive the
        frontend immediately, while Cancel restores dialog->original. */
     frontend_preview_crt_options(ui, &dialog->edited);
-
-    /* SwiftLink is soft-attach host config — not part of CRT preview/Cancel. */
-    {
-        static const char *const base_items[] = { "$DE00", "$DF00" };
-        static const char *const irq_items[] = { "None", "NMI", "IRQ" };
-        static const char *const irq_values[] = { "none", "nmi", "irq" };
-        int selected;
-        int next;
-
-        nk_layout_row_dynamic(ctx, 10.0f, 1);
-        nk_spacing(ctx, 1);
-        nk_layout_row_dynamic(ctx, 18.0f, 1);
-        nk_label(ctx, "SwiftLink / Turbo232", NK_TEXT_LEFT);
-
-        nk_layout_row_dynamic(ctx, 22.0f, 1);
-        frontend_checkbox_bool(
-            ctx,
-            "Enable SwiftLink (Hayes modem)",
-            &dialog->edited.swiftlink_enabled);
-
-        if (dialog->edited.swiftlink_base == NULL) {
-            app_options_set_string(&dialog->edited.swiftlink_base, "de00");
-        }
-        nk_layout_row_begin(ctx, NK_DYNAMIC, 22.0f, 2);
-        nk_layout_row_push(ctx, 0.30f);
-        nk_label(ctx, "Base address", NK_TEXT_LEFT);
-        nk_layout_row_push(ctx, 0.70f);
-        selected = frontend_string_equal(dialog->edited.swiftlink_base, "df00") ? 1 : 0;
-        next = nk_combo(ctx, base_items, 2, selected, 18, nk_vec2(120.0f, 100.0f));
-        if (next != selected) {
-            app_options_set_string(
-                &dialog->edited.swiftlink_base, next == 1 ? "df00" : "de00");
-        }
-        nk_layout_row_end(ctx);
-
-        if (dialog->edited.swiftlink_irq == NULL) {
-            app_options_set_string(&dialog->edited.swiftlink_irq, "none");
-        }
-        nk_layout_row_begin(ctx, NK_DYNAMIC, 22.0f, 2);
-        nk_layout_row_push(ctx, 0.30f);
-        nk_label(ctx, "Interrupt", NK_TEXT_LEFT);
-        nk_layout_row_push(ctx, 0.70f);
-        selected = 0;
-        if (frontend_string_equal(dialog->edited.swiftlink_irq, "nmi")) {
-            selected = 1;
-        } else if (frontend_string_equal(dialog->edited.swiftlink_irq, "irq")) {
-            selected = 2;
-        }
-        next = nk_combo(ctx, irq_items, 3, selected, 18, nk_vec2(120.0f, 120.0f));
-        if (next != selected && next >= 0 && next < 3) {
-            app_options_set_string(&dialog->edited.swiftlink_irq, irq_values[next]);
-        }
-        nk_layout_row_end(ctx);
-
-        nk_layout_row_dynamic(ctx, 22.0f, 1);
-        frontend_checkbox_bool(
-            ctx,
-            "Pace to baud rate",
-            &dialog->edited.swiftlink_pace_baud);
-    }
-
-    {
-        nk_layout_row_dynamic(ctx, 10.0f, 1);
-        nk_spacing(ctx, 1);
-        nk_layout_row_dynamic(ctx, 22.0f, 1);
-        frontend_checkbox_bool(
-            ctx,
-            "Enable MPS-803 Printer as device 4",
-            &dialog->edited.printer_enabled);
-        /* Output dir is Paths -> printer; format is bmp-only in v1. */
-    }
 }
 
 /* One ROM path row: label, an edit box bound to the dialog's editable path
@@ -2514,12 +2620,6 @@ static void frontend_draw_config_paths_tab(frontend *ui, frontend_config_dialog_
             frontend_push_simple_intent(ui, FRONTEND_DEBUGGER_INTENT_CONFIG_PICK_PATH_DIALOG);
         }
         nk_layout_row_end(ctx);
-
-        if (i == FRONTEND_BROWSE_SLOT_SNAPSHOT) {
-            nk_layout_row_dynamic(ctx, 16.0f, 1);
-            nk_label_colored(ctx, "(snapshot also serves as the quicksave folder)",
-                NK_TEXT_LEFT, nk_rgb(150, 170, 180));
-        }
     }
 
     nk_layout_row_dynamic(ctx, 8.0f, 1);
@@ -8065,6 +8165,7 @@ void frontend_set_config_state(frontend *ui, const app_options *options)
 {
     bool keep_open;
     frontend_config_tab keep_tab;
+    frontend_config_machine_tab keep_machine_tab;
 
     if (ui == NULL || options == NULL) {
         return;
@@ -8072,6 +8173,7 @@ void frontend_set_config_state(frontend *ui, const app_options *options)
 
     keep_open = ui->config_dialog.open;
     keep_tab = ui->config_dialog.active_tab;
+    keep_machine_tab = ui->config_dialog.active_machine_tab;
     ui->show_disk_leds = options->show_disk_leds;
     frontend_preview_crt_options(ui, options);
 
@@ -8089,6 +8191,7 @@ void frontend_set_config_state(frontend *ui, const app_options *options)
     ui->config_dialog.open = keep_open;
     if (keep_open) {
         ui->config_dialog.active_tab = keep_tab;
+        ui->config_dialog.active_machine_tab = keep_machine_tab;
     }
 
     /* Paths-tab browse folders bind to ui->browse_dirs (not edited.*); keep them

@@ -22,6 +22,7 @@
 
 #define C64M_DEFAULT_INI "c64m.ini"
 #define C64M_DEFAULT_VIDEO_STANDARD "NTSC"
+#define C64M_DEFAULT_TURBO_MULTIPLIERS "1,max"
 #define C64M_DEFAULT_KEYBOARD_JOYSTICK_LAYOUT "numpad"
 #define C64M_DEFAULT_SCROLL_WHEEL_LINES 3
 #define C64M_DEFAULT_CRT_SCANLINE_STRENGTH 35
@@ -2356,6 +2357,7 @@ void app_options_init(app_options *options)
     options->log_level = HOST_LOG_LEVEL_WARN;
     options->scroll_wheel_lines = C64M_DEFAULT_SCROLL_WHEEL_LINES;
     replace_string(&options->video_standard, C64M_DEFAULT_VIDEO_STANDARD);
+    replace_string(&options->turbo_multipliers, C64M_DEFAULT_TURBO_MULTIPLIERS);
     options->crt_scanline_strength = C64M_DEFAULT_CRT_SCANLINE_STRENGTH;
     options->crt_curvature_amount = C64M_DEFAULT_CRT_CURVATURE_AMOUNT;
     replace_string(&options->keyboard_joystick_layout,
@@ -2590,9 +2592,13 @@ bool app_options_load_startup(app_options *options, int argc, char **argv)
         }
     }
 
-    if (options->turbo_multipliers != NULL &&
-        options->turbo_multipliers[0] != '\0' &&
-        !app_options_turbo_csv_is_valid(options->turbo_multipliers)) {
+    /* Unset or blank turbo list (classic --noini / missing key) becomes 1,max. */
+    if (options->turbo_multipliers == NULL || options->turbo_multipliers[0] == '\0') {
+        if (!replace_string(&options->turbo_multipliers, C64M_DEFAULT_TURBO_MULTIPLIERS)) {
+            config_destroy(cfg);
+            return false;
+        }
+    } else if (!app_options_turbo_csv_is_valid(options->turbo_multipliers)) {
         fprintf(
             stderr,
             "c64m: invalid turbo list '%s' (expected 1, 2, or max; e.g. 1,max)\n",

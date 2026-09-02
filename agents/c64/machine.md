@@ -97,7 +97,7 @@ wins over `--crt`/`--prg`/`--basic`.
 Soft-attach special I/O (not a CRT file): 6551 ACIA at `$DE00` or `$DF00` plus
 Turbo232 `$xx07`, embedded Hayes subset, outbound TCP via the lazy
 `"c64m-swiftlink"` bridge. Host config owns enable+base (`app_options` / CLI /
-Configure Emulator tab). Decode claims the **selected** I/O page only.
+Configure Machine -> Peripherals). Decode claims the **selected** I/O page only.
 
 Conflict: refuse enable (runtime error event) when an IO1 mapper is mounted and
 base is `$DE00`, or Super Games and base is `$DF00`. Refuse CRT load that would

@@ -156,7 +156,7 @@ plus Turbo232 enhanced baud at base+`$07`) with an embedded Hayes modem that ope
 stream, not a raw null-modem tunnel and not VICE+tcpser.
 
 Enable with `--swiftlink`, INI `[swiftlink] enabled=true`, or
-**Misc -> Machine -> Configure -> Emulator** (section under the CRT controls). Base
+**Misc -> Machine -> Configure -> Machine -> Peripherals**. Base
 defaults to `$DE00`; use `--swiftlink-base df00` or the Configure combo for `$DF00`.
 Interrupt defaults to `None` (polled). Choose `NMI` (common for SwiftLink carts) or
 `IRQ` to deliver the 6551 IRQ latch to the CPU. Optional **Pace to baud rate** gates
@@ -189,7 +189,7 @@ output directory (default `prints`). Each flushed page is named
 when more than one page is written in the same second).
 
 Enable with `--printer`, INI `[printer] enabled=true`, or
-**Misc -> Machine -> Configure -> Emulator** (**Enable MPS-803 Printer as device 4**).
+**Misc -> Machine -> Configure -> Machine -> Peripherals** (**Enable MPS-803 Printer as device 4**).
 Choose the output directory with `--printer-dir` / `[printer] output_dir` / Configure
 **Paths -> printer**. Format is **`bmp` only** until a later release unlocks PNG/PDF.
 
@@ -1695,56 +1695,73 @@ am65 -i demo.asm -o loader.prg --prg -D VERSION=3 -s symbols.txt
 ## Configure
 
 The Configure dialog (opened from **[Configure...]** in **Misc -> Machine**) has three
-tabs: **Machine**, **Emulator**, and **Paths**. Shared controls for the INI file sit
-below the tab body on every tab.
+tabs: **Machine**, **Emulator**, and **Paths**. The **Machine** tab has its own
+sub-tabs: **General**, **Peripherals**, and **Input**. Shared controls for the INI
+file sit below the tab body on every tab.
 
 ### Machine
+
+#### General
 
 | Control           | Effect |
 |-------------------|--------|
 | Video             | Select `NTSC` or `PAL`; changes take effect on reboot |
-| Keyboard Joystick | Select `Off`, `Port 1`, or `Port 2`, plus the `Numpad` or `WASD` key layout |
-| Mouse (1351)      | Enable proportional mouse capture, and choose control port `1` or `2` (default off, port 1) |
 | Turbo Modes       | Comma-separated mode list, e.g. `1,max` (1=normal, 2/`max`=max; `3` rejected) |
+| History off on max | Pause the CPU flight recorder only when turbo reaches `max` |
+| Inspector off on max | Wipe Inspector Record when turbo reaches `max` |
 | Pause on BRK      | Auto-pause free-run at the next `BRK` (`$00`) as a crash aid; off by default so carts that hit a KERNAL-handled BRK during boot (e.g. Ocean's Wonderboy) keep running; applies live |
-| Emulate 1541      | Real 1541 DOS ROM + IEC + GCR media (needs a 1541 ROM); applies live |
-| Show disk LEDs    | Draw green (read) and red (write) activity LEDs in the window corner |
 
-The Keyboard Joystick port selector matches the runtime **Shift+Alt+1** /
-**Shift+Alt+2** assignment; either place can change the active port. Change the layout
-here or with **Shift+Alt+M**. Mouse (1351) matches `--mouse` / `--mouse-port` and the
-`[input]` INI keys; enabling it does not grab the pointer until you **Alt+Click** the
-CRT (see **Mouse (1351)** under Implementation Notes). Changing Video reboots the
-emulated machine while preserving its running state. Emulate 1541, Show disk LEDs,
-and the other Machine settings apply immediately when you press
-**[OK]** or **[Save INI now]**.
+Changing Video reboots the emulated machine while preserving its running state. The
+other General settings apply immediately when you press **[OK]** or **[Save INI now]**.
 
-### Emulator
+#### Peripherals
 
 | Control           | Effect |
 |-------------------|--------|
-| Scroll Wheel Speed| Number of rows scrolled per wheel click (1-100) |
-| Symbol Files      | Add symbol files and display the comma-separated list of selected files. Paths load at startup and again when Configure applies a changed list; labels appear in Disassembly / Symbol Lookup after the next symbol poll (no assemble required) |
-| True Aspect Ratio | Show the geometry a real TV showed, using the VIC-II pixel aspect ratio (PAL 0.9365, NTSC 0.7500); off stretches the picture to fill the view |
-| CRT Smoothing     | Filter the picture instead of showing hard pixel edges; forced on by CRT Scanlines and CRT Curvature |
-| CRT Scanlines     | Simulate the dark gap between raster lines; the slider sets strength from 1-100% |
-| CRT Curvature     | Bend the picture toward a curved CRT surface; the slider sets amount from 1-100% |
+| Emulate 1541      | Real 1541 DOS ROM + IEC + GCR media (needs a 1541 ROM); applies live |
 | Enable SwiftLink (Hayes modem) | Soft-attach a SwiftLink/Turbo232 ACIA with an embedded Hayes modem that opens outbound TCP |
 | Base address      | `$DE00` (default) or `$DF00` |
 | Interrupt         | `None` (polled), `NMI`, or `IRQ` |
 | Pace to baud rate | When on, gate TX/RX holding to the configured baud; off delivers ASAP |
 | Enable MPS-803 Printer as device 4 | Soft-attach IEC printer device 4; host pages go to Paths -> printer (default `prints`, `bmp` only in v1) |
 
+SwiftLink Enable can be refused after Apply if a mounted cartridge already claims the
+same I/O page (IO1 mappers at `$DE00`, Super Games at `$DF00`); the runtime publishes an
+error event and leaves the cart as-is. See **SwiftLink / Turbo232**. Emulate 1541 and
+the other Peripherals settings apply immediately when you press **[OK]** or
+**[Save INI now]**.
+
+#### Input
+
+| Control           | Effect |
+|-------------------|--------|
+| Keyboard Joystick | Select `Off`, `Port 1`, or `Port 2`, plus the `Numpad` or `WASD` key layout |
+| Mouse (1351)      | Enable proportional mouse capture, and choose control port `1` or `2` (default off, port 1) |
+
+The Keyboard Joystick port selector matches the runtime **Shift+Alt+1** /
+**Shift+Alt+2** assignment; either place can change the active port. Change the layout
+here or with **Shift+Alt+M**. Mouse (1351) matches `--mouse` / `--mouse-port` and the
+`[input]` INI keys; enabling it does not grab the pointer until you **Alt+Click** the
+CRT (see **Mouse (1351)** under Implementation Notes).
+
+### Emulator
+
+| Control           | Effect |
+|-------------------|--------|
+| Scroll Wheel Speed| Number of rows scrolled per wheel click (1-100) |
+| Show disk LEDs    | Draw green (read) and red (write) activity LEDs in the window corner |
+| Symbol Files      | Add symbol files and display the comma-separated list of selected files. Paths load at startup and again when Configure applies a changed list; labels appear in Disassembly / Symbol Lookup after the next symbol poll (no assemble required) |
+| True Aspect Ratio | Show the geometry a real TV showed, using the VIC-II pixel aspect ratio (PAL 0.9365, NTSC 0.7500); off stretches the picture to fill the view |
+| CRT Smoothing     | Filter the picture instead of showing hard pixel edges; forced on by CRT Scanlines and CRT Curvature |
+| CRT Scanlines     | Simulate the dark gap between raster lines; the slider sets strength from 1-100% |
+| CRT Curvature     | Bend the picture toward a curved CRT surface; the slider sets amount from 1-100% |
+
 The CRT controls are a live preview: checkboxes and sliders update the C64 display while
 Configure remains open. **[Cancel]** or the dialog close button restores the values that
 were active when Configure opened. **[OK]** accepts them. All three effects are optional
 and independent; with them disabled, c64m uses the original rectangular render path.
-
-SwiftLink settings sit under the CRT block in the same Emulator tab. They are not part of
-the CRT live preview; Cancel restores them with the other non-CRT options. Enable can be
-refused after Apply if a mounted cartridge already claims the same I/O page (IO1 mappers
-at `$DE00`, Super Games at `$DF00`); the runtime publishes an error event and leaves the
-cart as-is. See **SwiftLink / Turbo232**.
+Show disk LEDs is not part of the CRT live preview; it applies with the other non-CRT
+options when you press **[OK]** or **[Save INI now]**.
 
 ### Paths
 
@@ -3067,7 +3084,7 @@ uses keypad key codes, so Num Lock must be on. The port and layout are saved in 
 c64m emulates a Commodore 1351 in **proportional mode** only (not 1350 joystick-mouse
 mode). The feature is off by default so ordinary play keeps a normal host cursor.
 
-Enable it with **Configure -> Machine -> Mouse (1351)**, `[input] mouse_enabled` /
+Enable it with **Configure -> Machine -> Input -> Mouse (1351)**, `[input] mouse_enabled` /
 `mouse_port`, or `--mouse` / `--mouse-port`. Enabling alone does not grab the pointer.
 
 **Capture:**
