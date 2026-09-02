@@ -52,6 +52,13 @@ target_compile_features(${test_host_page_writer} PRIVATE c_std_99)
 target_link_libraries(${test_host_page_writer} PRIVATE ${util} SDL2::SDL2)
 leftover_add_test(NAME host_page_writer COMMAND ${test_host_page_writer})
 
+leftover_exe(test_host_page_name
+    ${MACHINES_ROOT}/tests/shell/util/test_host_page_name.c
+)
+target_compile_features(${test_host_page_name} PRIVATE c_std_99)
+target_link_libraries(${test_host_page_name} PRIVATE ${util} SDL2::SDL2)
+leftover_add_test(NAME host_page_name COMMAND ${test_host_page_name})
+
 leftover_exe(test_message_queue
     ${MACHINES_ROOT}/tests/shell/util/test_message_queue.c
 )

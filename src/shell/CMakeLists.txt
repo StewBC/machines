@@ -15,6 +15,7 @@ add_library(shell STATIC
     util/config.c
     util/host_log.c
     util/host_page_writer.c
+    util/host_page_name.c
     platform/platform.c
     platform/platform_fs.c
     platform/platform_socket.c
