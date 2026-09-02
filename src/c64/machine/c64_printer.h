@@ -2,7 +2,6 @@
 
 #include <stdbool.h>
 #include <stddef.h>
-#include <stdio.h>
 #include <stdint.h>
 
 #ifdef __cplusplus
@@ -55,8 +54,6 @@ typedef struct c64_printer {
     uint8_t parse_buf[4];
 
     char output_dir[C64_PRINTER_PATH_MAX];
-    /* Debug: append every putc to output_dir/printer_raw.bin when non-NULL. */
-    FILE *raw_capture;
 } c64_printer;
 
 void c64_printer_init(c64_printer *p);
