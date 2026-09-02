@@ -1,5 +1,7 @@
 #include "c64_printer.h"
 
+#include <ctype.h>
+#include <dirent.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -14,6 +16,96 @@
 #define test_mkdir(path) mkdir((path), 0777)
 #define test_rmdir rmdir
 #endif
+
+/* YYYYMMDD-HHMMSSXX.bmp — 8 digits, '-', 6 digits, 2-digit XX, ".bmp". */
+static bool is_print_page_name(const char *name)
+{
+    size_t i;
+
+    if (name == NULL || strlen(name) != 21u) {
+        return false;
+    }
+    for (i = 0; i < 8u; ++i) {
+        if (!isdigit((unsigned char)name[i])) {
+            return false;
+        }
+    }
+    if (name[8] != '-') {
+        return false;
+    }
+    for (i = 9; i < 15u; ++i) {
+        if (!isdigit((unsigned char)name[i])) {
+            return false;
+        }
+    }
+    if (!isdigit((unsigned char)name[15]) || !isdigit((unsigned char)name[16])) {
+        return false;
+    }
+    return strcmp(name + 17, ".bmp") == 0;
+}
+
+static int count_print_pages(const char *dir)
+{
+    DIR *d;
+    struct dirent *de;
+    int n = 0;
+
+    d = opendir(dir);
+    if (d == NULL) {
+        return 0;
+    }
+    while ((de = readdir(d)) != NULL) {
+        if (is_print_page_name(de->d_name)) {
+            n++;
+        }
+    }
+    closedir(d);
+    return n;
+}
+
+static bool find_print_page(const char *dir, char *out_name, size_t out_size)
+{
+    DIR *d;
+    struct dirent *de;
+
+    if (out_name == NULL || out_size == 0u) {
+        return false;
+    }
+    out_name[0] = '\0';
+    d = opendir(dir);
+    if (d == NULL) {
+        return false;
+    }
+    while ((de = readdir(d)) != NULL) {
+        if (is_print_page_name(de->d_name)) {
+            snprintf(out_name, out_size, "%s", de->d_name);
+            closedir(d);
+            return true;
+        }
+    }
+    closedir(d);
+    return false;
+}
+
+static void cleanup_print_pages(const char *dir)
+{
+    DIR *d;
+    struct dirent *de;
+    char path[1100];
+
+    d = opendir(dir);
+    if (d == NULL) {
+        return;
+    }
+    while ((de = readdir(d)) != NULL) {
+        if (!is_print_page_name(de->d_name)) {
+            continue;
+        }
+        snprintf(path, sizeof(path), "%s/%s", dir, de->d_name);
+        remove(path);
+    }
+    closedir(d);
+}
 
 static void fail(const char *msg)
 {
@@ -67,13 +159,6 @@ static bool file_exists(const char *path)
     }
     fclose(fp);
     return true;
-}
-
-static void cleanup_dir_file(const char *dir, const char *name)
-{
-    char path[1100];
-    snprintf(path, sizeof(path), "%s/%s", dir, name);
-    remove(path);
 }
 
 static void setup_printer(c64_printer *p, const char *dir)
@@ -133,9 +218,9 @@ static void test_page_full_flush(void)
 
     expect_eq_u32("flushed one page", 1u, c64_printer_pages_flushed(&p));
     expect_eq_int("y reset", 0, p.cursor_y_dots);
-    expect_true("page file exists", file_exists("printer_mps_tmp_pagefull/page_0001.bmp"));
+    expect_eq_int("one page file", 1, count_print_pages(dir));
 
-    cleanup_dir_file(dir, "page_0001.bmp");
+    cleanup_print_pages(dir);
     teardown_printer(&p);
     (void)test_rmdir(dir);
 }
@@ -290,7 +375,7 @@ static void test_failed_flush_retains_cursor(void)
     expect_true("FF fail dirty", c64_printer_page_dirty(&p));
     expect_true("FF fail hold", p.flush_hold);
 
-    cleanup_dir_file("printer_mps_tmp_iofail", "page_0001.bmp");
+    cleanup_print_pages("printer_mps_tmp_iofail");
     teardown_printer(&p);
     (void)test_rmdir("printer_mps_tmp_iofail");
 }
@@ -409,16 +494,78 @@ static void test_force_flush_dirty_and_blank(void)
 
     c64_printer_force_flush(&p);
     expect_eq_u32("blank flush suppressed", 0u, c64_printer_pages_flushed(&p));
-    expect_false("no blank file", file_exists("printer_mps_tmp_flush/page_0001.bmp"));
+    expect_eq_int("no blank file", 0, count_print_pages(dir));
 
     c64_printer_putc(&p, (uint8_t)'A');
     expect_true("dirty after glyph", c64_printer_page_dirty(&p));
     c64_printer_force_flush(&p);
     expect_eq_u32("dirty flush wrote", 1u, c64_printer_pages_flushed(&p));
     expect_false("clean after flush", c64_printer_page_dirty(&p));
-    expect_true("page file", file_exists("printer_mps_tmp_flush/page_0001.bmp"));
+    expect_eq_int("one page file", 1, count_print_pages(dir));
+    {
+        char name[64];
+        expect_true("named page", find_print_page(dir, name, sizeof(name)));
+        expect_true("name pattern", is_print_page_name(name));
+        expect_true("XX starts at 00", name[15] == '0' && name[16] == '0');
+    }
 
-    cleanup_dir_file(dir, "page_0001.bmp");
+    cleanup_print_pages(dir);
+    teardown_printer(&p);
+    (void)test_rmdir(dir);
+}
+
+static void test_same_second_name_counter(void)
+{
+    c64_printer p;
+    const char *dir = "printer_mps_tmp_nameseq";
+    char path[1100];
+    int attempt;
+
+    setup_printer(&p, dir);
+
+    c64_printer_putc(&p, (uint8_t)'A');
+    c64_printer_force_flush(&p);
+    expect_eq_u32("first page", 1u, c64_printer_pages_flushed(&p));
+    expect_eq_int("first XX", 0, (int)p.name_seq);
+    expect_eq_int("one file", 1, count_print_pages(dir));
+
+    /* Second flush in the same second must use XX=01; if the clock second
+       ticks, XX resets to 00 under a new stem — still unique either way. */
+    c64_printer_putc(&p, (uint8_t)'B');
+    c64_printer_force_flush(&p);
+    expect_eq_u32("second page", 2u, c64_printer_pages_flushed(&p));
+    expect_eq_int("two files", 2, count_print_pages(dir));
+    if (p.name_seq == 1u) {
+        snprintf(path, sizeof(path), "%s/%s01.bmp", dir, p.last_name_stem);
+        expect_true("01 file", file_exists(path));
+    } else {
+        expect_eq_int("new-second XX", 0, (int)p.name_seq);
+    }
+
+    /* Exhaust XX=99 while stems still match → hold + retain dirty. */
+    for (attempt = 0; attempt < 5; ++attempt) {
+        char stem[16];
+
+        snprintf(stem, sizeof(stem), "%s", p.last_name_stem);
+        c64_printer_putc(&p, (uint8_t)'C');
+        memcpy(p.last_name_stem, stem, sizeof(p.last_name_stem));
+        p.name_seq = 99u;
+        c64_printer_force_flush(&p);
+        if (p.flush_hold) {
+            expect_true("exhausted dirty", c64_printer_page_dirty(&p));
+            expect_eq_u32("no third page", 2u, c64_printer_pages_flushed(&p));
+            p.flush_hold = false;
+            p.page_dirty = false;
+            break;
+        }
+        /* Second ticked: flush succeeded as XX=00 under a new stem. Retry. */
+        expect_eq_int("retry after tick", 0, (int)p.name_seq);
+        cleanup_print_pages(dir);
+        p.pages_flushed = 2u;
+    }
+    expect_true("exhausted path hit", attempt < 5);
+
+    cleanup_print_pages(dir);
     teardown_printer(&p);
     (void)test_rmdir(dir);
 }
@@ -457,7 +604,7 @@ static void test_glyph_ink_and_disabled_noop(void)
     c64_printer_putc(&p, 17); /* local business */
     expect_false("CHR17 business", p.graphic_charset);
 
-    cleanup_dir_file("printer_mps_tmp_glyph", "page_0001.bmp");
+    cleanup_print_pages("printer_mps_tmp_glyph");
     teardown_printer(&p);
     (void)test_rmdir("printer_mps_tmp_glyph");
 }
@@ -500,6 +647,7 @@ int main(void)
     test_ascii_head_tab();
     test_cr_keeps_bim();
     test_force_flush_dirty_and_blank();
+    test_same_second_name_counter();
     test_glyph_ink_and_disabled_noop();
     test_enhance_and_reverse();
     printf("ok\n");

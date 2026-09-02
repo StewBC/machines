@@ -250,10 +250,50 @@ static int lat_find(const c64_t *machine, uint8_t la)
     return -1;
 }
 
-static bool file_exists(const char *path)
+/* YYYYMMDD-HHMMSSXX.bmp */
+static bool is_print_page_name(const char *name)
 {
-    struct stat st;
-    return stat(path, &st) == 0;
+    size_t i;
+
+    if (name == NULL || strlen(name) != 21u) {
+        return false;
+    }
+    for (i = 0; i < 8u; ++i) {
+        if (name[i] < '0' || name[i] > '9') {
+            return false;
+        }
+    }
+    if (name[8] != '-') {
+        return false;
+    }
+    for (i = 9; i < 15u; ++i) {
+        if (name[i] < '0' || name[i] > '9') {
+            return false;
+        }
+    }
+    if (name[15] < '0' || name[15] > '9' || name[16] < '0' || name[16] > '9') {
+        return false;
+    }
+    return strcmp(name + 17, ".bmp") == 0;
+}
+
+static int count_print_pages(const char *dir)
+{
+    DIR *d;
+    struct dirent *de;
+    int n = 0;
+
+    d = opendir(dir);
+    if (d == NULL) {
+        return 0;
+    }
+    while ((de = readdir(d)) != NULL) {
+        if (is_print_page_name(de->d_name)) {
+            n++;
+        }
+    }
+    closedir(d);
+    return n;
 }
 
 static void open_printer(c64_t *machine, uint8_t la, uint8_t sa)
@@ -275,7 +315,6 @@ static void test_printer_basic_open_print_close(void)
 {
     static c64_t c64;
     char dir[TEST_PATH_MAX];
-    char path[TEST_PATH_MAX];
 
     make_tmpdir(dir, sizeof(dir));
     reset_machine(&c64);
@@ -302,8 +341,7 @@ static void test_printer_basic_open_print_close(void)
     expect_true("dflto screen", c64.bus.ram[ZP_DFLTO] == 3);
     expect_true("flushed", c64_printer_pages_flushed(&c64.printer) == 1u);
     expect_true("clean", !c64_printer_page_dirty(&c64.printer));
-    snprintf(path, sizeof(path), "%s/page_0001.bmp", dir);
-    expect_true("page file", file_exists(path));
+    expect_true("page file", count_print_pages(dir) == 1);
 
     remove_tree(dir);
     printf("PASS: test_printer_basic_open_print_close\n");
@@ -404,7 +442,6 @@ static void test_printer_sealed_skips_host_write(void)
 {
     static c64_t c64;
     char dir[TEST_PATH_MAX];
-    char path[TEST_PATH_MAX];
 
     make_tmpdir(dir, sizeof(dir));
     reset_machine(&c64);
@@ -423,8 +460,7 @@ static void test_printer_sealed_skips_host_write(void)
     setup_close_call(&c64, 4);
     step_ok(&c64, "close sealed");
     expect_success_return(&c64);
-    snprintf(path, sizeof(path), "%s/page_0001.bmp", dir);
-    expect_true("no page sealed", !file_exists(path));
+    expect_true("no page sealed", count_print_pages(dir) == 0);
 
     /* Dirty page then sealed CLALL must not write a host page. */
     c64_set_replay_sealed(&c64, false);
@@ -438,7 +474,7 @@ static void test_printer_sealed_skips_host_write(void)
     clall_and_expect_empty(&c64, "clall sealed");
     expect_true("still dirty sealed clall", c64_printer_page_dirty(&c64.printer));
     expect_true("no flush sealed clall", c64_printer_pages_flushed(&c64.printer) == 0u);
-    expect_true("no page sealed clall", !file_exists(path));
+    expect_true("no page sealed clall", count_print_pages(dir) == 0);
 
     remove_tree(dir);
     printf("PASS: test_printer_sealed_skips_host_write\n");

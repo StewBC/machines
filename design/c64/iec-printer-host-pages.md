@@ -110,7 +110,7 @@ flowchart LR
   end
 
   subgraph host [Host filesystem]
-    DIR["printer.output_dir<br/>c64m_print_…_pNNNN.bmp"]
+    DIR["printer.output_dir<br/>YYYYMMDD-HHMMSSXX.bmp"]
   end
 
   BASIC -->|OPEN/CHKOUT/CHROUT/CLOSE| TRAP
@@ -168,13 +168,11 @@ Default output directory: `prints/` under the process cwd (or beside the INI whe
 | Property | v1 rule |
 |----------|---------|
 | Directory | `printer_output_dir` (absolute after resolve) |
-| Name | `c64m_print_YYYYMMDD_HHMMSS_pNNNN.<ext>` where `NNNN` is a monotonic page counter from enable (or session start), zero-padded |
+| Name | `YYYYMMDD-HHMMSSXX.<ext>` — local wall-clock second + two-digit same-second collision counter `XX` (`00`..`99`) |
 | Atomicity | Write to `*.tmp` (same basename + `.tmp` suffix) then `rename` into place so viewers never open a half-written file. Implement rename/mkdir **inside `host_page_writer.c`** for v1 (private helpers); do **not** assume `platform_fs` already has them — optional later extract to `platform_fs_mkdir` / `platform_fs_rename` |
 | When closed | Only on **flush** — not per CHROUT. Flush completes encode + rename, then clears or advances the raster |
-| Counter reset | On enable / cold start; not on each flush |
+| XX rule | Remember last successful stem `YYYYMMDD-HHMMSS`. If this flush's second matches, increment `XX`; if the second changed, reset `XX` to `00`. Advance stem/`XX` only after a successful write. Cap at `99` (log + retain dirty page). No directory scan for prior files. |
 | Logging | `log_info` one line per flushed page (path); `log_error` on I/O failure (page retained in memory for retry via Force flush) |
-
-Alternative shorter name `page_NNNN.bmp` is acceptable if timestamps are undesirable; prefer timestamp+counter to avoid collisions across runs in a shared folder.
 
 ### Machine module: `c64_printer` (C64-specific)
 

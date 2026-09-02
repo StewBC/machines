@@ -6,6 +6,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 enum {
     C64_PRINTER_INK = 0,
@@ -165,12 +166,55 @@ static void set_pixel(c64_printer *p, int x, int y)
     p->page_dirty = true;
 }
 
+/* Fill stem as "YYYYMMDD-HHMMSS" (15 chars + NUL). Returns false on clock failure. */
+static bool format_name_stem(char *stem, size_t stem_size)
+{
+    time_t now;
+    struct tm tm_value;
+
+    if (stem == NULL || stem_size < 16u) {
+        return false;
+    }
+    now = time(NULL);
+    if (now == (time_t)-1) {
+        return false;
+    }
+#if defined(_WIN32)
+    if (localtime_s(&tm_value, &now) != 0) {
+        return false;
+    }
+#else
+    {
+        struct tm *tmp = localtime(&now);
+        if (tmp == NULL) {
+            return false;
+        }
+        tm_value = *tmp;
+    }
+#endif
+    if (snprintf(
+            stem,
+            stem_size,
+            "%04d%02d%02d-%02d%02d%02d",
+            tm_value.tm_year + 1900,
+            tm_value.tm_mon + 1,
+            tm_value.tm_mday,
+            tm_value.tm_hour,
+            tm_value.tm_min,
+            tm_value.tm_sec) != 15) {
+        return false;
+    }
+    return true;
+}
+
 /* true: page buffer reusable (blank, written, or cap-scratched).
    false: I/O failure — dirty page retained; flush_hold set. */
 static bool flush_page(c64_printer *p)
 {
     host_page_image page;
     char path[C64_PRINTER_PATH_MAX + 32];
+    char stem[16];
+    unsigned xx;
     uint32_t next;
 
     if (!p->page_dirty) {
@@ -201,8 +245,29 @@ static bool flush_page(c64_printer *p)
         return false;
     }
 
-    next = p->pages_flushed + 1u;
-    if (snprintf(path, sizeof(path), "%s/page_%04u.bmp", p->output_dir, next) >= (int)sizeof(path)) {
+    if (!format_name_stem(stem, sizeof(stem))) {
+        log_error("printer: local time unavailable for page name");
+        p->flush_hold = true;
+        return false;
+    }
+    if (p->last_name_stem[0] != '\0' && strcmp(stem, p->last_name_stem) == 0) {
+        if (p->name_seq >= 99u) {
+            log_error("printer: same-second name counter exhausted (99)");
+            p->flush_hold = true;
+            return false;
+        }
+        xx = (unsigned)p->name_seq + 1u;
+    } else {
+        xx = 0u;
+    }
+
+    if (snprintf(
+            path,
+            sizeof(path),
+            "%s/%s%02u.bmp",
+            p->output_dir,
+            stem,
+            xx) >= (int)sizeof(path)) {
         log_error("printer: path too long");
         p->flush_hold = true;
         return false;
@@ -222,7 +287,10 @@ static bool flush_page(c64_printer *p)
     }
 
     log_info("printer: wrote %s (%ux%u)", path, page.width, page.height);
+    next = p->pages_flushed + 1u;
     p->pages_flushed = next;
+    memcpy(p->last_name_stem, stem, sizeof(p->last_name_stem));
+    p->name_seq = (uint8_t)xx;
     clear_page(p);
     p->flush_hold = false;
     return true;
@@ -471,7 +539,8 @@ void c64_printer_reset(c64_printer *p)
     p->flush_hold = false;
     p->sa = 0;
     p->graphic_charset = true;
-    /* Keep enabled, output_dir, pages_flushed / page_cap_hit across soft reset. */
+    /* Keep enabled, output_dir, pages_flushed / page_cap_hit / name counter
+       across soft reset. */
 }
 
 void c64_printer_shutdown(c64_printer *p)

@@ -184,7 +184,9 @@ Load-state and Inspector land hang up the bridge. Soft reset keeps host enable/b
 c64m can soft-attach an MPS-803-class virtual printer as IEC **device 4**. Guest
 output arrives through KERNAL channel traps (`OPEN 4,4` / `PRINT#` / `CLOSE`, and
 Print Shop's MPS path). Pages are written as host BMP files under the configured
-output directory (default `prints`).
+output directory (default `prints`). Each flushed page is named
+`YYYYMMDD-HHMMSSXX.bmp` (local time; `XX` is a two-digit counter that increments
+when more than one page is written in the same second).
 
 Enable with `--printer`, INI `[printer] enabled=true`, or
 **Misc -> Machine -> Configure -> Emulator** (Printer block). Choose the output

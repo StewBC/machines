@@ -50,6 +50,10 @@ typedef struct c64_printer {
     /* Set on flush I/O failure; putc refuses mutation until a flush succeeds. */
     bool flush_hold;
 
+    /* Last successful host page stem "YYYYMMDD-HHMMSS" and XX (0..99). */
+    char last_name_stem[16];
+    uint8_t name_seq;
+
     c64_printer_parse parse_state;
     uint8_t parse_buf[4];
 
