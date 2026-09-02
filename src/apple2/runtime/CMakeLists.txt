@@ -9,6 +9,7 @@ add_library(${runtime} STATIC
     runtime_assembler.c
     runtime_slot_resolve.c
     runtime.c
+    runtime_printer.c
     runtime_thread.c
     runtime_inspector.c
     runtime_inspector_recorder.c

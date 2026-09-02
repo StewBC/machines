@@ -83,6 +83,8 @@ typedef struct runtime_config {
     /* Host monitor: true = colour artefact decoder. phosphor 0=white 1=green 2=amber. */
     bool video_colour;
     uint8_t video_phosphor;
+    /* ImageWriter host pages when SSC installed (default "prints"). Not owned. */
+    const char *printer_output_dir;
 } runtime_config;
 
 void runtime_config_set_turbo_defaults(runtime_config *config);

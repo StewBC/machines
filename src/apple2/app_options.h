@@ -161,6 +161,9 @@ typedef struct app_options {
     char *disk_s6d1;
     char *hd_s7d0;
     char *hd_s5d0;
+    /* ImageWriter host pages when an SSC is installed (presence = slot). */
+    char *printer_output_dir; /* default "prints" */
+    char *printer_format;     /* "bmp" */
 } app_options;
 
 /* Apple model helpers. */

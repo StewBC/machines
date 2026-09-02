@@ -4157,6 +4157,12 @@ static void runtime_process_command(runtime *rt, const runtime_command *cmd, boo
             }
         }
         rt->config.machine_config = *config;
+        /* SSC that stayed installed skipped detach; flush before cold reset. */
+        runtime_printer_pre_cold_reset_flush(rt);
+        if (rt->config.printer_output_dir != NULL &&
+            rt->config.printer_output_dir[0] != '\0') {
+            (void)runtime_printer_configure(rt, rt->config.printer_output_dir);
+        }
         apple2_cold_reset(&rt->machine);
         runtime_type_script_stop(rt);
         rt->suppress_execute_bp = false;
@@ -5086,6 +5092,13 @@ int runtime_thread_main(void *userdata)
     apple2_set_model(
         &rt->machine,
         rt->config.apple_model == 1 ? APPLE2_MODEL_II_PLUS : APPLE2_MODEL_IIE_ENHANCED);
+    /* Dir before slot attach so SSC install can ensure_dir immediately. */
+    if (rt->config.printer_output_dir != NULL &&
+        rt->config.printer_output_dir[0] != '\0') {
+        (void)runtime_printer_configure(rt, rt->config.printer_output_dir);
+    } else {
+        (void)runtime_printer_configure(rt, "prints");
+    }
     {
         int slot;
         for (slot = 1; slot <= 7; ++slot) {

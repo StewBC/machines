@@ -4,7 +4,7 @@
 
 /*
  * Super Serial Card 6551 ACIA + DIP reads.
- * TX sinks to null in PR 3 (PR 5 wires ImageWriter).
+ * TX routes through sink seam (v1: ImageWriter when attached).
  */
 
 static bool tx_irq_enabled(const apple2_ssc *s)
@@ -40,8 +40,9 @@ static void absorb_tx(apple2_ssc *s)
         return;
     }
     s->last_tx = s->tx_holding;
-    /* PR 3: null sink. PR 5: route to ImageWriter when sink == IMAGEWRITER. */
-    (void)s->sink;
+    if (s->sink == A2_SSC_SINK_IMAGEWRITER && s->sink_putc != NULL) {
+        s->sink_putc(s->sink_user, s->tx_holding);
+    }
     s->tx_holding_full = false;
     update_irq_latch(s);
 }
@@ -78,7 +79,7 @@ void ssc_reset(apple2_ssc *s)
     s->prev_tdre = true; /* TDRE idle after reset */
     s->prev_rdrf = false;
     s->last_tx = 0;
-    /* Keep sink kind across programmed ACIA reset; attach sets NONE for PR 3. */
+    /* Keep sink kind / putc across programmed ACIA reset; attach wires them. */
 }
 
 uint8_t ssc_read_c0n(apple2_ssc *s, uint8_t offset)
@@ -147,7 +148,7 @@ void ssc_write_c0n(apple2_ssc *s, uint8_t offset, uint8_t value)
         s->tx_holding = value;
         s->tx_holding_full = true;
         update_irq_latch(s);
-        /* Instant/near-instant TX for v1 null sink (baud does not gate). */
+        /* Instant/near-instant TX for v1 (baud does not gate raster accept). */
         absorb_tx(s);
         return;
     case 1: /* Programmed reset */

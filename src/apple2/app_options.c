@@ -1931,6 +1931,26 @@ static void apply_config(app_options *options, config *cfg)
         options->smartport_boot_slot = 0;
     }
     app_options_reconcile_slot_cards(options);
+    value = config_get(cfg, "printer", "output_dir");
+    if (value != NULL && value[0] != '\0') {
+        char abs_path[PATH_MAX];
+        if (path_absolute_from_ini(options, value, abs_path, sizeof(abs_path))) {
+            replace_string(&options->printer_output_dir, abs_path);
+        } else {
+            replace_string(&options->printer_output_dir, value);
+        }
+    }
+    value = config_get(cfg, "printer", "format");
+    if (value != NULL && value[0] != '\0') {
+        if (strcmp(value, "bmp") == 0) {
+            replace_string(&options->printer_format, "bmp");
+        } else {
+            fprintf(stderr,
+                    "invalid [printer] format `%s`; using bmp\n",
+                    value);
+            replace_string(&options->printer_format, "bmp");
+        }
+    }
     value = config_get(cfg, "debug", "history_memory_mb");
     if (value != NULL) {
         char *end = NULL;
@@ -2225,6 +2245,8 @@ static bool parse_command_line_overrides(app_options *options, int argc, char **
     const char *kbdjoy_layout = NULL;
     const char *video_display_s = NULL;
     const char *log_level_s = NULL;
+    const char *printer_dir = NULL;
+    const char *printer_format = NULL;
     float audio_record_start = 0.0f;
     float audio_record_duration = 0.0f;
     int show_version = 0;
@@ -2265,6 +2287,11 @@ static bool parse_command_line_overrides(app_options *options, int argc, char **
         OPT_STRING('\0', "sna", &sna_path, "load machine snapshot at startup", NULL, 0, 0),
         OPT_STRING('m', "model", &model_s, "machine model: enh (//e Enhanced) or plus (][+)", NULL, 0, 0),
         OPT_INTEGER('\0', "mb-slot", &mb_slot, "Mockingboard slot 1..7 (default 4; 0=disable)", NULL, 0, 0),
+        OPT_STRING('\0', "printer-dir", &printer_dir,
+                   "ImageWriter output directory when SSC installed (default prints)",
+                   NULL, 0, 0),
+        OPT_STRING('\0', "printer-format", &printer_format,
+                   "printer host page format: bmp (default bmp)", NULL, 0, 0),
 
         OPT_STRING('b', "break", &breakpoint, "install execute breakpoint at hex address", NULL, 0, 0),
         OPT_STRING('\0', "symbols", &symbols_s, "load simple symbol file (NAME hex per line)", NULL, 0, 0),
@@ -2406,6 +2433,21 @@ static bool parse_command_line_overrides(app_options *options, int argc, char **
             return false;
         }
         options->log_level = parsed_log;
+    }
+    if (printer_dir != NULL) {
+        char abs_path[PATH_MAX];
+        if (path_absolute_from_ini(options, printer_dir, abs_path, sizeof(abs_path))) {
+            replace_string(&options->printer_output_dir, abs_path);
+        } else {
+            replace_string(&options->printer_output_dir, printer_dir);
+        }
+    }
+    if (printer_format != NULL) {
+        if (strcmp(printer_format, "bmp") != 0) {
+            fprintf(stderr, "--printer-format expects bmp\n");
+            return false;
+        }
+        replace_string(&options->printer_format, "bmp");
     }
 
     if (remember) {
@@ -2562,6 +2604,8 @@ void app_options_init(app_options *options)
     replace_string(&options->disk_s6d1, "");
     replace_string(&options->hd_s7d0, "");
     replace_string(&options->hd_s5d0, "");
+    replace_string(&options->printer_output_dir, "prints");
+    replace_string(&options->printer_format, "bmp");
 }
 
 bool app_options_apply_ini_file(app_options *options, const char *path)
@@ -2663,7 +2707,9 @@ bool app_options_copy(app_options *dest, const app_options *src)
         !replace_string(&dest->disk_s6d0, src->disk_s6d0) ||
         !replace_string(&dest->disk_s6d1, src->disk_s6d1) ||
         !replace_string(&dest->hd_s7d0, src->hd_s7d0) ||
-        !replace_string(&dest->hd_s5d0, src->hd_s5d0)) {
+        !replace_string(&dest->hd_s5d0, src->hd_s5d0) ||
+        !replace_string(&dest->printer_output_dir, src->printer_output_dir) ||
+        !replace_string(&dest->printer_format, src->printer_format)) {
         app_options_destroy(dest);
         return false;
     }
@@ -2902,6 +2948,23 @@ bool app_options_save_shutdown(const app_options *options)
             config_set(cfg, "Slots", key, app_slot_card_name(options->slot_cards[slot]));
         }
     }
+    /* Presence is [Slots] slotN = ssc — never persist a printer enabled flag. */
+    if (options->printer_output_dir != NULL && options->printer_output_dir[0] != '\0') {
+        char rel_path[PATH_MAX];
+        if (app_options_path_relative_to_ini(
+                options, options->printer_output_dir, rel_path, sizeof(rel_path))) {
+            config_set(cfg, "printer", "output_dir", rel_path);
+        } else {
+            config_set(cfg, "printer", "output_dir", options->printer_output_dir);
+        }
+    } else {
+        config_set(cfg, "printer", "output_dir", "prints");
+    }
+    if (options->printer_format != NULL && options->printer_format[0] != '\0') {
+        config_set(cfg, "printer", "format", options->printer_format);
+    } else {
+        config_set(cfg, "printer", "format", "bmp");
+    }
     config_remove_prefix(cfg, "disk", "emulate_1541");
     config_remove_prefix(cfg, "disk", "media_1541");
     /* Default is false; only persist when set, so an absent key means false. */
@@ -3020,6 +3083,8 @@ void app_options_destroy(app_options *options)
     free(options->disk_s6d1);
     free(options->hd_s7d0);
     free(options->hd_s5d0);
+    free(options->printer_output_dir);
+    free(options->printer_format);
     for (i = 0; i < options->diskii_count; ++i) {
         free(options->diskii[i].path);
         options->diskii[i].path = NULL;

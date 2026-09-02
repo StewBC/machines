@@ -1,15 +1,29 @@
 #include "apple2.h"
 #include "host_log.h"
+#include "imagewriter.h"
 #include "mboard.h"
 #include "smrtprt.h"
 #include "softswitch.h"
 #include "ssc.h"
 #include "ssc_rom.h"
 
+#include <ctype.h>
+#include <dirent.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+#if defined(_WIN32)
+#include <direct.h>
+#define test_mkdir(path) _mkdir(path)
+#define test_rmdir _rmdir
+#else
+#include <sys/stat.h>
+#include <unistd.h>
+#define test_mkdir(path) mkdir((path), 0777)
+#define test_rmdir rmdir
+#endif
 
 static void fail(const char *msg)
 {
@@ -596,7 +610,13 @@ static void test_ssc_dip_and_acia_tdre_tx(void)
 
     softswitch_c0_write(&m, 0xC0A8, 0x41); /* TDR 'A' */
     if (m.ssc.last_tx != 0x41) {
-        fail("ssc TX discarded byte");
+        fail("ssc TX byte");
+    }
+    if (m.ssc.sink != A2_SSC_SINK_IMAGEWRITER || !m.imagewriter_live) {
+        fail("ssc IMAGEWRITER sink on attach");
+    }
+    if (!imagewriter_page_dirty(&m.imagewriter)) {
+        fail("ssc TX dirtied ImageWriter");
     }
     status = softswitch_c0_read(&m, 0xC0A9);
     if ((status & SSC_STATUS_TDRE) == 0) {
@@ -715,6 +735,198 @@ static void test_ssc_c800_latch_and_rom(void)
     apple2_shutdown(&m);
 }
 
+/* YYYYMMDD-HHMMSSXX.bmp */
+static bool is_print_page_name(const char *name)
+{
+    size_t i;
+
+    if (name == NULL || strlen(name) != 21u) {
+        return false;
+    }
+    for (i = 0; i < 8u; ++i) {
+        if (!isdigit((unsigned char)name[i])) {
+            return false;
+        }
+    }
+    if (name[8] != '-') {
+        return false;
+    }
+    for (i = 9; i < 15u; ++i) {
+        if (!isdigit((unsigned char)name[i])) {
+            return false;
+        }
+    }
+    if (!isdigit((unsigned char)name[15]) || !isdigit((unsigned char)name[16])) {
+        return false;
+    }
+    return strcmp(name + 17, ".bmp") == 0;
+}
+
+static int count_print_pages(const char *dir)
+{
+    DIR *d;
+    struct dirent *de;
+    int n = 0;
+
+    d = opendir(dir);
+    if (d == NULL) {
+        return 0;
+    }
+    while ((de = readdir(d)) != NULL) {
+        if (is_print_page_name(de->d_name)) {
+            n++;
+        }
+    }
+    closedir(d);
+    return n;
+}
+
+static void cleanup_print_pages(const char *dir)
+{
+    DIR *d;
+    struct dirent *de;
+    char path[1100];
+
+    d = opendir(dir);
+    if (d == NULL) {
+        return;
+    }
+    while ((de = readdir(d)) != NULL) {
+        if (is_print_page_name(de->d_name)) {
+            snprintf(path, sizeof(path), "%s/%s", dir, de->d_name);
+            (void)remove(path);
+        }
+    }
+    closedir(d);
+}
+
+static void ssc_tx_byte(apple2_t *m, uint8_t slot, uint8_t ch)
+{
+    uint16_t tdr = (uint16_t)(0xC080 + slot * 0x10 + 0x08);
+    softswitch_c0_write(m, tdr, ch);
+}
+
+static void test_ssc_tx_ff_writes_bmp(void)
+{
+    apple2_t m;
+    const char *dir = "ssc_iw_tmp_ff";
+    const char *hi = "HELLO";
+
+    (void)test_mkdir(dir);
+    cleanup_print_pages(dir);
+
+    if (!apple2_init(&m)) {
+        fail("ssc bmp init");
+    }
+    apple2_set_printer_output_dir(&m, dir);
+    if (!apple2_attach_ssc(&m, 2)) {
+        fail("ssc bmp attach");
+    }
+    if (m.ssc.sink != A2_SSC_SINK_IMAGEWRITER || m.ssc.sink_putc == NULL) {
+        fail("ssc bmp sink wired");
+    }
+
+    while (*hi != '\0') {
+        ssc_tx_byte(&m, 2, (uint8_t)*hi++);
+    }
+    ssc_tx_byte(&m, 2, 0x0C); /* FF */
+
+    if (imagewriter_page_dirty(&m.imagewriter)) {
+        fail("ssc bmp still dirty after FF");
+    }
+    if (imagewriter_pages_flushed(&m.imagewriter) != 1u) {
+        fail("ssc bmp pages_flushed");
+    }
+    if (count_print_pages(dir) != 1) {
+        fail("ssc bmp host file missing");
+    }
+
+    apple2_detach_slot_card(&m, 2);
+    apple2_shutdown(&m);
+    cleanup_print_pages(dir);
+    (void)test_rmdir(dir);
+}
+
+static void test_ssc_replay_sealed_skips_host_write(void)
+{
+    apple2_t m;
+    const char *dir = "ssc_iw_tmp_sealed";
+
+    (void)test_mkdir(dir);
+    cleanup_print_pages(dir);
+
+    if (!apple2_init(&m)) {
+        fail("ssc sealed init");
+    }
+    apple2_set_printer_output_dir(&m, dir);
+    if (!apple2_attach_ssc(&m, 1)) {
+        fail("ssc sealed attach");
+    }
+
+    apple2_set_replay_sealed(&m, true);
+    ssc_tx_byte(&m, 1, (uint8_t)'Z');
+    ssc_tx_byte(&m, 1, 0x0C);
+    if (imagewriter_page_dirty(&m.imagewriter)) {
+        fail("ssc sealed must not mutate IW");
+    }
+    if (count_print_pages(dir) != 0) {
+        fail("ssc sealed must not write host files");
+    }
+
+    apple2_set_replay_sealed(&m, false);
+    ssc_tx_byte(&m, 1, (uint8_t)'A');
+    if (!imagewriter_page_dirty(&m.imagewriter)) {
+        fail("ssc unsealed TX should dirty");
+    }
+    /* Detach flushes; sealed was cleared so host write is allowed. */
+    apple2_detach_slot_card(&m, 1);
+    if (count_print_pages(dir) != 1) {
+        fail("ssc detach flush wrote page");
+    }
+
+    apple2_shutdown(&m);
+    cleanup_print_pages(dir);
+    (void)test_rmdir(dir);
+}
+
+static void test_ssc_apply_pre_flush_before_cold_reset(void)
+{
+    apple2_t m;
+    const char *dir = "ssc_iw_tmp_preflush";
+
+    (void)test_mkdir(dir);
+    cleanup_print_pages(dir);
+
+    if (!apple2_init(&m)) {
+        fail("ssc preflush init");
+    }
+    apple2_set_printer_output_dir(&m, dir);
+    if (!apple2_attach_ssc(&m, 3)) {
+        fail("ssc preflush attach");
+    }
+    ssc_tx_byte(&m, 3, (uint8_t)'P');
+    if (!imagewriter_page_dirty(&m.imagewriter)) {
+        fail("ssc preflush dirty");
+    }
+
+    /* Configure Apply path when SSC remains: force-flush, then cold reset. */
+    apple2_imagewriter_force_flush(&m);
+    if (count_print_pages(dir) != 1) {
+        fail("ssc preflush host write");
+    }
+    apple2_cold_reset(&m);
+    if (imagewriter_page_dirty(&m.imagewriter)) {
+        fail("ssc cold reset left dirty");
+    }
+    if (count_print_pages(dir) != 1) {
+        fail("ssc cold reset must not double-write");
+    }
+
+    apple2_shutdown(&m);
+    cleanup_print_pages(dir);
+    (void)test_rmdir(dir);
+}
+
 int main(void)
 {
     test_mockingboard_attach();
@@ -730,6 +942,9 @@ int main(void)
     test_ssc_dip_and_acia_tdre_tx();
     test_ssc_tx_irq_and_status_clear();
     test_ssc_c800_latch_and_rom();
+    test_ssc_tx_ff_writes_bmp();
+    test_ssc_replay_sealed_skips_host_write();
+    test_ssc_apply_pre_flush_before_cold_reset();
     printf("ok\n");
     return 0;
 }

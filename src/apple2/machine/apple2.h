@@ -2,6 +2,7 @@
 
 #include "cpu65.h"
 #include "diskii.h"
+#include "imagewriter.h"
 #include "mboard.h"
 #include "memview.h"
 #include "smrtprt.h"
@@ -139,6 +140,10 @@ typedef struct apple2 {
     /* Super Serial Card (one machine-wide; ssc_slot 0=none). */
     uint8_t ssc_slot;
     apple2_ssc ssc;
+    /* ImageWriter II mono sink (live while SSC attached; lazy raster). */
+    imagewriter imagewriter;
+    bool imagewriter_live;
+    char printer_output_dir[A2_IW_PATH_MAX];
 
     /* Game port: 4 paddles (2 sticks × X/Y) + 3 buttons. Axes are Apple paddle
        units 0..255 (mid=128). button_mask bit0=BUTN0, bit1=BUTN1, bit2=BUTN2.
@@ -301,6 +306,10 @@ bool apple2_attach_mockingboard(apple2_t *m, int slot);
 /* Super Serial Card (one total; same-slot foreign type fails). */
 bool apple2_attach_ssc(apple2_t *m, int slot);
 void apple2_detach_slot_card(apple2_t *m, int slot);
+/* Preferred ImageWriter output dir (ensure_dir on attach / configure). */
+void apple2_set_printer_output_dir(apple2_t *m, const char *dir);
+/* Force-flush dirty IW page; no-op if no SSC / !dirty / replay_sealed. */
+void apple2_imagewriter_force_flush(apple2_t *m);
 
 /* SmartPort block device. */
 bool apple2_attach_smartport(apple2_t *m, int slot);

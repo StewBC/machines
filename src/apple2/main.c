@@ -2721,6 +2721,7 @@ static bool apply_options_to_runtime_config(const app_options *options, runtime_
     rt_config->smartport_boot_slot = options->smartport_boot_slot;
     rt_config->video_colour = options->colour_display;
     rt_config->video_phosphor = (uint8_t)options->mono_mode;
+    rt_config->printer_output_dir = options->printer_output_dir;
     return true;
 }
 

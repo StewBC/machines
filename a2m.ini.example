@@ -31,7 +31,10 @@
 model = enh
 
 [Slots]
-; empty | diskii | smartport | mockingboard | ssc (one Mockingboard / one SSC)
+; empty | diskii | smartport | mockingboard | ssc
+; One Mockingboard / one Super Serial Card total (placing a second clears the old slot).
+; Presence of SSC implies the ImageWriter II sink (no [printer] enabled=).
+; slot1 = ssc
 slot1 = empty
 slot2 = empty
 slot3 = empty
@@ -73,6 +76,12 @@ original_del = false
 ; path = ...   ; Disk II s6d0
 ; hd = ...     ; SmartPort s7d0
 ; show_disk_leds = true
+
+[printer]
+; Used when an SSC is installed. Presence is [Slots] slotN = ssc (not enabled=).
+; CLI: --printer-dir <path>, --printer-format bmp
+; output_dir = prints
+; format = bmp
 
 [debug]
 ; Inspector recording (default off). On arms checkpoint recorder + frame ring.

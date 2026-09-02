@@ -13,6 +13,7 @@
 #include "runtime_frame_ring.h"
 #include "runtime_history.h"
 #include "runtime_inspector.h"
+#include "runtime_printer.h"
 #include "symbol_table.h"
 #include "apple_type_script.h"
 

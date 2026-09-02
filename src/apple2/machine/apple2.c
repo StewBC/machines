@@ -1,6 +1,7 @@
 #include "apple2.h"
 #include "diskii_rom.h"
 #include "host_log.h"
+#include "host_page_writer.h"
 #include "mboard.h"
 #include "rom_data.h"
 #include "smartport_rom.h"
@@ -14,6 +15,72 @@
 #include <ctype.h>
 #include <stdlib.h>
 #include <string.h>
+
+static void apple2_ssc_tx_to_iw(void *user, uint8_t byte)
+{
+    apple2_t *m = (apple2_t *)user;
+
+    if (m == NULL || m->replay_sealed || !m->imagewriter_live) {
+        return;
+    }
+    imagewriter_putc(&m->imagewriter, byte);
+}
+
+static void apple2_ssc_wire_sink(apple2_t *m)
+{
+    m->ssc.sink = A2_SSC_SINK_IMAGEWRITER;
+    m->ssc.sink_user = m;
+    m->ssc.sink_putc = apple2_ssc_tx_to_iw;
+}
+
+static void apple2_ssc_clear_sink(apple2_t *m)
+{
+    m->ssc.sink = A2_SSC_SINK_NONE;
+    m->ssc.sink_user = NULL;
+    m->ssc.sink_putc = NULL;
+}
+
+static void apple2_imagewriter_begin_session(apple2_t *m)
+{
+    if (!m->imagewriter_live) {
+        imagewriter_init(&m->imagewriter);
+        m->imagewriter_live = true;
+    } else {
+        /* Re-attach: new session counters; discard any prior dirty page first. */
+        if (!m->replay_sealed) {
+            imagewriter_force_flush(&m->imagewriter);
+        }
+        imagewriter_reset(&m->imagewriter);
+        m->imagewriter.pages_flushed = 0u;
+        m->imagewriter.page_cap_hit = false;
+        m->imagewriter.last_name_stem[0] = '\0';
+        m->imagewriter.name_seq = 0u;
+    }
+    if (m->printer_output_dir[0] != '\0') {
+        imagewriter_set_output_dir(&m->imagewriter, m->printer_output_dir);
+        if (!host_page_writer_ensure_dir(m->printer_output_dir)) {
+            log_error(
+                "printer: ensure_dir failed for %s",
+                m->printer_output_dir);
+        }
+    }
+}
+
+static void apple2_imagewriter_end_session(apple2_t *m)
+{
+    if (!m->imagewriter_live) {
+        return;
+    }
+    if (!m->replay_sealed) {
+        if (m->imagewriter.output_dir[0] != '\0') {
+            imagewriter_force_flush(&m->imagewriter);
+        } else {
+            imagewriter_reset(&m->imagewriter);
+        }
+    }
+    imagewriter_shutdown(&m->imagewriter);
+    m->imagewriter_live = false;
+}
 
 static const char *apple2_slot_type_name(apple2_slot_type type)
 {
@@ -396,7 +463,10 @@ bool apple2_init(apple2_t *machine)
     machine->mb_slot = 0;
     machine->ssc_slot = 0;
     ssc_reset(&machine->ssc);
-    machine->ssc.sink = A2_SSC_SINK_NONE;
+    apple2_ssc_clear_sink(machine);
+    machine->imagewriter_live = false;
+    machine->printer_output_dir[0] = '\0';
+    memset(&machine->imagewriter, 0, sizeof(machine->imagewriter));
 
     /* Unconnected paddles read near center until host input arrives. */
     machine->gameport_axis[0] = 128u;
@@ -542,9 +612,10 @@ void apple2_detach_slot_card(apple2_t *m, int slot)
         m->mb_slot = 0;
     }
     if (m->slot_type[slot] == SLOT_TYPE_SSC && m->ssc_slot == (uint8_t)slot) {
+        apple2_imagewriter_end_session(m);
         m->ssc_slot = 0;
         ssc_reset(&m->ssc);
-        m->ssc.sink = A2_SSC_SINK_NONE;
+        apple2_ssc_clear_sink(m);
     }
     m->slot_type[slot] = SLOT_TYPE_EMPTY;
     m->diskii_present[slot] = 0;
@@ -596,13 +667,45 @@ bool apple2_attach_ssc(apple2_t *m, int slot)
     m->slot_type[slot] = SLOT_TYPE_SSC;
     m->ssc_slot = (uint8_t)slot;
     ssc_reset(&m->ssc);
-    m->ssc.sink = A2_SSC_SINK_NONE; /* PR 5: IMAGEWRITER */
+    apple2_imagewriter_begin_session(m);
+    apple2_ssc_wire_sink(m);
     /* Cnxx = top 256 bytes of the 2K SSC firmware (MAME/AppleWin). */
     cnxx = (uint8_t *)(ssc_rom + 0x700);
     apple2_pages_map_rom(m, (uint16_t)(0xC000 + slot * 0x100), 0x100, cnxx);
     m->rom_shadow_pages[slot] = cnxx;
     softswitch_apply_full_map(m);
     return true;
+}
+
+void apple2_set_printer_output_dir(apple2_t *m, const char *dir)
+{
+    if (m == NULL) {
+        return;
+    }
+    if (dir == NULL || dir[0] == '\0') {
+        m->printer_output_dir[0] = '\0';
+    } else {
+        strncpy(m->printer_output_dir, dir, sizeof(m->printer_output_dir) - 1u);
+        m->printer_output_dir[sizeof(m->printer_output_dir) - 1u] = '\0';
+        if (!host_page_writer_ensure_dir(m->printer_output_dir)) {
+            log_error(
+                "printer: ensure_dir failed for %s",
+                m->printer_output_dir);
+        }
+    }
+    if (m->imagewriter_live) {
+        imagewriter_set_output_dir(
+            &m->imagewriter,
+            m->printer_output_dir[0] != '\0' ? m->printer_output_dir : NULL);
+    }
+}
+
+void apple2_imagewriter_force_flush(apple2_t *m)
+{
+    if (m == NULL || m->ssc_slot == 0 || !m->imagewriter_live || m->replay_sealed) {
+        return;
+    }
+    imagewriter_force_flush(&m->imagewriter);
 }
 
 bool apple2_attach_smartport(apple2_t *m, int slot)
@@ -751,6 +854,7 @@ void apple2_shutdown(apple2_t *machine)
         return;
     }
 
+    apple2_imagewriter_end_session(machine);
     sp_shutdown(machine);
     diskii_shutdown(machine);
     apple2_video_shutdown(machine);
@@ -800,6 +904,12 @@ static void apple2_reset_common(apple2_t *machine, bool cold)
     }
     if (machine->ssc_slot != 0) {
         ssc_reset(&machine->ssc);
+        apple2_ssc_wire_sink(machine);
+        /* Warm/cold reset: discard dirty page (no host write). Apply path
+           force-flushes before cold reset when SSC remains installed. */
+        if (machine->imagewriter_live) {
+            imagewriter_reset(&machine->imagewriter);
+        }
     }
     cpu65_reset(&machine->cpu);
     machine->instruction_complete = true;

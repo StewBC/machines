@@ -8,14 +8,16 @@ extern "C" {
 #endif
 
 /*
- * Sink seam for SSC TX. PR 3 discards bytes (NONE). PR 5 wires IMAGEWRITER.
- * HOST_SERIAL reserved for later PTY/TCP/modem.
+ * Sink seam for SSC TX. v1 attach always selects IMAGEWRITER.
+ * NONE / HOST_SERIAL reserved for later discard / PTY/TCP/modem.
  */
 typedef enum a2_ssc_sink_kind {
     A2_SSC_SINK_IMAGEWRITER = 0,
     A2_SSC_SINK_NONE,
     A2_SSC_SINK_HOST_SERIAL
 } a2_ssc_sink_kind;
+
+typedef void (*a2_ssc_tx_fn)(void *user, uint8_t byte);
 
 /* Classic MAME a2ssc printer-bundle DIP reads (design normative). */
 enum {
@@ -50,7 +52,9 @@ typedef struct apple2_ssc {
     bool prev_rdrf;
 
     a2_ssc_sink_kind sink;
-    uint8_t last_tx; /* most recent discarded TX byte (tests / debug) */
+    a2_ssc_tx_fn sink_putc; /* IMAGEWRITER: machine routes to imagewriter_putc */
+    void *sink_user;
+    uint8_t last_tx; /* most recent TX byte (tests / debug) */
 } apple2_ssc;
 
 void ssc_reset(apple2_ssc *s);
