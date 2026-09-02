@@ -262,6 +262,13 @@ target_compile_features(${test_peripherals} PRIVATE c_std_99)
 target_link_libraries(${test_peripherals} PRIVATE ${machine})
 leftover_add_test(NAME peripherals COMMAND ${test_peripherals})
 
+leftover_exe(test_imagewriter
+    ${MACHINES_ROOT}/tests/apple2/machine/test_imagewriter.c
+)
+target_compile_features(${test_imagewriter} PRIVATE c_std_99)
+target_link_libraries(${test_imagewriter} PRIVATE ${machine})
+leftover_add_test(NAME imagewriter COMMAND ${test_imagewriter})
+
 leftover_exe(test_hostfs
     ${MACHINES_ROOT}/tests/apple2/machine/test_hostfs.c
 )

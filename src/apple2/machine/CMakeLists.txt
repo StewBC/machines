@@ -7,6 +7,7 @@ add_library(${machine} STATIC
     diskii_rom.c
     hostfs.c
     image.c
+    imagewriter.c
     mboard.c
     rom_data.c
     smartport_rom.c
