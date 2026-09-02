@@ -474,11 +474,39 @@ void c64_printer_reset(c64_printer *p)
     /* Keep enabled, output_dir, pages_flushed / page_cap_hit across soft reset. */
 }
 
+static void raw_capture_close(c64_printer *p)
+{
+    if (p->raw_capture != NULL) {
+        fclose(p->raw_capture);
+        p->raw_capture = NULL;
+    }
+}
+
+static void raw_capture_open(c64_printer *p)
+{
+    char path[C64_PRINTER_PATH_MAX + 32];
+
+    raw_capture_close(p);
+    if (p->output_dir[0] == '\0') {
+        return;
+    }
+    if (snprintf(path, sizeof(path), "%s/printer_raw.bin", p->output_dir) >= (int)sizeof(path)) {
+        return;
+    }
+    p->raw_capture = fopen(path, "wb");
+    if (p->raw_capture == NULL) {
+        log_warn("printer: could not open raw capture %s", path);
+    } else {
+        log_info("printer: raw capture %s", path);
+    }
+}
+
 void c64_printer_shutdown(c64_printer *p)
 {
     if (p == NULL) {
         return;
     }
+    raw_capture_close(p);
     free(p->raster);
     p->raster = NULL;
     p->raster_bytes = 0;
@@ -497,6 +525,7 @@ void c64_printer_set_enabled(c64_printer *p, bool on)
     }
     if (!on) {
         c64_printer_force_flush(p);
+        raw_capture_close(p);
         p->enabled = false;
         return;
     }
@@ -508,6 +537,7 @@ void c64_printer_set_enabled(c64_printer *p, bool on)
     reset_modes(p);
     p->sa = 0;
     p->graphic_charset = true;
+    raw_capture_open(p);
 }
 
 bool c64_printer_enabled(const c64_printer *p)
@@ -556,6 +586,10 @@ void c64_printer_putc(c64_printer *p, uint8_t ch)
         return;
     }
 
+    if (p->raw_capture != NULL) {
+        (void)fwrite(&ch, 1, 1, p->raw_capture);
+    }
+
     switch (p->parse_state) {
     case C64_PRINTER_PARSE_HEAD_TAB_D1:
         p->parse_buf[0] = ch;
@@ -601,12 +635,9 @@ void c64_printer_putc(c64_printer *p, uint8_t ch)
             handle_control(p, ch);
             return;
         }
-        /* MPS-801/803: BIM columns have bit7 set; bit7 clear ends BIM. */
-        if ((ch & 0x80u) == 0u) {
-            p->bit_image = false;
-            print_char(p, ch);
-            return;
-        }
+        /* Column data: bits 0-6 are pins (bit7 ignored). Leave BIM via
+           CHR$(15)/CHR$(14), not via bit7 — Print Shop 1525/801 sends
+           pin masks without bit7 set. */
         plot_bim_column(p, ch);
         return;
     }
