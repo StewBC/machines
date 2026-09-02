@@ -46,6 +46,8 @@ enum {
     FRONTEND_DISK_LED_SIZE = 16,
     /* Host-time LED hold after each activity event (ms). Independent of pause. */
     FRONTEND_DISK_LED_HOLD_MS = 300,
+    /* Misc Machine [4] status flash duration ("Flush"). */
+    FRONTEND_PRINTER_FLUSH_FLASH_MS = 1000,
     /* PAL's normal-border viewport is 384x272, matching VICE's canonical PAL
        geometry: rasters 16..287 (VICII_PAL_NORMAL_FIRST/LAST_DISPLAYED_LINE).
        Aligning to VICE keeps every PAL title cropped exactly as the oracle shows
@@ -399,6 +401,7 @@ struct frontend {
     uint32_t disk_led_seen_write_seq[2];
     uint64_t disk_led_read_until_ms;
     uint64_t disk_led_write_until_ms;
+    uint64_t printer_flush_label_until_ms;
     c64_frame current_frame;
     bool has_frame;
     debugger_layout layout;
@@ -1785,6 +1788,26 @@ static bool frontend_push_simple_intent(frontend *ui, frontend_debugger_intent_t
     return true;
 }
 
+static bool frontend_push_printer_enabled_intent(frontend *ui, bool enabled)
+{
+    size_t next;
+
+    if (ui == NULL) {
+        return false;
+    }
+
+    next = (ui->intent_write + 1u) % FRONTEND_DEBUGGER_INTENT_CAPACITY;
+    if (next == ui->intent_read) {
+        return false;
+    }
+
+    memset(&ui->intents[ui->intent_write], 0, sizeof(ui->intents[ui->intent_write]));
+    ui->intents[ui->intent_write].type = FRONTEND_DEBUGGER_INTENT_PRINTER_SET_ENABLED;
+    ui->intents[ui->intent_write].enabled = enabled;
+    ui->intent_write = next;
+    return true;
+}
+
 static bool frontend_push_file_browser_result_intent(
     frontend *ui,
     frontend_debugger_intent_type purpose,
@@ -2336,16 +2359,6 @@ static void frontend_draw_config_machine_peripherals_tab(
         ctx,
         "Pace to baud rate",
         &dialog->edited.swiftlink_pace_baud);
-
-    nk_layout_row_dynamic(ctx, 10.0f, 1);
-    nk_spacing(ctx, 1);
-
-    nk_layout_row_dynamic(ctx, 22.0f, 1);
-    frontend_checkbox_bool(
-        ctx,
-        "Enable MPS-803 Printer as device 4",
-        &dialog->edited.printer_enabled);
-    /* Output dir is Paths -> printer; format is bmp-only in v1. */
 }
 
 static void frontend_draw_config_machine_input_tab(
@@ -6236,6 +6249,45 @@ static void frontend_draw_misc_programs(frontend *ui, const frontend_debug_state
         }
     }
 
+    /* Printer: [4] flush (+ enable if off), LED power, type, pages, status. */
+    {
+        bool powered = debug_state != NULL && debug_state->printer_enabled;
+        const char *status = "Clean";
+        char pages[32];
+        uint64_t now = SDL_GetTicks64();
+
+        if (ui->printer_flush_label_until_ms > now) {
+            status = "Flush";
+        } else if (powered && debug_state != NULL && debug_state->printer_page_dirty) {
+            status = "Dirty";
+        }
+        snprintf(
+            pages,
+            sizeof(pages),
+            "Pages %u",
+            debug_state != NULL ? (unsigned)debug_state->printer_pages_flushed : 0u);
+
+        nk_layout_row_begin(ctx, NK_DYNAMIC, 24.0f, 5);
+        nk_layout_row_push(ctx, 0.10f);
+        if (nk_button_label(ctx, "4")) {
+            ui->printer_flush_label_until_ms =
+                now + (uint64_t)FRONTEND_PRINTER_FLUSH_FLASH_MS;
+            frontend_push_simple_intent(ui, FRONTEND_DEBUGGER_INTENT_PRINTER_FLUSH);
+        }
+        nk_layout_row_push(ctx, 0.14f);
+        if (frontend_draw_power_led_button(ui, powered)) {
+            frontend_push_printer_enabled_intent(ui, !powered);
+        }
+        /* Name column width reserved for a future printer-type combo. */
+        nk_layout_row_push(ctx, 0.44f);
+        nk_label(ctx, "MPS-803 Printer", NK_TEXT_LEFT);
+        nk_layout_row_push(ctx, 0.18f);
+        nk_label(ctx, pages, NK_TEXT_LEFT);
+        nk_layout_row_push(ctx, 0.14f);
+        nk_label(ctx, status, NK_TEXT_LEFT);
+        nk_layout_row_end(ctx);
+    }
+
     /* Programs */
     nk_layout_row_dynamic(ctx, 18.0f, 1);
     nk_label(ctx, "Programs", NK_TEXT_LEFT);
@@ -6271,26 +6323,6 @@ static void frontend_draw_misc_programs(frontend *ui, const frontend_debug_state
     }
     if (nk_button_label(ctx, "Save")) {
         frontend_push_simple_intent(ui, FRONTEND_DEBUGGER_INTENT_STATE_SAVE_AS_DIALOG);
-    }
-
-    /* Printer status + Force flush */
-    if (debug_state != NULL && debug_state->printer_enabled) {
-        char status[96];
-
-        nk_layout_row_dynamic(ctx, 18.0f, 1);
-        nk_label(ctx, "Printer", NK_TEXT_LEFT);
-        snprintf(
-            status,
-            sizeof(status),
-            "Printer: on | pages %u | %s",
-            (unsigned)debug_state->printer_pages_flushed,
-            debug_state->printer_page_dirty ? "dirty" : "clean");
-        nk_layout_row_dynamic(ctx, 18.0f, 1);
-        nk_label(ctx, status, NK_TEXT_LEFT);
-        nk_layout_row_dynamic(ctx, 24.0f, 1);
-        if (nk_button_label(ctx, "Force flush")) {
-            frontend_push_simple_intent(ui, FRONTEND_DEBUGGER_INTENT_PRINTER_FLUSH);
-        }
     }
 
     /* Emulator */

@@ -4544,6 +4544,39 @@ static void sdl_c64_controllers_close(sdl_c64_controller_state *state, runtime_c
     sdl_c64_controller_send_ports(state, client);
 }
 
+/* Soft-attach/detach MPS-803 and keep options->printer_enabled in sync. */
+static bool apply_printer_enabled(
+    runtime_client *client,
+    app_options *options,
+    bool enabled)
+{
+    char printer_dir_abs[1024];
+    const char *printer_dir;
+
+    if (client == NULL || options == NULL) {
+        return false;
+    }
+    if (!enabled) {
+        if (!runtime_client_set_printer(client, false, NULL)) {
+            return false;
+        }
+        options->printer_enabled = false;
+        return true;
+    }
+
+    printer_dir = options->printer_output_dir;
+    if (printer_dir != NULL && printer_dir[0] != '\0' &&
+        app_options_path_absolute_from_ini(
+            options, printer_dir, printer_dir_abs, sizeof(printer_dir_abs))) {
+        printer_dir = printer_dir_abs;
+    }
+    if (!runtime_client_set_printer(client, true, printer_dir)) {
+        return false;
+    }
+    options->printer_enabled = true;
+    return true;
+}
+
 static bool intent_mutates_in_inspect(frontend_debugger_intent_type type)
 {
     switch (type) {
@@ -4571,6 +4604,7 @@ static bool intent_mutates_in_inspect(frontend_debugger_intent_type type)
         case FRONTEND_DEBUGGER_INTENT_DISK_SET_WRITABLE:
         case FRONTEND_DEBUGGER_INTENT_CONFIG_APPLY:
         case FRONTEND_DEBUGGER_INTENT_INSPECTOR_SET_ENABLED:
+        case FRONTEND_DEBUGGER_INTENT_PRINTER_SET_ENABLED:
         case FRONTEND_DEBUGGER_INTENT_PRINTER_FLUSH:
             return true;
         default:
@@ -4822,6 +4856,9 @@ static void dispatch_debugger_intents(
                     int d;
                     int slot;
                     bool save_now = (intent.type == FRONTEND_DEBUGGER_INTENT_SAVE_INI_NOW);
+                    /* Printer enable is owned by the Misc Machine LED (and CLI/INI),
+                       not Configure. Keep the live latch across the dialog snapshot. */
+                    bool live_printer_enabled = options->printer_enabled;
                     c64_config machine_config = machine_config_from_options(&intent.config);
                     runtime_config runtime_options = runtime_config_from_options(&intent.config);
                     char absolute_symbol_files[1024];
@@ -4832,6 +4869,7 @@ static void dispatch_debugger_intents(
                     app_options_destroy(options);
                     *options = intent.config;
                     memset(&intent.config, 0, sizeof(intent.config));
+                    options->printer_enabled = live_printer_enabled;
                     /* Auto-save preference is options->remember; session save follows it. */
                     options->save_ini = options->remember;
                     /* Dialog edits are INI-relative; runtime needs absolute paths. */
@@ -5350,7 +5388,18 @@ static void dispatch_debugger_intents(
                 break;
             }
 
+            case FRONTEND_DEBUGGER_INTENT_PRINTER_SET_ENABLED:
+                sent = apply_printer_enabled(client, options, intent.enabled);
+                break;
+
             case FRONTEND_DEBUGGER_INTENT_PRINTER_FLUSH:
+                /* [4] soft-powers on like disk [8]/[9], then force-flushes. */
+                if (!options->printer_enabled) {
+                    sent = apply_printer_enabled(client, options, true);
+                    if (!sent) {
+                        break;
+                    }
+                }
                 sent = runtime_client_printer_flush(client);
                 break;
 

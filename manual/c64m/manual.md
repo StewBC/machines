@@ -188,10 +188,10 @@ output directory (default `prints`). Each flushed page is named
 `YYYYMMDD-HHMMSSXX.bmp` (local time; `XX` is a two-digit counter that increments
 when more than one page is written in the same second).
 
-Enable with `--printer`, INI `[printer] enabled=true`, or
-**Misc -> Machine -> Configure -> Machine -> Peripherals** (**Enable MPS-803 Printer as device 4**).
-Choose the output directory with `--printer-dir` / `[printer] output_dir` / Configure
-**Paths -> printer**. Format is **`bmp` only** until a later release unlocks PNG/PDF.
+Enable with `--printer`, INI `[printer] enabled=true`, or the green/red power LED on
+the **Misc -> Machine** printer row (see **Emulator Controls**). Choose the output
+directory with `--printer-dir` / `[printer] output_dir` / Configure **Paths -> printer**.
+Format is **`bmp` only** until a later release unlocks PNG/PDF.
 
 Pages flush on:
 
@@ -201,14 +201,12 @@ Pages flush on:
 | CLOSE of the printer logical file | Flush if dirty |
 | CLALL that includes a printer LA | Flush if dirty |
 | Disable printer / emulator shutdown | Flush if dirty |
-| **Force flush** (Misc -> Machine / `printer-flush`) | Flush if dirty; blank pages are suppressed |
+| **[4]** (Misc -> Machine) / `printer-flush` | Soft-power on if needed, then flush if dirty; blank pages are suppressed |
 | CHR$(12) form feed | Optional emulator convenience flush (not authentic MPS-803) |
 
-When the printer is enabled, **Misc -> Machine** shows
-`Printer: on | pages N | dirty|clean` and a **Force flush** button that works while
-the emulator is running. Over the control port, `printer-flush` is the same
-fire-and-forget action (`ok accepted=1`). Enable/dir/format are not changed by
-the control port in v1.
+**Misc -> Machine** always shows the printer row (`[4]`, power LED, `MPS-803 Printer`,
+status). Over the control port, `printer-flush` is the same fire-and-forget flush
+(`ok accepted=1`). Enable/dir/format are not changed by the control port in v1.
 
 ### Auto Run
 
@@ -993,10 +991,20 @@ and **Remote**).
 
 **[Configure...]** opens the Configure dialog (see **Configure**).
 
-When the MPS-803 printer is enabled, a **Printer** status line
-(`Printer: on | pages N | dirty|clean`) and a **[Force flush]** button appear
-above Configure. Force flush writes the current dirty page to the host output
-directory (no-op if clean or blank) and works while the emulator is running.
+Below the disk rows, Misc -> Machine always shows a printer row aligned with the
+drive controls:
+
+```
+[4] (LED)  MPS-803 Printer  Pages N  Clean|Dirty|Flush
+```
+
+**(LED)** - Soft-attach switch: **green** = enabled, **red** = disabled (same
+`[printer] enabled` / `--printer` flag). Click to toggle.
+
+**[4]** - Force flush. If the LED is red, soft-powers on first (like **[8]** /
+**[9]**), then flushes. The status flashes **Flush** briefly so the button always
+answers, even when the page was already clean (no-op). Steady states are **Clean**
+and **Dirty**. Control-port `printer-flush` is the same flush without the UI flash.
 See **Printer (MPS-803)**.
 
 **[Reset]** performs a hard reset of the emulated C64 and preserves its running state:
@@ -1723,13 +1731,14 @@ other General settings apply immediately when you press **[OK]** or **[Save INI 
 | Base address      | `$DE00` (default) or `$DF00` |
 | Interrupt         | `None` (polled), `NMI`, or `IRQ` |
 | Pace to baud rate | When on, gate TX/RX holding to the configured baud; off delivers ASAP |
-| Enable MPS-803 Printer as device 4 | Soft-attach IEC printer device 4; host pages go to Paths -> printer (default `prints`, `bmp` only in v1) |
 
-SwiftLink Enable can be refused after Apply if a mounted cartridge already claims the
-same I/O page (IO1 mappers at `$DE00`, Super Games at `$DF00`); the runtime publishes an
-error event and leaves the cart as-is. See **SwiftLink / Turbo232**. Emulate 1541 and
-the other Peripherals settings apply immediately when you press **[OK]** or
-**[Save INI now]**.
+MPS-803 enable/disable lives on the Misc -> Machine printer row LED (and CLI/INI), not
+in Configure. Host page output still uses Paths -> printer (default `prints`, `bmp`
+only in v1). SwiftLink Enable can be refused after Apply if a mounted cartridge already
+claims the same I/O page (IO1 mappers at `$DE00`, Super Games at `$DF00`); the runtime
+publishes an error event and leaves the cart as-is. See **SwiftLink / Turbo232**.
+Emulate 1541 and the other Peripherals settings apply immediately when you press
+**[OK]** or **[Save INI now]**.
 
 #### Input
 
