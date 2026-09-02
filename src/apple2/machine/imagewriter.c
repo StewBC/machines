@@ -187,7 +187,9 @@ static void reset_modes(imagewriter *iw)
 {
     iw->dpi = 80; /* ESC N pica default */
     iw->lf_dots = 12; /* ESC A / ESC T24 */
-    iw->auto_lf_after_cr = true;
+    /* Default off: SSC firmware / apps usually emit LF (or CR+LF). Auto-LF
+       here double-spaced Print Shop BIM bands (~8 ink + ~8 blank). */
+    iw->auto_lf_after_cr = false;
     iw->parse_state = A2_IW_PARSE_IDLE;
     iw->parse_digits_needed = 0;
     iw->parse_digits_got = 0;

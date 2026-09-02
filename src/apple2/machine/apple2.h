@@ -144,6 +144,9 @@ typedef struct apple2 {
     imagewriter imagewriter;
     bool imagewriter_live;
     char printer_output_dir[A2_IW_PATH_MAX];
+    /* Debug: raw ACIA TX bytes as seen by the IW sink (FILE*; NULL closed). */
+    void *printer_capture_fp;
+    char printer_capture_path[A2_IW_PATH_MAX];
 
     /* Game port: 4 paddles (2 sticks × X/Y) + 3 buttons. Axes are Apple paddle
        units 0..255 (mid=128). button_mask bit0=BUTN0, bit1=BUTN1, bit2=BUTN2.

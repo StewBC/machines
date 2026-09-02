@@ -84,7 +84,9 @@ static void cleanup_print_pages(const char *dir)
         return;
     }
     while ((de = readdir(d)) != NULL) {
-        if (is_print_page_name(de->d_name)) {
+        if (is_print_page_name(de->d_name) ||
+            (strncmp(de->d_name, "printer-capture-", 16) == 0 &&
+             strstr(de->d_name, ".raw") != NULL)) {
             snprintf(path, sizeof(path), "%s/%s", dir, de->d_name);
             (void)remove(path);
         }
@@ -244,9 +246,9 @@ static int count_bmp_ink(const uint8_t *bmp, size_t size)
 /*
  * Card-like bands at 72 dpi with ESC T16 gapless pitch:
  *   row0: 8x top-pin via ESC G
- *   CR ($8D high-ASCII) → auto LF 8 dots
+ *   CR + LF ($8D/$8A) → 8 dots (auto-LF-after-CR is off by default)
  *   row1: 8x bottom-pin via ESC G
- *   CR
+ *   CR + LF
  *   row2: ESC V0016 solid columns
  *   FF → one non-blank BMP
  */
@@ -273,7 +275,8 @@ static void test_ssc_printshop_card_graphics_bmp(void)
         fail("attach ssc");
     }
     expect_true("iw live", m.imagewriter_live);
-    expect_true("auto LF-after-CR default", m.imagewriter.auto_lf_after_cr);
+    expect_true("auto LF-after-CR default off", !m.imagewriter.auto_lf_after_cr);
+    expect_true("TX capture open", m.printer_capture_fp != NULL);
 
     /* Pitch + Print Shop line spacing for 8-pin bands. */
     ssc_tx_str(&m, slot, "\x1b" "n");
@@ -289,10 +292,12 @@ static void test_ssc_printshop_card_graphics_bmp(void)
     expect_eq_int("no auto Y after BIM", 0, m.imagewriter.cursor_y_dots);
     expect_eq_int("head after row0", 8, m.imagewriter.head_col);
 
-    /* High-ASCII CR (Apple II style) must return + LF under default DIP. */
+    /* High-ASCII CR alone: return only (no auto LF). */
     ssc_tx_byte(&m, slot, 0x8Du);
     expect_eq_int("CR resets head", 0, m.imagewriter.head_col);
-    expect_eq_int("T16 LF after CR", 8, m.imagewriter.cursor_y_dots);
+    expect_eq_int("CR alone no Y", 0, m.imagewriter.cursor_y_dots);
+    ssc_tx_byte(&m, slot, 0x8Au); /* LF */
+    expect_eq_int("T16 LF", 8, m.imagewriter.cursor_y_dots);
 
     /* Row 1: bottom pin. */
     ssc_tx_str(&m, slot, "\x1b" "G0008");
@@ -300,7 +305,8 @@ static void test_ssc_printshop_card_graphics_bmp(void)
         ssc_tx_byte(&m, slot, 0x80u);
     }
     ssc_tx_byte(&m, slot, 0x0Du);
-    expect_eq_int("y after row1 CR", 16, m.imagewriter.cursor_y_dots);
+    ssc_tx_byte(&m, slot, 0x0Au);
+    expect_eq_int("y after row1 CR+LF", 16, m.imagewriter.cursor_y_dots);
 
     /* Row 2: compact solid via ESC V (Print Shop repeat). */
     ssc_tx_str(&m, slot, "\x1b" "V0016");

@@ -792,7 +792,9 @@ static void cleanup_print_pages(const char *dir)
         return;
     }
     while ((de = readdir(d)) != NULL) {
-        if (is_print_page_name(de->d_name)) {
+        if (is_print_page_name(de->d_name) ||
+            (strncmp(de->d_name, "printer-capture-", 16) == 0 &&
+             strstr(de->d_name, ".raw") != NULL)) {
             snprintf(path, sizeof(path), "%s/%s", dir, de->d_name);
             (void)remove(path);
         }

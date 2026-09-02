@@ -1,6 +1,7 @@
 #include "apple2.h"
 #include "diskii_rom.h"
 #include "host_log.h"
+#include "host_page_name.h"
 #include "host_page_writer.h"
 #include "mboard.h"
 #include "rom_data.h"
@@ -13,8 +14,59 @@
 
 #include <assert.h>
 #include <ctype.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+static void apple2_printer_capture_close(apple2_t *m)
+{
+    FILE *fp;
+
+    if (m == NULL || m->printer_capture_fp == NULL) {
+        return;
+    }
+    fp = (FILE *)m->printer_capture_fp;
+    fclose(fp);
+    m->printer_capture_fp = NULL;
+    if (m->printer_capture_path[0] != '\0') {
+        log_info("printer: closed TX capture %s", m->printer_capture_path);
+    }
+}
+
+static void apple2_printer_capture_open(apple2_t *m)
+{
+    char stem[16];
+    FILE *fp;
+
+    apple2_printer_capture_close(m);
+    m->printer_capture_path[0] = '\0';
+    if (m == NULL || m->printer_output_dir[0] == '\0') {
+        return;
+    }
+    if (!host_page_writer_ensure_dir(m->printer_output_dir)) {
+        return;
+    }
+    if (!host_page_name_stem_now(stem)) {
+        snprintf(stem, sizeof(stem), "capture");
+    }
+    if (snprintf(
+            m->printer_capture_path,
+            sizeof(m->printer_capture_path),
+            "%s/printer-capture-%s.raw",
+            m->printer_output_dir,
+            stem) >= (int)sizeof(m->printer_capture_path)) {
+        m->printer_capture_path[0] = '\0';
+        return;
+    }
+    fp = fopen(m->printer_capture_path, "wb");
+    if (fp == NULL) {
+        log_error("printer: open TX capture failed for %s", m->printer_capture_path);
+        m->printer_capture_path[0] = '\0';
+        return;
+    }
+    m->printer_capture_fp = fp;
+    log_info("printer: capturing TX to %s", m->printer_capture_path);
+}
 
 static void apple2_ssc_tx_to_iw(void *user, uint8_t byte)
 {
@@ -22,6 +74,9 @@ static void apple2_ssc_tx_to_iw(void *user, uint8_t byte)
 
     if (m == NULL || m->replay_sealed || !m->imagewriter_live) {
         return;
+    }
+    if (m->printer_capture_fp != NULL) {
+        (void)fwrite(&byte, 1, 1, (FILE *)m->printer_capture_fp);
     }
     imagewriter_putc(&m->imagewriter, byte);
 }
@@ -64,6 +119,9 @@ static void apple2_imagewriter_begin_session(apple2_t *m)
                 m->printer_output_dir);
         }
     }
+    if (!m->replay_sealed) {
+        apple2_printer_capture_open(m);
+    }
 }
 
 static void apple2_imagewriter_end_session(apple2_t *m)
@@ -78,6 +136,7 @@ static void apple2_imagewriter_end_session(apple2_t *m)
             imagewriter_reset(&m->imagewriter);
         }
     }
+    apple2_printer_capture_close(m);
     imagewriter_shutdown(&m->imagewriter);
     m->imagewriter_live = false;
 }
@@ -466,6 +525,8 @@ bool apple2_init(apple2_t *machine)
     apple2_ssc_clear_sink(machine);
     machine->imagewriter_live = false;
     machine->printer_output_dir[0] = '\0';
+    machine->printer_capture_fp = NULL;
+    machine->printer_capture_path[0] = '\0';
     memset(&machine->imagewriter, 0, sizeof(machine->imagewriter));
 
     /* Unconnected paddles read near center until host input arrives. */
