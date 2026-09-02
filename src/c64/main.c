@@ -4572,6 +4572,7 @@ static bool intent_mutates_in_inspect(frontend_debugger_intent_type type)
         case FRONTEND_DEBUGGER_INTENT_DISK_SET_WRITABLE:
         case FRONTEND_DEBUGGER_INTENT_CONFIG_APPLY:
         case FRONTEND_DEBUGGER_INTENT_INSPECTOR_SET_ENABLED:
+        case FRONTEND_DEBUGGER_INTENT_PRINTER_FLUSH:
             return true;
         default:
             return false;

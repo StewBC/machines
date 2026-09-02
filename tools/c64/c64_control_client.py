@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Minimal c64m control-port client (C64M/9 line protocol).
+"""Minimal c64m control-port client (C64M/10 line protocol).
 
 Debug/introspection helper for driving a headless c64m over its localhost
 control port. Written for the lft-nine VIC-II investigation
@@ -29,7 +29,7 @@ GOTCHAS (learned the hard way, see lft-nine.md):
   * break-create only supports 'exec' breakpoints via the control port
     (control_parse_breakpoint_definition in src/main.c hard-requires "exec");
     read/write watchpoints would need a protocol extension.
-  * Inspect (C64M/9): get-state reports mode=live|inspector plus focus_cycle
+  * Inspect (since C64M/9): get-state reports mode=live|inspector plus focus_cycle
     and start=/start_arg1=. While mode=inspector, pokes fail with
     error read-only-inspector. leave-inspector restores live NOW (no auto-resume).
     Socket run/step-* while Inspecting are sealed execute clamped to live, not

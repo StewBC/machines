@@ -97,7 +97,6 @@ bool runtime_client_set_printer(
     runtime_client *client,
     bool enabled,
     const char *output_dir);
-/* Force-flush dirty printer page (works while running). */
 bool runtime_client_printer_flush(runtime_client *client);
 /* rom_paths, when non-NULL, carries the effective ROM file paths (any member may
    be NULL/empty for "unset"); pass reload_roms=true to have the runtime re-read

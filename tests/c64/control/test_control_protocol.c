@@ -181,6 +181,11 @@ static void test_parse_known_commands(void)
     expect_true("parse restore", control_protocol_parse_request("30 restore", &request, &error));
     expect_int("restore type", CONTROL_COMMAND_RESTORE, request.type);
 
+    expect_true(
+        "parse printer-flush",
+        control_protocol_parse_request("45 printer-flush", &request, &error));
+    expect_int("printer-flush type", CONTROL_COMMAND_PRINTER_FLUSH, request.type);
+
     expect_true("parse break-list", control_protocol_parse_request("50 break-list", &request, &error));
     expect_int("break-list type", CONTROL_COMMAND_BREAK_LIST, request.type);
 

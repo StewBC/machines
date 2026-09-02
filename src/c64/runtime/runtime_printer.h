@@ -12,5 +12,4 @@ bool runtime_printer_set_enabled(
     bool enabled,
     const char *output_dir);
 
-/* Force-flush dirty page to host file; no-op if disabled / !dirty / blank. */
 void runtime_printer_force_flush(struct runtime *rt);

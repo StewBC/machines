@@ -6193,7 +6193,7 @@ static void frontend_draw_misc_programs(frontend *ui, const frontend_debug_state
         frontend_push_simple_intent(ui, FRONTEND_DEBUGGER_INTENT_STATE_SAVE_AS_DIALOG);
     }
 
-    /* Printer (status + Force flush when soft-attached) */
+    /* Printer status + Force flush */
     if (debug_state != NULL && debug_state->printer_enabled) {
         char status[96];
 
