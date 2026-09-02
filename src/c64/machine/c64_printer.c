@@ -381,9 +381,8 @@ static void handle_control(c64_printer *p, uint8_t ch)
             p->cursor_y_dots = 0;
         }
         break;
-    case 13: /* CR: print line, leave BIM */
+    case 13: /* CR: advance; BIM stays (Print Shop / 801 multi-row BIM) */
         advance_line(p);
-        p->bit_image = false;
         p->reverse = false;
         break;
     case 14: /* enhance on; leave BIM */
@@ -600,6 +599,12 @@ void c64_printer_putc(c64_printer *p, uint8_t ch)
     if (p->bit_image) {
         if (is_control_byte(ch)) {
             handle_control(p, ch);
+            return;
+        }
+        /* MPS-801/803: BIM columns have bit7 set; bit7 clear ends BIM. */
+        if ((ch & 0x80u) == 0u) {
+            p->bit_image = false;
+            print_char(p, ch);
             return;
         }
         plot_bim_column(p, ch);
