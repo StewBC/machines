@@ -266,7 +266,10 @@ static void test_digit_spaces_in_nnnn(void)
     imagewriter_putc(&iw, 0x01u);
     imagewriter_putc(&iw, 0x01u);
     expect_eq_int("space-tolerant G cols", 2, iw.head_col);
-    expect_eq_int("back to IDLE after BIM", (int)A2_IW_PARSE_IDLE, (int)iw.parse_state);
+    /* Stay in BIM until CR/LF/ESC (Print Shop overshoot). */
+    expect_eq_int("BIM drain after count", (int)A2_IW_PARSE_BIM_DATA, (int)iw.parse_state);
+    imagewriter_putc(&iw, 0x0Du);
+    expect_eq_int("CR ends BIM", (int)A2_IW_PARSE_IDLE, (int)iw.parse_state);
 
     /* ESC T mm is two digits; leading space: " 8" → mm=8 → 4 dots */
     iw.head_col = 0;
@@ -370,7 +373,9 @@ static void test_esc_g_times_eight(void)
         imagewriter_putc(&iw, 0x01u);
     }
     expect_eq_int("g cols", 16, iw.head_col);
-    expect_eq_int("g idle", (int)A2_IW_PARSE_IDLE, (int)iw.parse_state);
+    expect_eq_int("g drain", (int)A2_IW_PARSE_BIM_DATA, (int)iw.parse_state);
+    imagewriter_putc(&iw, 0x0Au);
+    expect_eq_int("g idle after LF", (int)A2_IW_PARSE_IDLE, (int)iw.parse_state);
     teardown(&iw);
 }
 
@@ -442,6 +447,73 @@ static void test_esc_gt_lt_noop(void)
     teardown(&iw);
 }
 
+/* LF must CR-reset head so a following BIM band does not start mid-line. */
+static void test_lf_resets_head_after_bim(void)
+{
+    imagewriter iw;
+    int i;
+
+    setup(&iw);
+    put_str(&iw, "\x1b" "P");
+    put_str(&iw, "\x1b" "G0008");
+    for (i = 0; i < 8; ++i) {
+        imagewriter_putc(&iw, 0x01u);
+    }
+    expect_eq_int("head after BIM", 8, iw.head_col);
+    imagewriter_putc(&iw, 0x0Au); /* LF only — no CR */
+    expect_eq_int("LF resets head", 0, iw.head_col);
+    expect_eq_int("LF advanced Y", 12, iw.cursor_y_dots);
+    teardown(&iw);
+}
+
+/*
+ * Print Shop sometimes ends a counted BIM run then sends more column bytes
+ * before CR/LF. Those must stay BIM (not text), or the face corrupts.
+ */
+static void test_bim_overshoot_until_cr(void)
+{
+    imagewriter iw;
+    int i;
+
+    setup(&iw);
+    put_str(&iw, "\x1b" "P\x1b" "T14");
+    put_str(&iw, "\x1b" "G0004");
+    for (i = 0; i < 4; ++i) {
+        imagewriter_putc(&iw, 0xFFu);
+    }
+    expect_eq_int("count done head", 4, iw.head_col);
+    /* Overshoot columns (still BIM). */
+    imagewriter_putc(&iw, 0x01u);
+    imagewriter_putc(&iw, 0x02u);
+    expect_eq_int("overshoot still BIM head", 6, iw.head_col);
+    expect_eq_int("still BIM state", (int)A2_IW_PARSE_BIM_DATA, (int)iw.parse_state);
+    imagewriter_putc(&iw, 0x0Du);
+    expect_eq_int("CR ends BIM", (int)A2_IW_PARSE_IDLE, (int)iw.parse_state);
+    expect_eq_int("CR head 0", 0, iw.head_col);
+    teardown(&iw);
+}
+
+/* Last counted BIM byte is 0x0D (pins); following LF must still home the head. */
+static void test_bim_last_byte_cr_then_lf(void)
+{
+    imagewriter iw;
+    int i;
+
+    setup(&iw);
+    put_str(&iw, "\x1b" "P");
+    put_str(&iw, "\x1b" "G0004");
+    imagewriter_putc(&iw, 0x01u);
+    imagewriter_putc(&iw, 0x02u);
+    imagewriter_putc(&iw, 0x04u);
+    imagewriter_putc(&iw, 0x0Du); /* last pin mask happens to be CR */
+    expect_eq_int("still BIM until drain", (int)A2_IW_PARSE_BIM_DATA, (int)iw.parse_state);
+    expect_eq_int("head at 4", 4, iw.head_col);
+    imagewriter_putc(&iw, 0x0Au); /* LF — must end BIM + home */
+    expect_eq_int("IDLE after LF", (int)A2_IW_PARSE_IDLE, (int)iw.parse_state);
+    expect_eq_int("head homed", 0, iw.head_col);
+    teardown(&iw);
+}
+
 /* Optional: replay a captured Print Shop stream if present in-tree. */
 static void test_replay_printshop_capture_if_present(void)
 {
@@ -498,6 +570,9 @@ int main(void)
     test_esc_g_times_eight();
     test_esc_t24_soft_page_break_after_bim();
     test_esc_gt_lt_noop();
+    test_lf_resets_head_after_bim();
+    test_bim_overshoot_until_cr();
+    test_bim_last_byte_cr_then_lf();
     test_replay_printshop_capture_if_present();
     printf("ok\n");
     return 0;

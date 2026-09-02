@@ -511,6 +511,13 @@ static void handle_control(imagewriter *iw, uint8_t ch)
         }
         break;
     case 0x0A: /* LF */
+        /*
+         * ImageWriter "CR insertion before LF" (power-on typical / Print Shop):
+         * when the last BIM column is 0x0D, the real CR is consumed as pins and
+         * only LF follows — without resetting head, the next band starts at the
+         * previous width (e.g. 682) and draws on the right half of the page.
+         */
+        iw->head_col = 0;
         advance_lf(iw);
         break;
     case 0x0C: /* FF */
@@ -651,14 +658,29 @@ void imagewriter_putc(imagewriter *iw, uint8_t ch)
     }
 
     case A2_IW_PARSE_BIM_DATA:
-        plot_bim_column(iw, ch);
-        iw->bim_remaining -= 1;
-        if (iw->bim_remaining <= 0) {
-            /* Return to text; no automatic Y advance. */
-            iw->parse_state = A2_IW_PARSE_IDLE;
-            iw->bim_remaining = 0;
+        if (iw->bim_remaining > 0) {
+            plot_bim_column(iw, ch);
+            iw->bim_remaining -= 1;
+            return;
         }
-        return;
+        /*
+         * Declared nnnn exhausted. Print Shop ImageWriter output sometimes
+         * sends additional column bytes before CR/LF (Thank You face). Keep
+         * absorbing as BIM (clipped at page width) until a line terminator.
+         * Only now may 0x0D/0x0A/ESC be treated as controls — during the
+         * counted payload they are valid pin masks.
+         */
+        {
+            uint8_t c7 = (uint8_t)(ch & 0x7Fu);
+            if (c7 == 0x0Du || c7 == 0x0Au || c7 == 0x0Cu || c7 == 0x1Bu) {
+                iw->parse_state = A2_IW_PARSE_IDLE;
+                iw->bim_remaining = 0;
+                ch = c7; /* control path is 7-bit */
+                break; /* fall through to control / text handling below */
+            }
+            plot_bim_column(iw, ch);
+            return;
+        }
 
     case A2_IW_PARSE_ESC_V_DIGITS: {
         int r = feed_digit(iw, ch);
@@ -710,6 +732,10 @@ void imagewriter_putc(imagewriter *iw, uint8_t ch)
 
     if (ch == 0x08u || ch == 0x0Au || ch == 0x0Cu || ch == 0x0Du || ch == 0x1Bu) {
         handle_control(iw, ch);
+        return;
+    }
+    if (ch == 0x00u) {
+        /* NUL: no-op (Print Shop pads; must not advance like a glyph). */
         return;
     }
     print_char(iw, ch);
