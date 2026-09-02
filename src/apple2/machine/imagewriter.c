@@ -563,6 +563,16 @@ void imagewriter_putc(imagewriter *iw, uint8_t ch)
         return;
     }
 
+    /*
+     * ImageWriter defaults to 7-bit (ignore data bit 8) until bit-image
+     * data. ESC G/S/g/V payloads are 8-bit pin masks. Apple II high-ASCII
+     * CR/ESC/text ($8D/$9B/$C1) must still parse as controls/glyphs.
+     */
+    if (iw->parse_state != A2_IW_PARSE_BIM_DATA &&
+        iw->parse_state != A2_IW_PARSE_ESC_V_DATA) {
+        ch = (uint8_t)(ch & 0x7Fu);
+    }
+
     switch (iw->parse_state) {
     case A2_IW_PARSE_ESC:
         handle_esc_cmd(iw, ch);

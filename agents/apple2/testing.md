@@ -9,7 +9,7 @@ cmake --build build -j
 ctest --test-dir build -L a2m --output-on-failure
 ```
 
-Expect **82** green. CTest names are `a2m.<name>`. Root `project(machines)`
+Expect **89** green. CTest names are `a2m.<name>`. Root `project(machines)`
 is the gate; do not configure `-S src/apple2`.
 
 ## Registered tests
@@ -32,6 +32,8 @@ is the gate; do not configure `-S src/apple2`.
 | `crt_pixel_map` | CRT barrel round-trip + mouse→Apple pixel (flat and curved) |
 | `diskii` | NIB mount + boot free-run |
 | `peripherals` | Mockingboard + SmartPort unit |
+| `imagewriter` | ImageWriter II mono raster (pitch/BIM/`ESC T`) |
+| `ssc_printshop_smoke` | SSC ACIA TX → Print Shop–like BIM card → BMP ink |
 | `hostfs` | HostFS NAPS, nested dirs, write-through, rescan, `hostfs.order` |
 | `cxxx_map` | CXXX / SETC3ROM / INTCXROM / MB hide / C800 latch |
 | `memview` | VIEW_FLAGS memory windows |

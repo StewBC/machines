@@ -269,6 +269,13 @@ target_compile_features(${test_imagewriter} PRIVATE c_std_99)
 target_link_libraries(${test_imagewriter} PRIVATE ${machine})
 leftover_add_test(NAME imagewriter COMMAND ${test_imagewriter})
 
+leftover_exe(test_ssc_printshop_smoke
+    ${MACHINES_ROOT}/tests/apple2/machine/test_ssc_printshop_smoke.c
+)
+target_compile_features(${test_ssc_printshop_smoke} PRIVATE c_std_99)
+target_link_libraries(${test_ssc_printshop_smoke} PRIVATE ${machine})
+leftover_add_test(NAME ssc_printshop_smoke COMMAND ${test_ssc_printshop_smoke})
+
 leftover_exe(test_hostfs
     ${MACHINES_ROOT}/tests/apple2/machine/test_hostfs.c
 )

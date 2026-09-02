@@ -327,6 +327,53 @@ static void test_colour_esc_ignored(void)
     teardown(&iw);
 }
 
+static void test_high_ascii_7bit_mask_bim_8bit(void)
+{
+    imagewriter iw;
+
+    setup(&iw);
+    iw.auto_lf_after_cr = true;
+    iw.head_col = 24;
+    imagewriter_putc(&iw, 0x8Du); /* high-ASCII CR */
+    expect_eq_int("0x8D → CR head", 0, iw.head_col);
+    expect_eq_int("0x8D → CR auto LF", 12, iw.cursor_y_dots);
+
+    imagewriter_putc(&iw, 0x9Bu); /* high-ASCII ESC */
+    imagewriter_putc(&iw, (uint8_t)'T');
+    imagewriter_putc(&iw, (uint8_t)'1');
+    imagewriter_putc(&iw, (uint8_t)'6');
+    expect_eq_int("0x9B ESC T16", 8, iw.lf_dots);
+
+    imagewriter_reset(&iw);
+    put_str(&iw, "\x1b" "n\x1b" "G0001");
+    imagewriter_putc(&iw, 0x80u); /* must stay 8-bit in BIM */
+    expect_true("BIM bit7 bottom pin", pixel_at(&iw, imagewriter_bim_x(72, 0), 7) == A2_IW_INK);
+    expect_true("BIM bit7 not top", pixel_at(&iw, imagewriter_bim_x(72, 0), 0) == A2_IW_PAPER);
+
+    imagewriter_reset(&iw);
+    imagewriter_putc(&iw, 0xC1u); /* high-ASCII 'A' */
+    expect_true("high-ASCII glyph", imagewriter_page_dirty(&iw));
+    expect_eq_int("high-ASCII head", 8, iw.head_col);
+
+    teardown(&iw);
+}
+
+static void test_esc_g_times_eight(void)
+{
+    imagewriter iw;
+
+    setup(&iw);
+    put_str(&iw, "\x1b" "P");
+    put_str(&iw, "\x1b" "g002"); /* 16 columns */
+    expect_eq_int("g pending", 16, iw.bim_remaining);
+    while (iw.bim_remaining > 0) {
+        imagewriter_putc(&iw, 0x01u);
+    }
+    expect_eq_int("g cols", 16, iw.head_col);
+    expect_eq_int("g idle", (int)A2_IW_PARSE_IDLE, (int)iw.parse_state);
+    teardown(&iw);
+}
+
 int main(void)
 {
     test_pitch_table_and_bim_x();
@@ -336,6 +383,8 @@ int main(void)
     test_digit_spaces_in_nnnn();
     test_esc_v_and_text_pitch_cmds();
     test_colour_esc_ignored();
+    test_high_ascii_7bit_mask_bim_8bit();
+    test_esc_g_times_eight();
     printf("ok\n");
     return 0;
 }
