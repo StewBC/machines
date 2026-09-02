@@ -63,6 +63,9 @@ typedef struct frontend_debug_state {
     uint64_t inspector_focus_ordinal;
     bool inspector_focus_is_sample;
     runtime_inspector_catalog inspector_catalog;
+    /* ImageWriter host pages when an SSC is installed (presence = slot). */
+    uint32_t printer_pages_flushed;
+    bool printer_page_dirty;
 } frontend_debug_state;
 
 const char *frontend_runtime_state_name(frontend_runtime_state state);
@@ -145,7 +148,8 @@ typedef enum frontend_debugger_intent_type {
     FRONTEND_DEBUGGER_INTENT_HISTORY_READ,
     FRONTEND_DEBUGGER_INTENT_HISTORY_INFO,
     FRONTEND_DEBUGGER_INTENT_HISTORY_CLOSE,
-    FRONTEND_DEBUGGER_INTENT_SET_SYMBOL_SOURCE_ENABLED
+    FRONTEND_DEBUGGER_INTENT_SET_SYMBOL_SOURCE_ENABLED,
+    FRONTEND_DEBUGGER_INTENT_PRINTER_FLUSH
 } frontend_debugger_intent_type;
 
 typedef enum frontend_history_verb {
@@ -167,6 +171,7 @@ typedef enum frontend_browse_slot {
     FRONTEND_BROWSE_SLOT_BINARY,
     FRONTEND_BROWSE_SLOT_BASIC,
     FRONTEND_BROWSE_SLOT_SNAPSHOT,
+    FRONTEND_BROWSE_SLOT_PRINTER,
     FRONTEND_BROWSE_SLOT_COUNT
 } frontend_browse_slot;
 

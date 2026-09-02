@@ -76,7 +76,9 @@ typedef enum runtime_command_type {
     RUNTIME_COMMAND_INSPECTOR_LAND,
     RUNTIME_COMMAND_INSPECTOR_LAND_TO_CYCLE,
     RUNTIME_COMMAND_INSPECTOR_SAMPLE_STEP,
-    RUNTIME_COMMAND_SET_SYMBOL_SOURCE_ENABLED
+    RUNTIME_COMMAND_SET_SYMBOL_SOURCE_ENABLED,
+    RUNTIME_COMMAND_PRINTER_CONFIGURE,
+    RUNTIME_COMMAND_PRINTER_FLUSH
 } runtime_command_type;
 
 enum {
@@ -357,5 +359,9 @@ typedef struct runtime_command {
         struct {
             int8_t direction; /* +1 forward frame, -1 previous frame */
         } inspector_sample_step;
+
+        struct {
+            char output_dir[RUNTIME_COMMAND_PATH_MAX];
+        } printer_configure;
     } data;
 } runtime_command;

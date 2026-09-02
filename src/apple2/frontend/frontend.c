@@ -45,6 +45,7 @@
 #endif
 
 enum {
+    FRONTEND_PRINTER_FLUSH_FLASH_MS = 1000,
     FRONTEND_DEBUGGER_INTENT_CAPACITY = 32,
     FRONTEND_DISK_LED_SIZE = 16,
     /* Host-time LED hold after each activity event (ms). Independent of pause. */
@@ -422,6 +423,7 @@ struct frontend {
     /* Remembered default folder per browse slot (session memory; main.c bridges
        these to the INI). Empty string means "unset" -> fall back to cwd. */
     char browse_dirs[FRONTEND_BROWSE_SLOT_COUNT][1024];
+    uint64_t printer_flush_label_until_ms;
     symbol_resolver symbols;
     symbol_table *symbol_table;
     app_disk_slot disk_queue[2]; /* mirrors options->disk_slots[0]/[1] (d0/d1) */
@@ -1653,7 +1655,9 @@ static bool frontend_config_prepare_edit_buffers(frontend_config_dialog_state *d
         frontend_config_reserve_string(&dialog->edited.video_standard, 16) &&
         frontend_config_reserve_string(&dialog->edited.turbo_multipliers, 256) &&
         frontend_config_reserve_string(&dialog->edited.symbol_files, 1024) &&
-        frontend_config_reserve_string(&dialog->edited.keyboard_joystick_layout, 16);
+        frontend_config_reserve_string(&dialog->edited.keyboard_joystick_layout, 16) &&
+        frontend_config_reserve_string(&dialog->edited.printer_output_dir, 1024) &&
+        frontend_config_reserve_string(&dialog->edited.printer_format, 16);
 }
 
 static void frontend_config_dialog_reset(frontend_config_dialog_state *dialog)
@@ -2607,7 +2611,7 @@ static void frontend_draw_config_emulator_tab(frontend *ui, frontend_config_dial
 static void frontend_draw_config_paths_tab(frontend *ui, frontend_config_dialog_state *dialog, struct nk_context *ctx)
 {
     static const char *const labels[FRONTEND_BROWSE_SLOT_COUNT] = {
-        "Assembler", "Floppy", "SmartPort", "Binary", "Basic", "Snapshot"
+        "Assembler", "Floppy", "SmartPort", "Binary", "Basic", "Snapshot", "Printer"
     };
     int i;
 
@@ -6378,6 +6382,64 @@ static void frontend_draw_machine_slots(
     }
 }
 
+/* ImageWriter row when an SSC is installed. Flush button uses the SSC slot
+   number (PR#n). No soft-power LED toggle -- presence is the slot card only. */
+static void frontend_draw_misc_printer(
+    frontend *ui,
+    const frontend_debug_state *debug_state)
+{
+    struct nk_context *ctx;
+    int ssc_slot = 0;
+    int slot;
+    const char *status = "Clean";
+    char pages[32];
+    char flush_label[8];
+    uint64_t now;
+
+    if (ui == NULL || ui->ctx == NULL || debug_state == NULL || !debug_state->has_apple_flags) {
+        return;
+    }
+
+    for (slot = 1; slot <= 7; ++slot) {
+        if (debug_state->slots[slot].card_type == RUNTIME_SLOT_CARD_SSC) {
+            ssc_slot = slot;
+            break;
+        }
+    }
+    if (ssc_slot == 0) {
+        return;
+    }
+
+    ctx = ui->ctx;
+    now = SDL_GetTicks64();
+    if (ui->printer_flush_label_until_ms > now) {
+        status = "Flush";
+    } else if (debug_state->printer_page_dirty) {
+        status = "Dirty";
+    }
+    snprintf(
+        pages,
+        sizeof(pages),
+        "Pages %u",
+        (unsigned)debug_state->printer_pages_flushed);
+    snprintf(flush_label, sizeof(flush_label), "%d", ssc_slot);
+
+    nk_layout_row_begin(ctx, NK_DYNAMIC, 24.0f, 4);
+    nk_layout_row_push(ctx, 0.10f);
+    if (nk_button_label(ctx, flush_label)) {
+        ui->printer_flush_label_until_ms =
+            now + (uint64_t)FRONTEND_PRINTER_FLUSH_FLASH_MS;
+        frontend_push_simple_intent(ui, FRONTEND_DEBUGGER_INTENT_PRINTER_FLUSH);
+    }
+    nk_layout_row_push(ctx, 0.58f);
+    nk_label(ctx, "ImageWriter II", NK_TEXT_LEFT);
+    nk_layout_row_push(ctx, 0.18f);
+    nk_label(ctx, pages, NK_TEXT_LEFT);
+    nk_layout_row_push(ctx, 0.14f);
+    nk_label(ctx, status, NK_TEXT_LEFT);
+    nk_layout_row_end(ctx);
+}
+
 static void frontend_draw_misc_programs(frontend *ui, const frontend_debug_state *debug_state)
 {
     struct nk_context *ctx;
@@ -6389,6 +6451,7 @@ static void frontend_draw_misc_programs(frontend *ui, const frontend_debug_state
     ctx = ui->ctx;
 
     frontend_draw_machine_slots(ui, debug_state);
+    frontend_draw_misc_printer(ui, debug_state);
 
     nk_layout_row_dynamic(ctx, 18.0f, 1);
     nk_label(ctx, "Machine files", NK_TEXT_LEFT);
@@ -8918,7 +8981,8 @@ const char *frontend_get_browse_dir(const frontend *ui, frontend_browse_slot slo
 }
 
 /* Stores a folder chosen via a Paths-tab [...] button into its pending slot,
-   converting to the INI-relative form used for display and persistence. */
+   converting to the INI-relative form used for display and persistence.
+   Printer slot also updates the active [printer] output_dir. */
 void frontend_set_picked_browse_dir(frontend *ui, const char *path)
 {
     int slot;
@@ -8928,6 +8992,10 @@ void frontend_set_picked_browse_dir(frontend *ui, const char *path)
     slot = ui->config_dialog.pending_browse_slot;
     if (slot >= 0 && slot < FRONTEND_BROWSE_SLOT_COUNT) {
         frontend_browse_to_relative(ui, path, ui->browse_dirs[slot], sizeof(ui->browse_dirs[slot]));
+        if (slot == FRONTEND_BROWSE_SLOT_PRINTER) {
+            app_options_set_string(
+                &ui->config_dialog.edited.printer_output_dir, ui->browse_dirs[slot]);
+        }
     }
 }
 

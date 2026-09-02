@@ -9,7 +9,7 @@
 
 /* Remembered file-browser default folders, one per browse slot. The order and
    count must match frontend_browse_slot in frontend/frontend.h. */
-#define APP_BROWSE_DIR_COUNT 6
+#define APP_BROWSE_DIR_COUNT 7
 
 /* Apple multi-mount capacity (matches runtime). */
 enum {

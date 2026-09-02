@@ -1779,6 +1779,7 @@ static bool intent_mutates_in_inspect(frontend_debugger_intent_type type)
     case FRONTEND_DEBUGGER_INTENT_DISK_UNMOUNT:
     case FRONTEND_DEBUGGER_INTENT_CONFIG_APPLY:
     case FRONTEND_DEBUGGER_INTENT_INSPECTOR_SET_ENABLED:
+    case FRONTEND_DEBUGGER_INTENT_PRINTER_FLUSH:
         return true;
     default:
         return false;
@@ -2384,6 +2385,22 @@ static void dispatch_intent(
                     const char *dir = frontend_get_browse_dir(ui, (frontend_browse_slot)slot);
                     app_options_set_string(&options->browse_dirs[slot], dir[0] ? dir : NULL);
                 }
+                /* Paths printer browse is the UI for [printer] output_dir. */
+                {
+                    const char *printer_browse = frontend_get_browse_dir(
+                        ui, FRONTEND_BROWSE_SLOT_PRINTER);
+                    if (printer_browse != NULL && printer_browse[0] != '\0') {
+                        app_options_set_string(
+                            &options->printer_output_dir, printer_browse);
+                    }
+                }
+                if (options->printer_output_dir != NULL &&
+                    options->printer_output_dir[0] != '\0') {
+                    frontend_set_browse_dir(
+                        ui,
+                        FRONTEND_BROWSE_SLOT_PRINTER,
+                        options->printer_output_dir);
+                }
                 sync_assembler_options_from_frontend(options, ui);
             }
             /* Dialog options omit live resize/splitters; refresh before write
@@ -2409,6 +2426,9 @@ static void dispatch_intent(
             apply_keyboard_joystick_options(
                 kbd_joystick, controllers, client, options);
             if (client != NULL) {
+                char printer_dir_abs[1024];
+                const char *printer_dir = options->printer_output_dir;
+
                 (void)runtime_client_set_history_off_on_max(
                     client, options->history_off_on_max);
                 (void)runtime_client_set_inspector_off_on_max(
@@ -2417,6 +2437,16 @@ static void dispatch_intent(
                     client,
                     options->colour_display,
                     (uint8_t)options->mono_mode);
+                if (printer_dir != NULL && printer_dir[0] != '\0') {
+                    if (app_options_path_absolute_from_ini(
+                            options,
+                            printer_dir,
+                            printer_dir_abs,
+                            sizeof(printer_dir_abs))) {
+                        printer_dir = printer_dir_abs;
+                    }
+                    (void)runtime_client_printer_configure(client, printer_dir);
+                }
             }
         }
         break;
@@ -2428,6 +2458,28 @@ static void dispatch_intent(
                 const char *dir = frontend_get_browse_dir(ui, (frontend_browse_slot)slot);
                 app_options_set_string(&options->browse_dirs[slot], dir[0] ? dir : NULL);
             }
+            {
+                const char *printer_browse =
+                    frontend_get_browse_dir(ui, FRONTEND_BROWSE_SLOT_PRINTER);
+                if (printer_browse != NULL && printer_browse[0] != '\0') {
+                    app_options_set_string(
+                        &options->printer_output_dir, printer_browse);
+                }
+            }
+            if (client != NULL &&
+                options->printer_output_dir != NULL &&
+                options->printer_output_dir[0] != '\0') {
+                char printer_dir_abs[1024];
+                const char *printer_dir = options->printer_output_dir;
+                if (app_options_path_absolute_from_ini(
+                        options,
+                        printer_dir,
+                        printer_dir_abs,
+                        sizeof(printer_dir_abs))) {
+                    printer_dir = printer_dir_abs;
+                }
+                (void)runtime_client_printer_configure(client, printer_dir);
+            }
             if (!app_options_save_paths_only(options)) {
                 log_error("Save Paths Only failed");
             } else {
@@ -2435,6 +2487,9 @@ static void dispatch_intent(
                         options->ini_path != NULL ? options->ini_path : "(null)");
             }
         }
+        break;
+    case FRONTEND_DEBUGGER_INTENT_PRINTER_FLUSH:
+        (void)runtime_client_printer_flush(client);
         break;
     case FRONTEND_DEBUGGER_INTENT_FILE_BROWSER_RESULT:
         if (intent->file_browser_path[0] == '\0') {
@@ -2569,6 +2624,8 @@ static void apply_event_to_debug(
             event->data.machine_state.inspector_focus_is_sample != 0u;
         debug->inspector_oldest_cycle = event->data.machine_state.inspector_oldest_cycle;
         debug->inspector_newest_cycle = event->data.machine_state.inspector_newest_cycle;
+        debug->printer_pages_flushed = event->data.machine_state.printer_pages_flushed;
+        debug->printer_page_dirty = event->data.machine_state.printer_page_dirty != 0u;
         /* Always refresh the CPU snapshot from machine state (c64m). */
         debug->cpu.pc = event->data.machine_state.pc;
         debug->cpu.a = event->data.machine_state.a;
@@ -3010,6 +3067,14 @@ int main(int argc, char **argv)
                 ui,
                 (frontend_browse_slot)slot,
                 options.browse_dirs[slot] != NULL ? options.browse_dirs[slot] : "");
+        }
+        /* Convenience: empty printer browse falls back to [printer] output_dir. */
+        if ((options.browse_dirs[FRONTEND_BROWSE_SLOT_PRINTER] == NULL ||
+             options.browse_dirs[FRONTEND_BROWSE_SLOT_PRINTER][0] == '\0') &&
+            options.printer_output_dir != NULL &&
+            options.printer_output_dir[0] != '\0') {
+            frontend_set_browse_dir(
+                ui, FRONTEND_BROWSE_SLOT_PRINTER, options.printer_output_dir);
         }
     }
     {

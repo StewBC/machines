@@ -101,6 +101,10 @@ bool runtime_client_apply_machine_config(
     bool reset,
     bool save_ini,
     bool resume_running);
+/* Live-update ImageWriter output_dir (SSC presence unchanged). */
+bool runtime_client_printer_configure(runtime_client *client, const char *output_dir);
+/* Force-flush dirty ImageWriter page; works while running. */
+bool runtime_client_printer_flush(runtime_client *client);
 /* Apple ARGB frame handoff. Caller provides buffer large enough for w*h. */
 bool runtime_client_poll_argb_frame(
     runtime_client *client,

@@ -121,3 +121,4 @@ original_del = false
 ; binary = assets/apple2/Other
 ; basic = assets/apple2/Other
 ; snapshot = assets/apple2/Other
+; printer = prints

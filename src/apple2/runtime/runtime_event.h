@@ -265,6 +265,9 @@ typedef struct runtime_machine_snapshot {
     uint64_t inspector_timeline_generation;
     uint64_t inspector_focus_ordinal;
     uint8_t inspector_focus_is_sample;
+    /* ImageWriter pages when SSC installed (presence = slot card). */
+    uint32_t printer_pages_flushed;
+    uint8_t printer_page_dirty;
 } runtime_machine_snapshot;
 
 typedef struct runtime_memory_snapshot {

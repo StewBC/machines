@@ -1755,6 +1755,15 @@ static void runtime_publish_machine(runtime *rt)
         }
         event.data.machine_state.disk_motor_mask = mask;
     }
+    if (rt->machine.ssc_slot != 0 && rt->machine.imagewriter_live) {
+        event.data.machine_state.printer_pages_flushed =
+            imagewriter_pages_flushed(&rt->machine.imagewriter);
+        event.data.machine_state.printer_page_dirty =
+            imagewriter_page_dirty(&rt->machine.imagewriter) ? 1u : 0u;
+    } else {
+        event.data.machine_state.printer_pages_flushed = 0u;
+        event.data.machine_state.printer_page_dirty = 0u;
+    }
     runtime_publish_event(rt, &event);
 }
 
@@ -3904,6 +3913,8 @@ static bool runtime_inspector_command_mutates_machine(runtime_command_type type)
     case RUNTIME_COMMAND_HISTORY_CLEAR:
     case RUNTIME_COMMAND_HISTORY_RECORD:
     case RUNTIME_COMMAND_INSPECTOR_SET_ENABLED:
+    case RUNTIME_COMMAND_PRINTER_CONFIGURE:
+    case RUNTIME_COMMAND_PRINTER_FLUSH:
         return true;
     default:
         return false;
@@ -4159,9 +4170,17 @@ static void runtime_process_command(runtime *rt, const runtime_command *cmd, boo
         rt->config.machine_config = *config;
         /* SSC that stayed installed skipped detach; flush before cold reset. */
         runtime_printer_pre_cold_reset_flush(rt);
-        if (rt->config.printer_output_dir != NULL &&
-            rt->config.printer_output_dir[0] != '\0') {
-            (void)runtime_printer_configure(rt, rt->config.printer_output_dir);
+        {
+            const char *printer_dir = NULL;
+            if (rt->machine.printer_output_dir[0] != '\0') {
+                printer_dir = rt->machine.printer_output_dir;
+            } else if (rt->config.printer_output_dir != NULL &&
+                       rt->config.printer_output_dir[0] != '\0') {
+                printer_dir = rt->config.printer_output_dir;
+            }
+            if (printer_dir != NULL) {
+                (void)runtime_printer_configure(rt, printer_dir);
+            }
         }
         apple2_cold_reset(&rt->machine);
         runtime_type_script_stop(rt);
@@ -4918,6 +4937,14 @@ static void runtime_process_command(runtime *rt, const runtime_command *cmd, boo
                 cmd->data.set_symbol_source_enabled.enabled != 0u);
             runtime_publish_symbols(rt);
         }
+        break;
+    case RUNTIME_COMMAND_PRINTER_CONFIGURE:
+        (void)runtime_printer_configure(rt, cmd->data.printer_configure.output_dir);
+        runtime_publish_machine(rt);
+        break;
+    case RUNTIME_COMMAND_PRINTER_FLUSH:
+        runtime_printer_force_flush(rt);
+        runtime_publish_machine(rt);
         break;
 
     default:

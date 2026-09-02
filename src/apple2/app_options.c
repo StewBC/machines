@@ -1645,7 +1645,7 @@ static bool collect_mount_args(app_options *options, int argc, char **argv)
 /* Keys in the [browse] section, indexed by frontend_browse_slot / APP_BROWSE_DIR
    order. Keep in sync with frontend_browse_slot in frontend/frontend.h. */
 static const char *const browse_dir_keys[APP_BROWSE_DIR_COUNT] = {
-    "assembler", "floppy", "smartport", "binary", "basic", "snapshot"
+    "assembler", "floppy", "smartport", "binary", "basic", "snapshot", "printer"
 };
 /* Index of the "snapshot" slot within browse_dir_keys / browse_dirs. Doubles as
    the quicksave folder (see the frontend Paths tab). */
@@ -3044,6 +3044,17 @@ bool app_options_save_paths_only(const app_options *options)
             config_set(cfg, "browse", browse_dir_keys[i], options->browse_dirs[i]);
         } else {
             config_remove_prefix(cfg, "browse", browse_dir_keys[i]);
+        }
+    }
+
+    /* Paths printer browse is the UI for [printer] output_dir. */
+    if (options->printer_output_dir != NULL && options->printer_output_dir[0] != '\0') {
+        char rel_path[PATH_MAX];
+        if (app_options_path_relative_to_ini(
+                options, options->printer_output_dir, rel_path, sizeof(rel_path))) {
+            config_set(cfg, "printer", "output_dir", rel_path);
+        } else {
+            config_set(cfg, "printer", "output_dir", options->printer_output_dir);
         }
     }
 

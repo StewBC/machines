@@ -1355,6 +1355,26 @@ bool runtime_client_request_call_stack(runtime_client *client) {
     return runtime_client_send_command(client, RUNTIME_COMMAND_REQUEST_CALL_STACK);
 }
 
+bool runtime_client_printer_configure(runtime_client *client, const char *output_dir)
+{
+    runtime_command command = { .type = RUNTIME_COMMAND_PRINTER_CONFIGURE };
+
+    if (client == NULL || output_dir == NULL || output_dir[0] == '\0') {
+        return false;
+    }
+    snprintf(
+        command.data.printer_configure.output_dir,
+        sizeof(command.data.printer_configure.output_dir),
+        "%s",
+        output_dir);
+    return runtime_client_push(client, &command);
+}
+
+bool runtime_client_printer_flush(runtime_client *client)
+{
+    return runtime_client_send_command(client, RUNTIME_COMMAND_PRINTER_FLUSH);
+}
+
 /* -- frame ring ---------------------------------------------------------- */
 
 void runtime_client_get_frame_ring_info(
