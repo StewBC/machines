@@ -354,6 +354,7 @@ static void test_high_ascii_7bit_mask_bim_8bit(void)
     expect_true("BIM bit7 not top", pixel_at(&iw, imagewriter_bim_x(72, 0), 0) == A2_IW_PAPER);
 
     imagewriter_reset(&iw);
+    put_str(&iw, "\x1b" "N"); /* latch seen_esc (job started) */
     imagewriter_putc(&iw, 0xC1u); /* high-ASCII 'A' */
     expect_true("high-ASCII glyph", imagewriter_page_dirty(&iw));
     expect_eq_int("high-ASCII head", 8, iw.head_col);
@@ -469,6 +470,7 @@ static void test_lf_resets_head_after_bim(void)
 /*
  * Print Shop sometimes ends a counted BIM run then sends more column bytes
  * before CR/LF. Those must stay BIM (not text), or the face corrupts.
+ * A pin-byte 0x0A deep in overshoot must not be mistaken for a real LF.
  */
 static void test_bim_overshoot_until_cr(void)
 {
@@ -477,19 +479,50 @@ static void test_bim_overshoot_until_cr(void)
 
     setup(&iw);
     put_str(&iw, "\x1b" "P\x1b" "T14");
-    put_str(&iw, "\x1b" "G0004");
-    for (i = 0; i < 4; ++i) {
+    put_str(&iw, "\x1b" "G0008");
+    for (i = 0; i < 8; ++i) {
         imagewriter_putc(&iw, 0xFFu);
     }
-    expect_eq_int("count done head", 4, iw.head_col);
-    /* Overshoot columns (still BIM). */
-    imagewriter_putc(&iw, 0x01u);
-    imagewriter_putc(&iw, 0x02u);
-    expect_eq_int("overshoot still BIM head", 6, iw.head_col);
+    expect_eq_int("count done head", 8, iw.head_col);
+    /* Push head well past declared+16 so a later 0x0A is pins, not LF. */
+    for (i = 0; i < 40; ++i) {
+        imagewriter_putc(&iw, 0x01u);
+    }
     expect_eq_int("still BIM state", (int)A2_IW_PARSE_BIM_DATA, (int)iw.parse_state);
+    expect_true("head far past declared", iw.head_col > iw.bim_declared + 16);
+    imagewriter_putc(&iw, 0x0Au);
+    expect_eq_int("far 0x0A still BIM", (int)A2_IW_PARSE_BIM_DATA, (int)iw.parse_state);
+    imagewriter_putc(&iw, 0x1Bu);
+    imagewriter_putc(&iw, (uint8_t)'>');
+    expect_eq_int("ESC ends overshoot", (int)A2_IW_PARSE_IDLE, (int)iw.parse_state);
+    teardown(&iw);
+}
+
+static void test_esc_g_resets_head(void)
+{
+    imagewriter iw;
+
+    setup(&iw);
+    iw.head_col = 400;
+    put_str(&iw, "\x1b" "G0001");
+    expect_eq_int("G homes head before data", 0, iw.head_col);
+    imagewriter_putc(&iw, 0x01u);
+    expect_eq_int("one col", 1, iw.head_col);
+    teardown(&iw);
+}
+
+static void test_preamble_tab_z_suppressed(void)
+{
+    imagewriter iw;
+
+    setup(&iw);
+    imagewriter_putc(&iw, 0x09u);
+    imagewriter_putc(&iw, (uint8_t)'Z');
     imagewriter_putc(&iw, 0x0Du);
-    expect_eq_int("CR ends BIM", (int)A2_IW_PARSE_IDLE, (int)iw.parse_state);
-    expect_eq_int("CR head 0", 0, iw.head_col);
+    expect_true("no ink from preamble Z", !imagewriter_page_dirty(&iw));
+    put_str(&iw, "\x1b" "N");
+    imagewriter_putc(&iw, (uint8_t)'A');
+    expect_true("glyph after ESC ok", imagewriter_page_dirty(&iw));
     teardown(&iw);
 }
 
@@ -573,6 +606,8 @@ int main(void)
     test_lf_resets_head_after_bim();
     test_bim_overshoot_until_cr();
     test_bim_last_byte_cr_then_lf();
+    test_esc_g_resets_head();
+    test_preamble_tab_z_suppressed();
     test_replay_printshop_capture_if_present();
     printf("ok\n");
     return 0;

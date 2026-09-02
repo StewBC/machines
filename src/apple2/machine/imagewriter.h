@@ -50,6 +50,8 @@ typedef struct imagewriter {
     /* Set after any BIM column this page; cleared on flush. Print Shop
        greeting cards separate faces with ESC T24 (no FF) — soft page break. */
     bool saw_bim;
+    /* Latched after first ESC this session; suppresses preamble junk like TAB Z. */
+    bool seen_esc;
 
     char last_name_stem[16];
     uint8_t name_seq;
@@ -59,6 +61,7 @@ typedef struct imagewriter {
     int parse_digits_got;
     int parse_value;
     int bim_remaining;
+    int bim_declared; /* ESC G/S/g column count; used for overshoot LF heuristic */
 
     char output_dir[A2_IW_PATH_MAX];
 } imagewriter;

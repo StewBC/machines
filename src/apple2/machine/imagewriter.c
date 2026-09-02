@@ -196,8 +196,10 @@ static void reset_modes(imagewriter *iw)
     iw->parse_digits_got = 0;
     iw->parse_value = 0;
     iw->bim_remaining = 0;
+    iw->bim_declared = 0;
     iw->bim_clip_logged = false;
     iw->saw_bim = false;
+    iw->seen_esc = false;
 }
 
 static void set_pixel(imagewriter *iw, int x, int y)
@@ -470,9 +472,12 @@ static void handle_esc_cmd(imagewriter *iw, uint8_t ch)
         break;
     case 'G':
     case 'S':
+        /* Manual: graphics print starting at the left margin. */
+        iw->head_col = 0;
         begin_digit_field(iw, A2_IW_PARSE_ESC_G_DIGITS, 4);
         break;
     case 'g':
+        iw->head_col = 0;
         begin_digit_field(iw, A2_IW_PARSE_ESC_g_DIGITS, 3);
         break;
     case 'V':
@@ -532,7 +537,11 @@ static void handle_control(imagewriter *iw, uint8_t ch)
             advance_lf(iw);
         }
         break;
+    case 0x09: /* HT: next 8-dot tab; do not print a glyph */
+        iw->head_col = ((iw->head_col / 8) + 1) * 8;
+        break;
     case 0x1B: /* ESC */
+        iw->seen_esc = true;
         iw->parse_state = A2_IW_PARSE_ESC;
         break;
     default:
@@ -640,6 +649,7 @@ void imagewriter_putc(imagewriter *iw, uint8_t ch)
         if (r <= 0) {
             return;
         }
+        iw->bim_declared = iw->parse_value;
         iw->bim_remaining = iw->parse_value;
         iw->parse_state =
             (iw->bim_remaining > 0) ? A2_IW_PARSE_BIM_DATA : A2_IW_PARSE_IDLE;
@@ -651,6 +661,7 @@ void imagewriter_putc(imagewriter *iw, uint8_t ch)
         if (r <= 0) {
             return;
         }
+        iw->bim_declared = iw->parse_value * 8;
         iw->bim_remaining = iw->parse_value * 8;
         iw->parse_state =
             (iw->bim_remaining > 0) ? A2_IW_PARSE_BIM_DATA : A2_IW_PARSE_IDLE;
@@ -664,19 +675,25 @@ void imagewriter_putc(imagewriter *iw, uint8_t ch)
             return;
         }
         /*
-         * Declared nnnn exhausted. Print Shop ImageWriter output sometimes
-         * sends additional column bytes before CR/LF (Thank You face). Keep
-         * absorbing as BIM (clipped at page width) until a line terminator.
-         * Only now may 0x0D/0x0A/ESC be treated as controls — during the
-         * counted payload they are valid pin masks.
+         * Declared nnnn exhausted. Print Shop may send more pin bytes before
+         * the next ESC>/G. Keep absorbing (clipped) until a real line end:
+         *   - ESC / FF: always end
+         *   - CR: always end (then LF can advance)
+         *   - LF: end only if head is still near declared width (real newline).
+         *     A pin-byte 0x0A deep in overshoot must NOT end the band.
          */
         {
             uint8_t c7 = (uint8_t)(ch & 0x7Fu);
-            if (c7 == 0x0Du || c7 == 0x0Au || c7 == 0x0Cu || c7 == 0x1Bu) {
+            int pad = 16; /* allow a few pad NULs after the count */
+            bool near_width =
+                iw->head_col <= iw->bim_declared + pad;
+
+            if (c7 == 0x1Bu || c7 == 0x0Cu || c7 == 0x0Du ||
+                (c7 == 0x0Au && near_width)) {
                 iw->parse_state = A2_IW_PARSE_IDLE;
                 iw->bim_remaining = 0;
-                ch = c7; /* control path is 7-bit */
-                break; /* fall through to control / text handling below */
+                ch = c7;
+                break;
             }
             plot_bim_column(iw, ch);
             return;
@@ -730,12 +747,17 @@ void imagewriter_putc(imagewriter *iw, uint8_t ch)
         break;
     }
 
-    if (ch == 0x08u || ch == 0x0Au || ch == 0x0Cu || ch == 0x0Du || ch == 0x1Bu) {
+    if (ch == 0x08u || ch == 0x09u || ch == 0x0Au || ch == 0x0Cu || ch == 0x0Du ||
+        ch == 0x1Bu) {
         handle_control(iw, ch);
         return;
     }
-    if (ch == 0x00u) {
-        /* NUL: no-op (Print Shop pads; must not advance like a glyph). */
+    if (ch == 0x00u || ch < 0x20u) {
+        /* NUL / other C0: no-op (must not become space glyphs). */
+        return;
+    }
+    if (!iw->seen_esc) {
+        /* Drop preamble junk before the first ESC (e.g. TAB 'Z' at job start). */
         return;
     }
     print_char(iw, ch);
