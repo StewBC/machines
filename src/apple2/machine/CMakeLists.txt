@@ -11,6 +11,7 @@ add_library(${machine} STATIC
     mboard.c
     rom_data.c
     smartport_rom.c
+    ssc.c
     ssc_rom.c
     smrtprt.c
     softswitch.c

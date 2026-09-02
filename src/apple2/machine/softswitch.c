@@ -1,5 +1,7 @@
 #include "apple2.h"
 #include "diskii.h"
+#include "ssc.h"
+#include "ssc_rom.h"
 
 #include <string.h>
 
@@ -126,14 +128,21 @@ static void apply_c800(apple2_t *m)
         apple2_pages_map_rom(m, 0xC800, 0x800, m->rom_c000 + 0x800);
         return;
     }
+    /* SSC claimed C800: map full 2K firmware. */
+    if (m->c800_card >= 1 && m->c800_card <= 7 &&
+        m->slot_type[m->c800_card] == SLOT_TYPE_SSC) {
+        apple2_pages_map_rom(m, 0xC800, 0x800, (uint8_t *)ssc_rom);
+        return;
+    }
     /* SmartPort claimed C800 but has no expansion ROM image — trap. */
     apple2_pages_map_ram(m, false, 0xC800, 0x800);
 }
 
 /*
  * I/O SELECT ($Cnxx). Read or write is enough.
- * Card latch: first claimant until $CFFF. SmartPort claims like any
- * expansion-ROM card; mapping its missing $C800 ROM enables the trap.
+ * Card latch: first claimant until $CFFF. SmartPort and SSC claim like any
+ * expansion-ROM card (SSC maps 2K firmware; SmartPort maps RAM underlay /
+ * host trap). Do not overwrite an existing card latch.
  * $C3xx with internal C3 sets a motherboard overlay (does not steal the
  * card latch). CXROM is a separate overlay (does not change latches).
  * $CFFF drops both latches.
@@ -158,7 +167,8 @@ void softswitch_slot_io_select(apple2_t *m, uint16_t address)
         apply_c800(m);
         return;
     }
-    if (m->slot_type[slot] == SLOT_TYPE_SMARTPORT &&
+    if ((m->slot_type[slot] == SLOT_TYPE_SMARTPORT ||
+         m->slot_type[slot] == SLOT_TYPE_SSC) &&
         m->c800_card == C800_NONE) {
         m->c800_card = slot;
         c800_sync_visible(m);
@@ -433,6 +443,8 @@ uint8_t softswitch_c0_read(apple2_t *m, uint16_t address)
         case SLOT_TYPE_MOCKINGBOARD:
             return mockingboard_read(
                 m, &m->mockingboard[slot], slot, address, (uint8_t)(a & 0x0F));
+        case SLOT_TYPE_SSC:
+            return ssc_read_c0n(&m->ssc, (uint8_t)(a & 0x0F));
         default:
             break;
         }
@@ -600,6 +612,9 @@ void softswitch_c0_write(apple2_t *m, uint16_t address, uint8_t value)
         case SLOT_TYPE_MOCKINGBOARD:
             mockingboard_write(
                 m, &m->mockingboard[slot], slot, address, (uint8_t)(a & 0x0F), value);
+            break;
+        case SLOT_TYPE_SSC:
+            ssc_write_c0n(&m->ssc, (uint8_t)(a & 0x0F), value);
             break;
         default:
             if (m->diskii_present[slot]) {

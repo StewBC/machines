@@ -6,6 +6,7 @@
 #include "memview.h"
 #include "smrtprt.h"
 #include "softswitch.h"
+#include "ssc.h"
 #include "video.h"
 
 #include <stdbool.h>
@@ -137,6 +138,7 @@ typedef struct apple2 {
 
     /* Super Serial Card (one machine-wide; ssc_slot 0=none). */
     uint8_t ssc_slot;
+    apple2_ssc ssc;
 
     /* Game port: 4 paddles (2 sticks × X/Y) + 3 buttons. Axes are Apple paddle
        units 0..255 (mid=128). button_mask bit0=BUTN0, bit1=BUTN1, bit2=BUTN2.

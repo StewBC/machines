@@ -3,6 +3,7 @@
 #include "mboard.h"
 #include "smrtprt.h"
 #include "softswitch.h"
+#include "ssc.h"
 #include "ssc_rom.h"
 
 #include <stdarg.h>
@@ -562,6 +563,158 @@ static void test_ssc_apply_diskii_to_ssc(void)
     apple2_shutdown(&m);
 }
 
+/* Slot 2 → DEVSEL base $C0A0. */
+static void test_ssc_dip_and_acia_tdre_tx(void)
+{
+    apple2_t m;
+    uint8_t status;
+
+    if (!apple2_init(&m)) {
+        fail("ssc acia init");
+    }
+    if (!apple2_attach_ssc(&m, 2)) {
+        fail("ssc acia attach");
+    }
+
+    if (softswitch_c0_read(&m, 0xC0A1) != SSC_DIP1_PRINTER) {
+        fail("ssc DIP1 $C0n1");
+    }
+    if (softswitch_c0_read(&m, 0xC0A2) != SSC_DIP2_PRINTER) {
+        fail("ssc DIP2 $C0n2");
+    }
+
+    status = softswitch_c0_read(&m, 0xC0A9); /* status */
+    if ((status & SSC_STATUS_TDRE) == 0) {
+        fail("ssc TDRE after reset");
+    }
+    if ((status & SSC_STATUS_RDRF) != 0) {
+        fail("ssc RDRF clear");
+    }
+    if ((status & (SSC_STATUS_DCD | SSC_STATUS_DSR)) != 0) {
+        fail("ssc DCD/DSR ready (bits clear)");
+    }
+
+    softswitch_c0_write(&m, 0xC0A8, 0x41); /* TDR 'A' */
+    if (m.ssc.last_tx != 0x41) {
+        fail("ssc TX discarded byte");
+    }
+    status = softswitch_c0_read(&m, 0xC0A9);
+    if ((status & SSC_STATUS_TDRE) == 0) {
+        fail("ssc TDRE after instant TX");
+    }
+
+    softswitch_c0_write(&m, 0xC0AA, 0x0B); /* command echo */
+    softswitch_c0_write(&m, 0xC0AB, 0x1E); /* control 9600-ish */
+    if (softswitch_c0_read(&m, 0xC0AA) != 0x0B) {
+        fail("ssc command readback");
+    }
+    if ((softswitch_c0_read(&m, 0xC0AB) & 0x10u) == 0) {
+        fail("ssc control forces internal clock");
+    }
+
+    apple2_shutdown(&m);
+}
+
+static void test_ssc_tx_irq_and_status_clear(void)
+{
+    apple2_t m;
+    uint8_t status;
+
+    if (!apple2_init(&m)) {
+        fail("ssc irq init");
+    }
+    /* Detach default MB so IRQ pending is SSC-only. */
+    apple2_detach_slot_card(&m, 4);
+    if (!apple2_attach_ssc(&m, 1)) {
+        fail("ssc irq attach");
+    }
+
+    if (ssc_irq_pending(&m.ssc) != 0) {
+        fail("ssc irq idle");
+    }
+
+    /* Command: DTR + TX IRQ (bits 3-2 = 01) → 0x05. Empty TDR → IRQ. */
+    softswitch_c0_write(&m, 0xC09A, 0x05);
+    if (ssc_irq_pending(&m.ssc) == 0) {
+        fail("ssc irq after TX IRQ enable");
+    }
+    if (m.cpu.irq_pending == NULL || m.cpu.irq_pending(m.cpu.user) == 0) {
+        fail("apple2_irq_pending OR SSC");
+    }
+
+    status = softswitch_c0_read(&m, 0xC099);
+    if ((status & SSC_STATUS_IRQ) == 0) {
+        fail("ssc status IRQ bit");
+    }
+    if (ssc_irq_pending(&m.ssc) != 0) {
+        fail("ssc irq cleared by status read");
+    }
+
+    /* Another TX with IRQ enabled re-latches on TDRE rising after absorb. */
+    softswitch_c0_write(&m, 0xC098, 0x5A);
+    if (ssc_irq_pending(&m.ssc) == 0) {
+        fail("ssc irq after TX byte");
+    }
+    (void)softswitch_c0_read(&m, 0xC099);
+    if (ssc_irq_pending(&m.ssc) != 0) {
+        fail("ssc irq clear again");
+    }
+
+    apple2_shutdown(&m);
+}
+
+static void test_ssc_c800_latch_and_rom(void)
+{
+    apple2_t m;
+    int i;
+
+    if (!apple2_init(&m)) {
+        fail("ssc c800 init");
+    }
+    if (!apple2_attach_ssc(&m, 2)) {
+        fail("ssc c800 attach");
+    }
+
+    m.strobed_slot = -1;
+    m.c800_card = -1;
+    m.c800_internal = false;
+    softswitch_apply_full_map(&m);
+
+    softswitch_slot_io_select(&m, 0xC200);
+    if (m.c800_card != 2 || m.strobed_slot != 2) {
+        fail("ssc did not claim C800");
+    }
+    for (i = 0; i < 8; ++i) {
+        if (apple2_debug_read(&m, (uint16_t)(0xC800 + i)) != ssc_rom[i]) {
+            fail("ssc C800 firmware fetch");
+        }
+    }
+    if (m.cpu.read(m.cpu.user, 0xC800) != ssc_rom[0]) {
+        fail("ssc bus C800 firmware");
+    }
+
+    /* Second claimant must not steal. */
+    if (!apple2_attach_smartport(&m, 7)) {
+        fail("ssc+sp attach");
+    }
+    softswitch_slot_io_select(&m, 0xC700);
+    if (m.c800_card != 2) {
+        fail("SP stole SSC C800 latch");
+    }
+
+    softswitch_c800_release(&m);
+    softswitch_apply_full_map(&m);
+    if (m.c800_card != -1) {
+        fail("CFFF did not clear card latch");
+    }
+    softswitch_slot_io_select(&m, 0xC700);
+    if (m.c800_card != 7) {
+        fail("SP did not claim after CFFF");
+    }
+
+    apple2_shutdown(&m);
+}
+
 int main(void)
 {
     test_mockingboard_attach();
@@ -574,6 +727,9 @@ int main(void)
     test_ssc_move_rule();
     test_ssc_same_slot_conflict_warns();
     test_ssc_apply_diskii_to_ssc();
+    test_ssc_dip_and_acia_tdre_tx();
+    test_ssc_tx_irq_and_status_clear();
+    test_ssc_c800_latch_and_rom();
     printf("ok\n");
     return 0;
 }

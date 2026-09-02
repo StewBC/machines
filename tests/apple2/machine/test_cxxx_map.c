@@ -1,5 +1,6 @@
 #include "apple2.h"
 #include "softswitch.h"
+#include "ssc_rom.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -311,6 +312,58 @@ static void test_intcxrom_hides_mockingboard_cn(void)
     apple2_shutdown(&m);
 }
 
+/*
+ * SSC $Cnxx claims C800 when free and maps ssc_rom. CXROM / C3 overlays
+ * still hide the card map without dropping the latch; $CFFF clears it.
+ * SmartPort-only machines keep the prior SP trap path (other tests).
+ */
+static void test_ssc_c800_rom_and_overlays(void)
+{
+    apple2_t m;
+    uint8_t c800_rom;
+
+    if (!apple2_init(&m)) {
+        fail("init_ssc_c800");
+    }
+    expect_true("attach SSC2", apple2_attach_ssc(&m, 2));
+    c800_rom = m.rom_c000[0x800];
+
+    m.strobed_slot = -1;
+    m.c800_card = -1;
+    m.c800_internal = false;
+    softswitch_apply_full_map(&m);
+
+    softswitch_slot_io_select(&m, 0xC200);
+    expect_true("SSC claimed card C800", m.c800_card == 2);
+    expect_true("visible C800 is SSC", m.strobed_slot == 2);
+    expect_true(
+        "C800 is SSC firmware",
+        apple2_debug_read(&m, 0xC800) == ssc_rom[0]);
+    expect_true(
+        "bus C800 SSC firmware",
+        m.cpu.read(m.cpu.user, 0xC800) == ssc_rom[0]);
+
+    softswitch_slot_io_select(&m, 0xC300);
+    expect_true("C3 overlay", m.strobed_slot == 8);
+    expect_true("SSC latch remains under overlay", m.c800_card == 2);
+    expect_true(
+        "C800 is 80-col firmware after C3",
+        apple2_debug_read(&m, 0xC800) == c800_rom);
+
+    softswitch_c0_write(&m, 0xC007, 0); /* INTCXROM */
+    expect_true(
+        "C800 internal under CXROM",
+        apple2_debug_read(&m, 0xC800) == c800_rom);
+    expect_true("SSC latch survives CXROM", m.c800_card == 2);
+
+    softswitch_c0_write(&m, 0xC006, 0); /* CLRCXROM */
+    softswitch_c800_release(&m);
+    softswitch_apply_full_map(&m);
+    expect_true("CFFF cleared SSC latch", m.c800_card == -1);
+
+    apple2_shutdown(&m);
+}
+
 int main(void)
 {
     test_setc3rom_empty_slot();
@@ -319,6 +372,7 @@ int main(void)
     test_c3_maps_c800_after_smartport_select();
     test_intcxrom();
     test_intcxrom_hides_mockingboard_cn();
+    test_ssc_c800_rom_and_overlays();
     printf("ok\n");
     return 0;
 }

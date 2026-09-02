@@ -5,6 +5,7 @@
 #include "rom_data.h"
 #include "smartport_rom.h"
 #include "smrtprt.h"
+#include "ssc.h"
 #include "ssc_rom.h"
 #include "util_file.h"
 #include "via6522.h"
@@ -129,10 +130,18 @@ void apple2_map_ram_offset(apple2_t *machine, bool for_write, uint32_t host_offs
 static uint8_t apple2_irq_pending(void *user)
 {
     apple2_t *m = (apple2_t *)user;
-    if (m == NULL || m->mb_slot == 0) {
+    uint8_t pending = 0;
+
+    if (m == NULL) {
         return 0;
     }
-    return mockingboard_irq_pending(m);
+    if (m->mb_slot != 0) {
+        pending = (uint8_t)(pending | mockingboard_irq_pending(m));
+    }
+    if (m->ssc_slot != 0) {
+        pending = (uint8_t)(pending | ssc_irq_pending(&m->ssc));
+    }
+    return pending;
 }
 
 static void apple2_record_write_history(apple2_t *m, uint16_t address)
@@ -386,6 +395,8 @@ bool apple2_init(apple2_t *machine)
     machine->instruction_complete = true;
     machine->mb_slot = 0;
     machine->ssc_slot = 0;
+    ssc_reset(&machine->ssc);
+    machine->ssc.sink = A2_SSC_SINK_NONE;
 
     /* Unconnected paddles read near center until host input arrives. */
     machine->gameport_axis[0] = 128u;
@@ -532,6 +543,8 @@ void apple2_detach_slot_card(apple2_t *m, int slot)
     }
     if (m->slot_type[slot] == SLOT_TYPE_SSC && m->ssc_slot == (uint8_t)slot) {
         m->ssc_slot = 0;
+        ssc_reset(&m->ssc);
+        m->ssc.sink = A2_SSC_SINK_NONE;
     }
     m->slot_type[slot] = SLOT_TYPE_EMPTY;
     m->diskii_present[slot] = 0;
@@ -582,6 +595,8 @@ bool apple2_attach_ssc(apple2_t *m, int slot)
     m->diskii_present[slot] = 0;
     m->slot_type[slot] = SLOT_TYPE_SSC;
     m->ssc_slot = (uint8_t)slot;
+    ssc_reset(&m->ssc);
+    m->ssc.sink = A2_SSC_SINK_NONE; /* PR 5: IMAGEWRITER */
     /* Cnxx = top 256 bytes of the 2K SSC firmware (MAME/AppleWin). */
     cnxx = (uint8_t *)(ssc_rom + 0x700);
     apple2_pages_map_rom(m, (uint16_t)(0xC000 + slot * 0x100), 0x100, cnxx);
@@ -782,6 +797,9 @@ static void apple2_reset_common(apple2_t *machine, bool cold)
         if (machine->slot_type[slot] == SLOT_TYPE_MOCKINGBOARD) {
             mockingboard_reset(&machine->mockingboard[slot], 1);
         }
+    }
+    if (machine->ssc_slot != 0) {
+        ssc_reset(&machine->ssc);
     }
     cpu65_reset(&machine->cpu);
     machine->instruction_complete = true;
