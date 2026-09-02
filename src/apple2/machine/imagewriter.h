@@ -47,6 +47,9 @@ typedef struct imagewriter {
     bool page_cap_hit;
     bool flush_hold;
     bool bim_clip_logged;
+    /* Set after any BIM column this page; cleared on flush. Print Shop
+       greeting cards separate faces with ESC T24 (no FF) — soft page break. */
+    bool saw_bim;
 
     char last_name_stem[16];
     uint8_t name_seq;

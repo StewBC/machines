@@ -181,6 +181,7 @@ static void clear_page(imagewriter *iw)
     iw->head_col = 0;
     iw->cursor_y_dots = 0;
     iw->page_dirty = false;
+    iw->saw_bim = false;
 }
 
 static void reset_modes(imagewriter *iw)
@@ -196,6 +197,7 @@ static void reset_modes(imagewriter *iw)
     iw->parse_value = 0;
     iw->bim_remaining = 0;
     iw->bim_clip_logged = false;
+    iw->saw_bim = false;
 }
 
 static void set_pixel(imagewriter *iw, int x, int y)
@@ -333,6 +335,7 @@ static void plot_bim_column(imagewriter *iw, uint8_t data)
         }
     }
     iw->head_col += 1;
+    iw->saw_bim = true;
 }
 
 static void print_char(imagewriter *iw, uint8_t ch)
@@ -403,6 +406,23 @@ static int feed_digit(imagewriter *iw, uint8_t ch)
     return (iw->parse_digits_got >= iw->parse_digits_needed) ? 1 : 0;
 }
 
+static void soft_page_break_if_needed(imagewriter *iw)
+{
+    /*
+     * Print Shop ImageWriter greeting cards do not send FF between the
+     * outside and inside faces. They re-init line spacing with ESC T24
+     * (same as ESC A / 6 LPI) after BIM, then continue. Treat that as a
+     * flush so each face becomes its own host page file.
+     */
+    if (!iw->saw_bim || !iw->page_dirty || iw->cursor_y_dots <= 0) {
+        return;
+    }
+    if (flush_page(iw)) {
+        iw->head_col = 0;
+        iw->cursor_y_dots = 0;
+    }
+}
+
 static void apply_esc_t(imagewriter *iw, int mm)
 {
     /* mm/144 inch → buffer dots at 72 dpi vertical: mm/2 */
@@ -411,6 +431,9 @@ static void apply_esc_t(imagewriter *iw, int mm)
     }
     if (mm > 99) {
         mm = 99;
+    }
+    if (mm == 24) {
+        soft_page_break_if_needed(iw);
     }
     iw->lf_dots = mm / 2;
     if (iw->lf_dots < 1) {
@@ -434,11 +457,15 @@ static void handle_esc_cmd(imagewriter *iw, uint8_t ch)
         begin_digit_field(iw, A2_IW_PARSE_ESC_T_D1, 2);
         break;
     case 'A':
-        apply_esc_t(iw, 24);
+        apply_esc_t(iw, 24); /* also soft page-break after BIM */
         iw->parse_state = A2_IW_PARSE_IDLE;
         break;
     case 'B':
         apply_esc_t(iw, 18);
+        iw->parse_state = A2_IW_PARSE_IDLE;
+        break;
+    case '>': /* unidirectional (no args) */
+    case '<': /* bidirectional (no args) */
         iw->parse_state = A2_IW_PARSE_IDLE;
         break;
     case 'G':

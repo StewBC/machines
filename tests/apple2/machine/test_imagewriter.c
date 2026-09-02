@@ -374,6 +374,117 @@ static void test_esc_g_times_eight(void)
     teardown(&iw);
 }
 
+/* Print Shop greeting cards: ESC T24 after BIM soft-breaks without FF. */
+static void test_esc_t24_soft_page_break_after_bim(void)
+{
+    imagewriter iw;
+    const char *dir = "iw_tmp_t24_break";
+    int i;
+
+    (void)test_mkdir(dir);
+    setup(&iw);
+    imagewriter_set_output_dir(&iw, dir);
+
+    put_str(&iw, "\x1b" "P\x1b" "T14");
+    put_str(&iw, "\x1b" "G0008");
+    for (i = 0; i < 8; ++i) {
+        imagewriter_putc(&iw, 0xFFu);
+    }
+    imagewriter_putc(&iw, 0x0Du);
+    imagewriter_putc(&iw, 0x0Au);
+    expect_true("dirty before T24", imagewriter_page_dirty(&iw));
+    expect_true("saw_bim", iw.saw_bim);
+    expect_eq_u32("no page yet", 0u, imagewriter_pages_flushed(&iw));
+
+    put_str(&iw, "\x1b" "T24"); /* soft page break */
+    expect_eq_u32("flushed face 1", 1u, imagewriter_pages_flushed(&iw));
+    expect_eq_int("y reset", 0, iw.cursor_y_dots);
+    expect_true("saw_bim cleared", !iw.saw_bim);
+
+    put_str(&iw, "\x1b" "T14\x1b" "G0004");
+    for (i = 0; i < 4; ++i) {
+        imagewriter_putc(&iw, 0x01u);
+    }
+    imagewriter_putc(&iw, 0x0Cu); /* FF */
+    expect_eq_u32("face 2", 2u, imagewriter_pages_flushed(&iw));
+
+    /* ESC T24 with no BIM yet must not invent a blank page. */
+    put_str(&iw, "\x1b" "T24");
+    expect_eq_u32("no blank on early T24", 2u, imagewriter_pages_flushed(&iw));
+
+    teardown(&iw);
+    /* cleanup bmps */
+    {
+        DIR *d = opendir(dir);
+        struct dirent *de;
+        char path[256];
+        if (d != NULL) {
+            while ((de = readdir(d)) != NULL) {
+                if (strstr(de->d_name, ".bmp") != NULL) {
+                    snprintf(path, sizeof(path), "%s/%s", dir, de->d_name);
+                    (void)remove(path);
+                }
+            }
+            closedir(d);
+        }
+    }
+    (void)test_rmdir(dir);
+}
+
+static void test_esc_gt_lt_noop(void)
+{
+    imagewriter iw;
+
+    setup(&iw);
+    put_str(&iw, "\x1b" ">\x1b" "P\x1b" "<");
+    expect_eq_int("dpi after >P<", 160, iw.dpi);
+    expect_eq_int("IDLE", (int)A2_IW_PARSE_IDLE, (int)iw.parse_state);
+    teardown(&iw);
+}
+
+/* Optional: replay a captured Print Shop stream if present in-tree. */
+static void test_replay_printshop_capture_if_present(void)
+{
+    const char *path = "assets/apple2/prints/printer-capture-20260902-141356.raw";
+    const char *dir = "iw_tmp_replay_ps";
+    FILE *fp;
+    imagewriter iw;
+    int c;
+    int n;
+
+    fp = fopen(path, "rb");
+    if (fp == NULL) {
+        return; /* asset not required for CI */
+    }
+    (void)test_mkdir(dir);
+    setup(&iw);
+    imagewriter_set_output_dir(&iw, dir);
+    while ((c = fgetc(fp)) != EOF) {
+        imagewriter_putc(&iw, (uint8_t)c);
+    }
+    fclose(fp);
+    imagewriter_force_flush(&iw);
+    n = 0;
+    {
+        DIR *d = opendir(dir);
+        struct dirent *de;
+        char pbuf[256];
+        if (d != NULL) {
+            while ((de = readdir(d)) != NULL) {
+                if (is_print_page_name(de->d_name)) {
+                    n++;
+                    snprintf(pbuf, sizeof(pbuf), "%s/%s", dir, de->d_name);
+                    (void)remove(pbuf);
+                }
+            }
+            closedir(d);
+        }
+    }
+    expect_eq_int("Print Shop capture → 2 host pages", 2, n);
+    teardown(&iw);
+    (void)test_rmdir(dir);
+}
+
 int main(void)
 {
     test_pitch_table_and_bim_x();
@@ -385,6 +496,9 @@ int main(void)
     test_colour_esc_ignored();
     test_high_ascii_7bit_mask_bim_8bit();
     test_esc_g_times_eight();
+    test_esc_t24_soft_page_break_after_bim();
+    test_esc_gt_lt_noop();
+    test_replay_printshop_capture_if_present();
     printf("ok\n");
     return 0;
 }
