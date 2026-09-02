@@ -124,7 +124,7 @@ static void test_page_full_flush(void)
     setup_printer(&p, dir);
     /* Put ink so the page is dirty before the advancing flush. */
     c64_printer_putc(&p, 8);
-    c64_printer_putc(&p, 0x7Fu);
+    c64_printer_putc(&p, 0xFFu);
     expect_true("dirty before page-full", c64_printer_page_dirty(&p));
 
     /* Place cursor so next BIM LF trips page-full (> 700). */
@@ -148,8 +148,8 @@ static void test_bim_column_and_repeat(void)
     setup_printer(&p, "printer_mps_tmp_bim");
 
     c64_printer_putc(&p, 8); /* BIM */
-    /* Column with only top pin (bit0) and bottom pin (bit6). */
-    c64_printer_putc(&p, (uint8_t)(0x01u | 0x40u));
+    /* Column with only top pin (bit0) and bottom pin (bit6); bit7 set. */
+    c64_printer_putc(&p, (uint8_t)(0x80u | 0x01u | 0x40u));
     expect_eq_int("x after one col", 1, p.cursor_x_dots);
     expect_true("top pin ink", pixel_at(&p, 0, 0) == 0);
     expect_true("mid clear", pixel_at(&p, 0, 3) == 255);
@@ -158,7 +158,7 @@ static void test_bim_column_and_repeat(void)
     /* CHR$(26); n=5; data=top pin → five more columns */
     c64_printer_putc(&p, 26);
     c64_printer_putc(&p, 5);
-    c64_printer_putc(&p, 0x01u);
+    c64_printer_putc(&p, (uint8_t)(0x80u | 0x01u));
     expect_eq_int("x after repeat", 6, p.cursor_x_dots);
     for (x = 1; x <= 5; ++x) {
         if (pixel_at(&p, x, 0) != 0) {
@@ -230,13 +230,13 @@ static void test_bim_past_edge_no_overdraw(void)
     c64_printer_putc(&p, 8);
     p.cursor_x_dots = edge;
     /* First column: top pin only at x=479, then X → sentinel 480. */
-    c64_printer_putc(&p, 0x01u);
+    c64_printer_putc(&p, (uint8_t)(0x80u | 0x01u));
     expect_eq_int("BIM after edge plot → sentinel", C64_PRINTER_WIDTH_DOTS, p.cursor_x_dots);
     expect_true("first col top ink", pixel_at(&p, edge, 0) == 0);
     expect_true("first col mid clear", pixel_at(&p, edge, 3) == 255);
 
     /* Second distinct column must be ignored (no overdraw on 479). */
-    c64_printer_putc(&p, 0x08u); /* bit3 only */
+    c64_printer_putc(&p, (uint8_t)(0x80u | 0x08u)); /* bit3 only */
     expect_eq_int("BIM past-edge x stays sentinel", C64_PRINTER_WIDTH_DOTS, p.cursor_x_dots);
     expect_true("no overdraw mid", pixel_at(&p, edge, 3) == 255);
     expect_true("first col top still only", pixel_at(&p, edge, 0) == 0);
@@ -379,13 +379,21 @@ static void test_cr_keeps_bim(void)
     expect_eq_int("CR resets x", 0, p.cursor_x_dots);
     expect_eq_int("CR advances BIM pitch", C64_PRINTER_BIM_LF_DOTS, p.cursor_y_dots);
 
-    /* Pin mask without bit7 still plots (1525/801 / Print Shop Side B). */
-    c64_printer_putc(&p, 0x01u);
-    expect_true("still BIM after pin byte", p.bit_image);
+    /* Column bytes have bit7 set; 0x91 must plot, not act as CHR$(145). */
+    c64_printer_putc(&p, 0x81u); /* bit7 + top pin */
+    expect_true("still BIM after col", p.bit_image);
     expect_eq_int("x after pin", 1, p.cursor_x_dots);
     expect_true("top pin ink", pixel_at(&p, 0, C64_PRINTER_BIM_LF_DOTS) == 0);
 
-    c64_printer_putc(&p, 15); /* standard mode */
+    c64_printer_putc(&p, 0x91u); /* == 145 as unsigned, but bit7 marks column */
+    expect_true("0x91 is column not CHR$(145)", p.bit_image);
+    expect_eq_int("x after 0x91", 2, p.cursor_x_dots);
+    expect_true("graphic charset unchanged", p.graphic_charset);
+
+    c64_printer_putc(&p, 0x92u); /* == 146 */
+    expect_eq_int("x after 0x92", 3, p.cursor_x_dots);
+
+    c64_printer_putc(&p, 15); /* standard mode (bit7 clear) */
     expect_false("CHR$(15) leaves BIM", p.bit_image);
 
     teardown_printer(&p);

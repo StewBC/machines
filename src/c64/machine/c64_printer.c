@@ -631,14 +631,22 @@ void c64_printer_putc(c64_printer *p, uint8_t ch)
     }
 
     if (p->bit_image) {
+        /*
+         * Print Shop / MPS-801: column bytes always have bit7 set; framing
+         * controls (8/13/15/26/…) are sent with bit7 clear. Treating 0x91/0x92
+         * as CHR$(145)/CHR$(146) ate columns and shifted the rest of the line.
+         */
+        if ((ch & 0x80u) != 0u) {
+            plot_bim_column(p, ch);
+            return;
+        }
         if (is_control_byte(ch)) {
             handle_control(p, ch);
             return;
         }
-        /* Column data: bits 0-6 are pins (bit7 ignored). Leave BIM via
-           CHR$(15)/CHR$(14), not via bit7 — Print Shop 1525/801 sends
-           pin masks without bit7 set. */
-        plot_bim_column(p, ch);
+        /* Bit7-clear non-control: leave BIM and print as character. */
+        p->bit_image = false;
+        print_char(p, ch);
         return;
     }
 
