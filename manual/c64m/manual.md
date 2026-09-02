@@ -189,9 +189,9 @@ output directory (default `prints`). Each flushed page is named
 when more than one page is written in the same second).
 
 Enable with `--printer`, INI `[printer] enabled=true`, or
-**Misc -> Machine -> Configure -> Emulator** (Printer block). Choose the output
-directory with `--printer-dir` / `[printer] output_dir` / Configure browse.
-Format is **`bmp` only** until a later release unlocks PNG/PDF.
+**Misc -> Machine -> Configure -> Emulator** (**Enable MPS-803 Printer as device 4**).
+Choose the output directory with `--printer-dir` / `[printer] output_dir` / Configure
+**Paths -> printer**. Format is **`bmp` only** until a later release unlocks PNG/PDF.
 
 Pages flush on:
 
@@ -1733,9 +1733,7 @@ and the other Machine settings apply immediately when you press
 | Base address      | `$DE00` (default) or `$DF00` |
 | Interrupt         | `None` (polled), `NMI`, or `IRQ` |
 | Pace to baud rate | When on, gate TX/RX holding to the configured baud; off delivers ASAP |
-| Printer (MPS-803) | Soft-attach IEC printer device 4; host pages under Output dir (`bmp` only in v1) |
-| Output dir        | Host folder for flushed page files (default `prints`) |
-| Format            | `bmp` (PNG/PDF unlock later) |
+| Enable MPS-803 Printer as device 4 | Soft-attach IEC printer device 4; host pages go to Paths -> printer (default `prints`, `bmp` only in v1) |
 
 The CRT controls are a live preview: checkboxes and sliders update the C64 display while
 Configure remains open. **[Cancel]** or the dialog close button restores the values that
@@ -1784,6 +1782,7 @@ directory, and each row has a **[...]** button that opens a folder picker:
 | basic     | Load/Save Binary with **Basic Program** ticked                 |
 | text      | Load/Save Binary with **Basic Text** ticked                    |
 | snapshot  | Save/Load State - and the quicksave folder (Shift+Alt+> / <)   |
+| printer   | MPS-803 host page output folder (default `prints`)             |
 
 Edits to the browse folders take effect on the next browse immediately. The folder
 picker's **[Use This Folder]** button selects the folder currently shown. **[Save Paths

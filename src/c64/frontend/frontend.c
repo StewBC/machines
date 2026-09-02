@@ -2418,52 +2418,12 @@ static void frontend_draw_config_emulator_tab(frontend *ui, frontend_config_dial
     {
         nk_layout_row_dynamic(ctx, 10.0f, 1);
         nk_spacing(ctx, 1);
-        nk_layout_row_dynamic(ctx, 18.0f, 1);
-        nk_label(ctx, "Printer (MPS-803)", NK_TEXT_LEFT);
-
         nk_layout_row_dynamic(ctx, 22.0f, 1);
         frontend_checkbox_bool(
             ctx,
-            "Enable printer (device 4)",
+            "Enable MPS-803 Printer as device 4",
             &dialog->edited.printer_enabled);
-
-        if (dialog->edited.printer_output_dir == NULL) {
-            app_options_set_string(&dialog->edited.printer_output_dir, "prints");
-        }
-        nk_layout_row_begin(ctx, NK_DYNAMIC, 22.0f, 3);
-        nk_layout_row_push(ctx, 0.30f);
-        nk_label(ctx, "Output dir", NK_TEXT_LEFT);
-        nk_layout_row_push(ctx, 0.56f);
-        frontend_edit_replace(
-            ctx,
-            NK_EDIT_FIELD,
-            dialog->edited.printer_output_dir,
-            1024,
-            nk_filter_default);
-        nk_layout_row_push(ctx, 0.14f);
-        if (nk_button_label(ctx, "...")) {
-            /* Prefer the live Output dir so a typed path is not ignored. */
-            if (dialog->edited.printer_output_dir != NULL &&
-                dialog->edited.printer_output_dir[0] != '\0') {
-                frontend_set_browse_dir(
-                    ui,
-                    FRONTEND_BROWSE_SLOT_PRINTER,
-                    dialog->edited.printer_output_dir);
-            }
-            ui->config_dialog.pending_browse_slot = FRONTEND_BROWSE_SLOT_PRINTER;
-            frontend_push_simple_intent(ui, FRONTEND_DEBUGGER_INTENT_CONFIG_PICK_PATH_DIALOG);
-        }
-        nk_layout_row_end(ctx);
-
-        if (dialog->edited.printer_format == NULL) {
-            app_options_set_string(&dialog->edited.printer_format, "bmp");
-        }
-        nk_layout_row_begin(ctx, NK_DYNAMIC, 22.0f, 2);
-        nk_layout_row_push(ctx, 0.30f);
-        nk_label(ctx, "Format", NK_TEXT_LEFT);
-        nk_layout_row_push(ctx, 0.70f);
-        nk_label(ctx, "bmp", NK_TEXT_LEFT);
-        nk_layout_row_end(ctx);
+        /* Output dir is Paths -> printer; format is bmp-only in v1. */
     }
 }
 
