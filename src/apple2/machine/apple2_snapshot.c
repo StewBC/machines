@@ -1087,6 +1087,12 @@ static bool apply_slot(apple2_t *m, const uint8_t *p, size_t len)
                 return false;
             }
             break;
+        case SLOT_TYPE_SSC:
+            /* Detach already ran above when types differ (attach_ssc fails on conflict). */
+            if (!apple2_attach_ssc(m, slot)) {
+                return false;
+            }
+            break;
         case SLOT_TYPE_EMPTY:
         default:
             apple2_detach_slot_card(m, slot);

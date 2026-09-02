@@ -2357,7 +2357,7 @@ static void frontend_draw_config_machine_tab(frontend *ui, frontend_config_dialo
 {
     static const char *const model_items[] = { "//e Enhanced", "][+" };
     static const char *const slot_items[] = {
-        "Empty", "Disk II", "SmartPort", "Mockingboard"
+        "Empty", "Disk II", "SmartPort", "Mockingboard", "Super Serial"
     };
     static const char *const joystick_stick_items[] = { "Off", "Stick 1", "Stick 2" };
     static const char *const joystick_layout_items[] = { "Numpad", "WASD" };
@@ -2393,10 +2393,10 @@ static void frontend_draw_config_machine_tab(frontend *ui, frontend_config_dialo
         nk_label(ctx, label, NK_TEXT_LEFT);
         nk_layout_row_push(ctx, 0.70f);
         selected = (int)dialog->edited.slot_cards[slot];
-        if (selected < APP_SLOT_CARD_EMPTY || selected > APP_SLOT_CARD_MOCKINGBOARD) {
+        if (selected < APP_SLOT_CARD_EMPTY || selected > APP_SLOT_CARD_SSC) {
             selected = APP_SLOT_CARD_EMPTY;
         }
-        next = nk_combo(ctx, slot_items, 4, selected, 18, nk_vec2(180.0f, 120.0f));
+        next = nk_combo(ctx, slot_items, 5, selected, 18, nk_vec2(180.0f, 140.0f));
         if (next != selected) {
             (void)app_options_set_slot_card(
                 &dialog->edited, slot, (app_slot_card_type)next);
@@ -6291,6 +6291,7 @@ static const char *frontend_slot_card_label(runtime_slot_card_type type)
     case RUNTIME_SLOT_CARD_DISKII: return "Disk II";
     case RUNTIME_SLOT_CARD_SMARTPORT: return "SmartPort";
     case RUNTIME_SLOT_CARD_MOCKINGBOARD: return "Mockingboard";
+    case RUNTIME_SLOT_CARD_SSC: return "Super Serial";
     case RUNTIME_SLOT_CARD_EMPTY:
     default: return "Empty";
     }

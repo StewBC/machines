@@ -1,8 +1,11 @@
 #include "apple2.h"
+#include "host_log.h"
 #include "mboard.h"
 #include "smrtprt.h"
 #include "softswitch.h"
+#include "ssc_rom.h"
 
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -444,6 +447,121 @@ static void test_smartport_host_trap(void)
     remove(path);
 }
 
+static int g_ssc_warn_count;
+static char g_ssc_warn_msg[256];
+
+static void ssc_warn_callback(log_Event *ev)
+{
+    if (ev == NULL || ev->fmt == NULL) {
+        return;
+    }
+    if (ev->level != LOG_WARN) {
+        return;
+    }
+    vsnprintf(g_ssc_warn_msg, sizeof(g_ssc_warn_msg), ev->fmt, ev->ap);
+    g_ssc_warn_count++;
+}
+
+static void test_ssc_rom_size_and_cnxx(void)
+{
+    apple2_t m;
+    uint16_t addr;
+    int i;
+
+    if (ssc_rom_size != 2048 || SSC_ROM_SIZE != 2048) {
+        fail("ssc rom size");
+    }
+    if (!apple2_init(&m)) {
+        fail("ssc rom init");
+    }
+    if (!apple2_attach_ssc(&m, 2) || m.slot_type[2] != SLOT_TYPE_SSC || m.ssc_slot != 2) {
+        fail("ssc attach slot 2");
+    }
+    if (m.rom_shadow_pages[2] != (uint8_t *)(ssc_rom + 0x700)) {
+        fail("ssc cnxx shadow");
+    }
+    for (i = 0; i < 256; ++i) {
+        addr = (uint16_t)(0xC200 + i);
+        if (apple2_debug_read(&m, addr) != ssc_rom[0x700 + i]) {
+            fail("ssc cnxx fetch");
+        }
+    }
+    if (apple2_attach_ssc(&m, 0)) {
+        fail("ssc slot 0 must reject");
+    }
+    apple2_shutdown(&m);
+}
+
+static void test_ssc_move_rule(void)
+{
+    apple2_t m;
+
+    if (!apple2_init(&m)) {
+        fail("ssc move init");
+    }
+    if (!apple2_attach_ssc(&m, 1) || m.ssc_slot != 1) {
+        fail("ssc first attach");
+    }
+    if (!apple2_attach_ssc(&m, 5) || m.ssc_slot != 5 ||
+        m.slot_type[5] != SLOT_TYPE_SSC || m.slot_type[1] != SLOT_TYPE_EMPTY) {
+        fail("ssc move clears old slot");
+    }
+    apple2_detach_slot_card(&m, 5);
+    if (m.ssc_slot != 0 || m.slot_type[5] != SLOT_TYPE_EMPTY) {
+        fail("ssc detach clears ssc_slot");
+    }
+    apple2_shutdown(&m);
+}
+
+static void test_ssc_same_slot_conflict_warns(void)
+{
+    apple2_t m;
+
+    g_ssc_warn_count = 0;
+    g_ssc_warn_msg[0] = '\0';
+    log_set_quiet(true);
+    if (log_add_callback(ssc_warn_callback, NULL, LOG_WARN) != 0) {
+        fail("ssc warn callback");
+    }
+    if (!apple2_init(&m)) {
+        fail("ssc conflict init");
+    }
+    /* Default Disk II is slot 6. */
+    if (m.slot_type[6] != SLOT_TYPE_DISKII) {
+        fail("expected diskii in 6");
+    }
+    if (apple2_attach_ssc(&m, 6)) {
+        fail("ssc onto diskii must fail");
+    }
+    if (m.slot_type[6] != SLOT_TYPE_DISKII || m.ssc_slot != 0) {
+        fail("ssc conflict left diskii");
+    }
+    if (g_ssc_warn_count < 1 || strstr(g_ssc_warn_msg, "busy") == NULL ||
+        strstr(g_ssc_warn_msg, "diskii") == NULL) {
+        fprintf(stderr, "warn='%s' count=%d\n", g_ssc_warn_msg, g_ssc_warn_count);
+        fail("ssc conflict log_warn");
+    }
+    apple2_shutdown(&m);
+}
+
+static void test_ssc_apply_diskii_to_ssc(void)
+{
+    apple2_t m;
+
+    if (!apple2_init(&m)) {
+        fail("ssc apply init");
+    }
+    if (m.slot_type[6] != SLOT_TYPE_DISKII) {
+        fail("apply expects diskii 6");
+    }
+    /* Production remap invariant: detach before attach_ssc. */
+    apple2_detach_slot_card(&m, 6);
+    if (!apple2_attach_ssc(&m, 6) || m.slot_type[6] != SLOT_TYPE_SSC || m.ssc_slot != 6) {
+        fail("apply diskii->ssc");
+    }
+    apple2_shutdown(&m);
+}
+
 int main(void)
 {
     test_mockingboard_attach();
@@ -452,6 +570,10 @@ int main(void)
     test_smartport_image_roundtrip();
     test_smartport_softswitch_ports();
     test_smartport_host_trap();
+    test_ssc_rom_size_and_cnxx();
+    test_ssc_move_rule();
+    test_ssc_same_slot_conflict_warns();
+    test_ssc_apply_diskii_to_ssc();
     printf("ok\n");
     return 0;
 }

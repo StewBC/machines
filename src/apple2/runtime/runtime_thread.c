@@ -1704,6 +1704,9 @@ static void runtime_publish_machine(runtime *rt)
         case SLOT_TYPE_MOCKINGBOARD:
             out->card_type = RUNTIME_SLOT_CARD_MOCKINGBOARD;
             break;
+        case SLOT_TYPE_SSC:
+            out->card_type = RUNTIME_SLOT_CARD_SSC;
+            break;
         case SLOT_TYPE_EMPTY:
         default:
             out->card_type = RUNTIME_SLOT_CARD_EMPTY;
@@ -4031,6 +4034,7 @@ static void runtime_process_command(runtime *rt, const runtime_command *cmd, boo
             (config->apple_model == 1u ? APPLE2_MODEL_II_PLUS : APPLE2_MODEL_IIE_ENHANCED);
         bool symbols_changed;
         int mockingboards = 0;
+        int sscs = 0;
         int slot;
 
         symbols_changed = !runtime_string_equal(
@@ -4050,16 +4054,20 @@ static void runtime_process_command(runtime *rt, const runtime_command *cmd, boo
             runtime_slot_card_type type = config->slot_cards[slot];
             apple2_slot_type machine_type = rt->machine.slot_type[slot];
             runtime_slot_card_type current = RUNTIME_SLOT_CARD_EMPTY;
-            if (type < RUNTIME_SLOT_CARD_EMPTY || type > RUNTIME_SLOT_CARD_MOCKINGBOARD) {
+            if (type < RUNTIME_SLOT_CARD_EMPTY || type > RUNTIME_SLOT_CARD_SSC) {
                 runtime_publish_error(rt, "invalid slot card configuration");
                 break;
             }
             if (type == RUNTIME_SLOT_CARD_MOCKINGBOARD) {
                 ++mockingboards;
             }
+            if (type == RUNTIME_SLOT_CARD_SSC) {
+                ++sscs;
+            }
             if (machine_type == SLOT_TYPE_DISKII) current = RUNTIME_SLOT_CARD_DISKII;
             else if (machine_type == SLOT_TYPE_SMARTPORT) current = RUNTIME_SLOT_CARD_SMARTPORT;
             else if (machine_type == SLOT_TYPE_MOCKINGBOARD) current = RUNTIME_SLOT_CARD_MOCKINGBOARD;
+            else if (machine_type == SLOT_TYPE_SSC) current = RUNTIME_SLOT_CARD_SSC;
             if (current != type) {
                 changed = true;
             }
@@ -4067,7 +4075,8 @@ static void runtime_process_command(runtime *rt, const runtime_command *cmd, boo
         if (slot <= 7) {
             break;
         }
-        if (config->slot_cards[0] != RUNTIME_SLOT_CARD_EMPTY || mockingboards > 1) {
+        if (config->slot_cards[0] != RUNTIME_SLOT_CARD_EMPTY || mockingboards > 1 ||
+            sscs > 1) {
             runtime_publish_error(rt, "invalid slot card configuration");
             break;
         }
@@ -4101,6 +4110,8 @@ static void runtime_process_command(runtime *rt, const runtime_command *cmd, boo
                 current = RUNTIME_SLOT_CARD_SMARTPORT;
             } else if (rt->machine.slot_type[slot] == SLOT_TYPE_MOCKINGBOARD) {
                 current = RUNTIME_SLOT_CARD_MOCKINGBOARD;
+            } else if (rt->machine.slot_type[slot] == SLOT_TYPE_SSC) {
+                current = RUNTIME_SLOT_CARD_SSC;
             }
             if (current == next) {
                 continue;
@@ -4122,6 +4133,7 @@ static void runtime_process_command(runtime *rt, const runtime_command *cmd, boo
             config->apple_model == 1u ? APPLE2_MODEL_II_PLUS : APPLE2_MODEL_IIE_ENHANCED);
         rt->config.apple_model = config->apple_model == 1u ? 1 : 0;
         rt->config.mb_slot = 0;
+        rt->config.ssc_slot = 0;
         for (slot = 1; slot <= 7; ++slot) {
             rt->config.slot_cards[slot] = config->slot_cards[slot];
             switch (config->slot_cards[slot]) {
@@ -4134,6 +4146,10 @@ static void runtime_process_command(runtime *rt, const runtime_command *cmd, boo
             case RUNTIME_SLOT_CARD_MOCKINGBOARD:
                 (void)apple2_attach_mockingboard(&rt->machine, slot);
                 rt->config.mb_slot = slot;
+                break;
+            case RUNTIME_SLOT_CARD_SSC:
+                (void)apple2_attach_ssc(&rt->machine, slot);
+                rt->config.ssc_slot = slot;
                 break;
             case RUNTIME_SLOT_CARD_EMPTY:
             default:
@@ -5085,6 +5101,9 @@ int runtime_thread_main(void *userdata)
                 break;
             case RUNTIME_SLOT_CARD_MOCKINGBOARD:
                 (void)apple2_attach_mockingboard(&rt->machine, slot);
+                break;
+            case RUNTIME_SLOT_CARD_SSC:
+                (void)apple2_attach_ssc(&rt->machine, slot);
                 break;
             case RUNTIME_SLOT_CARD_EMPTY:
             default:

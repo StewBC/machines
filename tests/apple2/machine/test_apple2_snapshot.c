@@ -194,6 +194,35 @@ static void test_plus_omits_aux_round_trip(void)
     apple2_shutdown(&m2);
 }
 
+static void test_ssc_slot_round_trip(void)
+{
+    apple2_t m;
+    apple2_t m2;
+    uint8_t *buf = NULL;
+    size_t written;
+
+    expect_true("ssc init", apple2_init(&m));
+    apple2_detach_slot_card(&m, 6);
+    expect_true("ssc attach", apple2_attach_ssc(&m, 6));
+    expect_true("ssc present", m.slot_type[6] == SLOT_TYPE_SSC && m.ssc_slot == 6);
+    buf = save_machine(&m, &written);
+
+    expect_true("ssc init2", apple2_init(&m2));
+    expect_true("ssc load", apple2_snapshot_load(&m2, buf, written));
+    if (m2.slot_type[6] != SLOT_TYPE_SSC || m2.ssc_slot != 6) {
+        fprintf(
+            stderr,
+            "FAIL: ssc restore type=%d ssc_slot=%u\n",
+            (int)m2.slot_type[6],
+            (unsigned)m2.ssc_slot);
+        exit(1);
+    }
+
+    free(buf);
+    apple2_shutdown(&m);
+    apple2_shutdown(&m2);
+}
+
 static void test_v2_full_ram_still_loads(void)
 {
     apple2_t m;
@@ -237,6 +266,7 @@ int main(void)
     test_round_trip_basic();
     test_iie_always_full_ram();
     test_plus_omits_aux_round_trip();
+    test_ssc_slot_round_trip();
     test_v2_full_ram_still_loads();
     printf("ok\n");
     return 0;

@@ -21,7 +21,8 @@ typedef enum app_slot_card_type {
     APP_SLOT_CARD_EMPTY = 0,
     APP_SLOT_CARD_DISKII,
     APP_SLOT_CARD_SMARTPORT,
-    APP_SLOT_CARD_MOCKINGBOARD
+    APP_SLOT_CARD_MOCKINGBOARD,
+    APP_SLOT_CARD_SSC
 } app_slot_card_type;
 
 enum { APP_SLOT_CARD_COUNT = 8 };
@@ -147,6 +148,7 @@ typedef struct app_options {
     /* ---- Apple II product fields (W4) ---- */
     int apple_model; /* 0 = //e Enhanced, 1 = ][+ */
     int mb_slot;     /* CLI/runtime mirror of the Mockingboard slot; 0 = off. */
+    int ssc_slot;    /* CLI/runtime mirror of the SSC slot; 0 = off. */
     app_slot_card_type slot_cards[APP_SLOT_CARD_COUNT];
     app_diskii_mount diskii[APP_OPTIONS_MAX_DISKII];
     int diskii_count;

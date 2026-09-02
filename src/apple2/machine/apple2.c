@@ -1,9 +1,11 @@
 #include "apple2.h"
 #include "diskii_rom.h"
+#include "host_log.h"
 #include "mboard.h"
 #include "rom_data.h"
 #include "smartport_rom.h"
 #include "smrtprt.h"
+#include "ssc_rom.h"
 #include "util_file.h"
 #include "via6522.h"
 
@@ -11,6 +13,23 @@
 #include <ctype.h>
 #include <stdlib.h>
 #include <string.h>
+
+static const char *apple2_slot_type_name(apple2_slot_type type)
+{
+    switch (type) {
+    case SLOT_TYPE_DISKII:
+        return "diskii";
+    case SLOT_TYPE_SMARTPORT:
+        return "smartport";
+    case SLOT_TYPE_MOCKINGBOARD:
+        return "mockingboard";
+    case SLOT_TYPE_SSC:
+        return "ssc";
+    case SLOT_TYPE_EMPTY:
+    default:
+        return "empty";
+    }
+}
 
 static uint8_t apple2_bus_read(void *user, uint16_t address);
 static void apple2_bus_write(void *user, uint16_t address, uint8_t value);
@@ -366,6 +385,7 @@ bool apple2_init(apple2_t *machine)
     machine->ready = true;
     machine->instruction_complete = true;
     machine->mb_slot = 0;
+    machine->ssc_slot = 0;
 
     /* Unconnected paddles read near center until host input arrives. */
     machine->gameport_axis[0] = 128u;
@@ -510,6 +530,9 @@ void apple2_detach_slot_card(apple2_t *m, int slot)
     if (m->slot_type[slot] == SLOT_TYPE_MOCKINGBOARD && m->mb_slot == (uint8_t)slot) {
         m->mb_slot = 0;
     }
+    if (m->slot_type[slot] == SLOT_TYPE_SSC && m->ssc_slot == (uint8_t)slot) {
+        m->ssc_slot = 0;
+    }
     m->slot_type[slot] = SLOT_TYPE_EMPTY;
     m->diskii_present[slot] = 0;
     apple2_pages_map_ram(m, false, (uint32_t)(0xC000 + slot * 0x100), 0x100);
@@ -534,6 +557,35 @@ bool apple2_attach_mockingboard(apple2_t *m, int slot)
     mockingboard_reset(&m->mockingboard[slot], 1);
     m->mb_slot = (uint8_t)slot;
     /* No Cn ROM — registers only; leave shadow as RAM. */
+    softswitch_apply_full_map(m);
+    return true;
+}
+
+bool apple2_attach_ssc(apple2_t *m, int slot)
+{
+    uint8_t *cnxx;
+
+    if (m == NULL || slot < 1 || slot > 7) {
+        return false;
+    }
+    if (m->ssc_slot != 0 && m->ssc_slot != (uint8_t)slot) {
+        apple2_detach_slot_card(m, m->ssc_slot);
+    }
+    if (m->slot_type[slot] != SLOT_TYPE_EMPTY &&
+        m->slot_type[slot] != SLOT_TYPE_SSC) {
+        log_warn(
+            "ssc: slot %d busy (%s)",
+            slot,
+            apple2_slot_type_name(m->slot_type[slot]));
+        return false;
+    }
+    m->diskii_present[slot] = 0;
+    m->slot_type[slot] = SLOT_TYPE_SSC;
+    m->ssc_slot = (uint8_t)slot;
+    /* Cnxx = top 256 bytes of the 2K SSC firmware (MAME/AppleWin). */
+    cnxx = (uint8_t *)(ssc_rom + 0x700);
+    apple2_pages_map_rom(m, (uint16_t)(0xC000 + slot * 0x100), 0x100, cnxx);
+    m->rom_shadow_pages[slot] = cnxx;
     softswitch_apply_full_map(m);
     return true;
 }

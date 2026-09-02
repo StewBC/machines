@@ -62,6 +62,7 @@ typedef struct runtime_config {
     /* Apple-specific */
     int apple_model; /* 0=//e enh, 1=][+ */
     int mb_slot;     /* 1..7 attach MB; 0 = none */
+    int ssc_slot;    /* 1..7 attach SSC; 0 = none */
     runtime_slot_card_type slot_cards[RUNTIME_APPLE_SLOT_COUNT];
     bool start_running;
 

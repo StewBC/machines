@@ -42,6 +42,7 @@ void runtime_config_init(runtime_config *config)
     runtime_config_set_turbo_defaults(config);
     config->apple_model = 0;
     config->mb_slot = 4;
+    config->ssc_slot = 0;
     config->slot_cards[4] = RUNTIME_SLOT_CARD_MOCKINGBOARD;
     config->slot_cards[6] = RUNTIME_SLOT_CARD_DISKII;
     config->slot_cards[7] = RUNTIME_SLOT_CARD_SMARTPORT;
@@ -258,17 +259,21 @@ runtime *runtime_create(const runtime_config *config)
     if (config != NULL) {
         int slot;
         int mockingboards = 0;
+        int sscs = 0;
         for (slot = 1; slot <= 7; ++slot) {
             runtime_slot_card_type type = config->slot_cards[slot];
-            if (type < RUNTIME_SLOT_CARD_EMPTY || type > RUNTIME_SLOT_CARD_MOCKINGBOARD) {
+            if (type < RUNTIME_SLOT_CARD_EMPTY || type > RUNTIME_SLOT_CARD_SSC) {
                 return NULL;
             }
             if (type == RUNTIME_SLOT_CARD_MOCKINGBOARD) {
                 mockingboards++;
             }
+            if (type == RUNTIME_SLOT_CARD_SSC) {
+                sscs++;
+            }
         }
         if (config->slot_cards[0] != RUNTIME_SLOT_CARD_EMPTY || mockingboards > 1 ||
-            config->smartport_boot_slot < 0 || config->smartport_boot_slot > 7) {
+            sscs > 1 || config->smartport_boot_slot < 0 || config->smartport_boot_slot > 7) {
             return NULL;
         }
     }

@@ -31,7 +31,7 @@
 model = enh
 
 [Slots]
-; empty | diskii | smartport | mockingboard (one Mockingboard total)
+; empty | diskii | smartport | mockingboard | ssc (one Mockingboard / one SSC)
 slot1 = empty
 slot2 = empty
 slot3 = empty

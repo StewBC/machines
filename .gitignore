@@ -44,3 +44,6 @@ test_rom_under/
 test_symbol_ini/
 test_disk_rel_ini/
 test_disk_save_rel/
+
+# Local card ROM dumps (embed as C arrays; never commit binaries)
+roms/*.bin

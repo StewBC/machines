@@ -35,7 +35,8 @@ typedef enum {
     SLOT_TYPE_EMPTY = 0,
     SLOT_TYPE_DISKII,
     SLOT_TYPE_SMARTPORT,
-    SLOT_TYPE_MOCKINGBOARD
+    SLOT_TYPE_MOCKINGBOARD,
+    SLOT_TYPE_SSC
 } apple2_slot_type;
 
 typedef enum apple2_memory_access_type {
@@ -133,6 +134,9 @@ typedef struct apple2 {
     /* Mockingboard (any slot; mb_slot is primary IRQ source, 0=none). */
     MOCKINGBOARD mockingboard[8];
     uint8_t mb_slot;
+
+    /* Super Serial Card (one machine-wide; ssc_slot 0=none). */
+    uint8_t ssc_slot;
 
     /* Game port: 4 paddles (2 sticks × X/Y) + 3 buttons. Axes are Apple paddle
        units 0..255 (mid=128). button_mask bit0=BUTN0, bit1=BUTN1, bit2=BUTN2.
@@ -292,6 +296,8 @@ int apple2_disk_set_writable(apple2_t *m, int slot, int drive, bool writable);
 
 /* Mockingboard (default slot 4). */
 bool apple2_attach_mockingboard(apple2_t *m, int slot);
+/* Super Serial Card (one total; same-slot foreign type fails). */
+bool apple2_attach_ssc(apple2_t *m, int slot);
 void apple2_detach_slot_card(apple2_t *m, int slot);
 
 /* SmartPort block device. */

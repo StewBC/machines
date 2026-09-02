@@ -15,7 +15,8 @@ typedef enum runtime_slot_card_type {
     RUNTIME_SLOT_CARD_EMPTY = 0,
     RUNTIME_SLOT_CARD_DISKII,
     RUNTIME_SLOT_CARD_SMARTPORT,
-    RUNTIME_SLOT_CARD_MOCKINGBOARD
+    RUNTIME_SLOT_CARD_MOCKINGBOARD,
+    RUNTIME_SLOT_CARD_SSC
 } runtime_slot_card_type;
 
 enum {

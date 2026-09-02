@@ -130,6 +130,7 @@ const char *app_slot_card_name(app_slot_card_type type)
         case APP_SLOT_CARD_DISKII:       return "diskii";
         case APP_SLOT_CARD_SMARTPORT:    return "smartport";
         case APP_SLOT_CARD_MOCKINGBOARD: return "mockingboard";
+        case APP_SLOT_CARD_SSC:          return "ssc";
         default:                         return "empty";
     }
 }
@@ -149,6 +150,8 @@ bool app_slot_card_from_string(const char *s, app_slot_card_type *out_type)
         type = APP_SLOT_CARD_SMARTPORT;
     } else if (strcasecmp(s, "mockingboard") == 0) {
         type = APP_SLOT_CARD_MOCKINGBOARD;
+    } else if (strcasecmp(s, "ssc") == 0 || strcasecmp(s, "super serial") == 0) {
+        type = APP_SLOT_CARD_SSC;
     } else {
         return false;
     }
@@ -161,7 +164,7 @@ bool app_options_set_slot_card(app_options *options, int slot, app_slot_card_typ
     int i;
 
     if (options == NULL || slot < 1 || slot > 7 ||
-        type < APP_SLOT_CARD_EMPTY || type > APP_SLOT_CARD_MOCKINGBOARD) {
+        type < APP_SLOT_CARD_EMPTY || type > APP_SLOT_CARD_SSC) {
         return false;
     }
 
@@ -175,6 +178,18 @@ bool app_options_set_slot_card(app_options *options, int slot, app_slot_card_typ
     } else if (options->slot_cards[slot] == APP_SLOT_CARD_MOCKINGBOARD &&
                options->mb_slot == slot) {
         options->mb_slot = 0;
+    }
+
+    if (type == APP_SLOT_CARD_SSC) {
+        for (i = 1; i <= 7; ++i) {
+            if (i != slot && options->slot_cards[i] == APP_SLOT_CARD_SSC) {
+                options->slot_cards[i] = APP_SLOT_CARD_EMPTY;
+            }
+        }
+        options->ssc_slot = slot;
+    } else if (options->slot_cards[slot] == APP_SLOT_CARD_SSC &&
+               options->ssc_slot == slot) {
+        options->ssc_slot = 0;
     }
     options->slot_cards[slot] = type;
     return true;
@@ -2535,6 +2550,7 @@ void app_options_init(app_options *options)
     options->inspector_memory_mb = A2M_DEFAULT_INSPECTOR_MEMORY_MB;
     options->apple_model = 0; /* //e Enhanced */
     options->mb_slot = 4;
+    options->ssc_slot = 0;
     options->slot_cards[4] = APP_SLOT_CARD_MOCKINGBOARD;
     options->slot_cards[6] = APP_SLOT_CARD_DISKII;
     options->slot_cards[7] = APP_SLOT_CARD_SMARTPORT;
@@ -2629,6 +2645,7 @@ bool app_options_copy(app_options *dest, const app_options *src)
     dest->inspector_memory_mb = src->inspector_memory_mb;
     dest->apple_model = src->apple_model;
     dest->mb_slot = src->mb_slot;
+    dest->ssc_slot = src->ssc_slot;
     memcpy(dest->slot_cards, src->slot_cards, sizeof(dest->slot_cards));
 
     if (!replace_string(&dest->keyboard_joystick_layout, src->keyboard_joystick_layout) ||

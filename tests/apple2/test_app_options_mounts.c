@@ -129,6 +129,28 @@ int main(void)
     expect_true("MB disabled", options.mb_slot == 0);
     app_options_destroy(&options);
 
+    /* Selecting a second SSC moves it (one card machine-wide). */
+    app_options_init(&options);
+    expect_true("default no SSC", options.ssc_slot == 0);
+    expect_true("select SSC slot 1",
+        app_options_set_slot_card(&options, 1, APP_SLOT_CARD_SSC));
+    expect_true("ssc_slot 1",
+        options.slot_cards[1] == APP_SLOT_CARD_SSC && options.ssc_slot == 1);
+    expect_true("move SSC to 3",
+        app_options_set_slot_card(&options, 3, APP_SLOT_CARD_SSC));
+    expect_true("old SSC cleared", options.slot_cards[1] == APP_SLOT_CARD_EMPTY);
+    expect_true("new SSC selected",
+        options.slot_cards[3] == APP_SLOT_CARD_SSC && options.ssc_slot == 3);
+    expect_true("clear SSC", app_options_set_slot_card(&options, 3, APP_SLOT_CARD_EMPTY));
+    expect_true("SSC disabled", options.ssc_slot == 0);
+    {
+        app_slot_card_type parsed = APP_SLOT_CARD_EMPTY;
+        expect_true("ssc from_string",
+            app_slot_card_from_string("ssc", &parsed) && parsed == APP_SLOT_CARD_SSC);
+    }
+    expect_true("ssc name", strcmp(app_slot_card_name(APP_SLOT_CARD_SSC), "ssc") == 0);
+    app_options_destroy(&options);
+
     /* Explicit [Slots] keys retain installed controllers even when they have
        no mounted media. */
     app_options_init(&options);
