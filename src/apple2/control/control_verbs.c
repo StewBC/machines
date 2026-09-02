@@ -1160,7 +1160,9 @@ static const apple_control_verb k_apple_verbs[] = {
     { { "land-inspector", "inspector", NULL, parse_inspector_land_cycle },
       CONTROL_COMMAND_LAND_INSPECTOR },
     { { "land-inspector-exact", "inspector", NULL, parse_inspector_land_cycle },
-      CONTROL_COMMAND_LAND_INSPECTOR_EXACT }
+      CONTROL_COMMAND_LAND_INSPECTOR_EXACT },
+    { { "printer-flush", "printer-flush", NULL, parse_empty },
+      CONTROL_COMMAND_PRINTER_FLUSH }
 };
 
 static const apple_control_verb *find_apple_verb(const char *name)

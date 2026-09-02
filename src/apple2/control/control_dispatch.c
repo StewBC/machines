@@ -213,6 +213,7 @@ static bool control_command_inspector_forbidden(control_command_type type)
     case CONTROL_COMMAND_HISTORY_CLEAR:
     case CONTROL_COMMAND_HISTORY_RECORD:
     case CONTROL_COMMAND_ASSEMBLE:
+    case CONTROL_COMMAND_PRINTER_FLUSH:
         return true;
     default:
         return false;
@@ -1464,6 +1465,11 @@ static void handle_request(control_dispatch_t *disp, control_request *req)
         post_ok(disp, req->id, "accepted=1");
         break;
     }
+
+    case CONTROL_COMMAND_PRINTER_FLUSH:
+        (void)runtime_client_printer_flush(client);
+        post_ok(disp, req->id, "accepted=1");
+        break;
 
     case CONTROL_COMMAND_GET_CPU: {
         uint64_t token = runtime_client_alloc_request_token(client);

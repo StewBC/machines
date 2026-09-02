@@ -744,7 +744,7 @@ int main(void)
         expect_true("tcp connect", fd >= 0);
         SDL_Delay(50);
         expect_true("hello", tcp_cmd(fd, "1 hello\n", resp, sizeof(resp)));
-        expect_true("hello a2m15", strstr(resp, "A2M/15") != NULL);
+        expect_true("hello a2m16", strstr(resp, "A2M/16") != NULL);
         expect_true(
             "caps", tcp_cmd(fd, "2 capabilities\n", resp, sizeof(resp)));
         expect_true("caps tm", strstr(resp, "inspector") != NULL);

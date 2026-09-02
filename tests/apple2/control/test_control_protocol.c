@@ -142,6 +142,14 @@ int main(void)
     expect_u32("key", 0x8D, request.args.key.value);
 
     expect_true(
+        "parse printer-flush",
+        control_protocol_parse_request("45 printer-flush", &request, &error));
+    expect_int(
+        "printer-flush type",
+        CONTROL_COMMAND_PRINTER_FLUSH,
+        (int)request.type);
+
+    expect_true(
         "bad unknown",
         !control_protocol_parse_request("10 foobar", &request, &error));
     expect_int("unknown type", CONTROL_RESPONSE_ERROR, (int)error.type);
@@ -446,7 +454,8 @@ int main(void)
             "capabilities-from-table",
             "connection introspection execution state softswitches step turbo "
             "frame frame-ring memory breakpoints wait key disk snapshot "
-            "history assemble mli-launch symbols sessions state-changed inspector",
+            "history assemble mli-launch symbols sessions state-changed "
+            "inspector printer-flush",
             caps);
     }
 
