@@ -550,8 +550,14 @@ void imagewriter_set_output_dir(imagewriter *iw, const char *dir)
         iw->output_dir[0] = '\0';
         return;
     }
-    strncpy(iw->output_dir, dir, sizeof(iw->output_dir) - 1u);
-    iw->output_dir[sizeof(iw->output_dir) - 1u] = '\0';
+    /* Overlap-safe: callers may pass iw->output_dir (or an alias). */
+    if (dir != iw->output_dir) {
+        char tmp[sizeof(iw->output_dir)];
+
+        strncpy(tmp, dir, sizeof(tmp) - 1u);
+        tmp[sizeof(tmp) - 1u] = '\0';
+        memcpy(iw->output_dir, tmp, sizeof(iw->output_dir));
+    }
 }
 
 void imagewriter_putc(imagewriter *iw, uint8_t ch)

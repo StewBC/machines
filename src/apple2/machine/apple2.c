@@ -685,8 +685,13 @@ void apple2_set_printer_output_dir(apple2_t *m, const char *dir)
     if (dir == NULL || dir[0] == '\0') {
         m->printer_output_dir[0] = '\0';
     } else {
-        strncpy(m->printer_output_dir, dir, sizeof(m->printer_output_dir) - 1u);
-        m->printer_output_dir[sizeof(m->printer_output_dir) - 1u] = '\0';
+        /* Configure Apply may pass m->printer_output_dir itself; fortified
+           strncpy traps on overlap. Copy via a temp buffer. */
+        char tmp[sizeof(m->printer_output_dir)];
+
+        strncpy(tmp, dir, sizeof(tmp) - 1u);
+        tmp[sizeof(tmp) - 1u] = '\0';
+        memcpy(m->printer_output_dir, tmp, sizeof(m->printer_output_dir));
         if (!host_page_writer_ensure_dir(m->printer_output_dir)) {
             log_error(
                 "printer: ensure_dir failed for %s",

@@ -927,6 +927,42 @@ static void test_ssc_apply_pre_flush_before_cold_reset(void)
     (void)test_rmdir(dir);
 }
 
+/* Regression: Configure Apply used to pass machine.printer_output_dir into
+   apple2_set_printer_output_dir, and fortified strncpy aborted on overlap. */
+static void test_ssc_set_printer_dir_self_alias(void)
+{
+    apple2_t m;
+    const char *dir = "ssc_iw_tmp_alias";
+
+    (void)test_mkdir(dir);
+    cleanup_print_pages(dir);
+
+    if (!apple2_init(&m)) {
+        fail("ssc alias init");
+    }
+    apple2_set_printer_output_dir(&m, dir);
+    if (strcmp(m.printer_output_dir, dir) != 0) {
+        fail("ssc alias first set");
+    }
+    /* Same pointer as destination — must not SIGTRAP. */
+    apple2_set_printer_output_dir(&m, m.printer_output_dir);
+    if (strcmp(m.printer_output_dir, dir) != 0) {
+        fail("ssc alias self set");
+    }
+    if (!apple2_attach_ssc(&m, 1)) {
+        fail("ssc alias attach");
+    }
+    apple2_set_printer_output_dir(&m, m.printer_output_dir);
+    if (strcmp(m.imagewriter.output_dir, dir) != 0) {
+        fail("ssc alias IW sync");
+    }
+
+    apple2_detach_slot_card(&m, 1);
+    apple2_shutdown(&m);
+    cleanup_print_pages(dir);
+    (void)test_rmdir(dir);
+}
+
 int main(void)
 {
     test_mockingboard_attach();
@@ -945,6 +981,7 @@ int main(void)
     test_ssc_tx_ff_writes_bmp();
     test_ssc_replay_sealed_skips_host_write();
     test_ssc_apply_pre_flush_before_cold_reset();
+    test_ssc_set_printer_dir_self_alias();
     printf("ok\n");
     return 0;
 }

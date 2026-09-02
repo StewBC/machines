@@ -4171,12 +4171,16 @@ static void runtime_process_command(runtime *rt, const runtime_command *cmd, boo
         /* SSC that stayed installed skipped detach; flush before cold reset. */
         runtime_printer_pre_cold_reset_flush(rt);
         {
+            /* Prefer config string (separate allocation). Never pass
+               machine.printer_output_dir into configure — that buffer is the
+               strncpy destination and fortified libc aborts on overlap. */
             const char *printer_dir = NULL;
-            if (rt->machine.printer_output_dir[0] != '\0') {
-                printer_dir = rt->machine.printer_output_dir;
-            } else if (rt->config.printer_output_dir != NULL &&
-                       rt->config.printer_output_dir[0] != '\0') {
+            if (rt->config.printer_output_dir != NULL &&
+                rt->config.printer_output_dir[0] != '\0') {
                 printer_dir = rt->config.printer_output_dir;
+            } else if (rt->machine.printer_output_dir[0] != '\0') {
+                /* Already on the machine; re-sync IW session only. */
+                printer_dir = rt->machine.printer_output_dir;
             }
             if (printer_dir != NULL) {
                 (void)runtime_printer_configure(rt, printer_dir);
