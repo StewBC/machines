@@ -109,8 +109,9 @@ Measure serially (contention and thermal noise dominate):
 ```
 
 `profile_c64_hotloop` flags (any order after cycle count): `no-video`, `1541`,
-`1541-one`, `media`. Pure-core cannot measure runtime/recorder/rings. Unpowered
-1541s are not stepped; a powered drive with ROM can dominate free-run.
+`1541-one`, `media` (alias: turns on `emulate_1541` with the 1541 flags). Pure-core
+cannot measure runtime/recorder/rings. Unpowered 1541s are not stepped; a powered
+drive with ROM can dominate free-run.
 
 Absolute MHz is host-specific. Re-measure on the same class of machine after
 performance work. Kill with `ctest` plus the demos that exercise the changed

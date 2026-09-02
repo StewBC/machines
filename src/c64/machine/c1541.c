@@ -10,29 +10,16 @@
 /* Addresses verified against: github.com/mist64/1541rom (dos1541    */
 /* source, 325302-01 / 901229-06 variant, labels from dos.lbl).      */
 /*                                                                     */
-/* Intercept strategy: job-queue level at the physical read path.      */
-/* The ROM issues READ jobs via the job queue (ZP $00–$05), writes    */
-/* track/sector into hdrs[] (ZP $06–$11), and then enters the GCR     */
-/* physical read/search code.  Since the emulator mounts D64 images   */
-/* rather than modelling a rotating disk, we satisfy supported jobs    */
-/* before the ROM waits for sync bytes from the disk controller.       */
+/* With emulate_1541, GCR media is always on: READ/SEARCH/VERIFY/EXECUTE run   */
+/* the ROM against the rotating track. D64 WRITE stays a hybrid job intercept  */
+/* (persist sector bytes, then poke GCR) so BAM/directory SAVEs stay coherent. */
 /* ------------------------------------------------------------------ */
 #define C1541_ZP_JOBS        0x0000u  /* jobs[0..5]: job queue (6 bytes) */
 #define C1541_ZP_HDRS        0x0006u  /* hdrs[0..11]: track/sector pairs */
-#define C1541_ZP_JOBN        0x003Fu  /* jobn: index of the active job   */
 #define C1541_RAM_SECTOR_BUF 0x0300u  /* buff0; buff_N = $0300 + N*$0100 */
 
-#define C1541_ROM_PHYS_READ  0xF3B1u  /* physical header/search entry */
-#define C1541_ROM_REED       0xF4CAu  /* reed: physical sector read entry */
-#define C1541_ROM_READ40     0xF505u  /* read40: success return of reed   */
-#define C1541_ROM_ERRR       0xF969u  /* errr: job completion (ldy jobn / sta jobs,y) */
-
 #define C1541_JOB_CMD_MASK   0x78u
-#define C1541_JOB_CMD_READ   0x00u
 #define C1541_JOB_CMD_WRITE  0x10u    /* WRITE job ($90 & MASK); dos.lbl "WRITE" */
-#define C1541_JOB_CMD_VERIFY 0x20u
-#define C1541_JOB_CMD_SEARCH 0x30u
-#define C1541_JOB_CMD_EXECUTE 0x60u   /* EXECUTE job ($E0 & MASK); used by FORMT */
 
 #define C1541_JOB_OK         0x01u    /* job result: success */
 #define C1541_JOB_ERROR      0x02u    /* job result: generic error */
@@ -232,14 +219,8 @@ static void c1541_update_iec_bus(c1541 *drive) {
 }
 
 /* ------------------------------------------------------------------ */
-/* D64 physical job intercept                                          */
+/* D64 hybrid WRITE intercept (READ/SEARCH/VERIFY/EXECUTE use GCR ROM) */
 /* ------------------------------------------------------------------ */
-
-/* Completes the active ROM job with the given result code. */
-static void c1541_complete_job(c1541 *drive, uint8_t result) {
-    drive->cpu.cpu.A  = result;
-    drive->cpu.cpu.pc = C1541_ROM_ERRR;
-}
 
 static int c1541_job_sector_offset(c1541 *drive, uint8_t n, int *out_offset) {
     uint8_t track, sector;
@@ -250,36 +231,16 @@ static int c1541_job_sector_offset(c1541 *drive, uint8_t n, int *out_offset) {
     track  = drive->ram[C1541_ZP_HDRS + (uint16_t)n * 2u];
     sector = drive->ram[C1541_ZP_HDRS + (uint16_t)n * 2u + 1u];
 
-    /* Get the mounted D64 image for this device. */
     slot = c64_get_drive_slot(drive->c64, drive->device_number);
     if (!slot || !slot->mounted || !slot->image_bytes || slot->image_size == 0) {
         return 0;
     }
 
-    /* Compute byte offset in the D64 image. */
     offset = d64_sector_offset(track, sector);
     if (offset < 0 || (size_t)(offset + 256) > slot->image_size) {
         return 0;
     }
     *out_offset = offset;
-    return 1;
-}
-
-/* Fills the active job's buffer from the mounted D64 image. */
-static int c1541_copy_sector_to_job_buffer(c1541 *drive, uint8_t n) {
-    const c64_drive_slot *slot;
-    int offset;
-    uint16_t buf_addr;
-
-    if (!c1541_job_sector_offset(drive, n, &offset)) {
-        return 0;
-    }
-    slot = c64_get_drive_slot(drive->c64, drive->device_number);
-
-    /* Copy sector data into the 1541's buffer for job n.
-       Buffer for job N is at $0300 + N*$0100 (pages 3–7, all within 2 KB RAM). */
-    buf_addr = (uint16_t)(C1541_RAM_SECTOR_BUF + (uint16_t)n * 0x0100u);
-    memcpy(&drive->ram[buf_addr], slot->image_bytes + offset, 256);
     return 1;
 }
 
@@ -316,51 +277,8 @@ static uint8_t c1541_copy_job_buffer_to_sector(c1541 *drive, uint8_t n) {
     return C1541_JOB_OK;
 }
 
-/* Handles the FORMT EXECUTE job for job n by erasing the target track's sectors
-   in the mounted image.  The DOS "NEW" command formats every track this way and
-   then writes a fresh BAM + directory through ordinary WRITE jobs, so erasing the
-   sector data here is sufficient to produce a clean formatted D64.
-   Returns C1541_JOB_OK, C1541_JOB_WRITE_PROT (read-only), or C1541_JOB_ERROR. */
-static uint8_t c1541_format_track(c1541 *drive, uint8_t n) {
-    c64_drive_slot *slot;
-    uint8_t track;
-    int off0, sectors;
-
-    track = drive->ram[C1541_ZP_HDRS + (uint16_t)n * 2u];
-    sectors = d64_sectors_per_track(track);
-    off0 = d64_sector_offset(track, 0);
-    if (sectors <= 0 || off0 < 0) {
-        return C1541_JOB_ERROR;
-    }
-    slot = c64_get_drive_slot_mut(drive->c64, drive->device_number);
-    if (!slot || !slot->mounted || !slot->image_bytes) {
-        return C1541_JOB_ERROR;
-    }
-    if (!slot->writable) {
-        return C1541_JOB_WRITE_PROT;
-    }
-    if (drive->c64 != NULL && drive->c64->replay_sealed) {
-        return C1541_JOB_OK;
-    }
-    if ((size_t)(off0 + sectors * 256) > slot->image_size) {
-        return C1541_JOB_ERROR;
-    }
-
-    memset(slot->image_bytes + off0, 0, (size_t)sectors * 256);
-    slot->dirty = true;
-    slot->image_content_seq++;
-    c64_notify_guest_media_write(drive->c64, drive->device_number);
-    return C1541_JOB_OK;
-}
-
 static void c1541_complete_queued_job(c1541 *drive, uint8_t n, uint8_t result) {
     drive->ram[C1541_ZP_JOBS + n] = result;
-}
-
-static void c1541_pulse_read_led(c1541 *drive) {
-    if (drive != NULL && drive->c64 != NULL) {
-        c64_disk_activity_read(drive->c64, drive->device_number);
-    }
 }
 
 static void c1541_pulse_write_led(c1541 *drive) {
@@ -370,8 +288,7 @@ static void c1541_pulse_write_led(c1541 *drive) {
 }
 
 static int c1541_satisfy_queued_job(c1541 *drive, uint8_t n) {
-    uint8_t raw, command, track, sector;
-    int offset;
+    uint8_t raw, command;
 
     raw = drive->ram[C1541_ZP_JOBS + n];
     if ((raw & 0x80u) == 0 || raw == 0xD0u) {
@@ -379,123 +296,46 @@ static int c1541_satisfy_queued_job(c1541 *drive, uint8_t n) {
     }
 
     command = (uint8_t)(raw & C1541_JOB_CMD_MASK);
-    switch (command) {
-        case C1541_JOB_CMD_READ:
-            /* Media mode: let the ROM run the physical GCR read against via2. */
-            if (c1541_media_physical_read_active(drive)) {
-                return 0;
-            }
-            c1541_pulse_read_led(drive);
-            c1541_complete_queued_job(
-                drive,
-                n,
-                c1541_copy_sector_to_job_buffer(drive, n) ? C1541_JOB_OK : C1541_JOB_ERROR);
-            return 1;
+    if (command != C1541_JOB_CMD_WRITE) {
+        /* READ/SEARCH/VERIFY/EXECUTE: ROM + GCR media path. */
+        return 0;
+    }
 
-        case C1541_JOB_CMD_WRITE: {
-            /* D64: hybrid media write — persist job buffer, then poke GCR.
-               G64: no sector map. With physical media, leave the job to the ROM
-               Port-A path; without media (or RO) report write-protect. */
-            uint8_t wr;
-            uint8_t trk, sec;
-            uint16_t buf_addr;
-            const c64_drive_slot *slot;
+    {
+        /* D64: hybrid write — persist job buffer, then poke GCR when tracks live.
+           G64: no sector map; ROM Port-A when writable+media, else write-protect. */
+        uint8_t wr;
+        uint8_t trk, sec;
+        uint16_t buf_addr;
+        const c64_drive_slot *slot;
 
-            slot = c64_get_drive_slot(drive->c64, drive->device_number);
-            if (slot != NULL && slot->image_kind == C64_DRIVE_IMAGE_G64) {
-                if (c1541_media_physical_write_active(drive) && slot->writable) {
-                    return 0; /* ROM physical write */
-                }
-                c1541_complete_queued_job(drive, n, C1541_JOB_WRITE_PROT);
-                return 1;
+        slot = c64_get_drive_slot(drive->c64, drive->device_number);
+        if (slot != NULL && slot->image_kind == C64_DRIVE_IMAGE_G64) {
+            if (c1541_media_physical_write_active(drive) && slot->writable) {
+                return 0; /* ROM physical write */
             }
-
-            wr = c1541_copy_job_buffer_to_sector(drive, n);
-            if (wr == C1541_JOB_OK && c1541_media_physical_write_active(drive)) {
-                trk = drive->ram[C1541_ZP_HDRS + (uint16_t)n * 2u];
-                sec = drive->ram[C1541_ZP_HDRS + (uint16_t)n * 2u + 1u];
-                buf_addr = (uint16_t)(C1541_RAM_SECTOR_BUF + (uint16_t)n * 0x0100u);
-                if (!c1541_media_poke_sector(drive, trk, sec, &drive->ram[buf_addr])) {
-                    /* D64 advanced; GCR stale until rebuild. */
-                    c1541_media_invalidate(&drive->media);
-                }
-            } else if (wr == C1541_JOB_OK) {
-                /* Media off or non-physical path: drop GCR cache so a later
-                   media-on rebuild sees the updated D64. */
-                c1541_media_invalidate(&drive->media);
-            }
-            if (wr == C1541_JOB_OK) {
-                c1541_pulse_write_led(drive);
-            }
-            c1541_complete_queued_job(drive, n, wr);
+            c1541_complete_queued_job(drive, n, C1541_JOB_WRITE_PROT);
             return 1;
         }
 
-        case C1541_JOB_CMD_VERIFY:
-            if (c1541_media_physical_read_active(drive)) {
-                return 0;
-            }
-            c1541_pulse_read_led(drive);
-            c1541_complete_queued_job(
-                drive,
-                n,
-                c1541_job_sector_offset(drive, n, &offset) ? C1541_JOB_OK : C1541_JOB_ERROR);
-            return 1;
-
-        case C1541_JOB_CMD_SEARCH:
-            if (c1541_media_physical_read_active(drive)) {
-                return 0;
-            }
-            if (!c1541_job_sector_offset(drive, n, &offset)) {
-                c1541_complete_queued_job(drive, n, C1541_JOB_ERROR);
-            } else {
-                track  = drive->ram[C1541_ZP_HDRS + (uint16_t)n * 2u];
-                sector = drive->ram[C1541_ZP_HDRS + (uint16_t)n * 2u + 1u];
-                drive->ram[0x0012u] = track;
-                drive->ram[0x0013u] = sector;
-                c1541_pulse_read_led(drive);
-                c1541_complete_queued_job(drive, n, C1541_JOB_OK);
-            }
-            return 1;
-
-        case C1541_JOB_CMD_EXECUTE: {
-            /* Job $E0: ROM jumps into the job buffer. That is how DOS FORMT and
-               custom fastloaders run uploaded drive code (e.g. Edge of Disgrace
-               dual-BVC GCR at $0300 after disk 1A).
-
-               With GCR media enabled, always let the ROM enter the buffer. The
-               former D64 path treated every EXECUTE as format_track() — on a
-               read-only mount that completed the job as write-protect without
-               running the buffer, so loaders spun forever after disk swap.
-
-               Sector-intercept mode (media off) still has no disk controller, so
-               map EXECUTE to the hybrid D64 track-erase used by DOS NEW. G64 has
-               no format synthesis path either way. */
-            uint8_t fr;
-            const c64_drive_slot *slot;
-
-            if (c1541_media_physical_read_active(drive) ||
-                c1541_media_physical_write_active(drive)) {
-                return 0;
-            }
-
-            slot = c64_get_drive_slot(drive->c64, drive->device_number);
-            if (slot != NULL && slot->image_kind == C64_DRIVE_IMAGE_G64) {
-                return 0;
-            }
-
-            fr = c1541_format_track(drive, n);
-            if (fr == C1541_JOB_OK) {
-                /* Media is off here; drop any stale GCR cache for a later media-on. */
+        wr = c1541_copy_job_buffer_to_sector(drive, n);
+        if (wr == C1541_JOB_OK && c1541_media_physical_write_active(drive)) {
+            trk = drive->ram[C1541_ZP_HDRS + (uint16_t)n * 2u];
+            sec = drive->ram[C1541_ZP_HDRS + (uint16_t)n * 2u + 1u];
+            buf_addr = (uint16_t)(C1541_RAM_SECTOR_BUF + (uint16_t)n * 0x0100u);
+            if (!c1541_media_poke_sector(drive, trk, sec, &drive->ram[buf_addr])) {
+                /* D64 advanced; GCR stale until rebuild. */
                 c1541_media_invalidate(&drive->media);
-                c1541_pulse_write_led(drive);
             }
-            c1541_complete_queued_job(drive, n, fr);
-            return 1;
+        } else if (wr == C1541_JOB_OK) {
+            /* Tracks not live yet: drop cache so the next media step rebuilds. */
+            c1541_media_invalidate(&drive->media);
         }
-
-        default:
-            return 0;
+        if (wr == C1541_JOB_OK) {
+            c1541_pulse_write_led(drive);
+        }
+        c1541_complete_queued_job(drive, n, wr);
+        return 1;
     }
 }
 
@@ -505,113 +345,6 @@ static void c1541_satisfy_queued_jobs(c1541 *drive) {
     for (n = 0; n < C1541_JOB_MAX; ++n) {
         (void)c1541_satisfy_queued_job(drive, n);
     }
-}
-
-/* Called when the 1541 ROM is about to wait for real disk-controller data.
-   READ jobs need sector data copied into the job buffer.  SEARCH and VERIFY
-   jobs only need the same completion status the ROM would set after finding a
-   matching header on the disk. */
-static int c1541_satisfy_physical_job(c1541 *drive) {
-    uint8_t n, command, track, sector;
-
-    n = drive->ram[C1541_ZP_JOBN];
-    if (n >= C1541_JOB_MAX) {
-        return 0;
-    }
-
-    command = (uint8_t)(drive->ram[C1541_ZP_JOBS + n] & C1541_JOB_CMD_MASK);
-    switch (command) {
-        case C1541_JOB_CMD_READ:
-            if (c1541_media_physical_read_active(drive)) {
-                return 0;
-            }
-            if (!c1541_copy_sector_to_job_buffer(drive, n)) {
-                c1541_complete_job(drive, C1541_JOB_ERROR);
-            } else {
-                c1541_pulse_read_led(drive);
-                c1541_complete_job(drive, C1541_JOB_OK);
-            }
-            return 1;
-
-        case C1541_JOB_CMD_WRITE: {
-            uint8_t wr;
-            uint8_t trk, sec;
-            uint16_t buf_addr;
-            const c64_drive_slot *slot;
-
-            slot = c64_get_drive_slot(drive->c64, drive->device_number);
-            if (slot != NULL && slot->image_kind == C64_DRIVE_IMAGE_G64) {
-                if (c1541_media_physical_write_active(drive) && slot->writable) {
-                    return 0; /* ROM physical write */
-                }
-                c1541_complete_job(drive, C1541_JOB_WRITE_PROT);
-                return 1;
-            }
-
-            wr = c1541_copy_job_buffer_to_sector(drive, n);
-            if (wr == C1541_JOB_OK && c1541_media_physical_write_active(drive)) {
-                trk = drive->ram[C1541_ZP_HDRS + (uint16_t)n * 2u];
-                sec = drive->ram[C1541_ZP_HDRS + (uint16_t)n * 2u + 1u];
-                buf_addr = (uint16_t)(C1541_RAM_SECTOR_BUF + (uint16_t)n * 0x0100u);
-                if (!c1541_media_poke_sector(drive, trk, sec, &drive->ram[buf_addr])) {
-                    c1541_media_invalidate(&drive->media);
-                }
-            } else if (wr == C1541_JOB_OK) {
-                c1541_media_invalidate(&drive->media);
-            }
-            if (wr == C1541_JOB_OK) {
-                c1541_pulse_write_led(drive);
-            }
-            c1541_complete_job(drive, wr);
-            return 1;
-        }
-
-        case C1541_JOB_CMD_VERIFY:
-            if (c1541_media_physical_read_active(drive)) {
-                return 0;
-            }
-            c1541_complete_job(drive, C1541_JOB_OK);
-            return 1;
-
-        case C1541_JOB_CMD_SEARCH:
-            if (c1541_media_physical_read_active(drive)) {
-                return 0;
-            }
-            track  = drive->ram[C1541_ZP_HDRS + (uint16_t)n * 2u];
-            sector = drive->ram[C1541_ZP_HDRS + (uint16_t)n * 2u + 1u];
-            drive->ram[0x0012u] = track;
-            drive->ram[0x0013u] = sector;
-            c1541_complete_job(drive, C1541_JOB_OK);
-            return 1;
-
-        default:
-            return 0;
-    }
-}
-
-/* Called when the 1541 CPU's PC == C1541_ROM_REED.  This is kept as a fallback
-   for ROM paths that reach reed directly. */
-static void c1541_satisfy_sector_read(c1541 *drive) {
-    uint8_t n;
-
-    if (c1541_media_physical_read_active(drive)) {
-        return;
-    }
-
-    n = drive->ram[C1541_ZP_JOBN];
-    if (n >= C1541_JOB_MAX) {
-        /* Job 5 is the command/error channel — never a READ.  Ignore. */
-        return;
-    }
-
-    if (!c1541_copy_sector_to_job_buffer(drive, n)) {
-        c1541_complete_job(drive, C1541_JOB_ERROR);
-        return;
-    }
-
-    c1541_pulse_read_led(drive);
-    /* Jump to read40: ROM loads A = #1 (success), falls into errr, marks job done. */
-    drive->cpu.cpu.pc = C1541_ROM_READ40;
 }
 
 static void c1541_update_so(c1541 *drive) {
@@ -806,17 +539,9 @@ static void c1541_run_cpu_one_cycle(c1541 *drive) {
     pc_before = drive->cpu.cpu.pc;
     (void)pc_before;
 
+    /* Hybrid D64 WRITE (and G64 write-protect) at the DOS job-scan window. */
     if (drive->cpu.cpu.pc >= 0xF2B0u && drive->cpu.cpu.pc <= 0xF2F6u) {
         c1541_satisfy_queued_jobs(drive);
-    }
-
-    /* Intercept disk jobs before the ROM waits for unmodelled GCR hardware.
-       When media mode has valid tracks, physical READ/SEARCH/VERIFY are not
-       intercepted so the ROM GCR path runs against via2. */
-    if (drive->cpu.cpu.pc == C1541_ROM_PHYS_READ) {
-        (void)c1541_satisfy_physical_job(drive);
-    } else if (drive->cpu.cpu.pc == C1541_ROM_REED) {
-        c1541_satisfy_sector_read(drive);
     }
 
     interrupt_kind = c6510_micro_poll_interrupt(&drive->cpu);
@@ -845,17 +570,16 @@ static void c1541_run_cpu_one_cycle(c1541 *drive) {
 void c1541_advance_one_cycle(c1541 *drive) {
     if (!drive->rom_loaded) return;
 
-    /* Opt-in media path follows the machine config (requires emulate_1541). */
+    /* GCR media follows emulate_1541 (full 1541 path). */
     if (drive->c64 != NULL) {
-        drive->media.enabled =
-            (drive->c64->config.emulate_1541 != 0 && drive->c64->config.media_1541 != 0) ? 1 : 0;
+        drive->media.enabled = drive->c64->config.emulate_1541 != 0 ? 1 : 0;
     }
 
     /* 1. Step VIAs (may set IFR flags before CPU samples them). */
     via6522_step(&drive->via1);
     via6522_step(&drive->via2);
 
-    /* 2. Disk-controller media (no-op when media_1541 is off). */
+    /* 2. Disk-controller media (no-op when emulate_1541 is off). */
     if (drive->media.enabled) {
         c1541_media_step(drive);
     }

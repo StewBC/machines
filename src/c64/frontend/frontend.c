@@ -2269,8 +2269,6 @@ static void frontend_draw_config_machine_tab(frontend *ui, frontend_config_dialo
     nk_layout_row_dynamic(ctx, 22.0f, 1);
     frontend_checkbox_bool(ctx, "Emulate 1541", &dialog->edited.emulate_1541);
     nk_layout_row_dynamic(ctx, 22.0f, 1);
-    frontend_checkbox_bool(ctx, "1541 media (GCR)", &dialog->edited.media_1541);
-    nk_layout_row_dynamic(ctx, 22.0f, 1);
     frontend_checkbox_bool(ctx, "Show disk LEDs", &dialog->edited.show_disk_leds);
 }
 

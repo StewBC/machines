@@ -48,20 +48,17 @@ Entry points: `c64_mount_d64_ex()`, `c64_mount_g64()`, `c64_mount_hostfs()`,
 `c64_set_drive_writable()`, `c64_unmount_drive()`, `c64_copy_drive_status()`,
 matching `runtime_client_*`.
 
-## Three load paths
+## Two load paths
 
 1. **KERNAL trap** at `$FFD5`/`$FFD8` when `emulate_1541` is off or no 1541
    ROM is loaded (**or** always for `backend==HOSTFS`, before the emulate
    bail). D64 PRG/`$`, or HostFS PRG/`$`. G64 has no trap path.
-2. **Real 1541 ROM + IEC** when `[disk] emulate_1541=1` and a 16 KiB DOS 2.6
-   ROM is present (`[roms] 1541` or `1541.rom` next to the binary / in
-   `rom` / `roms`). Drive 6502, RAM, two VIAs, IEC, fractional 1.000 MHz
-   drive clock. D64 sector READ/SEARCH/WRITE jobs are intercepted at the
-   DOS job layer unless media mode is on.
-3. **Media GCR** when `media_1541=1` (requires `emulate_1541=1`): D64-to-GCR
-   synthesis or G64 attach, rotation/SYNC/BYTE READY, motor/stepper/WPS.
-   Physical READ/SEARCH/VERIFY run the ROM path. D64 WRITE is hybrid
-   (sector + GCR poke). G64 WRITE is Port-A flux only.
+2. **Real 1541 ROM + IEC + GCR media** when `[disk] emulate_1541=1` and a 16 KiB
+   DOS 2.6 ROM is present (`[roms] 1541` or `1541.rom` next to the binary / in
+   `rom` / `roms`). Drive 6502, RAM, two VIAs, IEC, fractional 1.000 MHz drive
+   clock, plus D64-to-GCR synthesis or G64 attach (rotation/SYNC/BYTE READY,
+   motor/stepper/WPS). Physical READ/SEARCH/VERIFY/EXECUTE run the ROM path.
+   D64 WRITE is hybrid (sector + GCR poke). G64 WRITE is Port-A flux only.
 
 DOS command/error channel (scratch, rename, validate, initialize, format,
 status) goes through the ROM plus the FORMT intercept.
@@ -107,7 +104,7 @@ Keep unused units cold when possible.
 
 ## G64 write-back
 
-G64 mounts are read-only by default. Writable requires `media_1541`. Live
+G64 mounts are read-only by default. Writable requires `emulate_1541`. Live
 bit ring is `halves[].data`; host blob is `slot->image_bytes`. Export is
 copy-only (no phase-rotate of the live ring). Triggers: leave write gate,
 seek-off-dirty, unmount, media disable. Length-preserving in-place patch;
@@ -115,10 +112,9 @@ no empty-slot grow / format rebuild.
 
 ## Lessons that stay load-bearing
 
-- Job `$E0` (EXECUTE) jumps into the job buffer. With `media_1541=1` it
-  must **not** complete as synthetic `format_track()`: that froze
-  multi-stage loaders after a disk swap. Sector-intercept mode (media off)
-  still maps EXECUTE to hybrid D64 track erase for FORMT tests.
+- Job `$E0` (EXECUTE) jumps into the job buffer and must run uploaded drive
+  code (not a synthetic `format_track()` complete): that froze multi-stage
+  loaders after a disk swap when EXECUTE was intercepted.
 - Disk swap starts a VICE-style attach blanking window
   (`C1541_MEDIA_ATTACH_DELAY`).
 - Runtime `-a` autorun injects `LOAD"*",8` / `RUN` only when mounting into
@@ -131,8 +127,9 @@ no empty-slot grow / format rebuild.
 - While PC is in drive RAM and no job is queued, VIA2 T1 is acked so
   custom code is not stolen by `$F2B0` (Robocop). Intentional, not
   hardware-accurate.
-- Full drive-object save-state is snapshot v14 `DRV*` + `DR8C`/`DR9C` for
-  **powered** units only (`DR8C`/`DR9C` since v13). HostFS path meta is v14.
+- Full drive-object save-state is snapshot v16 `DRV*` + `DR8C`/`DR9C` for
+  **powered** units only (`DR8C`/`DR9C` since v13; HostFS path meta since v14;
+  `emulate_1541` implies GCR since v16).
 
 When a real-1541 load fails, inspect `get-drive-cpu`, ROM-loaded and media
 state, and whether the KERNAL trap ran. Do not infer success from a host

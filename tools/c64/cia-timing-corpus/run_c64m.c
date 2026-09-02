@@ -91,7 +91,6 @@ static int install_roms(c64_t *machine, c64_video_standard standard) {
     config = machine->config;
     config.video_standard = standard;
     config.emulate_1541 = 0;
-    config.media_1541 = 0;
     c64_set_config(machine, &config);
     if (!c64_install_roms(machine, &roms, error, sizeof(error))) {
         fprintf(stderr, "install roms failed: %s\n", error);

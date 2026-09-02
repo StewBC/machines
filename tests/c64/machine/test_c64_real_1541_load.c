@@ -73,7 +73,7 @@ static int read_file(const char *path, uint8_t **out_bytes, size_t *out_size) {
     return 1;
 }
 
-static void install_real_roms_ex(c64_t *machine, int media_1541) {
+static void install_real_roms_ex(c64_t *machine) {
     c64_rom_set roms;
     c64_config config;
     char error[256];
@@ -97,7 +97,6 @@ static void install_real_roms_ex(c64_t *machine, int media_1541) {
     c64_init(machine);
     config = machine->config;
     config.emulate_1541 = 1;
-    config.media_1541 = media_1541;
     c64_set_config(machine, &config);
     expect_true("load 1541 rom", c1541_load_rom(&machine->drive8, C64M_SOURCE_DIR "/roms/1541.rom") != 0);
     /* Runtime loads the same ROM into both units; sibling HostFS proofs need that. */
@@ -109,7 +108,7 @@ static void install_real_roms_ex(c64_t *machine, int media_1541) {
 }
 
 static void install_real_roms(c64_t *machine) {
-    install_real_roms_ex(machine, 0);
+    install_real_roms_ex(machine);
 }
 
 static void mount_raw_d64(c64_t *machine, const char *name) {
@@ -174,9 +173,11 @@ static void test_real_1541_star_load_returns(void) {
     install_real_roms(&machine);
     mount_raw_d64(&machine, "GALENCIA.D64");
     step_cycles(&machine, 2500000u);
+    expect_true("media tracks after mount", machine.drive8.media.tracks_valid != 0);
 
     setup_load_call(&machine, "*");
-    step_cycles(&machine, 60000000u);
+    /* GCR physical reads need a larger budget than the old job-intercept path. */
+    step_cycles(&machine, 120000000u);
 
     if (machine.cpu.cpu.pc != (uint16_t)(TEST_RETURN_ADDRESS + 1u)) {
         fprintf(stderr,
@@ -245,56 +246,12 @@ static void setup_save_call(c64_t *machine, const char *name, uint16_t start, ui
     }
 }
 
-static void test_real_1541_media_star_load_returns(void) {
-    c64_t machine;
-    uint16_t end;
-
-    install_real_roms_ex(&machine, 1);
-    mount_raw_d64(&machine, "GALENCIA.D64");
-    /* Allow media tracks to synthesise and the drive to finish reset. */
-    step_cycles(&machine, 2500000u);
-
-    expect_true("media tracks valid after mount spin", machine.drive8.media.tracks_valid != 0);
-
-    setup_load_call(&machine, "*");
-    /* Physical GCR reads are slower than job intercept; allow more cycles. */
-    step_cycles(&machine, 120000000u);
-
-    if (machine.cpu.cpu.pc != (uint16_t)(TEST_RETURN_ADDRESS + 1u)) {
-        fprintf(stderr,
-            "media LOAD did not return: pc=%04X a=%02X x=%02X y=%02X p=%02X cycle=%llu "
-            "d8pc=%04X d8ht=%d d8mot=%d/%d d8sync=%d d8jobs=%02X,%02X,%02X,%02X,%02X\n",
-            machine.cpu.cpu.pc,
-            machine.cpu.cpu.A,
-            machine.cpu.cpu.X,
-            machine.cpu.cpu.Y,
-            machine.cpu.cpu.flags,
-            (unsigned long long)machine.clock.cycle,
-            machine.drive8.cpu.cpu.pc,
-            machine.drive8.media.half_track,
-            machine.drive8.media.motor_on,
-            machine.drive8.media.motor_ready,
-            machine.drive8.media.in_sync,
-            machine.drive8.ram[0], machine.drive8.ram[1], machine.drive8.ram[2],
-            machine.drive8.ram[3], machine.drive8.ram[4]);
-        fail("real 1541 media LOAD did not return");
-    }
-    if ((machine.cpu.cpu.flags & 0x01u) != 0) {
-        fail("real 1541 media LOAD returned carry set");
-    }
-
-    end = (uint16_t)machine.cpu.cpu.X | ((uint16_t)machine.cpu.cpu.Y << 8);
-    if (end <= 0x0801u || machine.bus.ram[0x0801u] == 0) {
-        fail("real 1541 media LOAD did not populate BASIC memory");
-    }
-}
-
 static void test_real_1541_media_save_small_prg(void) {
     c64_t machine;
     uint8_t expected[] = {0x01, 0x08, 0x11, 0x22, 0x33, 0x44};
     size_t i;
 
-    install_real_roms_ex(&machine, 1);
+    install_real_roms_ex(&machine);
     mount_raw_d64(&machine, "blank.d64");
     expect_true("writable blank", c64_set_drive_writable(&machine, 8, true));
     step_cycles(&machine, 2500000u);
@@ -354,7 +311,7 @@ static void test_real_1541_media_g64_star_load_returns(void) {
     c64_t machine;
     uint16_t end;
 
-    install_real_roms_ex(&machine, 1);
+    install_real_roms_ex(&machine);
     mount_raw_g64(&machine, "robocop[data_east_1987](ntsc)(alt)(!).g64");
     step_cycles(&machine, 2500000u);
 
@@ -444,7 +401,7 @@ static void test_g64_dos_write_footprint_next_header_intact(void) {
     int h;
     char path[512];
 
-    install_real_roms_ex(&machine, 1);
+    install_real_roms_ex(&machine);
 
     snprintf(path, sizeof(path), "%s/assets/c64/disks/blank_dos.g64", C64M_SOURCE_DIR);
     expect_true(
@@ -626,7 +583,7 @@ static void test_hostfs_sibling_with_real_1541(void) {
 
     /* Device 8: ROM-path LOAD "*",8 (trap must NOT intercept). */
     setup_load_call_ex(&machine, "*", 8, 0);
-    step_cycles(&machine, 60000000u);
+    step_cycles(&machine, 120000000u);
 
     if (machine.cpu.cpu.pc != (uint16_t)(TEST_RETURN_ADDRESS + 1u)) {
         fprintf(stderr,
@@ -695,7 +652,6 @@ int main(void) {
         }
     }
     test_real_1541_star_load_returns();
-    test_real_1541_media_star_load_returns();
     test_real_1541_media_save_small_prg();
     test_real_1541_media_g64_star_load_returns();
     test_g64_dos_write_footprint_next_header_intact();

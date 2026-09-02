@@ -168,7 +168,7 @@ static bool load_default_roms(c64_rom_set *roms, char *error, size_t error_size)
  *   null-error   pass NULL error buffer to c64_step_cycle
  *   1541         load roms/1541.rom into drive8+drive9 (steps both every cycle)
  *   1541-one     load 1541 ROM into drive8 only
- *   media        with 1541: enable emulate_1541 + media_1541 (GCR path when image present)
+ *   media        alias of enabling emulate_1541 with the 1541 flag (GCR follows)
  */
 static uint64_t parse_cycles(int argc, char **argv) {
     if (argc < 2 || argv[1] == NULL || argv[1][0] == '\0') {
@@ -219,10 +219,10 @@ int main(int argc, char **argv) {
     }
 
     c64_init(&machine);
-    if (load_1541 && media) {
+    if (load_1541) {
         config.emulate_1541 = 1;
-        config.media_1541 = 1;
     }
+    (void)media;
     c64_set_config(&machine, &config);
     if (!c64_install_roms(&machine, &roms, error, sizeof(error)) ||
         !c64_reset(&machine, error, sizeof(error))) {
@@ -281,7 +281,7 @@ int main(int argc, char **argv) {
         "video=%s workload=%s observer=%s records=%llu records_per_second=%.0f "
         "accesses=%llu accesses_per_second=%.0f nonfetch_accesses=%llu "
         "bytes_per_execution=%.3f wraps=%llu checksum=%llu "
-        "drive8_rom=%d drive9_rom=%d emulate_1541=%d media_1541=%d\n",
+        "drive8_rom=%d drive9_rom=%d emulate_1541=%d\n",
         (unsigned long long)cycles,
         elapsed,
         elapsed > 0.0 ? (double)cycles / elapsed / 1000000.0 : 0.0,
@@ -305,7 +305,6 @@ int main(int argc, char **argv) {
         (unsigned long long)observer_state.checksum,
         machine.drive8.rom_loaded,
         machine.drive9.rom_loaded,
-        machine.config.emulate_1541,
-        machine.config.media_1541);
+        machine.config.emulate_1541);
     return 0;
 }

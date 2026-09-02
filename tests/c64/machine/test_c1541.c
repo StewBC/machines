@@ -400,301 +400,22 @@ static void test_iec_atn_ack_pulls_data(void) {
     printf("PASS: test_iec_atn_ack_pulls_data\n");
 }
 
-/* ------------------------------------------------------------------ */
-/* Phase 3C: D64 sector read intercept                                 */
-/* ------------------------------------------------------------------ */
-
 /* Returns a freshly allocated 174848-byte D64 image with track 1 sector 0
-   (byte offset 0) filled with `pattern`.  Caller owns the memory. */
+   (byte offset 0) filled with `pattern`. Caller owns the memory. */
 static uint8_t *make_test_d64(uint8_t pattern) {
     uint8_t *img = (uint8_t *)calloc(1, C64_DRIVE_D64_STANDARD_SIZE);
     if (img == NULL)
         fail("make_test_d64: out of memory");
-    /* Track 1, sector 0 is at D64 byte offset 0. */
     memset(img, pattern, 256);
     return img;
 }
-
-static void test_sector_read_success(void) {
-    static c64_t c64;
-    static c1541 drive;
-    uint8_t *img;
-    c64_drive_status_result result;
-    int i;
-
-    c64_init(&c64);
-    c1541_init(&drive, &c64, 8);
-    load_nop_rom(&drive);
-    c1541_reset(&drive);
-
-    img = make_test_d64(0x5A);
-    result = c64_mount_d64(
-        &c64, 8, img, C64_DRIVE_D64_STANDARD_SIZE,
-        NULL, 0, "test", "TEST", "AA", "2A", 664);
-    free(img); /* c64_mount_d64 makes an internal copy */
-    if (result != C64_DRIVE_STATUS_OK)
-        fail("test_sector_read_success: c64_mount_d64 failed");
-
-    /* Job 0: track 1, sector 0 → D64 offset 0 → all 0x5A. */
-    drive.ram[0x3F] = 0;  /* jobn */
-    drive.ram[0x06] = 1;  /* hdrs[0] = track */
-    drive.ram[0x07] = 0;  /* hdrs[1] = sector */
-    drive.cpu.cpu.pc = 0xF4CAu; /* REED intercept address */
-
-    c1541_advance_one_cycle(&drive);
-
-    /* Buffer at $0300 should now contain the sector data (0x5A × 256). */
-    for (i = 0; i < 256; i++) {
-        if (drive.ram[0x0300 + i] != 0x5A) {
-            fprintf(stderr,
-                "FAIL: test_sector_read_success: ram[0x%04X] = 0x%02X, expected 0x5A\n",
-                0x0300 + i, drive.ram[0x0300 + i]);
-            exit(1);
-        }
-    }
-
-    /* After success path + CPU NOP step, A was not set to JOB_ERROR. */
-    if (drive.cpu.cpu.A == 0x02u)
-        fail("test_sector_read_success: A = JOB_ERROR, expected success");
-
-    printf("PASS: test_sector_read_success\n");
-}
-
-static void test_physical_read_job_success(void) {
-    static c64_t c64;
-    static c1541 drive;
-    uint8_t *img;
-    c64_drive_status_result result;
-    int i;
-
-    c64_init(&c64);
-    c1541_init(&drive, &c64, 8);
-    load_nop_rom(&drive);
-    c1541_reset(&drive);
-
-    img = make_test_d64(0xA5);
-    result = c64_mount_d64(
-        &c64, 8, img, C64_DRIVE_D64_STANDARD_SIZE,
-        NULL, 0, "test", "TEST", "AA", "2A", 664);
-    free(img);
-    if (result != C64_DRIVE_STATUS_OK)
-        fail("test_physical_read_job_success: c64_mount_d64 failed");
-
-    drive.ram[0x00] = 0x80u; /* read job in buffer 0 */
-    drive.ram[0x3F] = 0;
-    drive.ram[0x06] = 1;
-    drive.ram[0x07] = 0;
-    drive.cpu.cpu.pc = 0xF3B1u; /* physical read/header-search entry */
-
-    c1541_advance_one_cycle(&drive);
-
-    for (i = 0; i < 256; i++) {
-        if (drive.ram[0x0300 + i] != 0xA5) {
-            fail("test_physical_read_job_success: sector buffer mismatch");
-        }
-    }
-    expect_eq_u8("physical read A", 0x01u, drive.cpu.cpu.A);
-
-    printf("PASS: test_physical_read_job_success\n");
-}
-
-static void test_physical_search_job_success(void) {
-    static c64_t c64;
-    static c1541 drive;
-    uint8_t *img;
-    c64_drive_status_result result;
-
-    c64_init(&c64);
-    c1541_init(&drive, &c64, 8);
-    load_nop_rom(&drive);
-    c1541_reset(&drive);
-
-    img = make_test_d64(0x00);
-    result = c64_mount_d64(
-        &c64, 8, img, C64_DRIVE_D64_STANDARD_SIZE,
-        NULL, 0, "test", "TEST", "AA", "2A", 664);
-    free(img);
-    if (result != C64_DRIVE_STATUS_OK)
-        fail("test_physical_search_job_success: c64_mount_d64 failed");
-
-    drive.ram[0x04] = 0xB0u; /* search/header job in buffer 4 */
-    drive.ram[0x3F] = 4;
-    drive.ram[0x0E] = 1;
-    drive.ram[0x0F] = 0;
-    drive.cpu.cpu.pc = 0xF3B1u;
-
-    c1541_advance_one_cycle(&drive);
-
-    expect_eq_u8("physical search A", 0x01u, drive.cpu.cpu.A);
-    expect_eq_u8("physical search track cache", 1u, drive.ram[0x12]);
-    expect_eq_u8("physical search sector cache", 0u, drive.ram[0x13]);
-
-    printf("PASS: test_physical_search_job_success\n");
-}
-
-static void test_queued_read_job_success(void) {
-    static c64_t c64;
-    static c1541 drive;
-    uint8_t *img;
-    c64_drive_status_result result;
-    int i;
-
-    c64_init(&c64);
-    c1541_init(&drive, &c64, 8);
-    load_nop_rom(&drive);
-    c1541_reset(&drive);
-
-    img = make_test_d64(0xC3);
-    result = c64_mount_d64(
-        &c64, 8, img, C64_DRIVE_D64_STANDARD_SIZE,
-        NULL, 0, "test", "TEST", "AA", "2A", 664);
-    free(img);
-    if (result != C64_DRIVE_STATUS_OK)
-        fail("test_queued_read_job_success: c64_mount_d64 failed");
-
-    drive.ram[0x02] = 0x80u; /* read job in buffer 2 */
-    drive.ram[0x0A] = 1;
-    drive.ram[0x0B] = 0;
-    drive.cpu.cpu.pc = 0xF2BEu; /* controller job loop, before physical GCR path */
-
-    c1541_advance_one_cycle(&drive);
-
-    expect_eq_u8("queued read job result", 0x01u, drive.ram[0x02]);
-    for (i = 0; i < 256; i++) {
-        if (drive.ram[0x0500 + i] != 0xC3) {
-            fail("test_queued_read_job_success: sector buffer mismatch");
-        }
-    }
-
-    printf("PASS: test_queued_read_job_success\n");
-}
-
-static void test_queued_search_job_success(void) {
-    static c64_t c64;
-    static c1541 drive;
-    uint8_t *img;
-    c64_drive_status_result result;
-
-    c64_init(&c64);
-    c1541_init(&drive, &c64, 8);
-    load_nop_rom(&drive);
-    c1541_reset(&drive);
-
-    img = make_test_d64(0x00);
-    result = c64_mount_d64(
-        &c64, 8, img, C64_DRIVE_D64_STANDARD_SIZE,
-        NULL, 0, "test", "TEST", "AA", "2A", 664);
-    free(img);
-    if (result != C64_DRIVE_STATUS_OK)
-        fail("test_queued_search_job_success: c64_mount_d64 failed");
-
-    drive.ram[0x04] = 0xB0u; /* search/header job in buffer 4 */
-    drive.ram[0x0E] = 1;
-    drive.ram[0x0F] = 0;
-    drive.cpu.cpu.pc = 0xF2BEu; /* controller job loop, before physical GCR path */
-
-    c1541_advance_one_cycle(&drive);
-
-    expect_eq_u8("queued search job result", 0x01u, drive.ram[0x04]);
-    expect_eq_u8("queued search track cache", 1u, drive.ram[0x12]);
-    expect_eq_u8("queued search sector cache", 0u, drive.ram[0x13]);
-
-    printf("PASS: test_queued_search_job_success\n");
-}
-
-static void test_queued_search_job_low_bit_success(void) {
-    static c64_t c64;
-    static c1541 drive;
-    uint8_t *img;
-    c64_drive_status_result result;
-
-    c64_init(&c64);
-    c1541_init(&drive, &c64, 8);
-    load_nop_rom(&drive);
-    c1541_reset(&drive);
-
-    img = make_test_d64(0x00);
-    result = c64_mount_d64(
-        &c64, 8, img, C64_DRIVE_D64_STANDARD_SIZE,
-        NULL, 0, "test", "TEST", "AA", "2A", 664);
-    free(img);
-    if (result != C64_DRIVE_STATUS_OK)
-        fail("test_queued_search_job_low_bit_success: c64_mount_d64 failed");
-
-    drive.ram[0x04] = 0xB1u; /* ROM preserves a low-bit flag on some SEARCH jobs. */
-    drive.ram[0x0E] = 1;
-    drive.ram[0x0F] = 0;
-    drive.cpu.cpu.pc = 0xF2BEu;
-
-    c1541_advance_one_cycle(&drive);
-
-    expect_eq_u8("queued search low-bit job result", 0x01u, drive.ram[0x04]);
-    expect_eq_u8("queued search low-bit track cache", 1u, drive.ram[0x12]);
-    expect_eq_u8("queued search low-bit sector cache", 0u, drive.ram[0x13]);
-
-    printf("PASS: test_queued_search_job_low_bit_success\n");
-}
-
-static void test_sector_read_no_disk(void) {
-    static c64_t c64;
-    static c1541 drive;
-
-    c64_init(&c64);
-    c1541_init(&drive, &c64, 8);
-    load_nop_rom(&drive);
-    c1541_reset(&drive);
-
-    /* No disk mounted. */
-    drive.ram[0x3F] = 0;
-    drive.ram[0x06] = 1;
-    drive.ram[0x07] = 0;
-    drive.cpu.cpu.pc = 0xF4CAu;
-    drive.cpu.cpu.A  = 0x00u;
-
-    c1541_advance_one_cycle(&drive);
-
-    /* satisfy_sector_read set A = JOB_ERROR (0x02) and jumped to ERRR ($F969).
-       CPU then executed NOP at $F969 → A unchanged, still 0x02. */
-    expect_eq_u8("no_disk A", 0x02u, drive.cpu.cpu.A);
-
-    printf("PASS: test_sector_read_no_disk\n");
-}
-
-/* jobn = 5 is the command/error channel and is never a READ job.
-   satisfy_sector_read must return early without touching A or PC. */
-static void test_sector_read_jobn_out_of_range(void) {
-    static c64_t c64;
-    static c1541 drive;
-
-    c64_init(&c64);
-    c1541_init(&drive, &c64, 8);
-    load_nop_rom(&drive);
-    c1541_reset(&drive);
-
-    drive.ram[0x3F]  = 5;       /* jobn = 5 → ignored by satisfy_sector_read */
-    drive.cpu.cpu.pc = 0xF4CAu;
-    drive.cpu.cpu.A  = 0x00u;
-
-    c1541_advance_one_cycle(&drive);
-
-    /* satisfy_sector_read returned early; CPU executed NOP at $F4CA → PC = $F4CB. */
-    if (drive.cpu.cpu.A == 0x02u)
-        fail("test_sector_read_jobn_out_of_range: A should not be JOB_ERROR");
-    expect_eq_u16("jobn5 PC", 0xF4CBu, drive.cpu.cpu.pc);
-
-    printf("PASS: test_sector_read_jobn_out_of_range\n");
-}
-
-/* ------------------------------------------------------------------ */
-/* main                                                                 */
-/* ------------------------------------------------------------------ */
 
 /* ------------------------------------------------------------------ */
 /* Phase 4: Job-level write intercept                                  */
 /* ------------------------------------------------------------------ */
 
-/* WRITE job on a writable image: buffer is persisted into image_bytes, the
-   slot is marked dirty, and Phase 3 read returns the freshly written bytes. */
+/* WRITE job on a writable image: buffer is persisted into image_bytes and the
+   slot is marked dirty. */
 static void test_queued_write_job_success(void) {
     static c64_t c64;
     static c1541 drive;
@@ -739,22 +460,6 @@ static void test_queued_write_job_success(void) {
     for (i = 0; i < 256; i++) {
         if (slot->image_bytes[i] != 0x7E)
             fail("test_queued_write_job_success: image not updated");
-    }
-
-    /* Phase 3 read is the oracle: read the same sector into buffer 3.
-       Clear bulk-remaining and any in-flight micro-op so the next advance
-       re-enters the job-scan window instead of finishing the prior opcode. */
-    drive.ram[0x03] = 0x80u; /* READ job */
-    drive.ram[0x0C] = 1;
-    drive.ram[0x0D] = 0;
-    drive.cpu.cpu.pc = 0xF2BEu;
-    drive.cpu_cycles_remaining = 0;
-    drive.cpu.micro_active = 0;
-    c1541_advance_one_cycle(&drive);
-    expect_eq_u8("write read-back job result", 0x01u, drive.ram[0x03]);
-    for (i = 0; i < 256; i++) {
-        if (drive.ram[0x0600 + i] != 0x7E)
-            fail("test_queued_write_job_success: read-back mismatch");
     }
 
     printf("PASS: test_queued_write_job_success\n");
@@ -851,102 +556,6 @@ static void test_queued_write_job_out_of_range(void) {
     printf("PASS: test_queued_write_job_out_of_range\n");
 }
 
-/* ------------------------------------------------------------------ */
-/* Phase 5: Format (EXECUTE job) intercept                             */
-/* ------------------------------------------------------------------ */
-
-/* The DOS "NEW" command formats each track via an EXECUTE job ($E0). The
-   intercept erases the target track's sectors in a writable image and reports
-   success, so the ROM can then write a fresh BAM/directory via WRITE jobs. */
-static void test_queued_format_job_success(void) {
-    static c64_t c64;
-    static c1541 drive;
-    uint8_t *img;
-    const c64_drive_slot *slot;
-    c64_drive_status_result result;
-    int i;
-
-    c64_init(&c64);
-    c1541_init(&drive, &c64, 8);
-    load_nop_rom(&drive);
-    c1541_reset(&drive);
-
-    img = make_test_d64(0x5A); /* track 1 sector 0 pre-filled with 0x5A */
-    result = c64_mount_d64_ex(
-        &c64, 8, img, C64_DRIVE_D64_STANDARD_SIZE,
-        NULL, 0, "test", "TEST", "AA", "2A", 664, true /* writable */);
-    free(img);
-    if (result != C64_DRIVE_STATUS_OK)
-        fail("test_queued_format_job_success: c64_mount_d64_ex failed");
-
-    /* EXECUTE (FORMT) job in buffer 3, track 1. */
-    drive.ram[0x03] = 0xE0u; /* EXECUTE job */
-    drive.ram[0x0C] = 1;     /* hdrs[3] track  */
-    drive.ram[0x0D] = 0;     /* hdrs[3] sector */
-    drive.cpu.cpu.pc = 0xF2BEu;
-
-    c1541_advance_one_cycle(&drive);
-
-    expect_eq_u8("queued format job result", 0x01u, drive.ram[0x03]);
-
-    slot = c64_get_drive_slot(&c64, 8);
-    if (!slot || !slot->image_bytes)
-        fail("test_queued_format_job_success: no slot image");
-    if (!slot->dirty)
-        fail("test_queued_format_job_success: slot not marked dirty");
-    /* Track 1 (21 sectors) must be erased to zero. */
-    for (i = 0; i < 21 * 256; i++) {
-        if (slot->image_bytes[i] != 0x00)
-            fail("test_queued_format_job_success: track 1 not erased");
-    }
-
-    printf("PASS: test_queued_format_job_success\n");
-}
-
-/* Format (EXECUTE job) on a read-only image erases nothing and stays clean. */
-static void test_queued_format_job_write_protect(void) {
-    static c64_t c64;
-    static c1541 drive;
-    uint8_t *img;
-    const c64_drive_slot *slot;
-    c64_drive_status_result result;
-    int i;
-
-    c64_init(&c64);
-    c1541_init(&drive, &c64, 8);
-    load_nop_rom(&drive);
-    c1541_reset(&drive);
-
-    img = make_test_d64(0x5A);
-    result = c64_mount_d64(
-        &c64, 8, img, C64_DRIVE_D64_STANDARD_SIZE,
-        NULL, 0, "test", "TEST", "AA", "2A", 664); /* read-only */
-    free(img);
-    if (result != C64_DRIVE_STATUS_OK)
-        fail("test_queued_format_job_write_protect: c64_mount_d64 failed");
-
-    drive.ram[0x03] = 0xE0u; /* EXECUTE job */
-    drive.ram[0x0C] = 1;
-    drive.ram[0x0D] = 0;
-    drive.cpu.cpu.pc = 0xF2BEu;
-
-    c1541_advance_one_cycle(&drive);
-
-    expect_eq_u8("format write-protect result", 0x08u, drive.ram[0x03]);
-
-    slot = c64_get_drive_slot(&c64, 8);
-    if (!slot || !slot->image_bytes)
-        fail("test_queued_format_job_write_protect: no slot image");
-    if (slot->dirty)
-        fail("test_queued_format_job_write_protect: slot marked dirty on read-only");
-    for (i = 0; i < 256; i++) {
-        if (slot->image_bytes[i] != 0x5A)
-            fail("test_queued_format_job_write_protect: image erased on read-only");
-    }
-
-    printf("PASS: test_queued_format_job_write_protect\n");
-}
-
 int main(void) {
     /* Phase 2 */
     test_ram_read_write();
@@ -965,19 +574,9 @@ int main(void) {
     test_iec_two_drive_pull_aggregation();
     test_iec_c64_pull_data();
     test_iec_atn_ack_pulls_data();
-    test_sector_read_success();
-    test_physical_read_job_success();
-    test_physical_search_job_success();
-    test_queued_read_job_success();
-    test_queued_search_job_success();
-    test_queued_search_job_low_bit_success();
-    test_sector_read_no_disk();
-    test_sector_read_jobn_out_of_range();
     test_queued_write_job_success();
     test_queued_write_job_write_protect();
     test_queued_write_job_out_of_range();
-    test_queued_format_job_success();
-    test_queued_format_job_write_protect();
 
     printf("All c1541 tests passed.\n");
     return 0;

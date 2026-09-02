@@ -817,9 +817,7 @@ static void test_1541_core_round_trip(void) {
     init_ready_machine(&source);
     init_ready_machine(&target);
     source.config.emulate_1541 = 1;
-    source.config.media_1541 = 1;
     target.config.emulate_1541 = 1;
-    target.config.media_1541 = 1;
 
     install_fake_1541_rom(&source.drive8);
     install_fake_1541_rom(&source.drive9);
@@ -861,7 +859,6 @@ static void test_1541_core_round_trip(void) {
 
     mutate_machine(&target);
     target.config.emulate_1541 = 1;
-    target.config.media_1541 = 1;
     install_fake_1541_rom(&target.drive8);
     install_fake_1541_rom(&target.drive9);
     for (i = 0; i < C1541_ROM_SIZE; ++i) {
@@ -878,7 +875,6 @@ static void test_1541_core_round_trip(void) {
     }
     expect_u64("drive_accum", source.clock.drive_accum, target.clock.drive_accum);
     expect_u64("drive_synced_cycle", source.clock.drive_synced_cycle, target.clock.drive_synced_cycle);
-    expect_u8("media_1541", 1, (uint8_t)target.config.media_1541);
     expect_true("both slots mounted", target.drives[0].mounted && target.drives[1].mounted);
 
     again = save_snapshot(&target, &again_size);

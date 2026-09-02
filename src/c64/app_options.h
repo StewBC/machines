@@ -79,12 +79,9 @@ typedef struct app_options {
     float audio_record_duration_seconds;
     /* When true, automatically run after a PRG/BASIC/D64 load. */
     bool autorun;
-    /* When true, disk I/O is routed through the genuine 1541 ROM (requires
-       rom1541_path to be set); when false, KERNAL LOAD traps handle disk I/O. */
+    /* When true, disk I/O uses the real 1541 DOS ROM + IEC + GCR media (requires
+       a 1541 ROM); when false, KERNAL LOAD/SAVE traps handle D64/HostFS. */
     bool emulate_1541;
-    /* When true (and emulate_1541), use GCR track rotation / disk-controller VIA
-       media path for physical reads instead of job-level sector intercept. */
-    bool media_1541;
     /* When true, draw shared disk activity LEDs in the UI window corner. */
     bool show_disk_leds;
     /* When true, free-run auto-pauses when the next opcode is BRK ($00) — a

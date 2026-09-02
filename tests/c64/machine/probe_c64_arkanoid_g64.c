@@ -73,7 +73,6 @@ static void install_media_pal(c64_t *machine) {
     c64_init(machine);
     config = machine->config;
     config.emulate_1541 = 1;
-    config.media_1541 = 1;
     config.video_standard = C64_VIDEO_STANDARD_PAL;
     c64_set_config(machine, &config);
     require("load 1541 rom", c1541_load_rom(

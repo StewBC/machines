@@ -48,7 +48,6 @@ static void test_stepper_and_head_stop(void) {
 
     c64_init(&c64);
     c64.config.emulate_1541 = 1;
-    c64.config.media_1541 = 1;
     c1541_init(&drive, &c64, 8);
     drive.rom_loaded = 1;
     drive.media.enabled = 1;
@@ -87,7 +86,6 @@ static void test_motor_spinup_and_rotation(void) {
 
     c64_init(&c64);
     c64.config.emulate_1541 = 1;
-    c64.config.media_1541 = 1;
     c1541_init(&drive, &c64, 8);
     drive.rom_loaded = 1;
     drive.media.enabled = 1;
@@ -143,7 +141,6 @@ static void test_wps_follows_writable(void) {
 
     c64_init(&c64);
     c64.config.emulate_1541 = 1;
-    c64.config.media_1541 = 1;
     c1541_init(&drive, &c64, 8);
     drive.rom_loaded = 1;
     drive.media.enabled = 1;
@@ -172,8 +169,7 @@ static void test_physical_read_gate(void) {
     uint8_t *img = make_blank_d64();
 
     c64_init(&c64);
-    c64.config.emulate_1541 = 1;
-    c64.config.media_1541 = 0;
+    c64.config.emulate_1541 = 0;
     c1541_init(&drive, &c64, 8);
     drive.media.enabled = 0;
     if (c1541_media_physical_read_active(&drive)) fail("inactive without media");
@@ -208,7 +204,6 @@ static void test_sync_dirty_track_to_d64(void) {
 
     c64_init(&c64);
     c64.config.emulate_1541 = 1;
-    c64.config.media_1541 = 1;
     c1541_init(&drive, &c64, 8);
     drive.rom_loaded = 1;
     drive.media.enabled = 1;
@@ -268,7 +263,6 @@ static void test_write_mode_mutates_track(void) {
 
     c64_init(&c64);
     c64.config.emulate_1541 = 1;
-    c64.config.media_1541 = 1;
     c1541_init(&drive, &c64, 8);
     drive.rom_loaded = 1;
     drive.media.enabled = 1;
@@ -452,7 +446,6 @@ static void test_g64_writeback_rotate_export_not_live(void) {
 
     c64_init(&c64);
     c64.config.emulate_1541 = 1;
-    c64.config.media_1541 = 1;
     c1541_init(&drive, &c64, 8);
     drive.rom_loaded = 1;
     drive.media.enabled = 1;
@@ -520,7 +513,6 @@ static void test_g64_writeback_no_sync_unrotated(void) {
 
     c64_init(&c64);
     c64.config.emulate_1541 = 1;
-    c64.config.media_1541 = 1;
     c1541_init(&drive, &c64, 8);
     drive.rom_loaded = 1;
     drive.media.enabled = 1;
@@ -570,7 +562,6 @@ static void test_g64_writeback_ro_does_not_paint(void) {
 
     c64_init(&c64);
     c64.config.emulate_1541 = 1;
-    c64.config.media_1541 = 1;
     c1541_init(&drive, &c64, 8);
     drive.rom_loaded = 1;
     drive.media.enabled = 1;
@@ -622,7 +613,6 @@ static void test_g64_writeback_seek_off_dirty(void) {
 
     c64_init(&c64);
     c64.config.emulate_1541 = 1;
-    c64.config.media_1541 = 1;
     c1541_init(&drive, &c64, 8);
     drive.rom_loaded = 1;
     drive.media.enabled = 1;
@@ -695,7 +685,6 @@ static void test_media_rebuild_after_offline_d64_write(void) {
 
     c64_init(&c64);
     c64.config.emulate_1541 = 1;
-    c64.config.media_1541 = 1;
     if (c64_mount_d64_ex(
             &c64, 8, img, 174848, NULL, 0, "scratch.d64", "", "", "", 0, true)
         != C64_DRIVE_STATUS_OK) {
@@ -741,10 +730,10 @@ static void test_media_rebuild_after_offline_d64_write(void) {
     /* Config toggle media off/on must also drop any cache (belt and braces). */
     {
         c64_config cfg = c64.config;
-        cfg.media_1541 = 0;
+        cfg.emulate_1541 = 0;
         c64_set_config(&c64, &cfg);
         if (drive->media.tracks_valid) fail("tracks should clear when media disabled");
-        cfg.media_1541 = 1;
+        cfg.emulate_1541 = 1;
         c64_set_config(&c64, &cfg);
         drive->media.enabled = 1; /* mirror c1541_advance_one_cycle enable latch */
         c1541_media_step(drive);

@@ -9,12 +9,14 @@
 #define C64_SNAPSHOT_MAGIC 0x63363453u
 /* v13: CART includes hardware type, multi-bank ROML storage, Magic Desk latch.
    Pre-v13 files are sunset (v12 had single ROML/ROMH only). */
-#define C64_SNAPSHOT_VERSION 15u
+#define C64_SNAPSHOT_VERSION 16u
 /* v13: drive chunk without HostFS path meta. v14: backend/writable + HostFS paths.
    v15: MACH appends pot_x[2], pot_y[2], mouse_port (1351 pots; load forces inactive).
+   v16: emulate_1541 implies full GCR media; MACH drops the separate media_1541 byte.
+   Pre-v16 snapshots are sunset (VERSION_MIN 16).
    Additive optional SLNK (SwiftLink chip + Hayes mode) does not bump VERSION;
    older loaders skip unknown tags. */
-#define C64_SNAPSHOT_VERSION_MIN 13u
+#define C64_SNAPSHOT_VERSION_MIN 16u
 
 typedef enum c64_snapshot_content_mode {
     C64_SNAPSHOT_CONTENT_REFERENCED = 1,

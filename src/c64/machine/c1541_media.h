@@ -32,7 +32,7 @@ typedef struct c1541_track {
 } c1541_track;
 
 typedef struct c1541_media {
-    int enabled; /* 1 when media_1541 config path is active for this drive */
+    int enabled; /* 1 when emulate_1541 is on (full GCR media path) */
 
     int motor_on;
     int motor_ready;

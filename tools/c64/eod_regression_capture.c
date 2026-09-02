@@ -183,7 +183,6 @@ int main(int argc, char **argv) {
     config.rom1541_path = argv[3];
     config.machine_config.video_standard = C64_VIDEO_STANDARD_PAL;
     config.machine_config.emulate_1541 = 1;
-    config.machine_config.media_1541 = 1;
     config.active_turbo_multiplier = 2; /* max: free-run, live paint */
     config.autorun = true;
 

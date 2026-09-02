@@ -113,9 +113,10 @@ peer close.
 
 ## Snapshots
 
-`c64_snapshot.{c,h}`: versioned, chunked, all-or-nothing. Format version 14;
-`VERSION_MIN` is 13. Older files below MIN are rejected and the machine is left
-untouched.
+`c64_snapshot.{c,h}`: versioned, chunked, all-or-nothing. Format version 16;
+`VERSION_MIN` is 16. Older files below MIN are rejected and the machine is left
+untouched. v16 drops the separate `media_1541` MACH byte (`emulate_1541` implies
+full GCR media).
 
 Includes CPU, RAM/color RAM, banking, VIC chip state (not paint buffers), CIA
 pin pipeline, SID, controls, cart, optional additive `SLNK` (SwiftLink chip

@@ -95,8 +95,8 @@ typedef enum c64_iec_line {
 
 typedef struct c64_config {
     c64_video_standard video_standard;
-    int emulate_1541;   /* 1 = route disk I/O through genuine 1541 ROM; 0 = KERNAL trap */
-    int media_1541;     /* 1 = GCR tracks/rotation/SYNC (opt-in media path) */
+    /* 1 = real 1541 DOS ROM + IEC + GCR media; 0 = KERNAL trap (D64/HostFS). */
+    int emulate_1541;
     /* 1 = free-run auto-pauses when the next opcode is BRK ($00) (a debug aid);
        0 = execute BRK like hardware (KERNAL handler runs). Some cartridges/games
        hit a KERNAL-handled BRK during boot (e.g. Ocean carts like Wonderboy),
@@ -585,8 +585,8 @@ uint8_t c64_get_iec_pull_excluding_drive(c64_t *machine, int device_number);
 uint8_t c64_get_iec_c64_pull(c64_t *machine);
 /* Returns a pointer to the drive slot for device_number (8 or 9), or NULL. */
 const c64_drive_slot *c64_get_drive_slot(c64_t *machine, int device_number);
-/* Mutable variant, used by the 1541 job intercept to write sector data back
-   into a mounted, writable D64 image. */
+/* Mutable variant, used by the 1541 hybrid D64 WRITE path to persist sector
+   data into a mounted, writable image. */
 c64_drive_slot *c64_get_drive_slot_mut(c64_t *machine, int device_number);
 void c64_set_audio_output_enabled(c64_t *machine, bool enabled);
 /* When false, VIC-II still advances timing/BA/IRQ but skips pixel fill and
@@ -702,7 +702,7 @@ c64_drive_status_result c64_mount_d64_ex(
     uint16_t free_blocks,
     bool writable);
 /* Mount a G64 image. Default is read-only; use c64_set_drive_writable to enable
-   flux write-back (requires media_1541). No KERNAL-trap / sector-intercept path. */
+   flux write-back (requires emulate_1541). No KERNAL-trap path for G64. */
 c64_drive_status_result c64_mount_g64(
     c64_t *machine,
     uint8_t device,

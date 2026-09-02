@@ -2244,7 +2244,7 @@ static bool c64_try_kernal_save_trap(c64_t *machine) {
     c64_notify_guest_media_write(machine, (int)device);
 
     /* KERNAL trap may run with media caches still present from an earlier
-       media_1541 session; force rebuild when media is re-enabled. */
+       emulate_1541 session; force rebuild when media is re-enabled. */
     if (device == 8) {
         c1541_media_invalidate(&machine->drive8.media);
     } else if (device == 9) {
@@ -2970,11 +2970,10 @@ void c64_set_config(c64_t *machine, const c64_config *config) {
         return;
     }
 
-    /* Media GCR is only active when both flags are on. Toggling either live can
-       leave a stale track cache that no longer matches the D64 (e.g. SAVEs done
-       with media off). Sync flux dirt out when leaving media, then drop tracks. */
-    prev_media = (machine->config.emulate_1541 != 0 && machine->config.media_1541 != 0) ? 1 : 0;
-    next_media = (config->emulate_1541 != 0 && config->media_1541 != 0) ? 1 : 0;
+    /* GCR media follows emulate_1541. Toggling live can leave a stale track
+       cache; sync flux dirt out when leaving, then drop tracks. */
+    prev_media = machine->config.emulate_1541 != 0 ? 1 : 0;
+    next_media = config->emulate_1541 != 0 ? 1 : 0;
 
     machine->config = *config;
     machine->clock.c64_hz = c64_config_clock_hz(&machine->config);
@@ -4170,7 +4169,7 @@ bool c64_set_drive_writable(c64_t *machine, uint8_t device, bool writable) {
         return false;
     }
     /* D64, G64, and HostFS support the writable flag. G64 writes require
-       media_1541 (physical Port-A path); without media, WPS still follows. */
+       emulate_1541 (physical Port-A GCR path); WPS still follows the flag. */
     machine->drives[slot_index].writable = writable;
     if (machine->drives[slot_index].backend == C64_DRIVE_BACKEND_HOSTFS &&
         machine->drives[slot_index].hostfs != NULL) {

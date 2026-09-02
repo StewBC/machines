@@ -83,10 +83,10 @@ soft-powered (stepped and on the IEC bus) only after a mount, UI device button, 
 `--disk N=`, or control `power-drive`. Plain eject leaves power on; power-off (green LED
 or `power-drive N off`) ejects media and powers the unit off.
 
-G64 needs `[disk] media_1541=1` (and `emulate_1541`) for the rotating GCR path. Mark a
-G64 writable to allow physical DOS writes (BASIC `SAVE`, sequential writes, and similar
-ROM paths); dirty tracks are written back to the host `.g64` on unmount and related
-flush points. There is no KERNAL-trap SAVE into G64 without media.
+With `[disk] emulate_1541=1`, D64 and G64 use the rotating GCR media path (ROM + IEC).
+Mark a G64 writable to allow physical DOS writes (BASIC `SAVE`, sequential writes, and
+similar ROM paths); dirty tracks are written back to the host `.g64` on unmount and
+related flush points. There is no KERNAL-trap SAVE into G64.
 
 ### PRG and BASIC Files
 
@@ -1707,8 +1707,7 @@ below the tab body on every tab.
 | Mouse (1351)      | Enable proportional mouse capture, and choose control port `1` or `2` (default off, port 1) |
 | Turbo Modes       | Comma-separated mode list, e.g. `1,max` (1=normal, 2/`max`=max; `3` rejected) |
 | Pause on BRK      | Auto-pause free-run at the next `BRK` (`$00`) as a crash aid; off by default so carts that hit a KERNAL-handled BRK during boot (e.g. Ocean's Wonderboy) keep running; applies live |
-| Emulate 1541      | Route disk I/O through the real 1541 DOS ROM (needs a 1541 ROM); applies live |
-| 1541 media (GCR)  | When Emulate 1541 is on: GCR tracks, rotation, SYNC, motor/head; enables G64 |
+| Emulate 1541      | Real 1541 DOS ROM + IEC + GCR media (needs a 1541 ROM); applies live |
 | Show disk LEDs    | Draw green (read) and red (write) activity LEDs in the window corner |
 
 The Keyboard Joystick port selector matches the runtime **Shift+Alt+1** /
@@ -1716,8 +1715,8 @@ The Keyboard Joystick port selector matches the runtime **Shift+Alt+1** /
 here or with **Shift+Alt+M**. Mouse (1351) matches `--mouse` / `--mouse-port` and the
 `[input]` INI keys; enabling it does not grab the pointer until you **Alt+Click** the
 CRT (see **Mouse (1351)** under Implementation Notes). Changing Video reboots the
-emulated machine while preserving its running state. Emulate 1541, 1541 media (GCR),
-Show disk LEDs, and the other Machine settings apply immediately when you press
+emulated machine while preserving its running state. Emulate 1541, Show disk LEDs,
+and the other Machine settings apply immediately when you press
 **[OK]** or **[Save INI now]**.
 
 ### Emulator
@@ -1934,8 +1933,7 @@ Paths may be absolute or relative to the directory containing the INI file.
 | `9` | D64/G64 image or comma-separated list of images for device 9    |
 | `8_writable` | Parallel `0`/`1` list for device 8 images; omitted means read-only |
 | `9_writable` | Parallel `0`/`1` list for device 9 images; omitted means read-only |
-| `emulate_1541` | `true`/`false`; when true and a 1541 ROM is loaded, route disk LOADs through real IEC/1541 emulation |
-| `media_1541` | `true`/`false`; when true with `emulate_1541`, use GCR media path (rotation/SYNC/head); needed for G64 |
+| `emulate_1541` | `true`/`false`; when true and a 1541 ROM is loaded, use real IEC/1541 DOS + GCR media |
 | `show_disk_leds` | `true`/`false`; when true (default), show green read / red write activity LEDs in the window corner |
 
 Example - single disk:
@@ -1966,7 +1964,6 @@ Example - writable scratch disk (D64 or G64):
 ```
 [disk]
 emulate_1541=1
-media_1541=1
 8=./disks/blank.g64
 8_writable=1
 ```
@@ -3024,21 +3021,15 @@ When `[disk] emulate_1541=1` is set and a combined 16 K 1541 DOS ROM is loaded t
 emulated IEC bus. The 1541 model runs the drive 6502, two VIA 6522s, the standard DOS
 2.6 ROM serial handlers, ATN/CLK/DATA open-collector signaling, and ATN acknowledge.
 
-Without `media_1541`, disk-controller mechanics are abstracted: ROM READ/SEARCH jobs
-are satisfied from the mounted D64 image (job intercept) rather than a rotating GCR
-stream. Writes use the same job-dispatch path. The DOS command channel (scratch, rename,
-validate, initialize, FORMT-job-intercepted format) and `OPEN 15,8,15` work through the
-real ROM.
-
-With `[disk] media_1541=1` as well, the emulator synthesises GCR tracks from D64 (or
-attaches G64 track dumps), models motor/stepper/SYNC/BYTE READY, and lets stock DOS
-physical READ run against the flux path. D64 WRITE/FORMT still use a hybrid job
-intercept plus GCR track poke/rebuild. Writable G64 uses physical Port-A flux
-write-back (live track ring exported to the host image on leave-write, seek-off-dirty,
-unmount, and media disable); G64 mounts stay read-only unless marked writable. Stock
-BASIC SAVE/LOAD on a writable blank G64 is supported; empty-track grow/format rebuild
-and broad pure-write fidelity are not claimed. Multi-stage commercial loaders are not
-broadly claimed.
+The emulator synthesises GCR tracks from D64 (or attaches G64 track dumps), models
+motor/stepper/SYNC/BYTE READY, and lets stock DOS physical READ/SEARCH/VERIFY and
+EXECUTE (including FORMT and fastloader drive code) run against the flux path. D64 WRITE
+uses a hybrid job intercept plus GCR track poke so BAM/directory stays coherent.
+Writable G64 uses physical Port-A flux write-back (live track ring exported to the host
+image on leave-write, seek-off-dirty, unmount, and media disable); G64 mounts stay
+read-only unless marked writable. Stock BASIC SAVE/LOAD on a writable blank G64 is
+supported; empty-track grow/format rebuild and broad pure-write fidelity are not claimed.
+Multi-stage commercial loaders are not broadly claimed.
 
 When the 1541 ROM is absent, D64 SAVE falls back to the compatibility KERNAL trap
 (G64 has no trap path). Cross-drive copy, block/memory-execute edge cases, and devices

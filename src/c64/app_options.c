@@ -1539,7 +1539,7 @@ static void apply_config(app_options *options, config *cfg)
     }
 
     options->emulate_1541 = config_get_bool(cfg, "disk", "emulate_1541", options->emulate_1541);
-    options->media_1541 = config_get_bool(cfg, "disk", "media_1541", options->media_1541);
+    /* Legacy [disk] media_1541 is ignored and stripped on save. */
     options->show_disk_leds = config_get_bool(cfg, "disk", "show_disk_leds", options->show_disk_leds);
     /* Absent key defaults to false, so a machine with no explicit setting runs
        through BRKs (Wonderboy et al. boot without stopping). */
@@ -2384,7 +2384,6 @@ bool app_options_copy(app_options *dest, const app_options *src)
     dest->log_level = src->log_level;
     dest->autorun = src->autorun;
     dest->emulate_1541 = src->emulate_1541;
-    dest->media_1541 = src->media_1541;
     dest->show_disk_leds = src->show_disk_leds;
     dest->pause_on_brk = src->pause_on_brk;
     dest->true_aspect = src->true_aspect;
@@ -2666,11 +2665,7 @@ bool app_options_save_shutdown(const app_options *options)
     } else {
         config_remove_prefix(cfg, "disk", "emulate_1541");
     }
-    if (options->media_1541) {
-        config_set_bool(cfg, "disk", "media_1541", true);
-    } else {
-        config_remove_prefix(cfg, "disk", "media_1541");
-    }
+    config_remove_prefix(cfg, "disk", "media_1541");
     /* Default is false; only persist when set, so an absent key means false. */
     if (options->pause_on_brk) {
         config_set_bool(cfg, "config", "pause_on_brk", true);

@@ -539,8 +539,8 @@ static void write_mach(snapshot_writer *w, const c64_t *m) {
     w_u8(w, (uint8_t)m->config.video_standard);
     w_u8(w, (uint8_t)(m->config.emulate_1541 ? 1u : 0u));
     w_bool(w, m->instruction_complete);
-    w_u8(w, (uint8_t)(m->config.media_1541 ? 1u : 0u));
-    /* v15: pot lines + last mouse port (mouse_active is host-only, not wired). */
+    /* v15+: pot lines + last mouse port (mouse_active is host-only, not wired).
+       v16: separate media_1541 byte removed (GCR follows emulate_1541). */
     w_u8(w, m->pot_x[0]);
     w_u8(w, m->pot_x[1]);
     w_u8(w, m->pot_y[0]);
@@ -1128,16 +1128,15 @@ static void read_mach(snapshot_reader *r, c64_t *m, uint32_t version) {
     m->config.video_standard = (c64_video_standard)r_u8(r);
     m->config.emulate_1541 = r_u8(r) != 0;
     m->instruction_complete = r_bool(r);
-    m->config.media_1541 = r_u8(r) != 0;
     /* c64_hz is derived (not snapshotted); refresh after video_standard load. */
     m->clock.c64_hz = c64_config_clock_hz(&m->config);
-    if (version >= 15u) {
-        (void)r_u8(r); /* pot_x[0] — discarded; load forces inactive pots */
-        (void)r_u8(r); /* pot_x[1] */
-        (void)r_u8(r); /* pot_y[0] */
-        (void)r_u8(r); /* pot_y[1] */
-        (void)r_u8(r); /* mouse_port */
-    }
+    /* v16 MACH always carries pot fields (VERSION_MIN 16). */
+    (void)version;
+    (void)r_u8(r); /* pot_x[0] — discarded; load forces inactive pots */
+    (void)r_u8(r); /* pot_x[1] */
+    (void)r_u8(r); /* pot_y[0] */
+    (void)r_u8(r); /* pot_y[1] */
+    (void)r_u8(r); /* mouse_port */
     /* Host grab is not restored; pots stay disconnected until re-capture. */
     m->pot_x[0] = 0xFFu;
     m->pot_x[1] = 0xFFu;

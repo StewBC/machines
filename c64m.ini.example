@@ -50,7 +50,6 @@ turbo_speeds = 1,max
 
 [disk]
 ; emulate_1541 = true
-; media_1541 = false
 ; show_disk_leds = true
 ; Device 8 / 9 image queues (comma-separated paths). Writable lists optional.
 ; 8 = assets/c64/disks/game.d64
