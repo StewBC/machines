@@ -196,14 +196,14 @@ Addresses use slot `s` ∈ 1..7. Let `n = 8+s` so DEVSEL base is `$C0n0` (e.g. s
 | 2 | Command | W | Honour DTR (bit0) enable; TX IRQ bits best-effort; echo/break optional ignore. |
 | 3 | Control | W | Baud/word/stop stored; **baud does not gate** raster accept in v1. External clock select ignored (force internal). |
 
-**DIP defaults (printer bundle):** hardcoded ImageWriter-oriented SSC switches (no Configure DIP UI in v1). **Normative read constants** (classic MAME `a2ssc` DSW encoding — baud in `0xF0`, mode in `0x0C` with Printer=`0x08`; newer MAME moved Mode to `0x03`/Printer=`0x02` and must **not** be followed unless firmware smoke forces a change):
+**DIP defaults (printer bundle):** hardcoded ImageWriter-oriented SSC switches (no Configure DIP UI in v1). Firmware INIT at `$C828` uses **DIPSW1 bits 1–0** as the mode (`00` CIC / `01` SIC P8 / `10` printer-PPC / `11` SIC P8A). Classic MAME encoded mode in `0x0C` with Printer=`0x08`; that value (`0xE8`) is CIC in the actual ROM (bits 1–0 = `00`) and must **not** be used — Print Shop then treats pin-byte `$01` as the command character. Follow the firmware (and corrected MAME `0x03` / Printer=`0x02`):
 
 | Port | Constant | Intent |
 |------|----------|--------|
-| `$C0n1` | **`0xE8`** | 9600 (`0xE0`) + Printer Mode (`0x08`) + normal CTS (`0x00`) |
-| `$C0n2` | **`0x00`** | Classic default: 8 data/1 stop, no CR delay, 80-col/video-off encoding bits clear, **LF-after-CR on** (classic mask where add-LF = 0), IRQ path enabled as that default encodes |
+| `$C0n1` | **`0xE2`** | 9600 (`0xE0`) + printer/PPC (`0x02`). INIT5 stores Ctrl-I at `$05F8+s`. |
+| `$C0n2` | **`0x00`** | 8 data/1 stop; printer-mode CR-delay / width bits clear |
 
-Paste these two hex constants into `ssc.c`. **PR 3 gate:** SSC firmware must exit reset in printer mode with these reads; adjust a constant **only** if that smoke fails, and document the new value in the same change. Do not re-litigate bit folklore across MAME revisions in review.
+Paste these two hex constants into `ssc.h`. Firmware smoke (PINIT then Ctrl-I `Z` CR) must leave `$05F8+s = $89` (Zap bit 7).
 
 **IRQ (normative):** today’s `apple2_irq_pending` returns only `mockingboard_irq_pending` when `mb_slot != 0` (`apple2.c`). Extend it to **OR** SSC/6551 IRQ when an SSC is installed and the Command register enables IRQs (DTR + TX/RX IRQ bits per 6551). Status read clears the 6551 IRQ bit as specified. Unit-test: assert pending after enabling TX IRQ with empty TDR condition / clear on status read. Printer apps often poll TDRE; firmware that enables IRQ must still work.
 
@@ -592,7 +592,7 @@ Incremental commits/PRs on **master**. Each is independently reviewable and merg
 ### PR 3 — 6551 ACIA + C0nX / C800 latch+ROM map
 
 - **Title:** `a2m: SSC 6551 ACIA + C800 expansion ROM map`
-- **Files/components:** `ssc.c` / `acia6551`, `softswitch.c` (`softswitch_slot_io_select` SSC latch **iff `C800_NONE`**, `apply_c800` ROM branch, DEVSEL), `apple2_irq_pending` OR, DIP **`$C0n1=0xE8` / `$C0n2=0x00`**, unit tests TDRE/TX/status/IRQ, `cxxx_map` + SmartPort trap regressions
+- **Files/components:** `ssc.c` / `acia6551`, `softswitch.c` (`softswitch_slot_io_select` SSC latch **iff `C800_NONE`**, `apply_c800` ROM branch, DEVSEL), `apple2_irq_pending` OR, DIP **`$C0n1=0xE2` / `$C0n2=0x00`**, unit tests TDRE/TX/status/IRQ, `cxxx_map` + SmartPort trap regressions
 - **Dependencies:** PR 2
 - **Description:** Firmware runs and polls ACIA; `$Cnxx` latches only as first claimant; `$C800` reads `ssc_rom`. TX → null sink until PR 5. Acceptance: SmartPort-only machines green; SSC C800 fetch works; CXROM/C3 rules unchanged; DIP smoke boots printer mode.
 

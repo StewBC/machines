@@ -635,6 +635,81 @@ static void test_ssc_dip_and_acia_tdre_tx(void)
     apple2_shutdown(&m);
 }
 
+/* Run SSC firmware at pc until it RTS to $0300. X=$C1, Y=$10 (slot 1). */
+static void ssc_slot1_jsr(apple2_t *m, uint16_t pc, uint8_t a)
+{
+    int i;
+
+    softswitch_c0_write(m, 0xC006, 0); /* CLRCXROM: slot $Cnxx visible */
+    m->c800_internal = false;
+    m->strobed_slot = -1;
+    m->c800_card = -1;
+    softswitch_c800_release(m);
+    softswitch_apply_full_map(m);
+    softswitch_slot_io_select(m, 0xC100); /* latch SSC $C800 */
+    if (m->c800_card != 1) {
+        fprintf(stderr, "c800_card=%d strobe=%d internal=%d C800=$%02X C18E=$%02X\n",
+                m->c800_card, m->strobed_slot, (int)m->c800_internal,
+                apple2_debug_read(m, 0xC800), apple2_debug_read(m, 0xC18E));
+        fail("ssc C800 not latched for firmware jsr");
+    }
+    m->cpu.cpu.sp = 0x01FDu;
+    m->ram_main[0x01FE] = 0xFF; /* stacked return → $0300 */
+    m->ram_main[0x01FF] = 0x02;
+    m->ram_main[0x0300] = 0x00;
+    m->cpu.cpu.A = a;
+    m->cpu.cpu.X = 0xC1u;
+    m->cpu.cpu.Y = 0x10u;
+    m->cpu.cpu.pc = pc;
+    for (i = 0; i < 100000; ++i) {
+        if (m->cpu.cpu.pc == 0x0300u) {
+            return;
+        }
+        (void)apple2_step_instruction_max(m);
+    }
+    fprintf(stderr, "FAIL: ssc firmware $%04X did not RTS (pc=$%04X)\n",
+            (unsigned)pc, (unsigned)m->cpu.cpu.pc);
+    exit(1);
+}
+
+/*
+ * DIP 0xE2 is printer/PPC: firmware INIT5 stores Ctrl-I at $05F8+slot.
+ * Ctrl-I Z CR then sets bit 7 (Zap). 0xE8 was CIC (Ctrl-A) and Print Shop
+ * graphics $01/$00 reprogrammed the command character to NUL.
+ */
+static void test_ssc_firmware_printer_cmdbyte(void)
+{
+    apple2_t m;
+
+    if (!apple2_init(&m)) {
+        fail("ssc fw init");
+    }
+    if (!apple2_attach_ssc(&m, 1)) {
+        fail("ssc fw attach");
+    }
+    if (softswitch_c0_read(&m, 0xC091) != 0xE2u) {
+        fail("ssc DIP1 printer/PPC 0xE2");
+    }
+
+    /* Pascal init ($Cn8E): sets CMDBYTE from DIP mode. */
+    ssc_slot1_jsr(&m, 0xC18E, 0x00);
+    if (m.ram_main[0x05F9] != 0x09u) {
+        fprintf(stderr, "CMDBYTE $05F9=$%02X (want $09 Ctrl-I)\n",
+                m.ram_main[0x05F9]);
+        fail("ssc printer mode command character");
+    }
+
+    /* ZCMD ($CDF4): ASL/SEC/ROR sets bit 7 so later 7-bit compares miss. */
+    ssc_slot1_jsr(&m, 0xCDF4, 0x00);
+    if (m.ram_main[0x05F9] != 0x89u) {
+        fprintf(stderr, "CMDBYTE after Z $05F9=$%02X (want $89 Zap)\n",
+                m.ram_main[0x05F9]);
+        fail("ssc Zap sets command-char bit 7");
+    }
+
+    apple2_shutdown(&m);
+}
+
 static void test_ssc_tx_irq_and_status_clear(void)
 {
     apple2_t m;
@@ -978,6 +1053,7 @@ int main(void)
     test_ssc_same_slot_conflict_warns();
     test_ssc_apply_diskii_to_ssc();
     test_ssc_dip_and_acia_tdre_tx();
+    test_ssc_firmware_printer_cmdbyte();
     test_ssc_tx_irq_and_status_clear();
     test_ssc_c800_latch_and_rom();
     test_ssc_tx_ff_writes_bmp();

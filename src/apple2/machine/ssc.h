@@ -19,10 +19,20 @@ typedef enum a2_ssc_sink_kind {
 
 typedef void (*a2_ssc_tx_fn)(void *user, uint8_t byte);
 
-/* Classic MAME a2ssc printer-bundle DIP reads (design normative). */
+/*
+ * ImageWriter-bundle DIP reads. Firmware (341-0065-A INIT at $C828) uses
+ * DIPSW1 bits 1-0 as the mode, not the pre-2016 MAME 0x0C/0x08 encoding:
+ *   00 communications (Ctrl-A command char)
+ *   01 SIC P8
+ *   10 printer / PPC (Ctrl-I command char)  ← this bundle
+ *   11 SIC P8A
+ * 0xE8 looks like "9600 + printer" in that old map, but bit 3 is unused and
+ * bits 1-0 are 00 → CIC. Print Shop then matches pin-byte $01 as a command
+ * and a following NUL reprograms $05F8+s to $00, which swallows graphics.
+ */
 enum {
-    SSC_DIP1_PRINTER = 0xE8u, /* $C0n1: 9600 + Printer Mode + normal CTS */
-    SSC_DIP2_PRINTER = 0x00u  /* $C0n2: 8N1, LF-after-CR on, IRQ path default */
+    SSC_DIP1_PRINTER = 0xE2u, /* $C0n1: 9600 (0xE0) + printer/PPC (0x02) */
+    SSC_DIP2_PRINTER = 0x00u  /* $C0n2: 8N1, default delay / width / IRQ */
 };
 
 /* MOS6551 status bits (active-low DCD/DSR: 0 = ready/asserted). */
