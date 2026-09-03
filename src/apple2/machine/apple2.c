@@ -64,6 +64,8 @@ static void apple2_printer_capture_open(apple2_t *m)
         m->printer_capture_path[0] = '\0';
         return;
     }
+    /* stdio default buffer (~100KB) truncated mid-job captures. */
+    (void)setvbuf(fp, NULL, _IONBF, 0);
     m->printer_capture_fp = fp;
     log_info("printer: capturing TX to %s", m->printer_capture_path);
 }

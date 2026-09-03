@@ -200,6 +200,7 @@ static void reset_modes(imagewriter *iw)
     iw->bim_clip_logged = false;
     iw->saw_bim = false;
     iw->seen_esc = false;
+    iw->in_preamble_cmd = false;
 }
 
 static void set_pixel(imagewriter *iw, int x, int y)
@@ -316,11 +317,14 @@ static void plot_bim_column(imagewriter *iw, uint8_t data)
     int row;
     int maxn = imagewriter_pitch_max_nnnn(iw->dpi);
 
+    /* Clip ink to page width; still advance head so the count stays honest. */
     if (iw->head_col >= maxn) {
         if (!iw->bim_clip_logged) {
             log_warn("printer: BIM column clipped at dpi=%d max=%d", iw->dpi, maxn);
             iw->bim_clip_logged = true;
         }
+        iw->head_col += 1;
+        iw->saw_bim = true;
         return;
     }
 
@@ -538,10 +542,22 @@ static void handle_control(imagewriter *iw, uint8_t ch)
         }
         break;
     case 0x09: /* HT: next 8-dot tab; do not print a glyph */
+        if (!iw->seen_esc) {
+            /*
+             * Job preamble: Print Shop opens with the Super Serial Card's
+             * command escape (Ctrl-I 'Z' — "zap command recognition"). A real
+             * card consumes the pair, so neither byte may reach the paper.
+             * Scoped to the pair before the first ESC; plain PR#n text still
+             * prints normally.
+             */
+            iw->in_preamble_cmd = true;
+            break;
+        }
         iw->head_col = ((iw->head_col / 8) + 1) * 8;
         break;
     case 0x1B: /* ESC */
         iw->seen_esc = true;
+        iw->in_preamble_cmd = false;
         iw->parse_state = A2_IW_PARSE_ESC;
         break;
     default:
@@ -668,36 +684,20 @@ void imagewriter_putc(imagewriter *iw, uint8_t ch)
         return;
     }
 
-    case A2_IW_PARSE_BIM_DATA:
-        if (iw->bim_remaining > 0) {
-            plot_bim_column(iw, ch);
-            iw->bim_remaining -= 1;
-            return;
+    case A2_IW_PARSE_BIM_DATA: {
+        if (iw->bim_remaining <= 0) {
+            iw->parse_state = A2_IW_PARSE_IDLE;
+            break;
         }
-        /*
-         * Declared nnnn exhausted. Print Shop may send more pin bytes before
-         * the next ESC>/G. Keep absorbing (clipped) until a real line end:
-         *   - ESC / FF: always end
-         *   - CR: always end (then LF can advance)
-         *   - LF: end only if head is still near declared width (real newline).
-         *     A pin-byte 0x0A deep in overshoot must NOT end the band.
-         */
-        {
-            uint8_t c7 = (uint8_t)(ch & 0x7Fu);
-            int pad = 16; /* allow a few pad NULs after the count */
-            bool near_width =
-                iw->head_col <= iw->bim_declared + pad;
-
-            if (c7 == 0x1Bu || c7 == 0x0Cu || c7 == 0x0Du ||
-                (c7 == 0x0Au && near_width)) {
-                iw->parse_state = A2_IW_PARSE_IDLE;
-                iw->bim_remaining = 0;
-                ch = c7;
-                break;
-            }
-            plot_bim_column(iw, ch);
-            return;
+        /* Manuals: the next nnnn bytes are pin masks, including $0A/$0D/$1B. */
+        plot_bim_column(iw, ch);
+        iw->bim_remaining -= 1;
+        if (iw->bim_remaining <= 0) {
+            iw->bim_remaining = 0;
+            iw->parse_state = A2_IW_PARSE_IDLE;
         }
+        return;
+    }
 
     case A2_IW_PARSE_ESC_V_DIGITS: {
         int r = feed_digit(iw, ch);
@@ -756,8 +756,9 @@ void imagewriter_putc(imagewriter *iw, uint8_t ch)
         /* NUL / other C0: no-op (must not become space glyphs). */
         return;
     }
-    if (!iw->seen_esc) {
-        /* Drop preamble junk before the first ESC (e.g. TAB 'Z' at job start). */
+    if (iw->in_preamble_cmd) {
+        /* Argument of the leading Ctrl-I SSC command; swallow just this one. */
+        iw->in_preamble_cmd = false;
         return;
     }
     print_char(iw, ch);

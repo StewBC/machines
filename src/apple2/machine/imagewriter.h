@@ -24,7 +24,7 @@ typedef enum imagewriter_parse {
     A2_IW_PARSE_ESC_T_D1,
     A2_IW_PARSE_ESC_T_D2,
     A2_IW_PARSE_ESC_G_DIGITS, /* ESC G / ESC S: 4 digits */
-    A2_IW_PARSE_BIM_DATA,
+    A2_IW_PARSE_BIM_DATA, /* next bim_remaining bytes are pin masks (manuals) */
     A2_IW_PARSE_ESC_V_DIGITS,
     A2_IW_PARSE_ESC_V_DATA,
     A2_IW_PARSE_ESC_F_DIGITS,
@@ -50,8 +50,10 @@ typedef struct imagewriter {
     /* Set after any BIM column this page; cleared on flush. Print Shop
        greeting cards separate faces with ESC T24 (no FF) — soft page break. */
     bool saw_bim;
-    /* Latched after first ESC this session; suppresses preamble junk like TAB Z. */
+    /* Latched after the first ESC this session; gates the Ctrl-I preamble. */
     bool seen_esc;
+    /* Inside the leading Ctrl-I <cmd> SSC escape: swallow one argument byte. */
+    bool in_preamble_cmd;
 
     char last_name_stem[16];
     uint8_t name_seq;
@@ -61,7 +63,7 @@ typedef struct imagewriter {
     int parse_digits_got;
     int parse_value;
     int bim_remaining;
-    int bim_declared; /* ESC G/S/g column count; used for overshoot LF heuristic */
+    int bim_declared; /* ESC G/S/g declared column count (diagnostics) */
 
     char output_dir[A2_IW_PATH_MAX];
 } imagewriter;
