@@ -126,9 +126,9 @@ typedef struct app_options {
     char *swiftlink_base; /* "de00" or "df00" */
     char *swiftlink_irq;  /* "none" | "nmi" | "irq" */
     bool swiftlink_pace_baud; /* gate TX/RX holding to configured baud (default off) */
-    /* MPS-803-class IEC printer soft-attach (device 4). Default off. */
+    /* MPS-803-class IEC printer soft-attach (device 4 or 5). Default off. */
     bool printer_enabled;
-    uint8_t printer_device; /* default 4; v1 only accepts 4 */
+    uint8_t printer_device; /* default 4; accepts 4 or 5 */
     char *printer_output_dir; /* default "prints" */
     char *printer_format; /* "bmp" only */
 } app_options;

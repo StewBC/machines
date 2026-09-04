@@ -263,6 +263,7 @@ typedef struct runtime_command {
 
         struct {
             uint8_t enabled;
+            uint8_t device; /* 4 or 5 */
             char output_dir[RUNTIME_COMMAND_PATH_MAX];
         } set_printer;
 

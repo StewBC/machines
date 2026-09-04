@@ -66,6 +66,7 @@ typedef struct frontend_debug_state {
     bool has_call_stack;
     bool cartridge_attached;
     bool printer_enabled;
+    uint8_t printer_device; /* 4 or 5 */
     uint32_t printer_pages_flushed;
     bool printer_page_dirty;
     uint8_t inspector_mode;

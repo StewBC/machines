@@ -91,12 +91,15 @@ bool runtime_client_set_swiftlink(
     uint16_t base,
     c64_swiftlink_irq_mode irq_mode,
     bool pace_baud);
-/* Soft-attach MPS-803-class printer (device 4). Format is BMP for v1.
-   Empty/NULL output_dir on enable is pushed; the runtime soft-fails. */
+/* Soft-attach MPS-803-class printer (device 4 or 5). Format is BMP for v1.
+   Empty/NULL output_dir on enable is pushed; the runtime soft-fails.
+   device is applied even when disabling so the Misc button and the next
+   enable use the configured IEC address. */
 bool runtime_client_set_printer(
     runtime_client *client,
     bool enabled,
-    const char *output_dir);
+    const char *output_dir,
+    uint8_t device);
 bool runtime_client_printer_flush(runtime_client *client);
 /* rom_paths, when non-NULL, carries the effective ROM file paths (any member may
    be NULL/empty for "unset"); pass reload_roms=true to have the runtime re-read

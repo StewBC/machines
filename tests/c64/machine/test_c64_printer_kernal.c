@@ -401,6 +401,56 @@ static void test_printer_non_device_does_not_claim(void)
     printf("PASS: test_printer_non_device_does_not_claim\n");
 }
 
+static void test_printer_device_5_claims(void)
+{
+    static c64_t c64;
+    char dir[TEST_PATH_MAX];
+    char error[128];
+    uint8_t ldtnd_before;
+
+    make_tmpdir(dir, sizeof(dir));
+    reset_machine(&c64);
+    enable_printer(&c64, dir);
+    c64_printer_set_device(&c64.printer, 6);
+    expect_true("invalid device ignored", c64_printer_device(&c64.printer) == 4);
+    c64_printer_set_device(&c64.printer, 5);
+    expect_true("device is 5", c64_printer_device(&c64.printer) == 5);
+
+    /* OPEN 4,4 must not claim when the printer is at device 5. */
+    setup_open_call(&c64, "", 4, 4, 0);
+    ldtnd_before = c64.bus.ram[ZP_LDTND];
+    expect_true("step open 4,4", c64_step_instruction(&c64, error, sizeof(error)));
+    expect_true("no rts for FA 4", c64.cpu.cpu.pc != (uint16_t)(TEST_RETURN_ADDRESS + 1u));
+    expect_true("lat unchanged", c64.bus.ram[ZP_LDTND] == ldtnd_before);
+
+    /* BASIC OPEN 4,5: logical file 4 on IEC device 5. */
+    setup_open_call(&c64, "", 4, 5, 0);
+    step_ok(&c64, "open 4,5");
+    expect_success_return(&c64);
+    expect_true("lat has la4", lat_find(&c64, 4) >= 0);
+    expect_true("fat is device 5", c64.bus.ram[RAM_FAT + lat_find(&c64, 4)] == 5);
+
+    setup_chkout_call(&c64, 4);
+    step_ok(&c64, "chkout");
+    expect_success_return(&c64);
+    expect_true("dflto=4", c64.bus.ram[ZP_DFLTO] == 4);
+
+    setup_chrout_call(&c64, (uint8_t)'H');
+    step_ok(&c64, "chrout H");
+    expect_success_return(&c64);
+    expect_true("dirty after chrout", c64_printer_page_dirty(&c64.printer));
+
+    setup_close_call(&c64, 4);
+    step_ok(&c64, "close");
+    expect_success_return(&c64);
+    expect_true("lat cleared", c64.bus.ram[ZP_LDTND] == 0);
+    expect_true("flushed", c64_printer_pages_flushed(&c64.printer) == 1u);
+    expect_true("page file", count_print_pages(dir) == 1);
+
+    remove_tree(dir);
+    printf("PASS: test_printer_device_5_claims\n");
+}
+
 static void clall_and_expect_empty(c64_t *machine, const char *label)
 {
     setup_clall_call(machine);
@@ -680,6 +730,7 @@ int main(void)
     test_printer_basic_open_print_close();
     test_printer_disabled_does_not_claim();
     test_printer_non_device_does_not_claim();
+    test_printer_device_5_claims();
     test_printer_chkin_chrin_not_claimed();
     test_printer_sealed_skips_host_write();
     test_clall_printer_only();

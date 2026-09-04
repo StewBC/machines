@@ -2043,6 +2043,12 @@ static void test_printer_defaults_and_overrides(void) {
     char *cli_off_argv[] = {
         "test_app_options", "--noini", "--no-printer",
     };
+    char *cli_device_argv[] = {
+        "test_app_options", "--noini", "--printer-device", "5",
+    };
+    char *cli_bad_device[] = {
+        "test_app_options", "--noini", "--printer-device", "3",
+    };
 
     if (c64m_getcwd(cwd, sizeof(cwd)) == NULL) {
         fprintf(stderr, "printer test cwd failed\n");
@@ -2084,6 +2090,19 @@ static void test_printer_defaults_and_overrides(void) {
     }
     expect_bool("printer cli disabled", 0, options.printer_enabled);
     app_options_destroy(&options);
+
+    if (!app_options_load_startup(&options, 4, cli_device_argv)) {
+        fprintf(stderr, "printer device cli load failed\n");
+        exit(1);
+    }
+    expect_int("printer cli device", 5, (int)options.printer_device);
+    app_options_destroy(&options);
+
+    if (app_options_load_startup(&options, 4, cli_bad_device)) {
+        fprintf(stderr, "printer bad device should have failed\n");
+        app_options_destroy(&options);
+        exit(1);
+    }
 }
 
 static void test_printer_saved_to_ini(void) {
@@ -2099,7 +2118,7 @@ static void test_printer_saved_to_ini(void) {
     }
 
     options.printer_enabled = true;
-    options.printer_device = 4;
+    options.printer_device = 5;
     app_options_set_string(&options.printer_output_dir, "my_prints");
     app_options_set_string(&options.printer_format, "bmp");
     app_options_set_string(&options.browse_dirs[6], "my_prints");
@@ -2118,17 +2137,64 @@ static void test_printer_saved_to_ini(void) {
         fprintf(stderr, "browse printer dir was not saved\n");
         exit(1);
     }
+    if (!file_contains("test_printer_save.ini", "device=5")) {
+        fprintf(stderr, "printer device was not saved\n");
+        exit(1);
+    }
 
     if (!app_options_load_startup(&options, 3, argv)) {
         fprintf(stderr, "printer reload failed\n");
         exit(1);
     }
     expect_bool("saved printer enabled", 1, options.printer_enabled);
-    expect_int("saved printer device", 4, (int)options.printer_device);
+    expect_int("saved printer device", 5, (int)options.printer_device);
     expect_string("saved printer format", "bmp", options.printer_format);
 
     app_options_destroy(&options);
     remove("test_printer_save.ini");
+}
+
+static void test_printer_device_ini(void) {
+    app_options options;
+    FILE *file;
+    char *argv[] = {
+        "test_app_options", "--inifile", "test_printer_device.ini",
+    };
+    char *bad_argv[] = {
+        "test_app_options", "--inifile", "test_printer_device_bad.ini",
+    };
+
+    file = fopen("test_printer_device.ini", "w");
+    if (file == NULL) {
+        fprintf(stderr, "failed to create printer device ini\n");
+        exit(1);
+    }
+    fputs("[printer]\ndevice=5\n", file);
+    fclose(file);
+
+    if (!app_options_load_startup(&options, 3, argv)) {
+        fprintf(stderr, "printer device ini load failed\n");
+        exit(1);
+    }
+    expect_int("ini printer device", 5, (int)options.printer_device);
+    app_options_destroy(&options);
+    remove("test_printer_device.ini");
+
+    file = fopen("test_printer_device_bad.ini", "w");
+    if (file == NULL) {
+        fprintf(stderr, "failed to create bad printer device ini\n");
+        exit(1);
+    }
+    fputs("[printer]\ndevice=6\n", file);
+    fclose(file);
+
+    if (!app_options_load_startup(&options, 3, bad_argv)) {
+        fprintf(stderr, "bad printer device ini load failed\n");
+        exit(1);
+    }
+    expect_int("invalid ini printer device falls back", 4, (int)options.printer_device);
+    app_options_destroy(&options);
+    remove("test_printer_device_bad.ini");
 }
 
 static void test_assembler_auto_adjust_segments_ini(void) {
@@ -2233,6 +2299,7 @@ int main(void) {
     test_mouse_saved_to_ini();
     test_printer_defaults_and_overrides();
     test_printer_saved_to_ini();
+    test_printer_device_ini();
     test_assembler_auto_adjust_segments_ini();
 
     leave_scratch(home, scratch);

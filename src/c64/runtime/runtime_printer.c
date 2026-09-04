@@ -1,5 +1,6 @@
 #include "runtime_printer.h"
 
+#include "c64_printer.h"
 #include "host_log.h"
 #include "host_page_writer.h"
 #include "runtime_internal.h"
@@ -7,7 +8,8 @@
 bool runtime_printer_set_enabled(
     runtime *rt,
     bool enabled,
-    const char *output_dir)
+    const char *output_dir,
+    uint8_t device)
 {
     c64_printer *printer;
 
@@ -16,6 +18,7 @@ bool runtime_printer_set_enabled(
     }
 
     printer = &rt->machine.printer;
+    c64_printer_set_device(printer, device);
 
     if (!enabled) {
         c64_printer_set_enabled(printer, false);

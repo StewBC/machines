@@ -33,7 +33,7 @@ typedef enum c64_printer_parse {
 
 typedef struct c64_printer {
     bool enabled;
-    uint8_t device; /* 4 */
+    uint8_t device; /* 4 or 5 */
     uint8_t sa;     /* 0 graphic, 7 business */
     bool graphic_charset;
     bool enhance;
@@ -66,6 +66,10 @@ void c64_printer_shutdown(c64_printer *p);
 
 void c64_printer_set_enabled(c64_printer *p, bool on);
 bool c64_printer_enabled(const c64_printer *p);
+
+/* IEC address. Accepts 4 or 5; other values are ignored. Default is 4. */
+void c64_printer_set_device(c64_printer *p, uint8_t device);
+uint8_t c64_printer_device(const c64_printer *p);
 
 void c64_printer_set_output_dir(c64_printer *p, const char *dir);
 void c64_printer_set_format_bmp(c64_printer *p); /* v1 bmp only */

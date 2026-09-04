@@ -490,8 +490,8 @@ void c64_printer_reset(c64_printer *p)
     p->flush_hold = false;
     p->sa = 0;
     p->graphic_charset = true;
-    /* Keep enabled, output_dir, pages_flushed / page_cap_hit / name counter
-       across soft reset. */
+    /* Keep enabled, device, output_dir, pages_flushed / page_cap_hit / name
+       counter across soft reset. */
 }
 
 void c64_printer_shutdown(c64_printer *p)
@@ -533,6 +533,25 @@ void c64_printer_set_enabled(c64_printer *p, bool on)
 bool c64_printer_enabled(const c64_printer *p)
 {
     return p != NULL && p->enabled;
+}
+
+void c64_printer_set_device(c64_printer *p, uint8_t device)
+{
+    if (p == NULL) {
+        return;
+    }
+    if (device != 4u && device != 5u) {
+        return;
+    }
+    p->device = device;
+}
+
+uint8_t c64_printer_device(const c64_printer *p)
+{
+    if (p == NULL) {
+        return 4u;
+    }
+    return p->device;
 }
 
 void c64_printer_set_output_dir(c64_printer *p, const char *dir)

@@ -46,7 +46,7 @@ enum {
     FRONTEND_DISK_LED_SIZE = 16,
     /* Host-time LED hold after each activity event (ms). Independent of pause. */
     FRONTEND_DISK_LED_HOLD_MS = 300,
-    /* Misc Machine [4] status flash duration ("Flush"). */
+    /* Misc Machine printer-device status flash duration ("Flush"). */
     FRONTEND_PRINTER_FLUSH_FLASH_MS = 1000,
     /* PAL's normal-border viewport is 384x272, matching VICE's canonical PAL
        geometry: rasters 16..287 (VICII_PAL_NORMAL_FIRST/LAST_DISPLAYED_LINE).
@@ -6249,12 +6249,20 @@ static void frontend_draw_misc_programs(frontend *ui, const frontend_debug_state
         }
     }
 
-    /* Printer: [4] flush (+ enable if off), LED power, type, pages, status. */
+    /* Printer: [4|5] flush (+ enable if off), LED power, type, pages, status. */
     {
         bool powered = debug_state != NULL && debug_state->printer_enabled;
         const char *status = "Clean";
         char pages[32];
+        char dev_label[4];
+        unsigned device = 4u;
         uint64_t now = SDL_GetTicks64();
+
+        if (debug_state != NULL &&
+            (debug_state->printer_device == 4u || debug_state->printer_device == 5u)) {
+            device = (unsigned)debug_state->printer_device;
+        }
+        snprintf(dev_label, sizeof(dev_label), "%u", device);
 
         if (ui->printer_flush_label_until_ms > now) {
             status = "Flush";
@@ -6269,7 +6277,7 @@ static void frontend_draw_misc_programs(frontend *ui, const frontend_debug_state
 
         nk_layout_row_begin(ctx, NK_DYNAMIC, 24.0f, 5);
         nk_layout_row_push(ctx, 0.10f);
-        if (nk_button_label(ctx, "4")) {
+        if (nk_button_label(ctx, dev_label)) {
             ui->printer_flush_label_until_ms =
                 now + (uint64_t)FRONTEND_PRINTER_FLUSH_FLASH_MS;
             frontend_push_simple_intent(ui, FRONTEND_DEBUGGER_INTENT_PRINTER_FLUSH);

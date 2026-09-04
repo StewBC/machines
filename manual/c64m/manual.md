@@ -44,7 +44,8 @@ Useful flags:
 | `--swiftlink-base de00|df00` | SwiftLink ACIA base page (default `de00`)      |
 | `--swiftlink-irq none|nmi|irq` | SwiftLink interrupt routing (default `none`) |
 | `--swiftlink-pace-baud` / `--no-swiftlink-pace-baud` | Pace ACIA TX/RX holding to the configured baud (default off = ASAP) |
-| `--printer` / `--no-printer` | Enable MPS-803-class IEC printer device 4 (default off) |
+| `--printer` / `--no-printer` | Enable MPS-803-class IEC printer (default off) |
+| `--printer-device 4|5` | IEC printer device number (default 4) |
 | `--printer-dir <path>` | Printer host page output directory (default `prints`) |
 | `--printer-format bmp` | Printer host page format (`bmp` only in v1) |
 | `--sna <file>`         | Load a machine snapshot (`.c64state`) at startup    |
@@ -181,17 +182,21 @@ Load-state and Inspector land hang up the bridge. Soft reset keeps host enable/b
 
 ### Printer (MPS-803)
 
-c64m can soft-attach an MPS-803-class virtual printer as IEC **device 4**. Guest
-output arrives through KERNAL channel traps (`OPEN 4,4` / `PRINT#` / `CLOSE`, and
-Print Shop's MPS path). Pages are written as host BMP files under the configured
-output directory (default `prints`). Each flushed page is named
-`YYYYMMDD-HHMMSSXX.bmp` (local time; `XX` is a two-digit counter that increments
-when more than one page is written in the same second).
+c64m can soft-attach an MPS-803-class virtual printer as IEC **device 4** (default)
+or **device 5**. Guest output arrives through KERNAL channel traps (`OPEN 4,4` or
+`OPEN 4,5` / `PRINT#` / `CLOSE`, and Print Shop's MPS path when the printer is at
+device 4). Pages are written as host BMP files under the configured output directory
+(default `prints`). Each flushed page is named `YYYYMMDD-HHMMSSXX.bmp` (local time;
+`XX` is a two-digit counter that increments when more than one page is written in
+the same second).
 
 Enable with `--printer`, INI `[printer] enabled=true`, or the green/red power LED on
-the **Misc -> Machine** printer row (see **Emulator Controls**). Choose the output
-directory with `--printer-dir` / `[printer] output_dir` / Configure **Paths -> printer**.
-Format is **`bmp` only** until a later release unlocks PNG/PDF.
+the **Misc -> Machine** printer row (see **Emulator Controls**). Choose the IEC
+address with `--printer-device 4|5` / `[printer] device` (default 4). Misc -> Machine
+shows that number on the flush button. Choose the output directory with
+`--printer-dir` / `[printer] output_dir` / Configure **Paths -> printer**. Format is
+**`bmp` only** until a later release unlocks PNG/PDF. Only one printer is attached:
+device 4 or 5, not both.
 
 Pages flush on:
 
@@ -201,12 +206,13 @@ Pages flush on:
 | CLOSE of the printer logical file | Flush if dirty |
 | CLALL that includes a printer LA | Flush if dirty |
 | Disable printer / emulator shutdown | Flush if dirty |
-| **[4]** (Misc -> Machine) / `printer-flush` | Soft-power on if needed, then flush if dirty; blank pages are suppressed |
+| **[4]** or **[5]** (Misc -> Machine) / `printer-flush` | Soft-power on if needed, then flush if dirty; blank pages are suppressed |
 | CHR$(12) form feed | Optional emulator convenience flush (not authentic MPS-803) |
 
-**Misc -> Machine** always shows the printer row (`[4]`, power LED, `MPS-803 Printer`,
-status). Over the control port, `printer-flush` is the same fire-and-forget flush
-(`ok accepted=1`). Enable/dir/format are not changed by the control port in v1.
+**Misc -> Machine** always shows the printer row (`[4]` or `[5]`, power LED,
+`MPS-803 Printer`, status). Over the control port, `printer-flush` is the same
+fire-and-forget flush (`ok accepted=1`). Enable/dir/format/device are not changed by
+the control port in v1.
 
 ### Auto Run
 
@@ -1001,11 +1007,12 @@ drive controls:
 **(LED)** - Soft-attach switch: **green** = enabled, **red** = disabled (same
 `[printer] enabled` / `--printer` flag). Click to toggle.
 
-**[4]** - Force flush. If the LED is red, soft-powers on first (like **[8]** /
-**[9]**), then flushes. The status flashes **Flush** briefly so the button always
-answers, even when the page was already clean (no-op). Steady states are **Clean**
-and **Dirty**. Control-port `printer-flush` is the same flush without the UI flash.
-See **Printer (MPS-803)**.
+**[4]** or **[5]** - Force flush. The label is the configured IEC address
+(`[printer] device` / `--printer-device`, default 4). If the LED is red, soft-powers
+on first (like **[8]** / **[9]**), then flushes. The status flashes **Flush** briefly
+so the button always answers, even when the page was already clean (no-op). Steady
+states are **Clean** and **Dirty**. Control-port `printer-flush` is the same flush
+without the UI flash. See **Printer (MPS-803)**.
 
 **[Reset]** performs a hard reset of the emulated C64 and preserves its running state:
 it resumes automatically if it was running, or remains paused if it was stopped. Any
@@ -1733,8 +1740,8 @@ other General settings apply immediately when you press **[OK]** or **[Save INI 
 | Pace to baud rate | When on, gate TX/RX holding to the configured baud; off delivers ASAP |
 
 MPS-803 enable/disable lives on the Misc -> Machine printer row LED (and CLI/INI), not
-in Configure. Host page output still uses Paths -> printer (default `prints`, `bmp`
-only in v1). SwiftLink Enable can be refused after Apply if a mounted cartridge already
+in Configure. IEC address is `[printer] device` / `--printer-device` (4 or 5, default 4).
+Host page output still uses Paths -> printer (default `prints`, `bmp` only in v1). SwiftLink Enable can be refused after Apply if a mounted cartridge already
 claims the same I/O page (IO1 mappers at `$DE00`, Super Games at `$DF00`); the runtime
 publishes an error event and leaves the cart as-is. See **SwiftLink / Turbo232**.
 Emulate 1541 and the other Peripherals settings apply immediately when you press

@@ -1372,6 +1372,8 @@ static void update_debug_state_from_event(
                 event->data.machine_state.inspector_stopped_for_max != 0u;
             debug_state->printer_enabled =
                 event->data.machine_state.printer_enabled != 0u;
+            debug_state->printer_device =
+                event->data.machine_state.printer_device;
             debug_state->printer_pages_flushed =
                 event->data.machine_state.printer_pages_flushed;
             debug_state->printer_page_dirty =
@@ -4557,7 +4559,8 @@ static bool apply_printer_enabled(
         return false;
     }
     if (!enabled) {
-        if (!runtime_client_set_printer(client, false, NULL)) {
+        if (!runtime_client_set_printer(
+                client, false, NULL, options->printer_device)) {
             return false;
         }
         options->printer_enabled = false;
@@ -4570,7 +4573,8 @@ static bool apply_printer_enabled(
             options, printer_dir, printer_dir_abs, sizeof(printer_dir_abs))) {
         printer_dir = printer_dir_abs;
     }
-    if (!runtime_client_set_printer(client, true, printer_dir)) {
+    if (!runtime_client_set_printer(
+            client, true, printer_dir, options->printer_device)) {
         return false;
     }
     options->printer_enabled = true;
@@ -4918,7 +4922,8 @@ static void dispatch_debugger_intents(
                         (void)runtime_client_set_printer(
                             client,
                             options->printer_enabled,
-                            printer_dir);
+                            printer_dir,
+                            options->printer_device);
                     }
                     /* Typed Output dir must refresh the printer browse slot so
                        Paths / next [...] remember it, not a stale pick. */
@@ -5393,7 +5398,7 @@ static void dispatch_debugger_intents(
                 break;
 
             case FRONTEND_DEBUGGER_INTENT_PRINTER_FLUSH:
-                /* [4] soft-powers on like disk [8]/[9], then force-flushes. */
+                /* Device button soft-powers on like disk [8]/[9], then force-flushes. */
                 if (!options->printer_enabled) {
                     sent = apply_printer_enabled(client, options, true);
                     if (!sent) {
@@ -7195,6 +7200,7 @@ static bool run_main_loop(
     control_session_bind session_bind = {0};
     frontend_debug_state debug_state = {
         .runtime_state = FRONTEND_RUNTIME_STATE_UNKNOWN,
+        .printer_device = options->printer_device,
     };
 
     frontend_input_mapper_reset(&input_mapper);
@@ -7682,6 +7688,7 @@ static bool run_headless_loop(
     control_session_bind session_bind = {0};
     frontend_debug_state debug_state = {
         .runtime_state = FRONTEND_RUNTIME_STATE_UNKNOWN,
+        .printer_device = options->printer_device,
     };
 
     if (control != NULL) {
@@ -7894,17 +7901,9 @@ int main(int argc, char **argv) {
             options.swiftlink_pace_baud);
     }
 
-    if (options.printer_enabled) {
-        char printer_dir_abs[1024];
-        const char *printer_dir = options.printer_output_dir;
-
-        if (printer_dir != NULL && printer_dir[0] != '\0' &&
-            app_options_path_absolute_from_ini(
-                &options, printer_dir, printer_dir_abs, sizeof(printer_dir_abs))) {
-            printer_dir = printer_dir_abs;
-        }
-        (void)runtime_client_set_printer(client, true, printer_dir);
-    }
+    /* Apply device even when disabled so Misc shows [4]/[5] and the next
+       enable claims the configured IEC address. */
+    (void)apply_printer_enabled(client, &options, options.printer_enabled);
 
     if (options.headless) {
         if (options.control_port > 0) {

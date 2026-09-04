@@ -89,8 +89,9 @@ turbo_speeds = 1,max
 ; pace_baud = false
 
 [printer]
-; Soft-attach MPS-803-class IEC printer (device 4). Default off.
-; CLI: --printer / --no-printer,
+; Soft-attach MPS-803-class IEC printer. Default off.
+; IEC address is 4 (default) or 5. One printer, not both at once.
+; CLI: --printer / --no-printer, --printer-device 4|5,
 ;      --printer-dir <path>, --printer-format bmp
 ;      (png|pdf unlock in a later PR with the encoders — do not list early)
 ; enabled = false

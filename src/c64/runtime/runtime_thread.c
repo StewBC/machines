@@ -593,6 +593,8 @@ static void runtime_publish_machine_state(runtime *rt) {
 
     event.data.machine_state.printer_enabled =
         c64_printer_enabled(&rt->machine.printer) ? 1u : 0u;
+    event.data.machine_state.printer_device =
+        c64_printer_device(&rt->machine.printer);
     event.data.machine_state.printer_pages_flushed =
         c64_printer_pages_flushed(&rt->machine.printer);
     event.data.machine_state.printer_page_dirty =
@@ -6123,7 +6125,8 @@ static bool runtime_process_command(runtime *rt, const runtime_command *command,
             (void)runtime_printer_set_enabled(
                 rt,
                 command->data.set_printer.enabled != 0u,
-                command->data.set_printer.output_dir);
+                command->data.set_printer.output_dir,
+                command->data.set_printer.device);
             break;
 
         case RUNTIME_COMMAND_PRINTER_FLUSH:

@@ -1717,7 +1717,7 @@ static void apply_config(app_options *options, config *cfg)
     if (value != NULL && value[0] != '\0') {
         char *end = NULL;
         unsigned long parsed = strtoul(value, &end, 0);
-        if (end == value || *end != '\0' || parsed != 4ul) {
+        if (end == value || *end != '\0' || (parsed != 4ul && parsed != 5ul)) {
             fprintf(stderr,
                     "invalid [printer] device `%s`; using 4\n",
                     value);
@@ -1941,6 +1941,7 @@ static bool parse_command_line_overrides(app_options *options, int argc, char **
     int swiftlink_pace_baud_cli = -1;
     int printer = 0;
     int printer_cli = -1;
+    int printer_device_cli = -1;
     const char *printer_dir = NULL;
     const char *printer_format = NULL;
     int i;
@@ -2006,8 +2007,10 @@ static bool parse_command_line_overrides(app_options *options, int argc, char **
                     "pace SwiftLink TX/RX to configured baud (default off; --no-swiftlink-pace-baud)",
                     NULL, 0, 0),
         OPT_BOOLEAN('\0', "printer", &printer,
-                    "enable MPS-803-class IEC printer device 4 (default off; --no-printer)",
+                    "enable MPS-803-class IEC printer (default off; --no-printer)",
                     NULL, 0, 0),
+        OPT_INTEGER('\0', "printer-device", &printer_device_cli,
+                    "IEC printer device number: 4 or 5 (default 4)", NULL, 0, 0),
         OPT_STRING('\0', "printer-dir", &printer_dir,
                    "printer output directory (default prints)", NULL, 0, 0),
         OPT_STRING('\0', "printer-format", &printer_format,
@@ -2241,6 +2244,13 @@ static bool parse_command_line_overrides(app_options *options, int argc, char **
     }
     if (printer_cli >= 0) {
         options->printer_enabled = printer_cli != 0;
+    }
+    if (printer_device_cli >= 0) {
+        if (printer_device_cli != 4 && printer_device_cli != 5) {
+            fprintf(stderr, "--printer-device expects 4 or 5\n");
+            return false;
+        }
+        options->printer_device = (uint8_t)printer_device_cli;
     }
     if (printer_dir != NULL) {
         replace_string_from_ini(options, &options->printer_output_dir, printer_dir);

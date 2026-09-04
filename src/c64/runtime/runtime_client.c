@@ -870,7 +870,8 @@ bool runtime_client_set_swiftlink(
 bool runtime_client_set_printer(
     runtime_client *client,
     bool enabled,
-    const char *output_dir)
+    const char *output_dir,
+    uint8_t device)
 {
     runtime_command command = {
         .type = RUNTIME_COMMAND_SET_PRINTER,
@@ -883,6 +884,7 @@ bool runtime_client_set_printer(
     /* Empty-dir enable is pushed so runtime_printer_set_enabled can soft-fail
        (log + RUNTIME_EVENT_ERROR) under the same contract as a bad path. */
     command.data.set_printer.enabled = enabled ? 1u : 0u;
+    command.data.set_printer.device = device;
     if (output_dir != NULL && output_dir[0] != '\0') {
         snprintf(
             command.data.set_printer.output_dir,
