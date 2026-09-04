@@ -2633,12 +2633,6 @@ static void frontend_draw_config_paths_tab(frontend *ui, frontend_config_dialog_
             frontend_push_simple_intent(ui, FRONTEND_DEBUGGER_INTENT_CONFIG_PICK_PATH_DIALOG);
         }
         nk_layout_row_end(ctx);
-
-        if (i == FRONTEND_BROWSE_SLOT_SNAPSHOT) {
-            nk_layout_row_dynamic(ctx, 16.0f, 1);
-            nk_label_colored(ctx, "(snapshot also serves as the quicksave folder)",
-                NK_TEXT_LEFT, nk_rgb(150, 170, 180));
-        }
     }
 
     nk_layout_row_dynamic(ctx, 8.0f, 1);

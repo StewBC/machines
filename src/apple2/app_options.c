@@ -1648,7 +1648,7 @@ static const char *const browse_dir_keys[APP_BROWSE_DIR_COUNT] = {
     "assembler", "floppy", "smartport", "binary", "basic", "snapshot", "printer"
 };
 /* Index of the "snapshot" slot within browse_dir_keys / browse_dirs. Doubles as
-   the quicksave folder (see the frontend Paths tab). */
+   the quicksave folder. */
 #define APP_BROWSE_DIR_SNAPSHOT 5
 
 /* Write Apple media mounts (DiskII / SmartPort) into cfg. Shared by full-shutdown
