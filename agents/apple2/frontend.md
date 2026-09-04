@@ -142,6 +142,9 @@ CPU recorder.
 
 ## Keyboard stick
 
+Default assignment is Off (`keyboard_joystick_port` 0), including `--noini`.
+Layout default is numpad.
+
 | Default | Swap (`keyboard_joystick_swap_buttons`) |
 |---------|----------------------------------------|
 | Option/KP0 → BUTN0, Space → BUTN1 | Space → BUTN0, Option → BUTN1 |

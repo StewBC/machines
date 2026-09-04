@@ -2566,9 +2566,7 @@ void app_options_init(app_options *options)
     options->crt_curvature_amount = A2M_DEFAULT_CRT_CURVATURE_AMOUNT;
     replace_string(&options->keyboard_joystick_layout,
                    A2M_DEFAULT_KEYBOARD_JOYSTICK_LAYOUT);
-    /* Default stick 1 so Apple titles (e.g. Total Replay menus) get a
-       keyboard stick without a pad. Set 0 in INI to disable. */
-    options->keyboard_joystick_port = 1;
+    options->keyboard_joystick_port = 0;
     options->keyboard_joystick_swap_buttons = false;
     options->window_width = 0;
     options->window_height = 0;

@@ -785,6 +785,47 @@ int main(void)
         app_options_destroy(&options);
     }
 
+    {
+        char *argv_default[] = {
+            (char *)"a2m",
+            (char *)"--noini",
+        };
+        char *argv_cli[] = {
+            (char *)"a2m",
+            (char *)"--noini",
+            (char *)"--kbdjoy",
+            (char *)"1",
+            (char *)"--kbdjoy-layout",
+            (char *)"wasd",
+        };
+
+        expect_true(
+            "kbdjoy default load",
+            app_options_load_startup(
+                &options,
+                (int)(sizeof(argv_default) / sizeof(argv_default[0])),
+                argv_default));
+        expect_true("kbdjoy default off", options.keyboard_joystick_port == 0);
+        expect_true(
+            "kbdjoy default layout numpad",
+            options.keyboard_joystick_layout != NULL &&
+                strcmp(options.keyboard_joystick_layout, "numpad") == 0);
+        app_options_destroy(&options);
+
+        expect_true(
+            "kbdjoy cli load",
+            app_options_load_startup(
+                &options,
+                (int)(sizeof(argv_cli) / sizeof(argv_cli[0])),
+                argv_cli));
+        expect_true("kbdjoy cli stick 1", options.keyboard_joystick_port == 1);
+        expect_true(
+            "kbdjoy cli layout wasd",
+            options.keyboard_joystick_layout != NULL &&
+                strcmp(options.keyboard_joystick_layout, "wasd") == 0);
+        app_options_destroy(&options);
+    }
+
     printf("OK app_options_mounts\n");
     return 0;
 }

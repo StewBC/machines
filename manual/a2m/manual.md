@@ -1640,8 +1640,8 @@ below the tab body on every tab.
 
 The Keyboard Joystick stick selector matches the runtime **Shift+Alt+1** /
 **Shift+Alt+2** assignment; either place can change the active stick. Change the
-layout here or with **Shift+Alt+M**. Default at first launch is Stick 1 / Numpad so
-titles that expect a gameport have a keyboard stick without a pad.
+layout here or with **Shift+Alt+M**. Default is Off; the layout default is Numpad
+when the stick is enabled.
 
 ### Emulator
 
@@ -1771,7 +1771,7 @@ Presence of an SSC implies the ImageWriter II sink (there is no `[printer] enabl
 | Key | Value |
 |-----|-------|
 | `keyboard_joystick_layout` | `numpad` or `wasd` (default `numpad`) |
-| `keyboard_joystick_port` | `0` (disabled), `1`, or `2` (default `1`) |
+| `keyboard_joystick_port` | `0` (disabled), `1`, or `2` (default `0`) |
 | `keyboard_joystick_swap_buttons` | `true`/`false`; Space=BUTN0 and Option=BUTN1 while the stick is on |
 
 The stick can also be set for one launch with `--kbdjoy <0|1|2>`, and the layout with
@@ -1981,8 +1981,8 @@ Host function keys are product-shell shortcuts and are not forwarded to the Appl
 
 ### Keyboard Joystick
 
-The host keyboard can also act as an Apple gameport stick. Default at first launch is
-**Stick 1** / **Numpad**. Assign it with **Shift+Alt+1** / **Shift+Alt+2**, the
+The host keyboard can also act as an Apple gameport stick. It is disabled by
+default; assign it with **Shift+Alt+1** / **Shift+Alt+2**, the
 Keyboard Joystick control in the Configure dialog, or `--kbdjoy`.
 
 | Layout | Directions | Diagonals | Fire 0 | Fire 1 |
