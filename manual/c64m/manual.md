@@ -192,8 +192,9 @@ the same second).
 
 Enable with `--printer`, INI `[printer] enabled=true`, or the green/red power LED on
 the **Misc -> Machine** printer row (see **Emulator Controls**). Choose the IEC
-address with `--printer-device 4|5` / `[printer] device` (default 4). Misc -> Machine
-shows that number on the flush button. Choose the output directory with
+address with `--printer-device 4|5` / `[printer] device` / Configure **Machine ->
+Peripherals -> MPS-803 Device** (default 4). Misc -> Machine shows that number on the
+flush button. Choose the output directory with
 `--printer-dir` / `[printer] output_dir` / Configure **Paths -> printer**. Format is
 **`bmp` only** until a later release unlocks PNG/PDF. Only one printer is attached:
 device 4 or 5, not both.
@@ -1008,7 +1009,7 @@ drive controls:
 `[printer] enabled` / `--printer` flag). Click to toggle.
 
 **[4]** or **[5]** - Force flush. The label is the configured IEC address
-(`[printer] device` / `--printer-device`, default 4). If the LED is red, soft-powers
+(`[printer] device` / `--printer-device` / Configure **MPS-803 Device**, default 4). If the LED is red, soft-powers
 on first (like **[8]** / **[9]**), then flushes. The status flashes **Flush** briefly
 so the button always answers, even when the page was already clean (no-op). Steady
 states are **Clean** and **Dirty**. Control-port `printer-flush` is the same flush
@@ -1738,14 +1739,16 @@ other General settings apply immediately when you press **[OK]** or **[Save INI 
 | Base address      | `$DE00` (default) or `$DF00` |
 | Interrupt         | `None` (polled), `NMI`, or `IRQ` |
 | Pace to baud rate | When on, gate TX/RX holding to the configured baud; off delivers ASAP |
+| MPS-803 Device    | IEC address `4` (default) or `5`; same as `[printer] device` / `--printer-device` |
 
 MPS-803 enable/disable lives on the Misc -> Machine printer row LED (and CLI/INI), not
-in Configure. IEC address is `[printer] device` / `--printer-device` (4 or 5, default 4).
-Host page output still uses Paths -> printer (default `prints`, `bmp` only in v1). SwiftLink Enable can be refused after Apply if a mounted cartridge already
-claims the same I/O page (IO1 mappers at `$DE00`, Super Games at `$DF00`); the runtime
-publishes an error event and leaves the cart as-is. See **SwiftLink / Turbo232**.
-Emulate 1541 and the other Peripherals settings apply immediately when you press
-**[OK]** or **[Save INI now]**.
+in Configure. The IEC address combo above applies live on **[OK]** / **[Save INI now]**
+and is stored as `[printer] device`. Host page output still uses Paths -> printer
+(default `prints`, `bmp` only in v1). SwiftLink Enable can be refused after Apply if a
+mounted cartridge already claims the same I/O page (IO1 mappers at `$DE00`, Super Games
+at `$DF00`); the runtime publishes an error event and leaves the cart as-is. See
+**SwiftLink / Turbo232**. Emulate 1541 and the other Peripherals settings apply
+immediately when you press **[OK]** or **[Save INI now]**.
 
 #### Input
 

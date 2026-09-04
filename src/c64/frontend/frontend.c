@@ -2302,6 +2302,7 @@ static void frontend_draw_config_machine_peripherals_tab(
     static const char *const base_items[] = { "$DE00", "$DF00" };
     static const char *const irq_items[] = { "None", "NMI", "IRQ" };
     static const char *const irq_values[] = { "none", "nmi", "irq" };
+    static const char *const printer_device_items[] = { "4", "5" };
     int selected;
     int next;
 
@@ -2359,6 +2360,21 @@ static void frontend_draw_config_machine_peripherals_tab(
         ctx,
         "Pace to baud rate",
         &dialog->edited.swiftlink_pace_baud);
+
+    nk_layout_row_dynamic(ctx, 10.0f, 1);
+    nk_spacing(ctx, 1);
+
+    nk_layout_row_begin(ctx, NK_DYNAMIC, 22.0f, 2);
+    nk_layout_row_push(ctx, 0.30f);
+    nk_label(ctx, "MPS-803 Device", NK_TEXT_LEFT);
+    nk_layout_row_push(ctx, 0.70f);
+    selected = dialog->edited.printer_device == 5u ? 1 : 0;
+    next = nk_combo(
+        ctx, printer_device_items, 2, selected, 18, nk_vec2(120.0f, 100.0f));
+    if (next != selected) {
+        dialog->edited.printer_device = next == 1 ? 5u : 4u;
+    }
+    nk_layout_row_end(ctx);
 }
 
 static void frontend_draw_config_machine_input_tab(

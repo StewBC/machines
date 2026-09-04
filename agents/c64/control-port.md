@@ -270,8 +270,8 @@ N printer-flush
 `printer-flush` is fire-and-forget (`ok accepted=1`). It force-flushes a dirty
 MPS-803 page when the soft-attached printer is enabled (no-op if clean/blank/
 disabled). Enable/dir/format/device stay Configure/INI/CLI — no `set-printer` /
-`get-printer` in v1. IEC address is `[printer] device` / `--printer-device` (4 or 5,
-default 4).
+`get-printer` in v1. IEC address is `[printer] device` / `--printer-device` /
+Configure Machine -> Peripherals -> MPS-803 Device (4 or 5, default 4).
 
 Current fixed responses:
 
