@@ -894,9 +894,10 @@ static void apple2_reset_common(apple2_t *machine, bool cold)
         machine->state_flags |= A2S_OPEN_APPLE;
         machine->state_flags &= ~A2S_CLOSED_APPLE;
     } else {
-        /* Warm CTRL+RESET: clear text page; leave most RAM intact. */
+        /* Warm CTRL+RESET: clear text page; leave most RAM intact.
+           Open/Closed-Apple are live buttons. Autostart samples them after
+           reset (OA = firmware cold start, CA = Enhanced //e self-test). */
         memset(machine->ram_main + 0x0400, 0xA0, 0x400);
-        machine->state_flags &= ~(A2S_OPEN_APPLE | A2S_CLOSED_APPLE);
     }
 
     softswitch_setup_after_reset(machine);

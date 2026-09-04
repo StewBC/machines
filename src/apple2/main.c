@@ -3302,7 +3302,9 @@ int main(int argc, char **argv)
                     send_event_to_frontend = false;
                 } else if (sym == SDLK_F8) {
                     /* F8 stands in for CTRL+RESET (macOS eats Control+F*).
-                       Option+F8 = CTRL+Open-Apple+RESET (cold). Closed-Apple TBD. */
+                       Alt+F8 = CTRL+Open-Apple+RESET (cold, RAM wipe).
+                       Closed-Apple (Right Command/Windows) held at F8 is
+                       sampled by Autostart as the Enhanced //e self-test. */
                     if (!debug.inspecting) {
                         if (frontend_input_has_option_modifier(&event.key)) {
                             (void)runtime_client_cold_reset(client);

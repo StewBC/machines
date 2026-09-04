@@ -91,10 +91,42 @@ static void test_iiplus_boot_class(void)
     printf("rom_boot: ][+ reached text containing APPLE\n");
 }
 
+/* Closed-Apple + CTRL+RESET: CD ROM at $C2BB JMP $C600 (internal CXROM).
+   The RAM test writes patterns over the text page, so do not look for a
+   banner; PC in $C600-$C7FF with INTCXROM is the entry contract. */
+static void test_iie_self_test_enters(void)
+{
+    apple2_t m;
+    uint16_t pc;
+
+    if (!apple2_init(&m)) {
+        fail("init");
+    }
+    m.state_flags |= A2S_CLOSED_APPLE;
+    apple2_reset(&m);
+    if ((m.state_flags & A2S_CLOSED_APPLE) == 0) {
+        fail("warm reset dropped Closed-Apple");
+    }
+    if (!apple2_step_cycles(&m, 50000, NULL)) {
+        fail("self-test step");
+    }
+    pc = m.cpu.cpu.pc;
+    if (pc < 0xC600u || pc > 0xC7FFu) {
+        fprintf(stderr, "FAIL: self-test pc=%04x want C600-C7FF\n", pc);
+        exit(1);
+    }
+    if ((m.state_flags & A2S_CXSLOTROM_MB_ENABLE) == 0) {
+        fail("self-test INTCXROM");
+    }
+    apple2_shutdown(&m);
+    printf("rom_boot: //e self-test entered at $%04X\n", pc);
+}
+
 int main(void)
 {
     test_iie_boot_basic();
     test_iiplus_boot_class();
+    test_iie_self_test_enters();
     printf("rom_boot: all tests passed\n");
     return 0;
 }

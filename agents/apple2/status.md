@@ -49,7 +49,9 @@ binds in `src/main.c`:
 | Letters/digits/… | Apple keyboard when machine input focus |
 
 F8 stands in for CTRL+RESET (macOS often eats Control+F-keys). Alt+F8 adds
-Open-Apple for cold start.
+Open-Apple for cold start. Closed-Apple (Right Command/Windows) + F8 is the
+Enhanced //e self-test; warm reset preserves live OA/CA so Autostart can
+sample them.
 
 Keyboard stick (when on): KP0 (numpad) or Cmd/Win (WASD) and Space are fire
 keys (optional swap in Configure). Alt/Option is host-only. Solid-apple is

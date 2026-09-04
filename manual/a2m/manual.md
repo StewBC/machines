@@ -922,7 +922,9 @@ state: it resumes automatically if it was running, or remains paused if it was
 stopped. Any pending assembler-queued run is cancelled.
 
 **F8** is the keyboard stand-in for CTRL+RESET (macOS often eats Control+F-keys).
-**Alt+F8** is CTRL+Open-Apple+RESET (cold start / banner boot).
+**Alt+F8** is CTRL+Open-Apple+RESET (cold start / banner boot). Hold
+**Right Command** (macOS) or **Right Windows** (Closed-Apple) and press **F8**
+for the Enhanced //e built-in self-test.
 
 ## Debugger
 
@@ -1080,7 +1082,7 @@ introduces a named token. Names are case-insensitive. Up to 128 events per seque
 | `\[OA]` `\[OA+]` `\[OA-]` | Open-Apple pulse / hold / release |
 | `\[CA]` `\[CA+]` `\[CA-]` | Closed-Apple pulse / hold / release |
 | `\[B0]` `\[B1]` | Gameport buttons (with `+` / `-` hold forms) |
-| `\[RESET]` | Warm reset (CTRL+RESET) |
+| `\[RESET]` | Warm reset (CTRL+RESET); live OA/CA are kept (CA = //e self-test) |
 | `\[COLDRESET]` | Cold reset (CTRL+Open-Apple+RESET) |
 | `\[W:N]` / `\[WAIT:N]` | Wait N keypress units |
 | `\[J1X=n]` `\[J1Y=n]` | Stick 1 axes `0..255` (`128` = center); `J2` is stick 2 |
@@ -1096,6 +1098,7 @@ Examples:
 \[OA]Y               Open-Apple+Y, then release
 CATALOG\r            Type CATALOG and press Return
 \[W:4]\[RESET]       Wait, then warm reset
+\[CA+]\[RESET]       Enhanced //e self-test (hold Closed-Apple through reset)
 \[J1YU]\[B0]         Stick 1 up and fire
 ```
 
@@ -1938,6 +1941,7 @@ Keys listed here are intercepted by the emulator before reaching the Apple 2.
 | **Alt+B** | Toggle execute breakpoint at disassembly cursor (same list in live and time travel) |
 | **F8** | Warm reset (CTRL+RESET) |
 | **Alt+F8** | Cold reset (CTRL+Open-Apple+RESET) |
+| **Right Command/Windows + F8** | Enhanced //e self-test (Closed-Apple + CTRL+RESET) |
 | **Alt+T** | Cycle turbo mode |
 | **Shift+Alt+C** | Toggle Colour and the configured Mono CRT (White / Green / Amber) |
 | **Alt+Tab** | Cycle active view: Apple 2 -> Disassembly -> Misc -> Memory |

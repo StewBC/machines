@@ -25,7 +25,7 @@ is the gate; do not configure `-S src/apple2`.
 | `apple2_stub` | machine init/maps |
 | `cpu65_basic` | CPU |
 | `softswitch` | banking / LC / kbd / gameport |
-| `rom_boot` | //e and ][+ banners |
+| `rom_boot` | //e and ][+ banners; //e Closed-Apple reset enters self-test |
 | `video_beam` | VBL / floating bus / PAGE2 / LORES / DLORES / HGR / 80-col / DHGR / mono bits |
 | `video_block_paint` | full-frame block paint (text/hgr/lores/dlores) |
 | `video_pixel_address` | soft-switch-locked pixel → bank/ofs/adr (text/lores/hgr/dhgr/mixed) |
