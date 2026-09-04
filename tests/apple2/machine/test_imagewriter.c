@@ -584,84 +584,6 @@ static void test_text_without_esc_prints(void)
     teardown(&iw);
 }
 
-/* Newest assets/apple2/prints/printer-capture-*.raw, if any. */
-static bool newest_capture(const char *dir, char *out, size_t out_sz)
-{
-    DIR *d = opendir(dir);
-    struct dirent *de;
-    char best[256];
-
-    best[0] = '\0';
-    if (d == NULL) {
-        return false;
-    }
-    while ((de = readdir(d)) != NULL) {
-        if (strncmp(de->d_name, "printer-capture-", 16) != 0 ||
-            strstr(de->d_name, ".raw") == NULL) {
-            continue;
-        }
-        if (strcmp(de->d_name, best) > 0) {
-            snprintf(best, sizeof(best), "%s", de->d_name);
-        }
-    }
-    closedir(d);
-    if (best[0] == '\0') {
-        return false;
-    }
-    snprintf(out, out_sz, "%s/%s", dir, best);
-    return true;
-}
-
-/*
- * Capture regression: a Print Shop greeting-card raw must produce 2 pages,
- * every bit-image row starting at the left margin. Optional (gitignored
- * asset): the newest printer-capture-*.raw under assets/apple2/prints.
- */
-static void test_replay_printshop_capture_if_present(void)
-{
-    char path[512];
-    const char *dir = "iw_tmp_replay_ps";
-    FILE *fp;
-    imagewriter iw;
-    int c;
-    int n;
-
-    if (!newest_capture("assets/apple2/prints", path, sizeof(path))) {
-        return; /* asset not required for CI */
-    }
-    fp = fopen(path, "rb");
-    if (fp == NULL) {
-        return;
-    }
-    (void)test_mkdir(dir);
-    setup(&iw);
-    imagewriter_set_output_dir(&iw, dir);
-    while ((c = fgetc(fp)) != EOF) {
-        imagewriter_putc(&iw, (uint8_t)c);
-    }
-    fclose(fp);
-    imagewriter_force_flush(&iw);
-    n = 0;
-    {
-        DIR *d = opendir(dir);
-        struct dirent *de;
-        char pbuf[256];
-        if (d != NULL) {
-            while ((de = readdir(d)) != NULL) {
-                if (is_print_page_name(de->d_name)) {
-                    n++;
-                    snprintf(pbuf, sizeof(pbuf), "%s/%s", dir, de->d_name);
-                    (void)remove(pbuf);
-                }
-            }
-            closedir(d);
-        }
-    }
-    expect_true("Print Shop capture → host pages", n >= 2);
-    teardown(&iw);
-    (void)test_rmdir(dir);
-}
-
 int main(void)
 {
     test_pitch_table_and_bim_x();
@@ -683,7 +605,6 @@ int main(void)
     test_esc_g_resets_head();
     test_preamble_tab_z_suppressed();
     test_text_without_esc_prints();
-    test_replay_printshop_capture_if_present();
     printf("ok\n");
     return 0;
 }

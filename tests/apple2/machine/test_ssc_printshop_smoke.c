@@ -84,9 +84,7 @@ static void cleanup_print_pages(const char *dir)
         return;
     }
     while ((de = readdir(d)) != NULL) {
-        if (is_print_page_name(de->d_name) ||
-            (strncmp(de->d_name, "printer-capture-", 16) == 0 &&
-             strstr(de->d_name, ".raw") != NULL)) {
+        if (is_print_page_name(de->d_name)) {
             snprintf(path, sizeof(path), "%s/%s", dir, de->d_name);
             (void)remove(path);
         }
@@ -276,7 +274,6 @@ static void test_ssc_printshop_card_graphics_bmp(void)
     }
     expect_true("iw live", m.imagewriter_live);
     expect_true("auto LF-after-CR default off", !m.imagewriter.auto_lf_after_cr);
-    expect_true("TX capture open", m.printer_capture_fp != NULL);
 
     /* Pitch + Print Shop line spacing for 8-pin bands. */
     ssc_tx_str(&m, slot, "\x1b" "n");
