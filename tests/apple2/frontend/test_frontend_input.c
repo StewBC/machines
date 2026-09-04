@@ -68,6 +68,42 @@ int main(void)
         return 1;
     }
 
+    expect_key(
+        "Open-Apple",
+        &mapper,
+        SDLK_LGUI,
+        SDL_SCANCODE_LGUI,
+        HOST_KEY_OPEN_APPLE);
+    expect_key(
+        "Closed-Apple",
+        &mapper,
+        SDLK_RGUI,
+        SDL_SCANCODE_RGUI,
+        HOST_KEY_CLOSED_APPLE);
+
+    {
+        SDL_KeyboardEvent event;
+        frontend_input_action action;
+        size_t count;
+
+        memset(&event, 0, sizeof(event));
+        event.type = SDL_KEYDOWN;
+        event.keysym.sym = SDLK_LALT;
+        event.keysym.scancode = SDL_SCANCODE_LALT;
+        count = frontend_input_map_keyboard_event(&mapper, &event, &action, 1u);
+        if (count != 0u) {
+            fprintf(stderr, "FAIL: Left-Alt must not map to the Apple II\n");
+            return 1;
+        }
+        event.keysym.sym = SDLK_RALT;
+        event.keysym.scancode = SDL_SCANCODE_RALT;
+        count = frontend_input_map_keyboard_event(&mapper, &event, &action, 1u);
+        if (count != 0u) {
+            fprintf(stderr, "FAIL: Right-Alt must not map to the Apple II\n");
+            return 1;
+        }
+    }
+
     printf("ok frontend input\n");
     return 0;
 }

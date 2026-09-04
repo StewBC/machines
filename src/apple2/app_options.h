@@ -140,7 +140,7 @@ typedef struct app_options {
     int inspector_memory_mb;
     /* Host-keyboard joystick: layout name ("numpad" or "wasd") and the Apple
        gameport stick it drives (0 = disabled, 1 or 2 = active).
-       swap_buttons: when stick is on, Space↔Option (FIRE2↔FIRE) for ergonomics. */
+       swap_buttons: when stick is on, Space↔fire0 (FIRE2↔FIRE) for ergonomics. */
     char *keyboard_joystick_layout;
     int keyboard_joystick_port;
     bool keyboard_joystick_swap_buttons;

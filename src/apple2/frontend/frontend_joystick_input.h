@@ -11,16 +11,17 @@
  * layout. Product converts that mask to Apple paddle axes (maxed cardinals /
  * center) + buttons via frontend_joystick_apple_state().
  *
- * While the stick is assigned, Option/Left-Alt is consumed as a fire key (not
- * as Open-Apple). With stick off, LALT/RALT still set A2S_OPEN/CLOSED_APPLE.
- * swap_buttons exchanges FIRE↔FIRE2 (Space primary, Option secondary).
+ * Fire 0 is KP0 (numpad) or Left Command/Windows (WASD). Space is fire 1.
+ * Alt/Option is a host modifier and is never a fire key. Open/Closed-Apple
+ * are Left/Right Command (macOS) or Windows keys. swap_buttons exchanges
+ * FIRE↔FIRE2 (Space primary).
  */
 enum {
     FRONTEND_JOYSTICK_UP     = 0x01,
     FRONTEND_JOYSTICK_DOWN   = 0x02,
     FRONTEND_JOYSTICK_LEFT   = 0x04,
     FRONTEND_JOYSTICK_RIGHT  = 0x08,
-    FRONTEND_JOYSTICK_FIRE   = 0x10, /* logical fire 0 (Option/KP0; → BUTN0 unless swap) */
+    FRONTEND_JOYSTICK_FIRE   = 0x10, /* logical fire 0 (KP0 / Cmd-Win; → BUTN0 unless swap) */
     FRONTEND_JOYSTICK_FIRE2  = 0x20  /* logical fire 1 (Space; → BUTN1 unless swap) */
 };
 
@@ -34,19 +35,19 @@ enum {
 };
 
 enum {
-    /* Largest layout (numpad: 8 dirs + KP0 + Space + Option). */
-    FRONTEND_JOYSTICK_MAX_BINDINGS = 11
+    /* Largest layout (numpad: 8 dirs + KP0 + Space). */
+    FRONTEND_JOYSTICK_MAX_BINDINGS = 10
 };
 
 typedef enum frontend_joystick_layout {
-    FRONTEND_JOYSTICK_LAYOUT_NUMPAD = 0, /* KP dirs; KP0/Option=fire0; Space=fire1 */
-    FRONTEND_JOYSTICK_LAYOUT_WASD        /* WASD; Option=fire0; Space=fire1 */
+    FRONTEND_JOYSTICK_LAYOUT_NUMPAD = 0, /* KP dirs; KP0=fire0; Space=fire1 */
+    FRONTEND_JOYSTICK_LAYOUT_WASD        /* WASD; Cmd/Win=fire0; Space=fire1 */
 } frontend_joystick_layout;
 
 typedef struct frontend_joystick_input {
     frontend_joystick_layout layout;
     unsigned port;    /* 0 = unassigned/disabled; 1 or 2 = gameport stick */
-    bool     swap_buttons; /* when true, Space→BUTN0 and Option→BUTN1 */
+    bool     swap_buttons; /* when true, Space→BUTN0 and fire0→BUTN1 */
     uint8_t  inputs;  /* current accumulated FRONTEND_JOYSTICK_* mask */
     bool     key_down[FRONTEND_JOYSTICK_MAX_BINDINGS]; /* per active binding */
 } frontend_joystick_input;
@@ -65,7 +66,7 @@ void frontend_joystick_set_layout(frontend_joystick_input *joystick,
 /* Assign to a host port (0 disables). Disabling releases all held keys. */
 void frontend_joystick_set_port(frontend_joystick_input *joystick, unsigned port);
 
-/* Swap logical fire keys: default Option/KP0=BUTN0, Space=BUTN1; swapped is
+/* Swap logical fire keys: default fire0=BUTN0, Space=BUTN1; swapped is
  * the reverse (WASD-friendly). No-op if joystick is NULL. */
 void frontend_joystick_set_swap_buttons(frontend_joystick_input *joystick,
                                         bool swap_buttons);

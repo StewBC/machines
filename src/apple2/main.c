@@ -403,12 +403,10 @@ static void sdl_apple_gameport_publish(
     }
 }
 
-/* Option/Alt is both a host modifier (Alt+Shift+1 stick assign) and, while the
-   keyboard stick is on, a fire key. Sequence that stuck BUTN0:
-     stick off → LALT down sets A2S_OPEN_APPLE
-     Alt+Shift+1 enables stick
-     LALT up is consumed by the stick (never clears OA)
-   Release solid-apple whenever stick ownership changes or the stick eats Alt. */
+/* Command/Windows is Open-Apple, and WASD stick fire 0. Sequence that stuck
+   BUTN0: stick off → LGUI down sets A2S_OPEN_APPLE; Alt+Shift+1 enables stick;
+   LGUI up is consumed as fire (never clears OA). Release solid-apple whenever
+   stick ownership changes or the stick eats Command/Windows. */
 static void release_solid_apple_keys(runtime_client *client)
 {
     if (client == NULL) {
@@ -434,9 +432,9 @@ static void joystick_handle_key_and_solid_apple(
         client != NULL) {
         sdl_apple_gameport_publish(controllers, client);
     }
-    /* Stick owns Option as fire: keep A2S_OPEN/CLOSED_APPLE from sticking. */
+    /* Stick owns Command/Windows as fire: keep solid-apple from sticking. */
     sym = event->keysym.sym;
-    if (sym == SDLK_LALT || sym == SDLK_RALT) {
+    if (sym == SDLK_LGUI || sym == SDLK_RGUI) {
         release_solid_apple_keys(client);
     }
 }
@@ -3207,7 +3205,6 @@ int main(int argc, char **argv)
                     (void)app_options_set_string(
                         &options.keyboard_joystick_layout,
                         frontend_joystick_layout_to_string(next_layout));
-                    /* Chord holds Option; don't leave Open-Apple latched. */
                     release_solid_apple_keys(client);
                     controllers.published = false;
                     sdl_apple_gameport_publish(&controllers, client);
@@ -3229,8 +3226,6 @@ int main(int argc, char **argv)
                         kbd_joystick.port == requested ? 0u : requested;
                     frontend_joystick_set_port(&kbd_joystick, next);
                     options.keyboard_joystick_port = (int)next;
-                    /* LALT was pressed while stick was off → OA set; stick now
-                       owns Alt so key-up would never clear it. Release here. */
                     release_solid_apple_keys(client);
                     controllers.published = false;
                     sdl_apple_gameport_publish(&controllers, client);
@@ -3402,6 +3397,7 @@ int main(int argc, char **argv)
                            frontend_input_has_option_modifier(&event.key)) {
                     (void)runtime_client_cycle_turbo_speed(client);
                     (void)runtime_client_request_machine_state(client);
+                    suppress_text_after_option_chord = true;
                     send_event_to_frontend = false;
                 } else if (ui_visible && frontend_handle_view_cycle_key(ui, &event.key)) {
                     send_event_to_frontend = false;

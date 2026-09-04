@@ -51,9 +51,9 @@ binds in `src/main.c`:
 F8 stands in for CTRL+RESET (macOS often eats Control+F-keys). Alt+F8 adds
 Open-Apple for cold start.
 
-Keyboard stick (when on): Option/KP0 and Space are fire keys (optional swap in
-Configure). Solid-apple is released on stick-assign chords so Alt+Shift+1 does
-not latch BUTN0.
+Keyboard stick (when on): KP0 (numpad) or Cmd/Win (WASD) and Space are fire
+keys (optional swap in Configure). Alt/Option is host-only. Solid-apple is
+released on stick-assign chords so Alt+Shift+1 does not latch BUTN0.
 
 ## What works (evidence)
 

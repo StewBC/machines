@@ -2440,12 +2440,12 @@ static void frontend_draw_config_machine_tab(frontend *ui, frontend_config_dialo
     }
     nk_layout_row_end(ctx);
 
-    /* While stick is on: Option=fire0 / Space=fire1 by default (//e OA role).
-       Swap puts Space on BUTN0 for WASD ergonomics. Off when stick is Off. */
+    /* While stick is on: fire0=KP0 or Cmd/Win, Space=fire1. Swap puts Space
+       on BUTN0 for WASD ergonomics. Off when stick is Off. */
     nk_layout_row_dynamic(ctx, 22.0f, 1);
     frontend_checkbox_bool(
         ctx,
-        "Swap fire keys (Space = button 0, Option = button 1)",
+        "Swap fire keys (Space = button 0)",
         &dialog->edited.keyboard_joystick_swap_buttons);
 
     nk_layout_row_begin(ctx, NK_DYNAMIC, 22.0f, 2);

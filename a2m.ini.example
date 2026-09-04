@@ -100,7 +100,7 @@ original_del = false
 ; Keyboard stick: 0=off (default), 1 or 2 = gameport stick; layout numpad|wasd
 ; keyboard_joystick_port = 0
 ; keyboard_joystick_layout = wasd
-; Swap Space↔Option fire while stick is on (Space=BUTN0, Option=BUTN1)
+; Swap Space↔fire0 while stick is on (Space=BUTN0, fire0=BUTN1)
 ; keyboard_joystick_swap_buttons = false
 
 [assembler]

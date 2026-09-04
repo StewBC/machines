@@ -98,12 +98,12 @@ static void map_keydown(
     case SDLK_RCTRL:
         add_key(chord, HOST_KEY_CTRL, true);
         break;
-    case SDLK_LALT:
-        /* //e Open-Apple → $C061 / BUTN0 (a2m: Left-ALT). */
+    case SDLK_LGUI:
+        /* //e Open-Apple → $C061 / BUTN0. Alt/Option is host-only. */
         add_key(chord, HOST_KEY_OPEN_APPLE, true);
         break;
-    case SDLK_RALT:
-        /* //e Closed-Apple → $C062 / BUTN1 (a2m: Right-ALT). */
+    case SDLK_RGUI:
+        /* //e Closed-Apple → $C062 / BUTN1. */
         add_key(chord, HOST_KEY_CLOSED_APPLE, true);
         break;
     case SDLK_SPACE:

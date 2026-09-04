@@ -1632,7 +1632,7 @@ below the tab body on every tab.
 | Model | `//e Enhanced` or `][+`; applying a change power-cycles the machine |
 | Slot 1-7 | Card in that slot: `Empty`, `Disk II`, `SmartPort`, `Mockingboard`, or `Super Serial`. Only one Mockingboard and one Super Serial Card are allowed; choosing a second slot clears the first. Installing Super Serial implies the ImageWriter II host-page sink. Applying a changed layout power-cycles the machine |
 | Keyboard Joystick | `Off`, `Stick 1`, or `Stick 2`, plus the `Numpad` or `WASD` key layout |
-| Swap fire keys | While the stick is on: Space is button 0 and Option is button 1 (WASD-friendly). Off when the stick is Off |
+| Swap fire keys | While the stick is on: Space is button 0 and fire 0 is button 1 (WASD-friendly). Off when the stick is Off |
 | Turbo | Comma-separated ladder, e.g. `1,max` or `1,4,8,max` |
 | History off on max | Pause only the CPU flight recorder while turbo is `max` (faster free-run) |
 | Inspector off on max (wipe Record) | When on: wipe Inspector Record (+ film) on enter `max`; restore empty Record on leave if it was on (default off) |
@@ -1773,7 +1773,7 @@ Presence of an SSC implies the ImageWriter II sink (there is no `[printer] enabl
 |-----|-------|
 | `keyboard_joystick_layout` | `numpad` or `wasd` (default `numpad`) |
 | `keyboard_joystick_port` | `0` (disabled), `1`, or `2` (default `0`) |
-| `keyboard_joystick_swap_buttons` | `true`/`false`; Space=BUTN0 and Option=BUTN1 while the stick is on |
+| `keyboard_joystick_swap_buttons` | `true`/`false`; Space=BUTN0 and fire 0=BUTN1 while the stick is on |
 
 The stick can also be set for one launch with `--kbdjoy <0|1|2>`, and the layout with
 `--kbdjoy-layout <numpad|wasd>`.
@@ -1967,8 +1967,9 @@ The host keyboard maps to the Apple 2 keyboard. Common mappings:
 | Letters A-Z | A-Z (//e keeps case; ][+ is uppercase) |
 | Digits 0-9 | 0-9 |
 | Shift + digit / symbol | The shifted Apple character (`!`, `@`, and so on) |
-| Left Alt / Option | Open-Apple (`$C061` / BUTN0), unless the keyboard stick is on |
-| Right Alt | Closed-Apple (`$C062` / BUTN1) |
+| Left Command / Windows | Open-Apple (`$C061` / BUTN0) |
+| Right Command / Windows | Closed-Apple (`$C062` / BUTN1) |
+| Left/Right Alt / Option | Host shortcuts only; not forwarded to the Apple 2 |
 | Ctrl | CONTROL |
 | Escape | ESC |
 | Tab | TAB |
@@ -1988,12 +1989,12 @@ Keyboard Joystick control in the Configure dialog, or `--kbdjoy`.
 
 | Layout | Directions | Diagonals | Fire 0 | Fire 1 |
 |--------|------------|-----------|--------|--------|
-| `numpad` | Keypad 8 / 2 / 4 / 6 | Keypad 7 / 9 / 1 / 3 | Option / Keypad 0 | Space |
-| `wasd` | W / S / A / D | (hold two keys) | Option | Space |
+| `numpad` | Keypad 8 / 2 / 4 / 6 | Keypad 7 / 9 / 1 / 3 | Keypad 0 | Space |
+| `wasd` | W / S / A / D | (hold two keys) | Command / Windows | Space |
 
 **Swap fire keys** (Configure, or INI `keyboard_joystick_swap_buttons`) makes Space
-primary and Option secondary while the stick is on. Stick off: Option is Open-Apple
-again.
+primary and fire 0 secondary while the stick is on. Alt/Option is never a fire
+key; it stays a host modifier (turbo, Help, and the other Alt chords).
 
 The `numpad` keys are not Apple keys, so that layout never interferes with typing.
 The `wasd` keys are Apple keys, so while the stick is assigned they drive the

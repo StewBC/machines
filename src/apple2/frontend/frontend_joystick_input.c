@@ -20,20 +20,20 @@ static const joystick_binding s_numpad_bindings[] = {
     {SDLK_KP_1, FRONTEND_JOYSTICK_DOWN | FRONTEND_JOYSTICK_LEFT},
     {SDLK_KP_3, FRONTEND_JOYSTICK_DOWN | FRONTEND_JOYSTICK_RIGHT},
     {SDLK_KP_0, FRONTEND_JOYSTICK_FIRE},   /* logical fire 0 */
-    {SDLK_LALT, FRONTEND_JOYSTICK_FIRE},   /* Option: fire 0 (//e OA role) */
     {SDLK_SPACE, FRONTEND_JOYSTICK_FIRE2}, /* logical fire 1 */
 };
 
 /* W/A/S/D are letter keys, so while assigned they are stolen from the Apple
  * keyboard (the accepted trade-off for the WASD layout).
- * Option = logical fire 0, Space = fire 1; swap_buttons exchanges them for
- * ergonomic WASD (Space primary). */
+ * Command/Windows = logical fire 0 (same line as Open-Apple), Space = fire 1;
+ * swap_buttons exchanges them for ergonomic WASD (Space primary).
+ * Alt/Option is a host modifier and is never a fire key. */
 static const joystick_binding s_wasd_bindings[] = {
     {SDLK_w, FRONTEND_JOYSTICK_UP},
     {SDLK_s, FRONTEND_JOYSTICK_DOWN},
     {SDLK_a, FRONTEND_JOYSTICK_LEFT},
     {SDLK_d, FRONTEND_JOYSTICK_RIGHT},
-    {SDLK_LALT, FRONTEND_JOYSTICK_FIRE},
+    {SDLK_LGUI, FRONTEND_JOYSTICK_FIRE},
     {SDLK_SPACE, FRONTEND_JOYSTICK_FIRE2},
 };
 
@@ -185,7 +185,7 @@ void frontend_joystick_apple_state(const frontend_joystick_input *joystick,
                (mask & FRONTEND_JOYSTICK_UP) == 0u) {
         y = FRONTEND_JOYSTICK_APPLE_AXIS_MAX;
     }
-    /* Default: FIRE→BUTN0, FIRE2→BUTN1. Swap: Space primary, Option secondary. */
+    /* Default: FIRE→BUTN0, FIRE2→BUTN1. Swap: Space primary, fire0 secondary. */
     if ((mask & FRONTEND_JOYSTICK_FIRE) != 0u) {
         buttons |= swap ? 0x02u : 0x01u;
     }

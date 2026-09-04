@@ -147,10 +147,11 @@ Layout default is numpad.
 
 | Default | Swap (`keyboard_joystick_swap_buttons`) |
 |---------|----------------------------------------|
-| Option/KP0 → BUTN0, Space → BUTN1 | Space → BUTN0, Option → BUTN1 |
+| KP0 or Cmd/Win → BUTN0, Space → BUTN1 | Space → BUTN0, fire 0 → BUTN1 |
 
-While stick is **on**, Option is a fire key (not latched Open-Apple). Host
-Alt+Shift+0/1/2 clears solid-apple so chords do not stick BUTN0.
+Alt/Option is host-only (never Open-Apple, never fire). Open/Closed-Apple are
+Left/Right Command (macOS) or Windows keys. Host Alt+Shift+0/1/2 clears
+solid-apple so stick-assign chords do not stick BUTN0.
 
 ## Disk LEDs
 
