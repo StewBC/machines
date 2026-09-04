@@ -6,7 +6,7 @@ Use this checklist when you have a local Apple Print Shop disk.
 
 ## Setup
 
-1. Install an SSC in a free slot (Configure → Machine, or `[Slots] slotN = ssc`).
+1. Install an SSC in a free slot (`--ssc 1`, Configure → Machine, or `[Slots] slotN = ssc`).
 2. Confirm printer output dir (`prints/` default, or `--printer-dir` / `[printer] output_dir`).
 3. Boot DOS / ProDOS as required by your disk.
 

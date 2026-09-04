@@ -34,6 +34,7 @@ model = enh
 ; empty | diskii | smartport | mockingboard | ssc
 ; One Mockingboard / one Super Serial Card total (placing a second clears the old slot).
 ; Presence of SSC implies the ImageWriter II sink (no [printer] enabled=).
+; CLI: --ssc N (0=disable)
 ; slot1 = ssc
 slot1 = empty
 slot2 = empty

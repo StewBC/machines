@@ -2221,6 +2221,7 @@ static bool parse_command_line_overrides(app_options *options, int argc, char **
     int control_port = 0;
     int headless = 0;
     int mb_slot = -1;
+    int ssc_slot = -1;
     int kbdjoy_port = -1;
     const char *breakpoint = NULL;
     const char *ini_path = NULL;
@@ -2287,6 +2288,8 @@ static bool parse_command_line_overrides(app_options *options, int argc, char **
         OPT_STRING('\0', "sna", &sna_path, "load machine snapshot at startup", NULL, 0, 0),
         OPT_STRING('m', "model", &model_s, "machine model: enh (//e Enhanced) or plus (][+)", NULL, 0, 0),
         OPT_INTEGER('\0', "mb-slot", &mb_slot, "Mockingboard slot 1..7 (default 4; 0=disable)", NULL, 0, 0),
+        OPT_INTEGER('\0', "ssc", &ssc_slot,
+                    "Super Serial Card slot 1..7 (0=disable)", NULL, 0, 0),
         OPT_STRING('\0', "printer-dir", &printer_dir,
                    "ImageWriter output directory when SSC installed (default prints)",
                    NULL, 0, 0),
@@ -2401,6 +2404,20 @@ static bool parse_command_line_overrides(app_options *options, int argc, char **
         }
         if (mb_slot >= 1) {
             (void)app_options_set_slot_card(options, mb_slot, APP_SLOT_CARD_MOCKINGBOARD);
+        }
+    }
+    if (ssc_slot >= 0) {
+        if (ssc_slot > 7) {
+            fprintf(stderr, "a2m: --ssc must be 0..7\n");
+            return false;
+        }
+        if (options->ssc_slot >= 1 && options->ssc_slot <= 7 &&
+            options->slot_cards[options->ssc_slot] == APP_SLOT_CARD_SSC) {
+            (void)app_options_set_slot_card(
+                options, options->ssc_slot, APP_SLOT_CARD_EMPTY);
+        }
+        if (ssc_slot >= 1) {
+            (void)app_options_set_slot_card(options, ssc_slot, APP_SLOT_CARD_SSC);
         }
     }
     if (symbols_s != NULL && symbols_s[0] != '\0') {

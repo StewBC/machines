@@ -826,6 +826,71 @@ int main(void)
         app_options_destroy(&options);
     }
 
+    {
+        char *argv_ssc[] = {
+            (char *)"a2m",
+            (char *)"--noini",
+            (char *)"--ssc",
+            (char *)"1",
+        };
+        char *argv_ssc_off[] = {
+            (char *)"a2m",
+            (char *)"--noini",
+            (char *)"--ssc",
+            (char *)"0",
+        };
+        char *argv_ssc_replace_mb[] = {
+            (char *)"a2m",
+            (char *)"--noini",
+            (char *)"--ssc",
+            (char *)"4",
+        };
+        char *argv_ssc_bad[] = {
+            (char *)"a2m",
+            (char *)"--noini",
+            (char *)"--ssc",
+            (char *)"8",
+        };
+
+        expect_true(
+            "ssc slot 1",
+            app_options_load_startup(
+                &options, (int)(sizeof(argv_ssc) / sizeof(argv_ssc[0])), argv_ssc));
+        expect_true("ssc_slot 1", options.ssc_slot == 1);
+        expect_true("slot 1 SSC", options.slot_cards[1] == APP_SLOT_CARD_SSC);
+        expect_true("mb still 4", options.mb_slot == 4);
+        app_options_destroy(&options);
+
+        expect_true(
+            "ssc 0 load",
+            app_options_load_startup(
+                &options,
+                (int)(sizeof(argv_ssc_off) / sizeof(argv_ssc_off[0])),
+                argv_ssc_off));
+        expect_true("ssc stays off", options.ssc_slot == 0);
+        expect_true("slot 1 empty", options.slot_cards[1] == APP_SLOT_CARD_EMPTY);
+        app_options_destroy(&options);
+
+        expect_true(
+            "ssc replaces mb",
+            app_options_load_startup(
+                &options,
+                (int)(sizeof(argv_ssc_replace_mb) / sizeof(argv_ssc_replace_mb[0])),
+                argv_ssc_replace_mb));
+        expect_true("ssc_slot 4", options.ssc_slot == 4);
+        expect_true("slot 4 SSC", options.slot_cards[4] == APP_SLOT_CARD_SSC);
+        expect_true("mb off after ssc 4", options.mb_slot == 0);
+        app_options_destroy(&options);
+
+        expect_true(
+            "ssc 8 rejected",
+            !app_options_load_startup(
+                &options,
+                (int)(sizeof(argv_ssc_bad) / sizeof(argv_ssc_bad[0])),
+                argv_ssc_bad));
+        app_options_destroy(&options);
+    }
+
     printf("OK app_options_mounts\n");
     return 0;
 }

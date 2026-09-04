@@ -53,7 +53,7 @@ Snapshots: `apple2_snapshot_*` — [`snapshots.md`](snapshots.md).
 cards in 1–7. Selecting a second Mockingboard or second SSC clears the previous
 one.
 
-**SSC / ImageWriter (v1):** presence is the SSC slot only (`slotN = ssc` /
+**SSC / ImageWriter (v1):** presence is the SSC slot only (`--ssc N`, `slotN = ssc` /
 Configure **Super Serial**). Installing an SSC always sinks ACIA TX into the
 ImageWriter II mono rasterizer; there is no `[printer] enabled=` and no Misc
 soft-power toggle. Host pages go to `[printer] output_dir` (default `prints`,

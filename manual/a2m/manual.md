@@ -34,6 +34,7 @@ Common flags (see `--help` for the full list):
 | `--disk <spec>` / `-d` | Mount a Disk II image; `path` or `s6d0=path` (repeatable) |
 | `--hd <spec>` / `--smart` | Mount SmartPort media; image file or host folder; `path` or `s7d0=path` (repeatable) |
 | `--mb-slot N` | Mockingboard slot `1..7`; `0` disables (default slot 4) |
+| `--ssc N` | Super Serial Card slot `1..7`; `0` disables (default off) |
 | `--printer-dir <path>` | ImageWriter host page output directory (default `prints`) |
 | `--printer-format bmp` | Host page format (`bmp` only in v1) |
 | `--sna <file>` | Load a machine snapshot (`.a2state`) at startup |
@@ -164,9 +165,9 @@ page files. There is no separate printer enable flag and no Misc soft-power togg
 presence is the SSC slot only. Soft-disable means set that slot to Empty in
 **Configure -> Machine** (detach flushes a dirty page).
 
-Install the card from **Configure -> Machine** (slot combo **Super Serial**), or set
-`[Slots] slotN = ssc` in the INI. Only one SSC is allowed; choosing a second slot
-clears the first. Default layout has no SSC.
+Install the card from **Configure -> Machine** (slot combo **Super Serial**),
+`--ssc N`, or `[Slots] slotN = ssc` in the INI. Only one SSC is allowed; choosing
+a second slot clears the first. Default layout has no SSC. `--ssc 0` removes it.
 
 Pages are written as host BMP files under the configured output directory (default
 `prints`). Each flushed page is named `YYYYMMDD-HHMMSSXX.bmp` (local time; `XX` is a
@@ -1795,7 +1796,7 @@ dialog's Paths tab). Any missing key defaults to the current working directory.
 ### [printer]
 
 Used when an SSC is installed. Presence is `[Slots] slotN = ssc` (not an
-`enabled=` key). CLI: `--printer-dir`, `--printer-format`.
+`enabled=` key). CLI: `--ssc N`, `--printer-dir`, `--printer-format`.
 
 | Key | Value |
 |-----|-------|

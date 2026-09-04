@@ -61,12 +61,12 @@ not latch BUTN0.
 |------|----------|
 | Build / ctest | **82 green** - [`testing.md`](testing.md) |
 | Assembler | Misc → Assembler; `file=` HostFS; optional Auto-run; **MLI launch** gates auto-run on CPU-visible `$BF00 == $4C` (mutually exclusive with Reset). Sample: `samples/apple2/asm_mli_launch/` |
-| CLI / INI | model, mounts `sNdN` (multi-image queue), turbo MHz/`max`, `--video-display`, lifecycle, headless, `[DEBUG] break.*`, `--inspector` |
+| CLI / INI | model, mounts `sNdN` (multi-image queue), turbo MHz/`max`, `--video-display`, `--ssc N`, lifecycle, headless, `[DEBUG] break.*`, `--inspector` |
 | Turbo / step / reset | Alt+T (default ladder `1,max`); F10–F12 family; F8 / Alt+F8 |
 | Display | Full frame in display-only and F9 debugger |
 | Breakpoints | Exec + R/W, mapping, FAST/SLOW, TYPE, SWAP, INI, control RPC. [`breakpoints.md`](breakpoints.md) |
 | Disk II / SmartPort | Cards in slots 1–7; Configure live-applies model/cards via power-cycle reset; live insert/eject + slot boot; `[SmartPort] boot_slot=N`; Disk II queue/swap with dirty flush; ProDOS `$C0s4/5`; `$C800` host trap; **HostFS** folder volumes |
-| SSC / ImageWriter | One soft-present SSC (`[Slots] slotN=ssc` / Configure Super Serial); TX → ImageWriter II mono BMP under `prints/` (or `[printer] output_dir`); Misc Force flush + `printer-flush`; no Misc soft-power |
+| SSC / ImageWriter | One soft-present SSC (`--ssc N` / `[Slots] slotN=ssc` / Configure Super Serial); TX → ImageWriter II mono BMP under `prints/` (or `[printer] output_dir`); Misc Force flush + `printer-flush`; no Misc soft-power |
 | Gameport | Paddles, buttons, kbd stick, SDL pads, motor LEDs |
 | Control | `--control-port` A2M/16; `tools/a2m_control_client.py` (`Ctl`); `tools/a2m_coop_watch.py` |
 
