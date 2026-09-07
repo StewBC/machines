@@ -1,7 +1,7 @@
+#include "host_dir.h"
 #include "c64_printer.h"
 
 #include <ctype.h>
-#include <dirent.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -46,65 +46,65 @@ static bool is_print_page_name(const char *name)
 
 static int count_print_pages(const char *dir)
 {
-    DIR *d;
-    struct dirent *de;
+    host_dir *d;
+    const char *de;
     int n = 0;
 
-    d = opendir(dir);
+    d = host_dir_open(dir);
     if (d == NULL) {
         return 0;
     }
-    while ((de = readdir(d)) != NULL) {
-        if (is_print_page_name(de->d_name)) {
+    while ((de = host_dir_read(d)) != NULL) {
+        if (is_print_page_name(de)) {
             n++;
         }
     }
-    closedir(d);
+    host_dir_close(d);
     return n;
 }
 
 static bool find_print_page(const char *dir, char *out_name, size_t out_size)
 {
-    DIR *d;
-    struct dirent *de;
+    host_dir *d;
+    const char *de;
 
     if (out_name == NULL || out_size == 0u) {
         return false;
     }
     out_name[0] = '\0';
-    d = opendir(dir);
+    d = host_dir_open(dir);
     if (d == NULL) {
         return false;
     }
-    while ((de = readdir(d)) != NULL) {
-        if (is_print_page_name(de->d_name)) {
-            snprintf(out_name, out_size, "%s", de->d_name);
-            closedir(d);
+    while ((de = host_dir_read(d)) != NULL) {
+        if (is_print_page_name(de)) {
+            snprintf(out_name, out_size, "%s", de);
+            host_dir_close(d);
             return true;
         }
     }
-    closedir(d);
+    host_dir_close(d);
     return false;
 }
 
 static void cleanup_print_pages(const char *dir)
 {
-    DIR *d;
-    struct dirent *de;
+    host_dir *d;
+    const char *de;
     char path[1100];
 
-    d = opendir(dir);
+    d = host_dir_open(dir);
     if (d == NULL) {
         return;
     }
-    while ((de = readdir(d)) != NULL) {
-        if (!is_print_page_name(de->d_name)) {
+    while ((de = host_dir_read(d)) != NULL) {
+        if (!is_print_page_name(de)) {
             continue;
         }
-        snprintf(path, sizeof(path), "%s/%s", dir, de->d_name);
+        snprintf(path, sizeof(path), "%s/%s", dir, de);
         remove(path);
     }
-    closedir(d);
+    host_dir_close(d);
 }
 
 static void fail(const char *msg)

@@ -221,6 +221,7 @@ target_compile_features(${test_c64_printer_mps} PRIVATE c_std_99)
 
 target_link_libraries(${test_c64_printer_mps} PRIVATE
     ${machine}
+    shell
 )
 
 leftover_add_test(NAME printer_mps COMMAND ${test_c64_printer_mps})
@@ -233,6 +234,7 @@ target_compile_features(${test_c64_printer_kernal} PRIVATE c_std_99)
 
 target_link_libraries(${test_c64_printer_kernal} PRIVATE
     ${machine}
+    shell
 )
 
 leftover_add_test(NAME printer_kernal COMMAND ${test_c64_printer_kernal})
@@ -258,6 +260,7 @@ target_compile_features(${test_c64_hostfs_mount} PRIVATE c_std_99)
 target_link_libraries(${test_c64_hostfs_mount} PRIVATE
     ${machine}
     ${d64}
+    shell
 )
 
 leftover_add_test(NAME c64_hostfs_mount COMMAND ${test_c64_hostfs_mount})

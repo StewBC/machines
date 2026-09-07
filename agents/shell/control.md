@@ -34,3 +34,7 @@ Tests: `tests/shell/control/`. Shared framing does not mention
 
 Memory is a table of named sources, not a bitmask. C64 drives 8/9 are another
 bus. Leftover a2m `DRIVE8_MAP` aliases are gone; do not restore them.
+
+Fetch each product's memory-source table and count before calling the lookup
+helper. Passing `product_memory_sources(&n)` alongside `n` in the same argument
+list depends on unspecified C argument evaluation order and fails with GCC.

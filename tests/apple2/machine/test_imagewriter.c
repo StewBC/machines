@@ -1,7 +1,7 @@
+#include "host_dir.h"
 #include "imagewriter.h"
 
 #include <ctype.h>
-#include <dirent.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -45,22 +45,22 @@ static bool is_print_page_name(const char *name)
 
 static void cleanup_print_pages(const char *dir)
 {
-    DIR *d;
-    struct dirent *de;
+    host_dir *d;
+    const char *de;
     char path[1100];
 
-    d = opendir(dir);
+    d = host_dir_open(dir);
     if (d == NULL) {
         return;
     }
-    while ((de = readdir(d)) != NULL) {
-        if (!is_print_page_name(de->d_name)) {
+    while ((de = host_dir_read(d)) != NULL) {
+        if (!is_print_page_name(de)) {
             continue;
         }
-        snprintf(path, sizeof(path), "%s/%s", dir, de->d_name);
+        snprintf(path, sizeof(path), "%s/%s", dir, de);
         remove(path);
     }
-    closedir(d);
+    host_dir_close(d);
 }
 
 static void fail(const char *msg)
@@ -421,17 +421,17 @@ static void test_esc_t24_soft_page_break_after_bim(void)
     teardown(&iw);
     /* cleanup bmps */
     {
-        DIR *d = opendir(dir);
-        struct dirent *de;
+        host_dir *d = host_dir_open(dir);
+        const char *de;
         char path[256];
         if (d != NULL) {
-            while ((de = readdir(d)) != NULL) {
-                if (strstr(de->d_name, ".bmp") != NULL) {
-                    snprintf(path, sizeof(path), "%s/%s", dir, de->d_name);
+            while ((de = host_dir_read(d)) != NULL) {
+                if (strstr(de, ".bmp") != NULL) {
+                    snprintf(path, sizeof(path), "%s/%s", dir, de);
                     (void)remove(path);
                 }
             }
-            closedir(d);
+            host_dir_close(d);
         }
     }
     (void)test_rmdir(dir);

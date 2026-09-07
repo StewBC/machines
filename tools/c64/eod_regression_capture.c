@@ -2,6 +2,7 @@
 #include "runtime_client.h"
 #include "runtime_internal.h"
 #include "c64_bus.h"
+#include <SDL.h>
 
 #include <stdint.h>
 #include <stdio.h>
@@ -44,10 +45,7 @@ static int wait_for_event(
                 return 1;
             }
         }
-        {
-            const struct timespec pause = {0, 1000000};
-            nanosleep(&pause, NULL);
-        }
+        SDL_Delay(1);
     }
     return 0;
 }
@@ -87,10 +85,7 @@ static int run_until_pc(runtime_client *client, uint16_t address, int timeout_se
                 }
             }
         }
-        {
-            const struct timespec pause = {0, 1000000};
-            nanosleep(&pause, NULL);
-        }
+        SDL_Delay(1);
     }
     return 0;
 }

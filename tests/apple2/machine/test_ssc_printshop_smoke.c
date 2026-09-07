@@ -1,3 +1,4 @@
+#include "host_dir.h"
 /*
  * Print Shop–critical ImageWriter path through SSC ACIA TX (not putc-only).
  * No Apple Print Shop disk is required; the byte stream mirrors card graphics:
@@ -8,7 +9,6 @@
 #include "softswitch.h"
 
 #include <ctype.h>
-#include <dirent.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -75,46 +75,46 @@ static bool is_print_page_name(const char *name)
 
 static void cleanup_print_pages(const char *dir)
 {
-    DIR *d;
-    struct dirent *de;
+    host_dir *d;
+    const char *de;
     char path[1100];
 
-    d = opendir(dir);
+    d = host_dir_open(dir);
     if (d == NULL) {
         return;
     }
-    while ((de = readdir(d)) != NULL) {
-        if (is_print_page_name(de->d_name)) {
-            snprintf(path, sizeof(path), "%s/%s", dir, de->d_name);
+    while ((de = host_dir_read(d)) != NULL) {
+        if (is_print_page_name(de)) {
+            snprintf(path, sizeof(path), "%s/%s", dir, de);
             (void)remove(path);
         }
     }
-    closedir(d);
+    host_dir_close(d);
 }
 
 static int find_print_page(const char *dir, char *out, size_t out_sz)
 {
-    DIR *d;
-    struct dirent *de;
+    host_dir *d;
+    const char *de;
     int n = 0;
 
     if (out_sz > 0u) {
         out[0] = '\0';
     }
-    d = opendir(dir);
+    d = host_dir_open(dir);
     if (d == NULL) {
         return 0;
     }
-    while ((de = readdir(d)) != NULL) {
-        if (!is_print_page_name(de->d_name)) {
+    while ((de = host_dir_read(d)) != NULL) {
+        if (!is_print_page_name(de)) {
             continue;
         }
         n++;
         if (out[0] == '\0') {
-            snprintf(out, out_sz, "%s/%s", dir, de->d_name);
+            snprintf(out, out_sz, "%s/%s", dir, de);
         }
     }
-    closedir(d);
+    host_dir_close(d);
     return n;
 }
 

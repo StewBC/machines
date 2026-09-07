@@ -109,8 +109,9 @@ const memory_source *apple2_memory_sources(size_t *count)
 const char *control_protocol_memory_mode_name(uint32_t source_id)
 {
     size_t n = 0;
+    const memory_source *sources = apple2_memory_sources(&n);
     const memory_source *src =
-        memory_source_find_by_id(apple2_memory_sources(&n), n, source_id);
+        memory_source_find_by_id(sources, n, source_id);
     return (src != NULL && src->token != NULL) ? src->token : "map";
 }
 
@@ -149,7 +150,8 @@ static bool parse_memory(
             mi++;
         }
         mode_tok[mi] = '\0';
-        src = memory_source_find_by_token(apple2_memory_sources(&n), n, mode_tok);
+        const memory_source *sources = apple2_memory_sources(&n);
+        src = memory_source_find_by_token(sources, n, mode_tok);
         if (src == NULL) {
             fail_args(err, id, "mode");
             return false;

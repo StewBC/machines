@@ -14,6 +14,7 @@ add_library(shell STATIC
     util/message_queue.c
     util/config.c
     util/host_log.c
+    util/host_dir.c
     util/host_page_writer.c
     util/host_page_name.c
     platform/platform.c
@@ -73,6 +74,8 @@ target_link_libraries(shell
 
 if(WIN32)
     target_link_libraries(shell PRIVATE ws2_32)
+else()
+    target_link_libraries(shell PRIVATE m)
 endif()
 
 if(MSVC)

@@ -1,6 +1,6 @@
 #include "app_options.h"
 
-#include <dirent.h>
+#include "host_dir.h"
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -13,6 +13,7 @@
 #define c64m_mkdir(path, mode) _mkdir(path)
 #define c64m_rmdir _rmdir
 #define c64m_isdir(mode) (((mode) & _S_IFMT) == _S_IFDIR)
+#define TEST_ABSOLUTE_ROOT "C:"
 #else
 #include <unistd.h>
 #define c64m_chdir chdir
@@ -20,32 +21,33 @@
 #define c64m_mkdir(path, mode) mkdir(path, mode)
 #define c64m_rmdir rmdir
 #define c64m_isdir(mode) S_ISDIR(mode)
+#define TEST_ABSOLUTE_ROOT ""
 #endif
 
 enum { C64M_SCRATCH_PATH_MAX = 1024 };
 
 static void remove_tree(const char *path)
 {
-    DIR *dir;
-    struct dirent *de;
+    host_dir *dir;
+    const char *de;
     char child[C64M_SCRATCH_PATH_MAX];
 
     if (path == NULL || path[0] == '\0') {
         return;
     }
-    dir = opendir(path);
+    dir = host_dir_open(path);
     if (dir == NULL) {
         (void)remove(path);
         return;
     }
-    while ((de = readdir(dir)) != NULL) {
+    while ((de = host_dir_read(dir)) != NULL) {
         struct stat st;
-        if (strcmp(de->d_name, ".") == 0 || strcmp(de->d_name, "..") == 0) {
+        if (strcmp(de, ".") == 0 || strcmp(de, "..") == 0) {
             continue;
         }
         if ((size_t)snprintf(
-                child, sizeof(child), "%s/%s", path, de->d_name) >= sizeof(child)) {
-            closedir(dir);
+                child, sizeof(child), "%s/%s", path, de) >= sizeof(child)) {
+            host_dir_close(dir);
             fprintf(stderr, "remove_tree path too long\n");
             exit(1);
         }
@@ -58,7 +60,7 @@ static void remove_tree(const char *path)
             (void)remove(child);
         }
     }
-    closedir(dir);
+    host_dir_close(dir);
     if (c64m_rmdir(path) != 0) {
         fprintf(stderr, "warning: rmdir %s: %s\n", path, strerror(errno));
     }
@@ -75,8 +77,20 @@ static void enter_scratch(char *home, size_t home_size, char *scratch, size_t sc
         exit(1);
     }
     base = getenv("TMPDIR");
+#if defined(_WIN32)
     if (base == NULL || base[0] == '\0') {
+        base = getenv("TEMP");
+    }
+    if (base == NULL || base[0] == '\0') {
+        base = getenv("TMP");
+    }
+#endif
+    if (base == NULL || base[0] == '\0') {
+#if defined(_WIN32)
+        base = ".";
+#else
         base = "/tmp";
+#endif
     }
     if ((size_t)snprintf(
             tmpl, sizeof(tmpl), "%s/c64m-appopt-XXXXXX", base) >= sizeof(tmpl)) {
@@ -1203,13 +1217,14 @@ static void write_disk_multi_writable_ini(
 
 static void test_disk_single_from_ini(void) {
     app_options options;
+    const char *absolute_path = TEST_ABSOLUTE_ROOT "/abs/path/game.d64";
     char *argv[] = {
         "test_app_options",
         "--inifile",
         "test_disk_single.ini",
     };
 
-    write_disk_single_ini("test_disk_single.ini", "/abs/path/game.d64");
+    write_disk_single_ini("test_disk_single.ini", absolute_path);
 
     if (!app_options_load_startup(&options, 3, argv)) {
         fprintf(stderr, "app_options_load_startup failed\n");
@@ -1217,7 +1232,7 @@ static void test_disk_single_from_ini(void) {
     }
 
     expect_int("disk slot 8 count", 1, options.disk_slots[8].count);
-    expect_string("disk slot 8 path 0", "/abs/path/game.d64", options.disk_slots[8].paths[0]);
+    expect_string("disk slot 8 path 0", absolute_path, options.disk_slots[8].paths[0]);
     expect_int("disk slot 9 count", 0, options.disk_slots[9].count);
 
     app_options_destroy(&options);
@@ -1233,7 +1248,9 @@ static void test_disk_multi_from_ini(void) {
     };
 
     write_disk_multi_ini("test_disk_multi.ini",
-        "/games/disk1.d64,/games/disk2.d64,/games/disk3.d64");
+        TEST_ABSOLUTE_ROOT "/games/disk1.d64,"
+        TEST_ABSOLUTE_ROOT "/games/disk2.d64,"
+        TEST_ABSOLUTE_ROOT "/games/disk3.d64");
 
     if (!app_options_load_startup(&options, 3, argv)) {
         fprintf(stderr, "app_options_load_startup failed\n");
@@ -1241,9 +1258,9 @@ static void test_disk_multi_from_ini(void) {
     }
 
     expect_int("disk slot 8 count", 3, options.disk_slots[8].count);
-    expect_string("disk slot 8 path 0", "/games/disk1.d64", options.disk_slots[8].paths[0]);
-    expect_string("disk slot 8 path 1", "/games/disk2.d64", options.disk_slots[8].paths[1]);
-    expect_string("disk slot 8 path 2", "/games/disk3.d64", options.disk_slots[8].paths[2]);
+    expect_string("disk slot 8 path 0", TEST_ABSOLUTE_ROOT "/games/disk1.d64", options.disk_slots[8].paths[0]);
+    expect_string("disk slot 8 path 1", TEST_ABSOLUTE_ROOT "/games/disk2.d64", options.disk_slots[8].paths[1]);
+    expect_string("disk slot 8 path 2", TEST_ABSOLUTE_ROOT "/games/disk3.d64", options.disk_slots[8].paths[2]);
     expect_bool("disk slot 8 writable default", 0, app_disk_slot_current_writable(&options.disk_slots[8]));
 
     app_options_destroy(&options);

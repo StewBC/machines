@@ -1,10 +1,10 @@
+#include "host_dir.h"
 /* c64 HostFS — host directory volume + catalog / PRG+SEQ I/O + CD (+ D64 nest). */
 #include "c64_hostfs.h"
 
 #include "d64.h"
 
 #include <ctype.h>
-#include <dirent.h>
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -573,8 +573,8 @@ static bool c64_hostfs_rescan_d64(c64_hostfs_volume *vol)
 
 bool c64_hostfs_rescan(c64_hostfs_volume *vol)
 {
-    DIR *dir;
-    struct dirent *de;
+    host_dir *dir;
+    const char *de;
 
     if (vol == NULL) {
         return false;
@@ -585,16 +585,16 @@ bool c64_hostfs_rescan(c64_hostfs_volume *vol)
 
     c64_hostfs_catalog_clear(vol);
 
-    dir = opendir(vol->cwd_path);
+    dir = host_dir_open(vol->cwd_path);
     if (dir == NULL) {
         return false;
     }
-    while ((de = readdir(dir)) != NULL) {
+    while ((de = host_dir_read(dir)) != NULL) {
         char full[C64_HOSTFS_PATH_MAX];
         struct stat st;
         char cbm[17];
         size_t cbm_len = 0;
-        const char *name = de->d_name;
+        const char *name = de;
         size_t name_len;
 
         if (strcmp(name, ".") == 0 || strcmp(name, "..") == 0) {
@@ -620,7 +620,7 @@ bool c64_hostfs_rescan(c64_hostfs_volume *vol)
             c64_hostfs_unique_cbm(vol, cbm, sizeof(cbm), &cbm_len);
             if (!c64_hostfs_catalog_push(
                     vol, full, cbm, cbm_len, C64_DRIVE_FILE_DIR, 0)) {
-                closedir(dir);
+                host_dir_close(dir);
                 return false;
             }
             continue;
@@ -643,7 +643,7 @@ bool c64_hostfs_rescan(c64_hostfs_volume *vol)
                 c64_hostfs_unique_cbm(vol, cbm, sizeof(cbm), &cbm_len);
                 if (!c64_hostfs_catalog_push(
                         vol, full, cbm, cbm_len, C64_DRIVE_FILE_PRG, blocks)) {
-                    closedir(dir);
+                    host_dir_close(dir);
                     return false;
                 }
                 continue;
@@ -696,12 +696,12 @@ bool c64_hostfs_rescan(c64_hostfs_volume *vol)
                     ftype == C64_DRIVE_FILE_DIR ?
                         0u :
                         c64_hostfs_blocks_for_size((size_t)st.st_size))) {
-                closedir(dir);
+                host_dir_close(dir);
                 return false;
             }
         }
     }
-    closedir(dir);
+    host_dir_close(dir);
     if (vol->catalog_count > 1u) {
         qsort(
             vol->catalog,

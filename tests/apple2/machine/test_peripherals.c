@@ -1,3 +1,4 @@
+#include "host_dir.h"
 #include "apple2.h"
 #include "host_log.h"
 #include "imagewriter.h"
@@ -8,7 +9,6 @@
 #include "ssc_rom.h"
 
 #include <ctype.h>
-#include <dirent.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -839,40 +839,40 @@ static bool is_print_page_name(const char *name)
 
 static int count_print_pages(const char *dir)
 {
-    DIR *d;
-    struct dirent *de;
+    host_dir *d;
+    const char *de;
     int n = 0;
 
-    d = opendir(dir);
+    d = host_dir_open(dir);
     if (d == NULL) {
         return 0;
     }
-    while ((de = readdir(d)) != NULL) {
-        if (is_print_page_name(de->d_name)) {
+    while ((de = host_dir_read(d)) != NULL) {
+        if (is_print_page_name(de)) {
             n++;
         }
     }
-    closedir(d);
+    host_dir_close(d);
     return n;
 }
 
 static void cleanup_print_pages(const char *dir)
 {
-    DIR *d;
-    struct dirent *de;
+    host_dir *d;
+    const char *de;
     char path[1100];
 
-    d = opendir(dir);
+    d = host_dir_open(dir);
     if (d == NULL) {
         return;
     }
-    while ((de = readdir(d)) != NULL) {
-        if (is_print_page_name(de->d_name)) {
-            snprintf(path, sizeof(path), "%s/%s", dir, de->d_name);
+    while ((de = host_dir_read(d)) != NULL) {
+        if (is_print_page_name(de)) {
+            snprintf(path, sizeof(path), "%s/%s", dir, de);
             (void)remove(path);
         }
     }
-    closedir(d);
+    host_dir_close(d);
 }
 
 static void ssc_tx_byte(apple2_t *m, uint8_t slot, uint8_t ch)

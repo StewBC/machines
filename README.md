@@ -46,6 +46,24 @@ ctest --test-dir build --output-on-failure
 Or `make test` from the repo root. One CMake generation builds both
 binaries. Binaries land at `./build/a2m`, `./build/c64m`, and `./build/am65`.
 
+On Windows, use a Visual Studio developer shell with MSVC C11 atomics support,
+CMake, Python 3, and SDL2. For SDL2 installed through vcpkg:
+
+```powershell
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_TOOLCHAIN_FILE=C:/path/to/vcpkg/scripts/buildsystems/vcpkg.cmake
+cmake --build build -j
+ctest --test-dir build --output-on-failure
+.\build\a2m.exe --help
+.\build\c64m.exe --help
+```
+
+Use a separate build directory when switching compilers or operating systems.
+With a Visual Studio generator, pass `--config Debug` to the build and `-C Debug`
+to CTest; executables are under `build/Debug/`.
+
+On Ubuntu/Debian, the build dependencies are `build-essential`, `cmake`,
+`libsdl2-dev`, and `python3`; use the root CMake commands above.
+
 CTest names are prefixed (`a2m.audio_buffer`, `c64m.sid`) so both products
 share one test dir. Labels match Stage 10 gates:
 

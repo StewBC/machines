@@ -1,4 +1,5 @@
 #include "platform_fs.h"
+#include "host_dir.h"
 
 #include <stdbool.h>
 #include <stdio.h>
@@ -45,6 +46,47 @@ static void write_small_file(const char *path) {
     }
     fwrite("hi", 1, 2, fp);
     fclose(fp);
+}
+
+static void test_directory_iteration(void) {
+    host_dir *dir;
+    const char *name;
+    int files = 0;
+    int folders = 0;
+
+    expect_true("null directory fails", host_dir_open(NULL) == NULL);
+    expect_true("empty path fails", host_dir_open("") == NULL);
+    expect_true("missing directory fails",
+        host_dir_open("test_host_dir_missing") == NULL);
+    expect_true("create iterator scratch", test_mkdir("test_host_dir_scratch") == 0);
+    dir = host_dir_open("test_host_dir_scratch");
+    expect_true("open empty directory", dir != NULL);
+    while ((name = host_dir_read(dir)) != NULL) {
+        expect_true("empty directory has only dot entries",
+            strcmp(name, ".") == 0 || strcmp(name, "..") == 0);
+    }
+    host_dir_close(dir);
+
+    write_small_file("test_host_dir_scratch/file with spaces.txt");
+    expect_true("create nested directory",
+        test_mkdir("test_host_dir_scratch/subdir") == 0);
+    expect_true("regular file cannot be opened as directory",
+        host_dir_open("test_host_dir_scratch/file with spaces.txt") == NULL);
+    dir = host_dir_open("test_host_dir_scratch/");
+    expect_true("open with trailing separator", dir != NULL);
+    while ((name = host_dir_read(dir)) != NULL) {
+        files += strcmp(name, "file with spaces.txt") == 0;
+        folders += strcmp(name, "subdir") == 0;
+    }
+    expect_true("file appears exactly once", files == 1);
+    expect_true("directory appears exactly once", folders == 1);
+    host_dir_close(dir);
+    host_dir_close(NULL);
+    remove("test_host_dir_scratch/file with spaces.txt");
+    expect_true("remove nested directory",
+        test_rmdir("test_host_dir_scratch/subdir") == 0);
+    expect_true("closed iterator permits directory removal",
+        test_rmdir("test_host_dir_scratch") == 0);
 }
 
 static void test_path_join(void) {
@@ -129,6 +171,7 @@ static void test_is_dir(void) {
 }
 
 int main(void) {
+    test_directory_iteration();
     test_path_join();
     test_get_cwd();
     test_list_dir_missing_returns_false();

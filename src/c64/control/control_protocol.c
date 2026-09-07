@@ -101,7 +101,8 @@ static bool parse_memory_mode_token(const char *text, const char **out_end, uint
         }
         memcpy(token, text, length);
         token[length] = '\0';
-        src = memory_source_find_by_token(c64_memory_sources(&n), n, token);
+        const memory_source *sources = c64_memory_sources(&n);
+        src = memory_source_find_by_token(sources, n, token);
         if (src == NULL) {
             return false;
         }
@@ -766,8 +767,8 @@ bool control_protocol_parse_request(
                         "expected writable memory mode map or ram");
                     return false;
                 }
-                src = memory_source_find_by_id(
-                    c64_memory_sources(&n), n, args.memory_mode);
+                const memory_source *sources = c64_memory_sources(&n);
+                src = memory_source_find_by_id(sources, n, args.memory_mode);
                 if (src == NULL || (src->flags & MEMSRC_WRITABLE) == 0u) {
                     set_parse_error(
                         out_error,

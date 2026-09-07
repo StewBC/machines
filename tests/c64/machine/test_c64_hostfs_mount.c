@@ -1,10 +1,10 @@
+#include "host_dir.h"
 #include "c1541.h"
 #include "c64.h"
 #include "c64_hostfs.h"
 #include "c64_rom.h"
 #include "d64.h"
 
-#include <dirent.h>
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -45,26 +45,26 @@ static void load_nop_rom(c1541 *drive) {
 /* Recursively delete a scratch tree created under the system temp dir. */
 static void remove_tree(const char *path)
 {
-    DIR *dir;
-    struct dirent *de;
+    host_dir *dir;
+    const char *de;
     char child[HOSTFS_TEST_PATH_MAX];
 
     if (path == NULL || path[0] == '\0') {
         return;
     }
-    dir = opendir(path);
+    dir = host_dir_open(path);
     if (dir == NULL) {
         (void)remove(path);
         return;
     }
-    while ((de = readdir(dir)) != NULL) {
+    while ((de = host_dir_read(dir)) != NULL) {
         struct stat st;
-        if (strcmp(de->d_name, ".") == 0 || strcmp(de->d_name, "..") == 0) {
+        if (strcmp(de, ".") == 0 || strcmp(de, "..") == 0) {
             continue;
         }
         if ((size_t)snprintf(
-                child, sizeof(child), "%s/%s", path, de->d_name) >= sizeof(child)) {
-            closedir(dir);
+                child, sizeof(child), "%s/%s", path, de) >= sizeof(child)) {
+            host_dir_close(dir);
             fail("remove_tree path too long");
         }
         if (stat(child, &st) != 0) {
@@ -76,7 +76,7 @@ static void remove_tree(const char *path)
             (void)remove(child);
         }
     }
-    closedir(dir);
+    host_dir_close(dir);
     if (HOSTFS_TEST_RMDIR(path) != 0) {
         fprintf(stderr, "warning: rmdir %s failed: %s\n", path, strerror(errno));
     }
@@ -89,8 +89,20 @@ static void make_tmpdir(char *out, size_t out_size)
     char tmpl[HOSTFS_TEST_PATH_MAX];
 
     base = getenv("TMPDIR");
+#if defined(_WIN32)
     if (base == NULL || base[0] == '\0') {
+        base = getenv("TEMP");
+    }
+    if (base == NULL || base[0] == '\0') {
+        base = getenv("TMP");
+    }
+#endif
+    if (base == NULL || base[0] == '\0') {
+#if defined(_WIN32)
+        base = ".";
+#else
         base = "/tmp";
+#endif
     }
     if ((size_t)snprintf(
             tmpl, sizeof(tmpl), "%s/c64m-hostfs-XXXXXX", base) >= sizeof(tmpl)) {

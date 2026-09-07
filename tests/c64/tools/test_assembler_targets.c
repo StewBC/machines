@@ -17,6 +17,7 @@ typedef struct {
     assembler_output_format format;
     uint8_t ram[65536];
     int wrote_any;
+    int released;
     uint32_t lo;
     uint32_t hi;
 } target_image;
@@ -73,7 +74,16 @@ static void *host_target_open(void *user, const char *name, int name_len,
 
 static void host_target_release(void *user, void *target) {
     (void)user;
-    free(target);
+    /* Assertions inspect the image after assembler_shutdown. Keep it alive
+       until the test finishes instead of reading freed allocator memory. */
+    ((target_image *)target)->released = 1;
+}
+
+static void host_clear(target_host *host) {
+    for(int i = 0; i < host->opened_count; i++) {
+        free(host->opened[i]);
+    }
+    host->opened_count = 0;
 }
 
 static target_image *host_find(target_host *host, const char *file) {
@@ -176,7 +186,7 @@ static int test_named_scope_to_file(void) {
     if(!game) {
         fprintf(stderr, "game.bin target was not opened\n");
         failures++;
-    } else if(!game->wrote_any || game->lo != 0xC000 ||
+    } else if(!game->released || !game->wrote_any || game->lo != 0xC000 ||
               memcmp(&game->ram[0xC000], game_expected, sizeof(game_expected)) != 0) {
         fprintf(stderr, "game.bin target output mismatch (lo=$%04X)\n", game->lo);
         failures++;
@@ -188,6 +198,7 @@ static int test_named_scope_to_file(void) {
         failures++;
     }
 
+    host_clear(&host);
     errlog_shutdown(&log);
     return failures;
 }
@@ -224,13 +235,14 @@ static int test_named_scope_to_prg(void) {
     } else if(game->format != ASM_OUTPUT_PRG) {
         fprintf(stderr, "game.prg expected ASM_OUTPUT_PRG, got %d\n", (int)game->format);
         failures++;
-    } else if(!game->wrote_any || game->lo != 0xC000 ||
+    } else if(!game->released || !game->wrote_any || game->lo != 0xC000 ||
               game->ram[0xC000] != 0x01 || game->ram[0xC001] != 0x02 ||
               game->ram[0xC002] != 0x03) {
         fprintf(stderr, "game.prg payload mismatch (lo=$%04X)\n", game->lo);
         failures++;
     }
 
+    host_clear(&host);
     errlog_shutdown(&log);
     return failures;
 }
@@ -257,6 +269,7 @@ static int test_scope_file_prg_exclusive(void) {
         fprintf(stderr, "file= + prg= was not rejected\n");
         failures++;
     }
+    host_clear(&host);
     errlog_shutdown(&log);
     return failures;
 }
@@ -284,6 +297,7 @@ static int test_scope_file_unsupported(void) {
         fprintf(stderr, ".scope file= was not rejected when redirection is unsupported\n");
         failures++;
     }
+    host_clear(&host);
     errlog_shutdown(&log);
     return failures;
 }
@@ -317,6 +331,7 @@ static int test_predefine_detection(void) {
         fprintf(stderr, "predefine true: expected $AA at $1000, got $%02X\n", def.ram[0x1000]);
         failures++;
     }
+    host_clear(&host);
     errlog_shutdown(&log);
 
     // With AM65=0 the .else branch is taken -> $BB.
@@ -330,6 +345,7 @@ static int test_predefine_detection(void) {
         fprintf(stderr, "predefine false: expected $BB at $1000, got $%02X\n", def.ram[0x1000]);
         failures++;
     }
+    host_clear(&host);
     errlog_shutdown(&log);
 
     return failures;

@@ -20,6 +20,11 @@ versus C64. Do not open `src/c64` to decide Apple silicon. Do not open
 
 ## Where things live
 
+Unbounded host directory iteration is `src/shell/util/host_dir.*`: Windows
+uses the CRT find APIs; macOS/Linux use dirent. C64 HostFS and directory-scanning
+tests use it without introducing a machine-to-platform dependency. Shared
+shell math functions link `m` on non-Windows hosts.
+
 **`src/` is emulator / linked C only.** Link-into-both and no machine ifdef →
 `src/shell/`. Link-into-one → `src/apple2/` or `src/c64/`. Repo-root
 `external/` is the one vendor copy (including C64 TrueType fonts).
@@ -129,6 +134,14 @@ Both products share `[debug] history_off_on_max` / `inspector_off_on_max`
 (see [`shell/inspector-shape.md`](shell/inspector-shape.md)).
 
 ## Verification
+
+Portability verification (2026-09-07): complete Debug builds pass with Windows
+MSVC 14.51 and Ubuntu GCC 13.3 (WSL). Full-suite runs plus affected-test reruns
+leave 179 passing tests, 10 missing-asset skips, and two C64 failures:
+`history_control_integration` (documented below) and
+`frame_ring_control_integration` (still requests retired turbo mode 3).
+All 89 Apple tests pass. macOS was not available for revalidation.
+The older suite counts below predate the added tests.
 
 From the **machines repo root**:
 

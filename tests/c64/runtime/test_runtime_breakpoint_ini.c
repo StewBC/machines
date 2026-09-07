@@ -10,7 +10,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h>
+#include "../test_file.h"
 
 static int failures = 0;
 
@@ -49,21 +49,18 @@ static void seed_breakpoint(
 
 int main(void) {
     runtime *rt = calloc(1u, sizeof(*rt));
-    char path[] = "/tmp/c64m-bp-ini-XXXXXX";
-    int fd;
+    char path[1024];
 
     if (rt == NULL) {
         fprintf(stderr, "allocation failed\n");
         return 1;
     }
 
-    fd = mkstemp(path);
-    if (fd < 0) {
+    if (c64m_test_write_temp_file(path, sizeof(path), "c64m-bp-ini", "") != 0) {
         fprintf(stderr, "could not create a temporary ini\n");
         free(rt);
         return 1;
     }
-    close(fd);
 
     rt->ini_path = path;
     rt->use_ini = true;
