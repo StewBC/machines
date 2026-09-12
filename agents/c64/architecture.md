@@ -75,7 +75,7 @@ from the frontend.
 
 - Preserve timing-visible side effects when optimizing.
 - Turbo 1 (normal) and 2 / `max` keep live pixels and full correctness. Value
-  `3` is hard-rejected; there is no paint-off turbo path.
+  `3` is hard-rejected. Breakpoint `fast` is turbo max, not a paint-off path.
 - A direct launch of `./build/c64m` opens a blocking SDL window. Prefer
   `./build/c64m --help`, ctest, or `--headless --control-port N` for automation.
 - Run from the repository root so ROM fallback lookup finds `roms/`.

@@ -158,9 +158,8 @@ or `control-port.md` / paste parser.
 | 2 / `max` | max | Free-run, **live** framebuffer (good default for agents) |
 
 Default Alt+T ladder is `1,max`. `set-turbo 3` (and CSV/`--turbo` value `3`)
-is hard-rejected. Max keeps live paint — there is no paint-off turbo path.
-Breakpoint action `fast` is a separate paint-off speed mode, not a turbo
-ladder value.
+is hard-rejected. Max keeps live paint. Breakpoint action `fast` is turbo max
+(same live-paint free-run as `set-turbo 2` / `max`); `slow` restores turbo 1.
 
 ### 3.4 Other traps worth knowing early
 

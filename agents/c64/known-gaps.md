@@ -70,6 +70,6 @@ These were decided with measurements. A new brief needs new evidence.
   powered && IMAGE && mounted).
 - Media-on EXECUTE is not synthetic `format_track()`.
 - Max (turbo 2 / `max`) keeps live paint and is the correctness and throughput
-  bar. Turbo `3` is hard-rejected. Breakpoint FAST remains the paint-off path.
+  bar. Turbo `3` is hard-rejected. Breakpoint `fast` is turbo max.
 - Wire identity is `C64M/10` with no dual-path compatibility layer. Bump `N`
   in the same change as the code and `control-port.md`.

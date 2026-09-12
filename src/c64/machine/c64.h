@@ -589,10 +589,6 @@ const c64_drive_slot *c64_get_drive_slot(c64_t *machine, int device_number);
    data into a mounted, writable image. */
 c64_drive_slot *c64_get_drive_slot_mut(c64_t *machine, int device_number);
 void c64_set_audio_output_enabled(c64_t *machine, bool enabled);
-/* When false, VIC-II still advances timing/BA/IRQ but skips pixel fill and
-   completed-frame buffer copies. Used under FAST / paint-off. Default true. */
-void c64_set_video_output_enabled(c64_t *machine, bool enabled);
-bool c64_video_output_enabled(const c64_t *machine);
 void c64_restore(c64_t *machine);
 void c64_set_memory_access_callback(c64_t *machine, c64_memory_access_fn callback, void *user);
 void c64_set_replay_sealed(c64_t *machine, bool sealed);

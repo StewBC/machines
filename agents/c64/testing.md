@@ -96,22 +96,41 @@ Edge of Disgrace checker remains a **manual** VICE compare. Match models
 ## Performance
 
 Turbo **2** / **`max`** (free-run, live pixels) is the throughput bar for full
-correctness. Turbo `3` is hard-rejected; do not reintroduce a paint-off turbo
-path as a free-run shortcut.
+correctness. Turbo `3` is hard-rejected. Breakpoint `fast` is turbo max.
+There is no paint-off path.
+
+Always bench **Release** (`-O3`) for speed claims. Debug inflates the VICE gap.
+
+Same-host bake-off vs VICE `x64sc` warp (idle BASIC + `assets/c64/prg/lft-nine.prg`,
+history off, Inspector off, 1541 off):
+
+```text
+cmake -B build-release -S . -DCMAKE_BUILD_TYPE=Release
+./tools/c64/bake_max_vs_vice.sh
+```
+
+VICE knobs are in the script (`-warp`, SID off, true-drive off,
+`-VICIImodel 6569`). VICE throughput uses remote-monitor `stopwatch` after
+boot (the 2026-08 method); `-limitcycles` under-counts warp on the GTK3
+binary. A VICE window opens for those recipes. Set `X64SC=` if the binary is
+not auto-detected; `SKIP_VICE=1` runs the c64m side only. Default heavy title
+is lft-nine (PRG, drive-off).
 
 Measure serially (contention and thermal noise dominate):
 
 ```text
-./tools/bench_core_mhz.sh 20000000
-./build/profile_c64_hotloop 20000000
-./build/profile_runtime_hotloop 3 config-off
+./tools/c64/bench_core_mhz.sh 20000000
+./build-release/profile_c64_hotloop 20000000
+./build-release/profile_runtime_hotloop 3 config-off
+./build-release/profile_runtime_hotloop 3 config-off assets/c64/prg/lft-nine.prg
 ./build/profile_history_query
 ```
 
-`profile_c64_hotloop` flags (any order after cycle count): `no-video`, `1541`,
+`profile_c64_hotloop` flags (any order after cycle count): `1541`,
 `1541-one`, `media` (alias: turns on `emulate_1541` with the 1541 flags). Pure-core
 cannot measure runtime/recorder/rings. Unpowered 1541s are not stepped; a powered
-drive with ROM can dominate free-run.
+drive with ROM can dominate free-run. `get-state` during free-run is cached;
+prefer `profile_*` or this bake script.
 
 Absolute MHz is host-specific. Re-measure on the same class of machine after
 performance work. Kill with `ctest` plus the demos that exercise the changed

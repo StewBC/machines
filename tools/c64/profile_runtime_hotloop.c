@@ -13,6 +13,7 @@
 #endif
 
 #define DEFAULT_SECONDS 12.0
+/* argv: [seconds] [full|config-off|record-off] [prg-path | prg=path] */
 
 #ifndef MACHINES_ROMS_DIR
 #define MACHINES_ROMS_DIR "roms"
@@ -42,16 +43,17 @@ static double parse_seconds(int argc, char **argv) {
     return strtod(argv[1], NULL);
 }
 
-static bool wait_for_event(
+static bool wait_for_event_timeout(
     runtime_client *client,
     runtime_event_type type,
     uint64_t token,
     runtime_event *out,
-    uint64_t *events) {
+    uint64_t *events,
+    double timeout_seconds) {
     double start = monotonic_seconds();
     runtime_event event;
 
-    while (monotonic_seconds() - start < 5.0) {
+    while (monotonic_seconds() - start < timeout_seconds) {
         while (runtime_client_poll_event(client, &event)) {
             (*events)++;
             if (event.type == RUNTIME_EVENT_ERROR) {
@@ -70,6 +72,50 @@ static bool wait_for_event(
     return false;
 }
 
+static bool wait_for_event(
+    runtime_client *client,
+    runtime_event_type type,
+    uint64_t token,
+    runtime_event *out,
+    uint64_t *events) {
+    return wait_for_event_timeout(client, type, token, out, events, 5.0);
+}
+
+static const char *parse_prg_path(int argc, char **argv) {
+    int i;
+
+    for (i = 1; i < argc; ++i) {
+        if (argv[i] == NULL || argv[i][0] == '\0') {
+            continue;
+        }
+        if (strncmp(argv[i], "prg=", 4) == 0 && argv[i][4] != '\0') {
+            return argv[i] + 4;
+        }
+        if (strcmp(argv[i], "full") == 0 ||
+            strcmp(argv[i], "config-off") == 0 ||
+            strcmp(argv[i], "record-off") == 0) {
+            continue;
+        }
+        if (i == 1) {
+            continue;
+        }
+        return argv[i];
+    }
+    return NULL;
+}
+
+static const char *workload_name(const char *prg_path) {
+    const char *slash;
+    const char *name;
+
+    if (prg_path == NULL || prg_path[0] == '\0') {
+        return "idle-basic";
+    }
+    slash = strrchr(prg_path, '/');
+    name = slash != NULL ? slash + 1 : prg_path;
+    return name[0] != '\0' ? name : prg_path;
+}
+
 int main(int argc, char **argv) {
     runtime_config config = {0};
     runtime *rt;
@@ -84,7 +130,13 @@ int main(int argc, char **argv) {
     uint64_t token;
     runtime_history_status history_status;
     const char *history_mode =
-        argc > 2 && argv[2] != NULL ? argv[2] : "full";
+        argc > 2 && argv[2] != NULL &&
+        (strcmp(argv[2], "full") == 0 ||
+         strcmp(argv[2], "config-off") == 0 ||
+         strcmp(argv[2], "record-off") == 0) ?
+            argv[2] : "full";
+    const char *prg_path = parse_prg_path(argc, argv);
+    const char *workload = workload_name(prg_path);
 
     config.system_rom_path = MACHINES_ROMS_DIR "/system.rom";
     config.char_rom_path = MACHINES_ROMS_DIR "/character.rom";
@@ -93,6 +145,7 @@ int main(int argc, char **argv) {
     config.history_memory_mb =
         strcmp(history_mode, "config-off") == 0 ?
             0u : RUNTIME_HISTORY_DEFAULT_MEMORY_MB;
+    config.autorun = prg_path != NULL;
     runtime_config_set_turbo_defaults(&config);
     config.turbo_speeds[0] = RUNTIME_TURBO_MODE_MAX;
     config.turbo_speed_count = 1u;
@@ -133,6 +186,28 @@ int main(int argc, char **argv) {
             runtime_destroy(rt);
             runtime_shutdown();
             return 1;
+        }
+    }
+    if (prg_path != NULL) {
+        if (!runtime_client_load_prg(client, prg_path) ||
+            !wait_for_event_timeout(
+                client,
+                RUNTIME_EVENT_RUNNING,
+                0u,
+                NULL,
+                &events,
+                15.0)) {
+            fprintf(stderr, "failed to load PRG: %s\n", prg_path);
+            runtime_destroy(rt);
+            runtime_shutdown();
+            return 1;
+        }
+        /* BASIC inject + RUN paste; let the title leave the READY loop. */
+        start = monotonic_seconds();
+        while (monotonic_seconds() - start < 0.75) {
+            while (runtime_client_poll_event(client, &event)) {
+                events++;
+            }
         }
     }
     if (!runtime_client_request_machine_state(client) ||
@@ -202,7 +277,7 @@ int main(int argc, char **argv) {
 
     printf(
         "seconds=%.3f mhz=%.3f cycles=%llu events=%llu history_mode=%s "
-        "available=%d recording=%d records=%llu used_bytes=%zu "
+        "workload=%s available=%d recording=%d records=%llu used_bytes=%zu "
         "bytes_per_record=%.3f wraps=%llu\n",
         elapsed,
         elapsed > 0.0 ?
@@ -210,6 +285,7 @@ int main(int argc, char **argv) {
         (unsigned long long)(end_cycle - start_cycle),
         (unsigned long long)events,
         history_mode,
+        workload,
         history_status.available ? 1 : 0,
         history_status.recording ? 1 : 0,
         (unsigned long long)history_status.record_count,

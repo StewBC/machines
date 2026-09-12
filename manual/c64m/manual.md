@@ -1165,8 +1165,8 @@ documentation for the condition syntax.
 | Action  | Parameter field | Effect                                                  |
 |---------|-----------------|---------------------------------------------------------|
 | Break   | -               | Pause execution (default)                               |
-| Fast    | -               | Switch to free-run (breakpoint speed mode; paint off)   |
-| Slow    | -               | Restore normal paced speed                              |
+| Fast    | -               | Switch to turbo max (free-run, live paint)              |
+| Slow    | -               | Restore turbo 1 (real-time paced, live paint)           |
 | Swap    | Queue step      | Navigate the device 8 disk queue (see below)            |
 | Type    | Text            | Inject text as C64 keystrokes when the breakpoint fires |
 
@@ -2048,8 +2048,8 @@ break.<suffix> = <address[-address]>[,access][,mapping][,actions][,count=N][,res
 | Token              | Meaning                                                              |
 |--------------------|----------------------------------------------------------------------|
 | `break`            | Pause execution                                                      |
-| `fast`             | Free-run with paint off until a slow/normal path restores pacing       |
-| `slow`             | Restore normal paced speed                                           |
+| `fast`             | Switch to turbo max (free-run, live paint) until slow or set-turbo 1   |
+| `slow`             | Restore turbo 1 (real-time paced, live paint)                        |
 | `swap=+N`          | Advance device 8 disk queue forward N steps (wraps)                  |
 | `swap=-N`          | Advance device 8 disk queue backward N steps (wraps)                 |
 | `swap=N`           | Mount the Nth disk in the device 8 queue, 1-based (wraps)            |
@@ -2426,9 +2426,9 @@ returns `not-found` rather than a substituted neighbour. Payloads are identical
 to `get-frame` in the same format.
 
 These commands answer immediately and work while the machine runs, although the
-retained window keeps moving until you pause. Turbo max keeps live paint, so the
-ring keeps recording; breakpoint FAST (paint off) stalls the ring. Loading a
-machine state clears the ring.
+retained window keeps moving until you pause. Turbo max and breakpoint Fast both
+keep live paint, so the ring keeps recording. Loading a machine state clears the
+ring.
 
 Each retained frame carries its machine cycle, which is the key for searching the
 flight recorder for the same moment.

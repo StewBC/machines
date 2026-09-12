@@ -1605,6 +1605,7 @@ static void test_runtime_non_break_actions_do_not_pause(void) {
     /* count may be wrong - use refresh with known count */
     refresh_breakpoints(client, &event, &bps, bps.count);
     expect_u64("fast-only breakpoint hit count", 1, bps.entries[0].current_hits);
+    request_and_expect_turbo_multiplier(client, 2);
 
     stop_runtime(rt, client);
 }

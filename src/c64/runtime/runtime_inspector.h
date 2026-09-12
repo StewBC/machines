@@ -117,7 +117,7 @@ uint32_t runtime_inspector_memory_mb(const runtime *rt);
 void runtime_inspector_recorder_set_enabled(runtime *rt, bool enabled);
 bool runtime_inspector_recorder_is_recording(const runtime *rt);
 bool runtime_inspector_checkpoint_take(runtime *rt);
-/* Frame-synced birth: preferred still key (0 = none / turbo-display). */
+/* Frame-synced birth: preferred still key (0 = none). */
 bool runtime_inspector_checkpoint_take_for_frame(runtime *rt, uint64_t film_cycle);
 /* Load nearest checkpoint <= cycle into dst, then sealed-replay inputs to
  * cycle. I1 tests pass a scratch machine; I2 land uses load_nearest into the

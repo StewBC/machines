@@ -164,7 +164,6 @@ static bool load_default_roms(c64_rom_set *roms, char *error, size_t error_size)
 }
 
 /* Flags after the cycle count (any order):
- *   no-video     disable VIC live pixel paint (warp-like)
  *   null-error   pass NULL error buffer to c64_step_cycle
  *   1541         load roms/1541.rom into drive8+drive9 (steps both every cycle)
  *   1541-one     load 1541 ROM into drive8 only
@@ -199,7 +198,6 @@ int main(int argc, char **argv) {
     double start;
     double elapsed;
     bool null_error = has_flag(argc, argv, "null-error");
-    bool no_video = has_flag(argc, argv, "no-video");
     bool load_1541 = has_flag(argc, argv, "1541") || has_flag(argc, argv, "1541-one");
     bool drive9_rom = has_flag(argc, argv, "1541");
     bool media = has_flag(argc, argv, "media");
@@ -251,9 +249,6 @@ int main(int argc, char **argv) {
         }
     }
     c64_set_audio_output_enabled(&machine, false);
-    if (no_video) {
-        c64_set_video_output_enabled(&machine, false);
-    }
     if (access_heavy) {
         install_access_heavy_workload(&machine);
     }
@@ -288,7 +283,7 @@ int main(int argc, char **argv) {
         machine.cpu.cpu.pc,
         (unsigned long long)machine.clock.cycle,
         (unsigned long long)machine.clock.cpu_cycles,
-        c64_video_output_enabled(&machine) ? "on" : "off",
+        "on",
         access_heavy ? "access-heavy" : "idle-basic",
         bench_observer_mode_name(observer_state.mode),
         (unsigned long long)observer_state.records,

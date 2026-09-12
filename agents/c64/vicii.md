@@ -37,8 +37,8 @@ True Aspect Ratio uses the VIC-II pixel aspect (PAL 0.9365, NTSC 0.7500), not
 a hardcoded 4:3.
 
 Turbo 1 and 2 / `max` publish the live per-cycle indexed framebuffer. Turbo
-`3` is gone. Sprite collision latches update only while pixel output is on
-(breakpoint FAST may turn paint off; that is not a turbo ladder value).
+`3` is gone. Breakpoint `fast` is turbo max (live paint). Sprite collision
+latches update on the live render path; there is no paint-off switch.
 
 ## Sequencer
 
@@ -113,8 +113,8 @@ made Deus Ex Machina `$F8` where VICE reads `$D8`. `vicii_read_register` and
 
 Runtime frame ring stores completed **indexed8** frames, keyed by frame
 number and `machine_cycle`. VIC ring stores per-line latched state
-(`vicii_line_record`), including the sprite X used for that line. Breakpoint
-FAST stalls the frame ring (no empty paint-off frames stored).
+(`vicii_line_record`), including the sprite X used for that line.
+Turbo max keeps the frame ring recording completed live frames.
 
 ## Limits
 

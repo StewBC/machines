@@ -32,11 +32,6 @@ typedef enum runtime_exec_state {
     RUNTIME_EXEC_RUNNING
 } runtime_exec_state;
 
-typedef enum runtime_speed_mode {
-    RUNTIME_SPEED_MODE_SLOW = 0,
-    RUNTIME_SPEED_MODE_FAST
-} runtime_speed_mode;
-
 struct runtime_client {
     message_queue *command_queue;
     message_queue *event_queue;
@@ -243,7 +238,6 @@ struct runtime {
     uint32_t active_turbo_multiplier;
     runtime_exec_state exec_state;
     runtime_stop_reason last_stop_reason;
-    runtime_speed_mode speed_mode;
     runtime_breakpoint breakpoints[RUNTIME_BREAKPOINT_CAPACITY];
     size_t breakpoint_count;
     uint32_t next_breakpoint_id;

@@ -223,12 +223,6 @@ struct vicii {
        open. Snapshot rendering keeps geometric side borders. */
     bool     main_border_ff;
 
-    /* When false, raster/BA/IRQ/sprite-DMA timing still advances, but pixel
-       fill, working-frame clears, and completed-frame copies are skipped. Used by
-       the runtime in FAST / paint-off so free-run is not bound by display work.
-       Sprite collision latches only update while pixel output is enabled. */
-    bool     pixel_output_enabled;
-
     /* 6569 color_latency: $D020/$D021 take effect one pixel late (VICE
        draw_colors_6569 ring). lft-nine's six-write $D021 splits and the author's
        "one pixel delay to line up with XSCROLL=1" depend on this. Advanced once
@@ -298,8 +292,6 @@ enum {
 bool vicii_init(vicii *v, char *error, size_t error_size);
 void vicii_reset(vicii *v);
 void vicii_set_video_standard(vicii *v, vicii_video_standard standard);
-void vicii_set_pixel_output_enabled(vicii *v, bool enabled);
-bool vicii_pixel_output_enabled(const vicii *v);
 void vicii_step_cycle(vicii *v, const c64_bus_t *bus, uint64_t abs_cycle);
 /* Split-cycle interface used by the machine arbiter. begin_cycle performs the
    VIC's Phi1/internal work and establishes BA/AEC for the current Phi2. The CPU

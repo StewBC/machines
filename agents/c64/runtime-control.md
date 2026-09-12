@@ -154,14 +154,14 @@ the separate `history_off_on_max` knob (default true).
 ### Record clock and timeline
 
 Normal checkpoints birth on the **frame publish path**
-(`runtime_publish_completed_frame`): push film (when not turbo-display) →
+(`runtime_publish_completed_frame`): push film →
 non-reentrant instruction-boundary finish → checkpoint with that
 `film_cycle` (0 when the ring did not push). Free-running
 `cycles_per_frame` cadence on `after_step` is **not** the Record clock.
 Non-frame allow-list takes (`film_cycle = 0`): Record enable startup, enter
 Inspect (LIVE-adjacent), media-empty refill, history-invalidate refill.
-Sealed Inspect does not push film or birth CPs. Breakpoint FAST stalls film
-but still births CPs when recording; MAX can still push film.
+Sealed Inspect does not push film or birth CPs. Turbo max (including
+breakpoint `fast`) still pushes film.
 
 **Checkpoints are the timeline index** for scrub / `[-]` / `[+]`. Film is the
 preferred picture per cell; retention budgets may differ. Compact shared

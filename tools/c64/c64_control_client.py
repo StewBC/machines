@@ -19,10 +19,9 @@ Then:
     c.cmd("run"); c.cmd("wait-paused 5000")
 
 GOTCHAS (learned the hard way, see lft-nine.md):
-  * Rendering: turbo modes are 1=normal, 2=max (free-run, live pixels), 3=warp
-    (free-run, paint off). At turbo=3 get-frame returns the geometric DEBUG
-    snapshot (closed border, border-region sprites MASKED). Use turbo 1 or 2 for
-    real frames. Register/memory reads are unaffected by turbo.
+  * Rendering: turbo modes are 1=normal, 2=max (free-run, live pixels). Value 3
+    is rejected. Breakpoint action fast is turbo max, not paint-off. Use turbo
+    1 or 2 for live frames. Register/memory reads are unaffected by turbo.
   * Addresses parse base-0: prefix hex with '$' (mem() does this for you).
   * get-memory length must be DECIMAL (mem() handles it); max 65536 bytes/call
     with address+length <= 65536 (full dump: mem(0, 65536)).

@@ -112,7 +112,7 @@ static void runtime_pace_after_frame(runtime *rt) {
     uint64_t now;
     uint64_t frequency;
 
-    if (rt->speed_mode == RUNTIME_SPEED_MODE_FAST || runtime_turbo_is_free_run(rt)) {
+    if (runtime_turbo_is_free_run(rt)) {
         return;
     }
 
@@ -151,24 +151,9 @@ static void runtime_update_sid_sample_output(runtime *rt) {
 
     enabled = (rt->audio_out != NULL || rt->audio_record_path != NULL) &&
         rt->audio_sample_rate > 0 &&
-        rt->speed_mode != RUNTIME_SPEED_MODE_FAST &&
         !free_run_mute &&
         rt->audio_smoke == 0;
     c64_set_audio_output_enabled(&rt->machine, enabled);
-}
-
-/* FAST speed mode: do not fill VIC pixels every cycle. Display frames are
-   rebuilt only when the frontend has drained the frame slot (geometric debug
-   snapshot). Turbo max (mode 2) free-runs with full live paint. */
-static bool runtime_turbo_display_mode(const runtime *rt) {
-    if (rt == NULL) {
-        return false;
-    }
-    return rt->speed_mode == RUNTIME_SPEED_MODE_FAST;
-}
-
-static void runtime_update_video_output(runtime *rt) {
-    c64_set_video_output_enabled(&rt->machine, !runtime_turbo_display_mode(rt));
 }
 
 static void runtime_audio_record_write_u16(FILE *file, uint16_t value) {
@@ -346,11 +331,10 @@ static void runtime_audio_advance_cycle(runtime *rt) {
         return;
     }
 
-    if (rt->speed_mode == RUNTIME_SPEED_MODE_FAST ||
-        (runtime_turbo_is_free_run(rt) && rt->audio_record_path == NULL)) {
-        /* Free-run / FAST: mute host path and discard pending timing so normal
-           speed resumes cleanly. Machine SID still clocks; sample mix is gated
-           by runtime_update_sid_sample_output. */
+    if (runtime_turbo_is_free_run(rt) && rt->audio_record_path == NULL) {
+        /* Free-run: mute host path and discard pending timing so normal speed
+           resumes cleanly. Machine SID still clocks; sample mix is gated by
+           runtime_update_sid_sample_output. */
         rt->audio_cycle_accum = 0.0;
         rt->audio_sample_accum = 0.0;
         rt->audio_sample_count = 0;
@@ -1303,47 +1287,6 @@ static bool runtime_publish_frame_copy(runtime *rt, const c64_frame *frame) {
     return true;
 }
 
-/* FAST / paint-off display path: if the UI still holds the previous frame, count
-   a drop and do no pixel copies and no FRAME_READY event. When the slot is free,
-   rebuild one geometric snapshot for display (live pixel path is off). */
-static bool runtime_publish_completed_frame_turbo(runtime *rt) {
-    runtime_event event = {
-        .type = RUNTIME_EVENT_FRAME_READY,
-    };
-
-    mutex_lock(rt->frame_slot.mutex);
-    if (rt->frame_slot.has_frame) {
-        rt->frame_slot.dropped_frames++;
-        mutex_unlock(rt->frame_slot.mutex);
-        return true;
-    }
-    mutex_unlock(rt->frame_slot.mutex);
-
-    if (!c64_make_current_frame_snapshot(&rt->machine, &rt->publish_frame)) {
-        runtime_publish_error(rt, "failed to generate turbo display frame");
-        return false;
-    }
-
-    mutex_lock(rt->frame_slot.mutex);
-    /* Re-check: UI may have been empty when we started the snapshot, or another
-       publish path raced; still only one consumer. */
-    if (rt->frame_slot.has_frame) {
-        rt->frame_slot.dropped_frames++;
-        mutex_unlock(rt->frame_slot.mutex);
-        return true;
-    }
-    rt->frame_slot.frame = rt->publish_frame;
-    rt->frame_slot.has_frame = true;
-    rt->frame_slot.published_frames++;
-    event.data.frame_ready.frame_number = rt->publish_frame.frame_number;
-    event.data.frame_ready.machine_cycle = rt->publish_frame.machine_cycle;
-    event.data.frame_ready.dropped_frames = rt->frame_slot.dropped_frames;
-    mutex_unlock(rt->frame_slot.mutex);
-
-    runtime_publish_event(rt, &event);
-    return true;
-}
-
 static bool runtime_publish_debug_frame(runtime *rt) {
     if (!c64_make_current_frame_snapshot(&rt->machine, &rt->publish_frame)) {
         runtime_publish_error(rt, "failed to generate frame");
@@ -1353,21 +1296,13 @@ static bool runtime_publish_debug_frame(runtime *rt) {
     return runtime_publish_frame_copy(rt, &rt->publish_frame);
 }
 
-/* A16: present the CRT after a stop (or land). Paint-off (FAST, sealed F12)
- * has no beam image — dump VIC+RAM. Otherwise publish the beam buffer. */
+/* Present the CRT after a stop (or land). Prefer the live beam buffer;
+   reconstruct from VIC+RAM only if that copy fails. */
 static void runtime_publish_presented_frame(runtime *rt) {
-    bool paint_off;
-
     if (rt == NULL) {
         return;
     }
-    paint_off = !c64_video_output_enabled(&rt->machine) ||
-        runtime_turbo_display_mode(rt);
-    if (paint_off) {
-        if (!c64_make_current_frame_snapshot(&rt->machine, &rt->publish_frame)) {
-            return;
-        }
-    } else if (!c64_copy_paint_frame(&rt->machine, &rt->publish_frame)) {
+    if (!c64_copy_paint_frame(&rt->machine, &rt->publish_frame)) {
         if (!c64_make_current_frame_snapshot(&rt->machine, &rt->publish_frame)) {
             return;
         }
@@ -1377,21 +1312,10 @@ static void runtime_publish_presented_frame(runtime *rt) {
 
 static bool runtime_publish_completed_frame(runtime *rt) {
     uint64_t film_cycle = 0u;
-    bool ok;
 
     if (rt->inspecting) {
         /* D16: sealed execute does not push the frame ring or birth CPs. */
         return true;
-    }
-    if (runtime_turbo_display_mode(rt)) {
-        /* FAST paint-off: live pixels are off; ring stalls. Lattice still
-           advances when recording (film_cycle = 0). Turbo max is not paint-off. */
-        ok = runtime_publish_completed_frame_turbo(rt);
-        if (runtime_inspector_recorder_is_recording(rt)) {
-            runtime_finish_to_instruction_boundary(rt);
-            (void)runtime_inspector_checkpoint_take_for_frame(rt, 0u);
-        }
-        return ok;
     }
 
     if (!c64_copy_completed_frame(&rt->machine, &rt->publish_frame)) {
@@ -2290,9 +2214,6 @@ static bool runtime_reset_machine(
             rt->machine.clock.cycle);
     }
 
-    /* VIC reset re-enables pixel output; re-apply turbo display policy. */
-    runtime_update_video_output(rt);
-
     mutex_lock(rt->frame_slot.mutex);
     rt->frame_slot.has_frame = false;
     rt->frame_slot.published_frames = 0;
@@ -2506,7 +2427,6 @@ static void runtime_apply_machine_config(runtime *rt, const runtime_command *com
     }
     c64_set_config(&rt->machine, &rt->machine_config);
     runtime_update_sid_sample_output(rt);
-    runtime_update_video_output(rt);
     if (command->data.apply_machine_config.reload_roms != 0) {
         /* Empty strings become NULL so runtime_load_configured_roms skips them. */
         const char *system_path = command->data.apply_machine_config.system_rom_path;
@@ -2632,7 +2552,6 @@ static void runtime_commit_turbo_mode(runtime *rt, uint32_t multiplier)
     rt->active_turbo_multiplier = multiplier;
     rt->pace_initialized = false;
     runtime_update_sid_sample_output(rt);
-    runtime_update_video_output(rt);
     now_free_run = runtime_turbo_is_free_run(rt);
     if (now_free_run && !was_free_run) {
         runtime_inspector_apply_max_policy(rt, true, false);
@@ -2874,18 +2793,17 @@ static bool runtime_execute_breakpoint_actions(runtime *rt, const runtime_breakp
         return true;
     }
 
+    /* FAST -> turbo max (live paint). SLOW -> turbo 1. SLOW wins if both. */
     if ((breakpoint->action_mask & RUNTIME_BREAKPOINT_ACTION_FAST) != 0) {
-        rt->speed_mode = RUNTIME_SPEED_MODE_FAST;
-        rt->pace_initialized = false;
-        runtime_update_sid_sample_output(rt);
-        runtime_update_video_output(rt);
+        if (!runtime_turbo_is_free_run(rt)) {
+            runtime_set_turbo_multiplier(rt, (uint32_t)RUNTIME_TURBO_MODE_MAX);
+        }
     }
 
     if ((breakpoint->action_mask & RUNTIME_BREAKPOINT_ACTION_SLOW) != 0) {
-        rt->speed_mode = RUNTIME_SPEED_MODE_SLOW;
-        rt->pace_initialized = false;
-        runtime_update_sid_sample_output(rt);
-        runtime_update_video_output(rt);
+        if (runtime_turbo_is_free_run(rt)) {
+            runtime_set_turbo_multiplier(rt, (uint32_t)RUNTIME_TURBO_MODE_NORMAL);
+        }
     }
 
     if ((breakpoint->action_mask & RUNTIME_BREAKPOINT_ACTION_SWAP) != 0 &&
@@ -3101,7 +3019,7 @@ static bool runtime_step_cycle(runtime *rt) {
 
 /* Free-run step: same machine clock as runtime_step_cycle, but defer disk flush
    to frame complete in the simple free-run batch. Audio still advances (cheap
-   early-out under free-run turbo / FAST when not recording). */
+   early-out under free-run turbo when not recording). */
 static bool runtime_step_cycle_free_run(runtime *rt) {
     char error[256];
 
@@ -5201,7 +5119,6 @@ static void runtime_clear_host_transients_after_state_load(runtime *rt) {
         audio_buffer_reset(rt->audio_out);
     }
     runtime_update_sid_sample_output(rt);
-    runtime_update_video_output(rt);
     /* Drop any open SwiftLink TCP session; host enable/base stay as-is. */
     runtime_swiftlink_hangup(rt);
 }
@@ -5352,7 +5269,6 @@ static void runtime_inspector_reattach_live_hooks(runtime *rt)
     runtime_history_sync_observer(rt);
     runtime_vic_ring_sync_observer(rt);
     runtime_update_sid_sample_output(rt);
-    runtime_update_video_output(rt);
 }
 
 static void runtime_publish_inspector_mode(
@@ -5445,7 +5361,6 @@ static bool runtime_inspector_pause_at_live(runtime *rt)
     }
     (void)runtime_inspector_restore_live(rt);
     rt->temp_bp_active = false;
-    runtime_update_video_output(rt);
     runtime_publish_presented_frame(rt);
     if (rt->exec_state == RUNTIME_EXEC_RUNNING) {
         rt->exec_state = RUNTIME_EXEC_PAUSED;
@@ -5561,9 +5476,6 @@ static bool runtime_process_command(runtime *rt, const runtime_command *command,
             if (rt->inspecting && runtime_inspector_at_live(rt)) {
                 break;
             }
-            if (rt->inspecting) {
-                c64_set_video_output_enabled(&rt->machine, false);
-            }
             rt->exec_state = RUNTIME_EXEC_RUNNING;
             rt->last_stop_reason = RUNTIME_STOP_REASON_NONE;
             runtime_reset_pacer(rt);
@@ -5573,9 +5485,6 @@ static bool runtime_process_command(runtime *rt, const runtime_command *command,
         case RUNTIME_COMMAND_PAUSE:
             rt->exec_state = RUNTIME_EXEC_PAUSED;
             rt->last_stop_reason = RUNTIME_STOP_REASON_PAUSE_COMMAND;
-            if (rt->inspecting) {
-                runtime_update_video_output(rt);
-            }
             runtime_publish_simple_event(rt, RUNTIME_EVENT_PAUSED);
             runtime_publish_machine_state(rt);
             runtime_publish_presented_frame(rt);
@@ -6170,9 +6079,6 @@ static bool runtime_process_command(runtime *rt, const runtime_command *command,
             if (rt->inspecting && runtime_inspector_at_live(rt)) {
                 break;
             }
-            if (rt->inspecting) {
-                c64_set_video_output_enabled(&rt->machine, false);
-            }
             rt->temp_bp_active = true;
             rt->temp_bp_address = command->data.run_to_cursor.address;
             rt->temp_bp_skip_current =
@@ -6746,7 +6652,6 @@ int runtime_thread_main(void *userdata) {
     }
     rt->exec_state = RUNTIME_EXEC_PAUSED;
     rt->last_stop_reason = RUNTIME_STOP_REASON_NONE;
-    rt->speed_mode = RUNTIME_SPEED_MODE_SLOW;
     rt->breakpoint_count = 0;
     rt->next_breakpoint_id = 1;
     rt->next_frame_cycle = 0;
@@ -6757,7 +6662,6 @@ int runtime_thread_main(void *userdata) {
     rt->audio_smoke_phase = 0.0f;
     runtime_audio_record_init(rt);
     runtime_update_sid_sample_output(rt);
-    runtime_update_video_output(rt);
     runtime_publish_simple_event(rt, RUNTIME_EVENT_STARTED);
     runtime_load_symbol_files(rt);
     if (runtime_load_configured_roms(rt)) {
@@ -6793,7 +6697,6 @@ int runtime_thread_main(void *userdata) {
                     }
                     if (!rt->suppress_execute_bp &&
                         runtime_breakpoint_matches_pc(rt)) {
-                        runtime_update_video_output(rt);
                         runtime_pause_for_breakpoint(rt);
                         break;
                     }
@@ -6812,7 +6715,6 @@ int runtime_thread_main(void *userdata) {
                     }
                     runtime_inspector_sync_focus(rt);
                     if (runtime_pause_if_breakpoint_pending(rt)) {
-                        runtime_update_video_output(rt);
                         runtime_publish_presented_frame(rt);
                         break;
                     }
@@ -6831,7 +6733,6 @@ int runtime_thread_main(void *userdata) {
                             rt->temp_bp_skip_current = false;
                             rt->suppress_execute_bp = false;
                             rt->exec_state = RUNTIME_EXEC_PAUSED;
-                            runtime_update_video_output(rt);
                             runtime_publish_step_complete(rt);
                             break;
                         }

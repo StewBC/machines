@@ -25,7 +25,6 @@ run2() {
 
 echo "host=$(sysctl -n machdep.cpu.brand_string 2>/dev/null || uname -m)  cycles=$CYCLES"
 run2 "host video=on"
-run2 "host video=off" no-video
 run2 "drive8 video=on" 1541-one
 run2 "drive8+9 video=on" 1541
 run2 "drive8+9+media video=on" 1541 media

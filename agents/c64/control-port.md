@@ -462,10 +462,9 @@ the ring carries its own mutex, so no runtime round-trip is needed and a scrub
 does not contend for the deferred slot. While running, the window keeps moving
 under you — pause first if you need a stable view.
 
-Turbo max keeps live paint, so the ring keeps recording completed frames.
-Breakpoint FAST (paint off) stalls the ring rather than storing empty frames.
-Loading a machine state clears the ring: those frames belong to a discarded
-timeline whose cycle counter has restarted.
+Turbo max (and breakpoint `fast`, which is turbo max) keeps live paint, so the
+ring keeps recording completed frames. Loading a machine state clears the ring:
+those frames belong to a discarded timeline whose cycle counter has restarted.
 
 Cost is one native indexed frame copy per completed frame. The default budget
 is resident memory; lower `frame_ring_memory_mb` if that matters more than

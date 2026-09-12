@@ -30,8 +30,7 @@ Notes:
 - Default Alt+T ladder is **`1,max`**.
 - Value **`3` is hard-rejected** on CLI `--turbo`, INI `turbo_speeds`, and
   control `set-turbo` (old warp / paint-off turbo path is gone).
-- Paint-off remains a useful **lab** probe (`profile_c64_hotloop … no-video`)
-  and via breakpoint action `fast`; it is not a product turbo mode.
+- There is no paint-off switch. Breakpoint `fast` is turbo max (live paint).
 - Prefer **`max`**, not VICE's word **warp**, in UI/manual/control copy.
 - A future ladder might look a2m-like (`1,2,4,max` style) for paced multipliers
   plus max; that is optional. The invariant is: **whatever is called max stays
@@ -55,7 +54,6 @@ second (MHz). PAL realtime ≈ 0.985 MHz.
 | c64m **Debug** turbo=2 runtime (`profile_runtime_hotloop`, history off) | ~3.4–3.6 | ~350% |
 | c64m **Release** turbo=2 runtime | ~14.2 | ~1440% |
 | c64m **Release** pure core, paint on (`profile_c64_hotloop`) | ~16.0 | ~1620% |
-| c64m **Release** pure core, paint off (`no-video`) | ~21.1 | ~2140% |
 | VICE **x64sc** 3.10 warp, no true drive (remote `stopwatch`) | ~25.3 | ~2570% |
 
 Implications already known:
@@ -65,18 +63,21 @@ Implications already known:
 2. Release max is already past a casual "800–1000%" bar on this host; remaining
    work is closing toward VICE (~1.6–1.8× on this idle recipe), not escaping
    "barely faster than realtime."
-3. Paint-on → paint-off in Release is only ~25% on idle BASIC. Most of the
-   remaining VICE gap is **engine structure**, not "forget to throttle the UI."
+3. Most of the remaining VICE gap is **engine structure**, not UI present tax.
+   There is no paint-off product or lab path.
 
 Reproduce:
 
 ```bash
-# c64m Release profiles (target names are prefixed in CMake)
+# Preferred: one script, idle BASIC + lft-nine, c64m max vs x64sc warp
 cmake -B build-release -S . -DCMAKE_BUILD_TYPE=Release
+./tools/c64/bake_max_vs_vice.sh
+
+# c64m Release profiles (target names are prefixed in CMake)
 cmake --build build-release -j --target c64m_profile_c64_hotloop c64m_profile_runtime_hotloop
 ./build-release/profile_c64_hotloop 20000000
-./build-release/profile_c64_hotloop 20000000 no-video
 ./build-release/profile_runtime_hotloop 3 config-off
+./build-release/profile_runtime_hotloop 3 config-off assets/c64/prg/lft-nine.prg
 
 # VICE (example paths from the bake-off machine; adjust locally)
 # Binary: x64sc (cycle-exact C64), NOT xscpu64 (SuperCPU)
@@ -116,10 +117,10 @@ Try / investigate:
 - Hoist invariants; flatten per-cycle helper call tax.
 - Specialize spans when sprites/gfx/mode bits make the generic path wasteful
   (idle border vs active graphics), **without** dropping collision sampling.
-- Keep collisions accurate: today they update on the live render path
-  (`pixel_output_enabled`); any "cheaper paint" must still produce the same
-  `$D01E`/`$D01F` / IRQ behavior as full paint for the same inputs.
-- Reject geometric snapshot / paint-off as a max strategy (old mode 3; removed).
+- Keep collisions accurate: they update on the live render path; any cheaper
+  paint must still produce the same `$D01E`/`$D01F` / IRQ behavior as full
+  paint for the same inputs.
+- Reject geometric snapshot / paint-off as a max strategy (removed).
 
 Expected band if this lands well: roughly **tens of percent** on paint-on
 free-run — not another 4×. Demo risk is high; use EoD / lft-nine / Deus Ex
@@ -180,8 +181,12 @@ max correctness rules.
 
 1. Document and script **Release** bake-off (c64m max vs VICE `x64sc` warp) under
    `tools/c64/`; record idle + one heavy title.
+   **Done:** `tools/c64/bake_max_vs_vice.sh` (idle BASIC + `lft-nine.prg`).
 2. Profile Release paint-on; land one **safe** hot-path win in
    `vicii_render_live_cycle` / hborder flush (with VIC oracle tests).
+   **In tree:** no-sprite over-border spans (paths C/D) bulk-fill consecutive
+   8-dot columns instead of per-dot `vicii_vic_x_to_frame_x` / repeated
+   `vicii_border_gfx_pixel`. Re-bake after further paint work.
 3. Spike CIA Δ-step behind tests; keep or discard based on IRQ/read-back.
 4. Only then attempt larger VICE alarm/draw-structure experiments.
 
@@ -192,9 +197,9 @@ max correctness rules.
 | Turbo mode IDs | `src/c64/runtime/runtime.h` (`RUNTIME_TURBO_MODE_*`) |
 | Free-run / paint policy | `src/c64/runtime/runtime_thread.c` |
 | Frame publish / ring | `runtime_publish_completed_frame` in same file |
-| VIC live paint / collisions | `src/c64/machine/vicii.c` (`pixel_output_enabled`, `vicii_render_live_cycle`) |
+| VIC live paint / collisions | `src/c64/machine/vicii.c` (`vicii_render_live_cycle`) |
 | Core step | `src/c64/machine/c64.c` (`c64_step_cycles_ex`, micro strip) |
-| Benches | `tools/c64/profile_c64_hotloop.c`, `profile_runtime_hotloop.c`, `bench_core_mhz.sh` |
+| Benches | `tools/c64/bake_max_vs_vice.sh`, `profile_c64_hotloop.c`, `profile_runtime_hotloop.c`, `bench_core_mhz.sh` |
 | Testing / perf notes | `agents/c64/testing.md` |
 
 ## Open questions
