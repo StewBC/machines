@@ -27,7 +27,7 @@ The agents index points here: [`agents/README.md`](../agents/README.md) → Desi
 |--------|--------|----------------|------|
 | a2m SSC + ImageWriter II → host page files (v1) | landed | 2026-09-02 | [`apple2/ssc-imagewriter-host-pages.md`](apple2/ssc-imagewriter-host-pages.md) |
 | c64m IEC printer → host page files (v1) | active | 2026-09-01 | [`c64/iec-printer-host-pages.md`](c64/iec-printer-host-pages.md) |
-| c64m extended D64 read (40/42-track + error-info tails) | active | 2026-09-13 | [`c64/extended-d64-read.md`](c64/extended-d64-read.md) |
+| c64m extended D64 read (40/42-track + error-info tails) | landed | 2026-09-14 | [`c64/extended-d64-read.md`](c64/extended-d64-read.md) |
 | c64m turbo/max vs VICE perf gap | landed | 2026-08-29 | [`c64/turbo-max-vice-perf-gap.md`](c64/turbo-max-vice-perf-gap.md) |
 
 ## Conventions

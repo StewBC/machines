@@ -5,8 +5,19 @@
 Parsers in `src/tools/d64`, `t64`, `g64`, `crt`. Machine/runtime integration
 in `c64.c`, `c1541.c`, `c1541_media.c`, `c64_hostfs.c`, runtime disk code.
 
-- D64: 35-track, error tails, BAM/directory, PRG extract/write, wildcards,
-  `@:` replacement.
+- D64: size is the format. Six canonical sizes (VICE table): 174848
+  (35-track), 175531 (35 + 683 error-info), 196608 (40-track), 197376
+  (40 + 768 error-info), 205312 (42-track), 206114 (42 + 802 error-info).
+  Odd lengths stay `UNSUPPORTED_IMAGE`. Extra tracks 36-42 have 17 sectors
+  (same zone as 31-35) and are custom-loader territory. CBM DOS BAM / `$`
+  / trap SAVE allocation stay tracks 1-35; trap LOAD still follows T/S
+  chains onto 36+ via geometry. Error-info tails are **stored, not applied**
+  to GCR. Writable 175531/197376/206114 flush preserves tail length (grows
+  vs the old 174848 truncation). 40-track custom loaders need
+  `[disk] emulate_1541=1`. Trap `$` / LOAD of catalog PRGs is not enough
+  when the catalog sits on T18 and the data is on T36 (What Is The Matrix
+  II class). Out: D71, D81, D80/D82, X64, P64, NIB, TAP. BAM/directory,
+  PRG extract/write, wildcards, `@:` replacement as before.
 - HostFS: host directory as volume (`c64_mount_hostfs` / `--disk N=<dir>`).
   Trap-fast `$` / LOAD PRG / SAVE create-or-`@:`-replace; channel-15 `CD` +
   Scratch `S:NAME` via OPEN/CLOSE (+ status CHKIN/CHRIN); host-cwd SEQ via
@@ -58,6 +69,9 @@ matching `runtime_client_*`.
    `rom` / `roms`). Drive 6502, RAM, two VIAs, IEC, fractional 1.000 MHz drive
    clock, plus D64-to-GCR synthesis or G64 attach (rotation/SYNC/BYTE READY,
    motor/stepper/WPS). Physical READ/SEARCH/VERIFY/EXECUTE run the ROM path.
+   Extra-track (36-42) GCR is synthesised from 40/42-track D64 so a real
+   1541 can seek there. Custom loaders that step onto those tracks need
+   this path; trap `$` / LOAD of T18 catalog PRGs is not that path.
    D64 WRITE is hybrid (sector + GCR poke). G64 WRITE is Port-A flux only.
 
 DOS command/error channel (scratch, rename, validate, initialize, format,
