@@ -79,11 +79,19 @@ static void test_zones(void) {
     if (c1541_gcr_sectors_per_track(1) != 21) fail("spt1");
     if (c1541_gcr_sectors_per_track(18) != 19) fail("spt18");
     if (c1541_gcr_sectors_per_track(35) != 17) fail("spt35");
+    if (c1541_gcr_sectors_per_track(36) != 17) fail("spt36");
+    if (c1541_gcr_sectors_per_track(42) != 17) fail("spt42");
+    if (c1541_gcr_sectors_per_track(43) != 0) fail("spt43");
     if (c1541_gcr_density_for_track(1) != 3) fail("dens outer");
     if (c1541_gcr_density_for_track(35) != 0) fail("dens inner");
+    if (c1541_gcr_density_for_track(36) != 0) fail("dens36");
+    if (c1541_gcr_density_for_track(42) != 0) fail("dens42");
     if (c1541_gcr_cycles_per_byte(3) != 26) fail("cpb3");
     if (c1541_gcr_cycles_per_byte(0) != 32) fail("cpb0");
     if (c1541_gcr_d64_sector_offset(18, 0) != 0x16500) fail("bam offset");
+    if (c1541_gcr_d64_sector_offset(36, 0) != 174848) fail("t36 offset");
+    if (c1541_gcr_d64_sector_offset(42, 0) != 200960) fail("t42 offset");
+    if (c1541_gcr_d64_sector_offset(43, 0) != -1) fail("t43 offset");
     printf("PASS: test_zones\n");
 }
 

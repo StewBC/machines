@@ -13,7 +13,7 @@ enum {
     C1541_MEDIA_MAX_HALF_TRACK = 84,  /* track 42 */
     /* 84 G64 half-track slots: index 0 = track 1.0, 1 = 1.5, ... */
     C1541_MEDIA_HALF_SLOTS = 84,
-    /* Legacy whole-track count (D64 uses tracks 1..35). */
+    /* Unused; D64 GCR loops use image geometry through track 42. */
     C1541_MEDIA_TRACK_COUNT = 36,
     /* Motor spin-up in drive cycles (~50 ms at 1 MHz). Short enough for tests. */
     C1541_MEDIA_SPINUP_CYCLES = 50000u,
@@ -95,7 +95,7 @@ void c1541_media_init(c1541_media *m);
 void c1541_media_reset(c1541_media *m);
 void c1541_media_free_tracks(c1541_media *m);
 
-/* Build standard GCR tracks from a mounted 35-track D64 image. */
+/* Build standard GCR tracks from a mounted 35/40/42-track D64 image. */
 int c1541_media_build_from_d64(
     c1541_media *m,
     const uint8_t *image_bytes,

@@ -1,4 +1,5 @@
 #include "c1541.h"
+#include "c1541_gcr.h"
 #include "c64.h"
 
 #include <stdio.h>
@@ -607,6 +608,65 @@ static void test_queued_write_job_error_tail_not_sectors(void) {
     printf("PASS: test_queued_write_job_error_tail_not_sectors\n");
 }
 
+/* WRITE job to track 40 on a writable 40-track image persists into the payload. */
+static void test_queued_write_job_track_40_success(void) {
+    static c64_t c64;
+    static c1541 drive;
+    uint8_t *img;
+    const c64_drive_slot *slot;
+    c64_drive_status_result result;
+    int i;
+    int off;
+    enum { SIZE_40 = 196608 };
+
+    c64_init(&c64);
+    c1541_init(&drive, &c64, 8);
+    load_nop_rom(&drive);
+    c1541_reset(&drive);
+    g_media_writes = 0;
+    c64_set_media_event_callback(&c64, test_media_write_cb, NULL);
+
+    img = (uint8_t *)calloc(1, SIZE_40);
+    if (img == NULL)
+        fail("test_queued_write_job_track_40_success: out of memory");
+    off = c1541_gcr_d64_sector_offset(40, 0);
+    if (off < 0 || (off + 256) > SIZE_40)
+        fail("test_queued_write_job_track_40_success: track 40 offset");
+    memset(img + off, 0x33, 256);
+    result = c64_mount_d64_ex(
+        &c64, 8, img, SIZE_40,
+        NULL, 0, "forty", "FORTY", "AA", "2A", 664, true);
+    free(img);
+    if (result != C64_DRIVE_STATUS_OK)
+        fail("test_queued_write_job_track_40_success: c64_mount_d64_ex failed");
+
+    for (i = 0; i < 256; i++) drive.ram[0x0500 + i] = 0x7E;
+    drive.ram[0x02] = 0x90u; /* WRITE job */
+    drive.ram[0x0A] = 40;
+    drive.ram[0x0B] = 0;
+    drive.cpu.cpu.pc = 0xF2BEu;
+
+    c1541_advance_one_cycle(&drive);
+
+    expect_eq_u8("track-40 write job result", 0x01u, drive.ram[0x02]);
+    if (g_media_writes < 1)
+        fail("test_queued_write_job_track_40_success: guest write did not notify");
+
+    slot = c64_get_drive_slot(&c64, 8);
+    if (!slot || !slot->image_bytes)
+        fail("test_queued_write_job_track_40_success: no slot image");
+    if (!slot->dirty)
+        fail("test_queued_write_job_track_40_success: slot not marked dirty");
+    if (slot->image_size != (size_t)SIZE_40)
+        fail("test_queued_write_job_track_40_success: image_size changed");
+    for (i = 0; i < 256; i++) {
+        if (slot->image_bytes[off + i] != 0x7E)
+            fail("test_queued_write_job_track_40_success: image not updated");
+    }
+
+    printf("PASS: test_queued_write_job_track_40_success\n");
+}
+
 int main(void) {
     /* Phase 2 */
     test_ram_read_write();
@@ -629,6 +689,7 @@ int main(void) {
     test_queued_write_job_write_protect();
     test_queued_write_job_out_of_range();
     test_queued_write_job_error_tail_not_sectors();
+    test_queued_write_job_track_40_success();
 
     printf("All c1541 tests passed.\n");
     return 0;
