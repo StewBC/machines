@@ -650,6 +650,95 @@ static void test_kernal_save_trap_writes_prg(void) {
     c64_unmount_all_drives(&machine);
 }
 
+static uint8_t *make_blank_d64_of_size(size_t size) {
+    uint8_t *image;
+    size_t offset;
+    uint8_t *bam;
+    uint8_t track;
+
+    image = (uint8_t *)calloc(1, size);
+    if (image == NULL) {
+        return NULL;
+    }
+    if (d64_track_sector_offset(18, 0, &offset) != D64_OK) {
+        free(image);
+        return NULL;
+    }
+    bam = &image[offset];
+    bam[0] = 18;
+    bam[1] = 1;
+    bam[2] = 0x41;
+    for (track = 1; track <= D64_DOS_TRACK_COUNT; ++track) {
+        uint8_t sectors = d64_sectors_per_track(track);
+        uint8_t *entry = &bam[4u + ((track - 1u) * 4u)];
+        uint8_t sector;
+
+        entry[0] = sectors;
+        for (sector = 0; sector < sectors; ++sector) {
+            entry[1u + (sector >> 3u)] |= (uint8_t)(1u << (sector & 7u));
+        }
+    }
+    {
+        uint8_t *e18 = &bam[4u + (17u * 4u)];
+        e18[1] &= (uint8_t)~0x03u;
+        e18[0] = (uint8_t)(d64_sectors_per_track(18) - 2u);
+    }
+    bam[0xa2] = 'I';
+    bam[0xa3] = 'D';
+    bam[0xa5] = '2';
+    bam[0xa6] = 'A';
+    if (d64_track_sector_offset(18, 1, &offset) != D64_OK) {
+        free(image);
+        return NULL;
+    }
+    image[offset] = 0;
+    image[offset + 1] = 0xff;
+    return image;
+}
+
+static void test_canonical_d64_sizes_mount_full_blob(void) {
+    static const size_t sizes[] = {
+        D64_STANDARD_IMAGE_SIZE,
+        D64_ERROR_INFO_IMAGE_SIZE,
+        D64_40TRACK_IMAGE_SIZE,
+        D64_40TRACK_ERROR_SIZE,
+        D64_42TRACK_IMAGE_SIZE,
+        D64_42TRACK_ERROR_SIZE
+    };
+    c64_t machine;
+    size_t i;
+
+    reset_machine(&machine);
+    for (i = 0; i < sizeof(sizes) / sizeof(sizes[0]); ++i) {
+        uint8_t *bytes;
+        c64_drive_status_result status;
+
+        bytes = (uint8_t *)calloc(1, sizes[i]);
+        if (bytes == NULL) {
+            fail("failed to allocate canonical D64");
+        }
+        bytes[sizes[i] - 1u] = 0xa5;
+        status = c64_mount_d64_ex(
+            &machine, 8, bytes, sizes[i], NULL, 0, "size.d64", "", "", "", 0, false);
+        expect_true("canonical size mounts", status == C64_DRIVE_STATUS_OK);
+        expect_true("mounted at full size", machine.drives[0].mounted);
+        expect_true("image_size is full blob", machine.drives[0].image_size == sizes[i]);
+        expect_u8("last blob byte kept", 0xa5, machine.drives[0].image_bytes[sizes[i] - 1u]);
+        c64_unmount_all_drives(&machine);
+        free(bytes);
+    }
+
+    {
+        uint8_t dummy[4] = {0};
+        c64_drive_status_result status = c64_mount_d64_ex(
+            &machine, 8, dummy, 174849u, NULL, 0, "odd.d64", "", "", "", 0, false);
+        expect_true(
+            "non-canonical size rejected",
+            status == C64_DRIVE_STATUS_UNSUPPORTED_IMAGE);
+        expect_true("odd size not mounted", !machine.drives[0].mounted);
+    }
+}
+
 static void test_40track_mount_does_not_truncate(void) {
     c64_t machine;
     uint8_t *bytes;
@@ -679,21 +768,279 @@ static void test_40track_mount_does_not_truncate(void) {
         "",
         0,
         false);
+    expect_true("40-track mount succeeds", status == C64_DRIVE_STATUS_OK);
+    expect_true("40-track slot mounted", machine.drives[0].mounted);
     expect_true(
-        "40-track mount rejected until PR 2",
-        status == C64_DRIVE_STATUS_UNSUPPORTED_IMAGE);
+        "196608 mounts at full size",
+        machine.drives[0].image_size == D64_40TRACK_IMAGE_SIZE);
     expect_true(
         "196608 never mounts as 174848",
         machine.drives[0].image_size != D64_STANDARD_IMAGE_SIZE);
-    expect_true("40-track slot not mounted", !machine.drives[0].mounted);
+    expect_u8(
+        "extra-track byte kept",
+        0x5a,
+        machine.drives[0].image_bytes[D64_STANDARD_IMAGE_SIZE]);
 
     d64_image_destroy(image);
     free(bytes);
     c64_unmount_all_drives(&machine);
 }
 
+static void test_40track_trap_load_extra_track_chain(void) {
+    c64_t machine;
+    uint8_t *bytes;
+    c64_drive_directory_entry entries[2];
+    size_t offset;
+    char error[256];
+
+    reset_machine(&machine);
+    bytes = (uint8_t *)calloc(1, D64_40TRACK_IMAGE_SIZE);
+    if (bytes == NULL) {
+        fail("failed to allocate 40-track trap image");
+    }
+
+    memset(entries, 0, sizeof(entries));
+    entries[0].type = C64_DRIVE_FILE_PRG;
+    entries[0].raw_type = 0x82;
+    entries[0].first_track = 18;
+    entries[0].first_sector = 2;
+    entries[0].block_count = 2;
+    put_fake_directory_name(&entries[0], "EXTPRG");
+    entries[1].type = C64_DRIVE_FILE_PRG;
+    entries[1].raw_type = 0x82;
+    entries[1].first_track = 36;
+    entries[1].first_sector = 1;
+    entries[1].block_count = 1;
+    put_fake_directory_name(&entries[1], "T36PRG");
+
+    expect_true("18/2 offset", d64_track_sector_offset(18, 2, &offset) == D64_OK);
+    bytes[offset] = 36;
+    bytes[offset + 1] = 0;
+    bytes[offset + 2] = 0x01;
+    bytes[offset + 3] = 0x08;
+    bytes[offset + 4] = 0xaa;
+
+    expect_true("36/0 offset", d64_track_sector_offset(36, 0, &offset) == D64_OK);
+    bytes[offset] = 0;
+    bytes[offset + 1] = 3;
+    bytes[offset + 2] = 0xbb;
+    bytes[offset + 3] = 0xcc;
+
+    expect_true("36/1 offset", d64_track_sector_offset(36, 1, &offset) == D64_OK);
+    bytes[offset] = 0;
+    bytes[offset + 1] = 4;
+    bytes[offset + 2] = 0x00;
+    bytes[offset + 3] = 0xc0;
+    bytes[offset + 4] = 0x60;
+
+    expect_true(
+        "mount 40-track extra-track PRGs",
+        c64_mount_d64_ex(
+            &machine,
+            8,
+            bytes,
+            D64_40TRACK_IMAGE_SIZE,
+            entries,
+            2,
+            "ext.d64",
+            "TEST DISK",
+            "ID",
+            "2A",
+            0,
+            false) == C64_DRIVE_STATUS_OK);
+
+    setup_load_call(&machine, "$", 8, 0);
+    machine.cpu.cpu.X = 0x01;
+    machine.cpu.cpu.Y = 0x08;
+    expect_true("40-track directory load", c64_step_instruction(&machine, error, sizeof(error)));
+    expect_success_return(&machine);
+    expect_basic_contains(&machine, "EXTPRG");
+    expect_basic_contains(&machine, "T36PRG");
+
+    setup_load_call(&machine, "EXTPRG", 8, 1);
+    expect_true("extra-track chain load", c64_step_instruction(&machine, error, sizeof(error)));
+    expect_success_return(&machine);
+    expect_u8("chain byte from T18", 0xaa, c64_debug_read_ram(&machine, 0x0801));
+    /* Intermediate D64 sectors always contribute 254 data bytes (2 of load address). */
+    expect_u8("chain byte from T36", 0xbb, c64_debug_read_ram(&machine, 0x08fd));
+    expect_u8("chain last byte from T36", 0xcc, c64_debug_read_ram(&machine, 0x08fe));
+
+    setup_load_call(&machine, "T36PRG", 8, 1);
+    expect_true("first_track=36 load", c64_step_instruction(&machine, error, sizeof(error)));
+    expect_success_return(&machine);
+    expect_u8("T36PRG byte", 0x60, c64_debug_read_ram(&machine, 0xc000));
+
+    free(bytes);
+    c64_unmount_all_drives(&machine);
+}
+
+static void test_35track_trap_load_rejects_track_36(void) {
+    c64_t machine;
+    uint8_t *image;
+    c64_drive_directory_entry entry;
+    char error[256];
+
+    reset_machine(&machine);
+    image = (uint8_t *)calloc(1, C64_DRIVE_D64_STANDARD_SIZE);
+    if (image == NULL) {
+        fail("failed to allocate 35-track image");
+    }
+    memset(&entry, 0, sizeof(entry));
+    entry.type = C64_DRIVE_FILE_PRG;
+    entry.raw_type = 0x82;
+    entry.first_track = 36;
+    entry.first_sector = 0;
+    put_fake_directory_name(&entry, "PASTEND");
+    expect_true(
+        "mount 35-track with T36 entry",
+        c64_mount_d64(
+            &machine,
+            8,
+            image,
+            C64_DRIVE_D64_STANDARD_SIZE,
+            &entry,
+            1,
+            "past.d64",
+            "PAST",
+            "  ",
+            "  ",
+            0) == C64_DRIVE_STATUS_OK);
+    setup_load_call(&machine, "PASTEND", 8, 1);
+    machine.bus.ram[0x3000] = 0x5a;
+    expect_true("T36 on 35-track load", c64_step_instruction(&machine, error, sizeof(error)));
+    expect_failure_return(&machine);
+    expect_u8("T36 sentinel unchanged", 0x5a, machine.bus.ram[0x3000]);
+    c64_unmount_all_drives(&machine);
+    free(image);
+}
+
+static void test_40track_trap_save_preserves_extra_tracks(void) {
+    c64_t machine;
+    uint8_t *bytes;
+    d64_image *saved_image;
+    d64_directory_entry entry;
+    d64_file_data file;
+    d64_result result;
+    char error[256];
+    uint8_t expected[] = {0x01, 0x08, 0x11, 0x22, 0x33, 0x44};
+    size_t i;
+
+    reset_machine(&machine);
+    bytes = make_blank_d64_of_size(D64_40TRACK_IMAGE_SIZE);
+    if (bytes == NULL) {
+        fail("failed to allocate blank 40-track image");
+    }
+    bytes[D64_STANDARD_IMAGE_SIZE] = 0x5a;
+    bytes[D64_40TRACK_IMAGE_SIZE - 1u] = 0x3c;
+    expect_true(
+        "mount writable 40-track",
+        c64_mount_d64_ex(
+            &machine,
+            8,
+            bytes,
+            D64_40TRACK_IMAGE_SIZE,
+            NULL,
+            0,
+            "blank40.d64",
+            "TEST DISK",
+            "ID",
+            "2A",
+            664,
+            true) == C64_DRIVE_STATUS_OK);
+    for (i = 2; i < sizeof(expected); ++i) {
+        machine.bus.ram[0x0801u + (uint16_t)(i - 2u)] = expected[i];
+    }
+
+    setup_save_call(&machine, "SAVED", 8, 0x0801, 0x0805);
+    expect_true("40-track SAVE trap", c64_step_instruction(&machine, error, sizeof(error)));
+    expect_success_return(&machine);
+    expect_true("40-track SAVE dirty", machine.drives[0].dirty);
+    expect_true(
+        "SAVE keeps 40-track size",
+        machine.drives[0].image_size == D64_40TRACK_IMAGE_SIZE);
+    expect_u8(
+        "SAVE left extra-track byte",
+        0x5a,
+        machine.drives[0].image_bytes[D64_STANDARD_IMAGE_SIZE]);
+    expect_u8(
+        "SAVE left last extra-track byte",
+        0x3c,
+        machine.drives[0].image_bytes[D64_40TRACK_IMAGE_SIZE - 1u]);
+
+    saved_image = d64_image_create(
+        machine.drives[0].image_bytes, machine.drives[0].image_size, &result);
+    expect_true("saved 40-track parses", saved_image != NULL && result == D64_OK);
+    expect_true(
+        "find 40-track saved file",
+        d64_image_find_entry_ascii(saved_image, "SAVED", &entry) == D64_OK);
+    memset(&file, 0, sizeof(file));
+    expect_true(
+        "extract 40-track saved file",
+        d64_image_extract_prg(saved_image, &entry, &file) == D64_OK);
+    expect_u16("40-track saved size", (uint16_t)sizeof(expected), (uint16_t)file.size);
+    if (file.size != sizeof(expected) || memcmp(file.bytes, expected, sizeof(expected)) != 0) {
+        fail("40-track saved PRG bytes mismatch");
+    }
+
+    d64_file_data_free(&file);
+    d64_image_destroy(saved_image);
+    free(bytes);
+    c64_unmount_all_drives(&machine);
+}
+
+static void test_error_info_mount_preserves_tail(void) {
+    c64_t machine;
+    uint8_t *bytes;
+    c64_drive_status_result status;
+
+    reset_machine(&machine);
+    bytes = (uint8_t *)calloc(1, D64_ERROR_INFO_IMAGE_SIZE);
+    if (bytes == NULL) {
+        fail("failed to allocate error-info image");
+    }
+    bytes[D64_STANDARD_IMAGE_SIZE - 1u] = 0xa5;
+    bytes[D64_STANDARD_IMAGE_SIZE] = 0x5a;
+    bytes[D64_ERROR_INFO_IMAGE_SIZE - 1u] = 0x3c;
+    status = c64_mount_d64_ex(
+        &machine,
+        8,
+        bytes,
+        D64_ERROR_INFO_IMAGE_SIZE,
+        NULL,
+        0,
+        "err.d64",
+        "",
+        "",
+        "",
+        0,
+        false);
+    expect_true("175531 mount succeeds", status == C64_DRIVE_STATUS_OK);
+    expect_true(
+        "175531 image_size",
+        machine.drives[0].image_size == D64_ERROR_INFO_IMAGE_SIZE);
+    expect_u8(
+        "payload last byte kept",
+        0xa5,
+        machine.drives[0].image_bytes[D64_STANDARD_IMAGE_SIZE - 1u]);
+    expect_u8(
+        "error tail first byte kept",
+        0x5a,
+        machine.drives[0].image_bytes[D64_STANDARD_IMAGE_SIZE]);
+    expect_u8(
+        "error tail last byte kept",
+        0x3c,
+        machine.drives[0].image_bytes[D64_ERROR_INFO_IMAGE_SIZE - 1u]);
+    free(bytes);
+    c64_unmount_all_drives(&machine);
+}
+
 int main(void) {
+    test_canonical_d64_sizes_mount_full_blob();
     test_40track_mount_does_not_truncate();
+    test_40track_trap_load_extra_track_chain();
+    test_35track_trap_load_rejects_track_36();
+    test_40track_trap_save_preserves_extra_tracks();
+    test_error_info_mount_preserves_tail();
     {
         char asset_path[512];
         snprintf(asset_path, sizeof(asset_path),

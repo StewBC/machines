@@ -192,6 +192,7 @@ static void c1541_update_iec_bus(c1541 *drive) {
 static int c1541_job_sector_offset(c1541 *drive, uint8_t n, int *out_offset) {
     uint8_t track, sector;
     const c64_drive_slot *slot;
+    d64_geometry geom;
     size_t offset;
 
     /* Track and sector from hdrs[n*2] and hdrs[n*2+1] (ZP $06 + n*2). */
@@ -203,8 +204,10 @@ static int c1541_job_sector_offset(c1541 *drive, uint8_t n, int *out_offset) {
         return 0;
     }
 
-    if (d64_track_sector_offset(track, sector, &offset) != D64_OK ||
-        (offset + 256) > slot->image_size) {
+    /* Bound is payload, not image_size: a 175531 tail is not sectors. */
+    if (!d64_geometry_from_size(slot->image_size, &geom) ||
+        d64_track_sector_offset(track, sector, &offset) != D64_OK ||
+        (offset + 256) > geom.payload_size) {
         return 0;
     }
     *out_offset = (int)offset;
