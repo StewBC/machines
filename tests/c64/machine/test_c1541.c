@@ -365,6 +365,40 @@ static void test_iec_c64_pull_data(void) {
     printf("PASS: test_iec_c64_pull_data\n");
 }
 
+/* 7406 inverters: CIA input floats high → IEC asserted. PRA=0 + DDR input
+   must pull; PRA=0 + DDR output must release. DDR-toggle fastloaders use this. */
+static void test_iec_c64_ddr_input_asserts(void) {
+    static c64_t c64;
+    uint8_t pull;
+
+    c64_init(&c64);
+
+    c64.cia2.registers[0x00] = 0x00u;
+    c64.cia2.registers[0x02] = 0x00u;
+    pull = c64_get_iec_c64_pull(&c64);
+    if ((pull & (C64_IEC_ATN | C64_IEC_CLK | C64_IEC_DATA)) !=
+        (C64_IEC_ATN | C64_IEC_CLK | C64_IEC_DATA)) {
+        fail("iec_c64_ddr_input_asserts: DDR input should assert ATN/CLK/DATA");
+    }
+
+    c64.cia2.registers[0x02] = 0x38u; /* bits 3-5 outputs, PRA still 0 */
+    pull = c64_get_iec_c64_pull(&c64);
+    if (pull & (C64_IEC_ATN | C64_IEC_CLK | C64_IEC_DATA)) {
+        fail("iec_c64_ddr_input_asserts: output 0 should release ATN/CLK/DATA");
+    }
+
+    c64.cia2.registers[0x02] = 0x28u; /* CLK (bit 4) input, ATN+DATA output 0 */
+    pull = c64_get_iec_c64_pull(&c64);
+    if (!(pull & C64_IEC_CLK)) {
+        fail("iec_c64_ddr_input_asserts: CLK DDR input should assert CLK");
+    }
+    if (pull & (C64_IEC_ATN | C64_IEC_DATA)) {
+        fail("iec_c64_ddr_input_asserts: ATN/DATA output 0 should stay released");
+    }
+
+    printf("PASS: test_iec_c64_ddr_input_asserts\n");
+}
+
 static void test_iec_atn_ack_pulls_data(void) {
     static c64_t c64;
     static c1541 drive;
@@ -684,6 +718,7 @@ int main(void) {
     test_via2_timer_pb7_sets_cpu_overflow();
     test_iec_two_drive_pull_aggregation();
     test_iec_c64_pull_data();
+    test_iec_c64_ddr_input_asserts();
     test_iec_atn_ack_pulls_data();
     test_queued_write_job_success();
     test_queued_write_job_write_protect();

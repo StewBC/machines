@@ -138,6 +138,12 @@ no empty-slot grow / format rebuild.
 - G64 uses the flux-transition decoder; synthetic D64 uses NRZ GCR +
   immediate BYTE READY. BYTE READY is a sticky SO edge after drive Phi2;
   **CLV discards any pending edge**. Dual-BVC loaders require that.
+- CIA2 PA3/4/5 (ATN/CLK/DATA) go through 7406 inverters. A CIA **input**
+  floats high, so the inverter **asserts** IEC. The line is released only
+  while that bit is an output 0. Fastloaders that clock by toggling `$DD02`
+  (PRA=0) need that; treating DDR-input as released deadlocks them
+  (What Is The Matrix II: C64 `$10E1` `LDA $DD00`/`BPL`, drive `$074A`
+  wait-ATN).
 - While PC is in drive RAM and no job is queued, VIA2 T1 is acked so
   custom code is not stolen by `$F2B0` (Robocop). Intentional, not
   hardware-accurate.

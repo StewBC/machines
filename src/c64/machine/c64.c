@@ -2884,9 +2884,19 @@ static uint8_t c64_cia2_iec_output_pull(const c64_t *machine) {
     uint8_t ddra = machine->cia2.registers[0x02];
     uint8_t pull = 0;
 
-    if ((ddra & 0x08u) && (ora & 0x08u)) pull |= C64_IEC_ATN;
-    if ((ddra & 0x10u) && (ora & 0x10u)) pull |= C64_IEC_CLK;
-    if ((ddra & 0x20u) && (ora & 0x20u)) pull |= C64_IEC_DATA;
+    /* PA3/4/5 feed 7406 open-collector inverters. A CIA input floats high, so
+       the inverter pulls IEC low. VICE uses PRA|~DDR then inverts: the line is
+       released only while the CIA is an output 0. DDR-toggle fastloaders rely
+       on that (PRA=0, flip DDRA to clock). */
+    if ((ddra & 0x08u) == 0u || (ora & 0x08u) != 0u) {
+        pull |= C64_IEC_ATN;
+    }
+    if ((ddra & 0x10u) == 0u || (ora & 0x10u) != 0u) {
+        pull |= C64_IEC_CLK;
+    }
+    if ((ddra & 0x20u) == 0u || (ora & 0x20u) != 0u) {
+        pull |= C64_IEC_DATA;
+    }
     return pull;
 }
 
@@ -3579,12 +3589,9 @@ uint8_t c64_get_iec_pull_excluding_drive(c64_t *machine, int device_number) {
 uint8_t c64_get_iec_c64_pull(c64_t *machine) {
     assert(machine);
     /* CIA #2 Port A IEC assignments (from c64_cia2_port_inputs):
-       bit 3 (0x08) = ATN out: output high → C64 asserts ATN
-       bit 4 (0x10) = CLK out: output high → C64 asserts CLK
-       bit 5 (0x20) = DATA out: output high → C64 asserts DATA.
-       These outputs feed open-collector inverters. PA6/PA7 sense the
-       combined CLK/DATA bus level directly: released high reads as 1,
-       pulled low reads as 0. */
+       bit 3 (0x08) = ATN, bit 4 (0x10) = CLK, bit 5 (0x20) = DATA.
+       7406 inverters: output 1 or DDR input asserts; output 0 releases.
+       PA6/PA7 sense CLK/DATA: released high reads as 1, pulled low as 0. */
     return c64_cia2_iec_output_pull(machine);
 }
 
