@@ -42,13 +42,6 @@ enum {
     C64_CPU_BUS_MODE_ARBITER
 };
 
-static const uint8_t c64_d64_sectors_per_track[35] = {
-    21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21,
-    19, 19, 19, 19, 19, 19, 19,
-    18, 18, 18, 18, 18, 18,
-    17, 17, 17, 17, 17
-};
-
 static uint8_t c64_iec_line_mask(uint8_t lines) {
     return (uint8_t)(lines & (C64_IEC_ATN | C64_IEC_CLK | C64_IEC_DATA));
 }
@@ -464,21 +457,25 @@ static void c64_trace_reset(c64_cpu_instruction_trace *trace) {
     trace->total_cycles = 0;
 }
 
-static bool c64_d64_track_sector_offset(uint8_t track, uint8_t sector, size_t *out_offset) {
-    size_t offset = 0;
-    uint8_t current_track;
+/* Payload ceiling: extra-track chains must not overrun a 35-track slot. */
+static bool c64_d64_slot_sector_offset(
+    const c64_drive_slot *slot,
+    uint8_t track,
+    uint8_t sector,
+    size_t *out_offset) {
+    d64_geometry geom;
+    size_t offset;
 
-    if (out_offset == NULL || track < 1 || track > 35) {
+    if (slot == NULL || slot->image_bytes == NULL || out_offset == NULL) {
         return false;
     }
-    if (sector >= c64_d64_sectors_per_track[track - 1]) {
+    if (!d64_geometry_from_size(slot->image_size, &geom)) {
         return false;
     }
-    for (current_track = 1; current_track < track; ++current_track) {
-        offset += (size_t)c64_d64_sectors_per_track[current_track - 1] * 256u;
+    if (d64_track_sector_offset(track, sector, &offset) != D64_OK) {
+        return false;
     }
-    offset += (size_t)sector * 256u;
-    if (offset + 256u > C64_DRIVE_D64_STANDARD_SIZE) {
+    if (offset + D64_SECTOR_SIZE > geom.payload_size) {
         return false;
     }
     *out_offset = offset;
@@ -1415,7 +1412,7 @@ static bool c64_drive_load_prg_to_memory(
     bool use_prg_address,
     uint16_t *out_start_address,
     uint16_t *out_end_address) {
-    bool visited[683];
+    bool visited[D64_MAX_SECTOR_COUNT];
     uint8_t track;
     uint8_t sector_id;
     uint16_t load_address = 0;
@@ -1435,11 +1432,11 @@ static bool c64_drive_load_prg_to_memory(
         size_t data_size;
         size_t data_index;
 
-        if (!c64_d64_track_sector_offset(track, sector_id, &offset)) {
+        if (!c64_d64_slot_sector_offset(slot, track, sector_id, &offset)) {
             return false;
         }
-        visited_index = offset / 256u;
-        if (visited_index >= sizeof(visited) / sizeof(visited[0]) || visited[visited_index]) {
+        visited_index = offset / D64_SECTOR_SIZE;
+        if (visited_index >= D64_MAX_SECTOR_COUNT || visited[visited_index]) {
             return false;
         }
         visited[visited_index] = true;
@@ -3941,6 +3938,7 @@ c64_drive_status_result c64_mount_d64_ex(
     c64_drive_slot *slot;
     uint8_t *copy;
     c64_drive_directory_entry *entry_copy = NULL;
+    d64_geometry geom;
 
     assert(machine);
 
@@ -3948,7 +3946,10 @@ c64_drive_status_result c64_mount_d64_ex(
     if (slot_index < 0) {
         return C64_DRIVE_STATUS_INVALID_DEVICE;
     }
-    if (standard_image_bytes == NULL || standard_image_size != C64_DRIVE_D64_STANDARD_SIZE) {
+    /* D64 blob of a supported size; copy the full host image. */
+    if (standard_image_bytes == NULL ||
+        !d64_geometry_from_size(standard_image_size, &geom) ||
+        geom.payload_size + geom.error_bytes != standard_image_size) {
         machine->drives[slot_index].last_result = C64_DRIVE_STATUS_UNSUPPORTED_IMAGE;
         return C64_DRIVE_STATUS_UNSUPPORTED_IMAGE;
     }

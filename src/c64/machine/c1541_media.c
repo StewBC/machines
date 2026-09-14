@@ -3,6 +3,7 @@
 #include "c1541.h"
 #include "c1541_gcr.h"
 #include "c64.h"
+#include "d64.h"
 #include "g64.h"
 
 #include <stdlib.h>
@@ -92,11 +93,20 @@ static void append_fill(uint8_t *buf, size_t *len, size_t cap, uint8_t v, size_t
     }
 }
 
+/* VICE disk_image_gap_size_d64[] by zone (dens 3→8, 2→17, 1→12, 0→9). */
+static size_t d64_gap_for_density(int dens) {
+    static const size_t gap_by_dens[4] = {9u, 12u, 17u, 8u};
+    if (dens < 0 || dens > 3) {
+        return 8u;
+    }
+    return gap_by_dens[dens];
+}
+
 static int build_one_track(
     c1541_track *tr,
     uint8_t track,
     const uint8_t *image,
-    size_t image_size,
+    size_t payload_size,
     uint8_t id_lo,
     uint8_t id_hi) {
     int spt = c1541_gcr_sectors_per_track(track);
@@ -126,7 +136,7 @@ static int build_one_track(
         int off = c1541_gcr_d64_sector_offset(track, (uint8_t)sec);
         size_t enc;
 
-        if (off < 0 || (size_t)(off + 256) > image_size) {
+        if (off < 0 || (size_t)(off + 256) > payload_size) {
             memset(sector, 0, 256);
         } else {
             memcpy(sector, image + off, 256);
@@ -150,14 +160,7 @@ static int build_one_track(
             return 0;
         }
         append_bytes(buf, &len, cap, data_gcr, enc);
-        /* Inter-sector gap: match VICE disk_image_gap_size_d64[] by zone
-           (dens 3→8, 2→17, 1→12, 0→9). Fixed 8 left outer tracks short of
-           real/VICE framing and hurt custom GCR loaders on multi-disk titles. */
-        {
-            static const size_t gap_by_dens[4] = {9u, 12u, 17u, 8u};
-            size_t gap = (dens >= 0 && dens <= 3) ? gap_by_dens[dens] : 8u;
-            append_fill(buf, &len, cap, 0x55u, gap);
-        }
+        append_fill(buf, &len, cap, 0x55u, d64_gap_for_density(dens));
     }
 
     while (len < cap) {
@@ -180,24 +183,30 @@ int c1541_media_build_from_d64(
     uint8_t id_hi = 0x41u;
     int t;
     int bam_off;
+    d64_geometry geom;
 
-    if (m == NULL || image_bytes == NULL || image_size < 174848u) {
+    if (m == NULL || image_bytes == NULL || !d64_geometry_from_size(image_size, &geom)) {
         return 0;
     }
 
     bam_off = c1541_gcr_d64_sector_offset(18, 0);
-    if (bam_off >= 0 && (size_t)(bam_off + 164) <= image_size) {
+    if (bam_off >= 0 && (size_t)(bam_off + 164) <= geom.payload_size) {
         id_lo = image_bytes[bam_off + 162];
         id_hi = image_bytes[bam_off + 163];
     }
 
     c1541_media_free_tracks(m);
 
-    for (t = 1; t <= 35; ++t) {
+    for (t = 1; t <= (int)geom.track_count; ++t) {
         int slot = whole_track_slot(t);
         if (slot < 0 ||
             !build_one_track(
-                &m->halves[slot], (uint8_t)t, image_bytes, image_size, id_lo, id_hi)) {
+                &m->halves[slot],
+                (uint8_t)t,
+                image_bytes,
+                geom.payload_size,
+                id_lo,
+                id_hi)) {
             c1541_media_free_tracks(m);
             return 0;
         }
@@ -522,7 +531,7 @@ static int decode_track_to_d64(
     const c1541_track *tr,
     uint8_t track_num,
     uint8_t *image,
-    size_t image_size) {
+    size_t payload_size) {
     uint32_t nbits;
     uint32_t pos;
     int updated = 0;
@@ -608,7 +617,7 @@ static int decode_track_to_d64(
         }
 
         off = c1541_gcr_d64_sector_offset(track_num, hdr_raw[2]);
-        if (off >= 0 && (size_t)(off + 256) <= image_size) {
+        if (off >= 0 && (size_t)(off + 256) <= payload_size) {
             if (memcmp(image + off, sector, 256) != 0) {
                 memcpy(image + off, sector, 256);
                 updated = 1;
@@ -622,6 +631,7 @@ static int decode_track_to_d64(
 int c1541_media_sync_dirty_to_d64(c1541 *drive) {
     c1541_media *m;
     c64_drive_slot *slot;
+    d64_geometry geom;
     int t;
     int any = 0;
 
@@ -643,13 +653,17 @@ int c1541_media_sync_dirty_to_d64(c1541 *drive) {
         return 0; /* G64 uses sync_dirty_to_g64, not a sector mirror. */
     }
 
-    for (t = 1; t <= 35; ++t) {
+    if (!d64_geometry_from_size(slot->image_size, &geom)) {
+        return 0;
+    }
+
+    for (t = 1; t <= (int)geom.track_count; ++t) {
         int hs = whole_track_slot(t);
         c1541_track *tr = slot_track(m, hs);
         if (tr == NULL || !tr->dirty || tr->data == NULL) {
             continue;
         }
-        if (decode_track_to_d64(tr, (uint8_t)t, slot->image_bytes, slot->image_size)) {
+        if (decode_track_to_d64(tr, (uint8_t)t, slot->image_bytes, geom.payload_size)) {
             any = 1;
         }
         tr->dirty = 0;
@@ -1060,6 +1074,25 @@ static void update_disk_via_inputs(c1541 *drive) {
     }
 }
 
+/* True when an extra-track D64 has no GCR ring on the last whole track. */
+static int extra_track_gcr_missing(const c1541_media *m, const c64_drive_slot *slot) {
+    d64_geometry geom;
+    int hs;
+    const c1541_track *tr;
+
+    if (slot->image_kind != C64_DRIVE_IMAGE_D64 ||
+        !d64_geometry_from_size(slot->image_size, &geom) ||
+        geom.track_count <= 35) {
+        return 0;
+    }
+    hs = whole_track_slot((int)geom.track_count);
+    if (hs < 0) {
+        return 1;
+    }
+    tr = &m->halves[hs];
+    return (tr->data == NULL || tr->length == 0);
+}
+
 static void ensure_tracks(c1541 *drive) {
     c1541_media *m = &drive->media;
     const c64_drive_slot *slot;
@@ -1074,11 +1107,12 @@ static void ensure_tracks(c1541 *drive) {
         return;
     }
 
-    /* Rebuild when the host image pointer/size changes OR when the D64 was
-       modified while media was off / via job intercept without a GCR poke. */
+    /* Rebuild when the host image pointer/size/seq changes, or when extra-track
+       GCR is missing while those keys still match. */
     if (m->tracks_valid && m->built_from == slot->image_bytes &&
         m->built_size == slot->image_size &&
-        m->built_from_seq == slot->image_content_seq) {
+        m->built_from_seq == slot->image_content_seq &&
+        !extra_track_gcr_missing(m, slot)) {
         return;
     }
 
@@ -1317,10 +1351,10 @@ int c1541_media_physical_write_active(const c1541 *drive) {
 }
 
 /* Layout produced by build_one_track — keep in lockstep with that function. */
-static size_t sector_data_gcr_offset(uint8_t sector) {
-    /* per sector: sync5 + hdr10 + gap9 + sync5 + data325 + gap8 */
+static size_t sector_data_gcr_offset(uint8_t track, uint8_t sector) {
+    size_t gap = d64_gap_for_density(c1541_gcr_density_for_track(track));
     const size_t per = (size_t)C1541_GCR_SYNC_BYTES + C1541_GCR_HEADER_ENC
-        + C1541_GCR_HEADER_GAP + C1541_GCR_SYNC_BYTES + C1541_GCR_DATA_ENC + 8u;
+        + C1541_GCR_HEADER_GAP + C1541_GCR_SYNC_BYTES + C1541_GCR_DATA_ENC + gap;
     return (size_t)sector * per
         + (size_t)C1541_GCR_SYNC_BYTES + C1541_GCR_HEADER_ENC
         + C1541_GCR_HEADER_GAP + C1541_GCR_SYNC_BYTES;
@@ -1333,21 +1367,40 @@ int c1541_media_poke_sector(
     const uint8_t data[256]) {
     c1541_media *m;
     c1541_track *tr;
+    const c64_drive_slot *slot;
+    d64_geometry geom;
     uint8_t raw[C1541_GCR_DATA_RAW];
     uint8_t gcr[C1541_GCR_DATA_ENC];
+    size_t image_size;
     size_t off;
     size_t enc;
     int spt;
+    int d64_off;
 
     if (drive == NULL || data == NULL) {
         return 0;
     }
     m = &drive->media;
-    if (!m->enabled || !m->tracks_valid || m->from_g64 || track < 1 || track > 35) {
+    if (!m->enabled || !m->tracks_valid || m->from_g64) {
+        return 0;
+    }
+
+    slot = c64_get_drive_slot(drive->c64, drive->device_number);
+    if (slot != NULL && slot->image_bytes != NULL && slot->image_size > 0) {
+        image_size = slot->image_size;
+    } else {
+        image_size = m->built_size;
+    }
+    if (!d64_geometry_from_size(image_size, &geom) ||
+        track < 1 || track > geom.track_count) {
         return 0;
     }
     spt = c1541_gcr_sectors_per_track(track);
     if (spt <= 0 || sector >= (uint8_t)spt) {
+        return 0;
+    }
+    d64_off = c1541_gcr_d64_sector_offset(track, sector);
+    if (d64_off < 0 || (size_t)(d64_off + 256) > geom.payload_size) {
         return 0;
     }
     tr = slot_track(m, whole_track_slot(track));
@@ -1361,19 +1414,16 @@ int c1541_media_poke_sector(
         return 0;
     }
 
-    off = sector_data_gcr_offset(sector);
+    off = sector_data_gcr_offset(track, sector);
     if (off + C1541_GCR_DATA_ENC > tr->length) {
         return 0;
     }
     memcpy(tr->data + off, gcr, C1541_GCR_DATA_ENC);
     tr->dirty = 0; /* already mirrored into D64 by the caller */
-    {
-        const c64_drive_slot *slot = c64_get_drive_slot(drive->c64, drive->device_number);
-        if (slot != NULL) {
-            m->built_from = slot->image_bytes;
-            m->built_size = slot->image_size;
-            m->built_from_seq = slot->image_content_seq;
-        }
+    if (slot != NULL) {
+        m->built_from = slot->image_bytes;
+        m->built_size = slot->image_size;
+        m->built_from_seq = slot->image_content_seq;
     }
     return 1;
 }

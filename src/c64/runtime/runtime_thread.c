@@ -1220,7 +1220,7 @@ static void runtime_mount_d64(runtime *rt, const runtime_command *command) {
         &rt->machine,
         command->data.mount_d64.device,
         bytes,
-        D64_STANDARD_IMAGE_SIZE,
+        size,
         entries,
         entry_count,
         runtime_basename(command->data.mount_d64.path),

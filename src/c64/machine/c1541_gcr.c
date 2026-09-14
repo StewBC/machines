@@ -1,4 +1,5 @@
 #include "c1541_gcr.h"
+#include "d64.h"
 
 #include <string.h>
 
@@ -139,19 +140,7 @@ int c1541_gcr_data_raw_to_sector(
 }
 
 int c1541_gcr_sectors_per_track(uint8_t track) {
-    if (track < 1 || track > 35) {
-        return 0;
-    }
-    if (track <= 17) {
-        return 21;
-    }
-    if (track <= 24) {
-        return 19;
-    }
-    if (track <= 30) {
-        return 18;
-    }
-    return 17;
+    return (int)d64_sectors_per_track(track);
 }
 
 int c1541_gcr_density_for_track(uint8_t track) {
@@ -176,25 +165,10 @@ int c1541_gcr_cycles_per_byte(int density) {
 }
 
 int c1541_gcr_d64_sector_offset(uint8_t track, uint8_t sector) {
-    static const uint8_t spt[36] = {
-        0,
-        21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21,
-        19, 19, 19, 19, 19, 19, 19,
-        18, 18, 18, 18, 18, 18,
-        17, 17, 17, 17, 17
-    };
-    int offset = 0;
-    int t;
+    size_t offset;
 
-    if (track < 1 || track > 35) {
+    if (d64_track_sector_offset(track, sector, &offset) != D64_OK) {
         return -1;
     }
-    if (sector >= spt[track]) {
-        return -1;
-    }
-    for (t = 1; t < (int)track; ++t) {
-        offset += (int)spt[t] * 256;
-    }
-    offset += (int)sector * 256;
-    return offset;
+    return (int)offset;
 }

@@ -12,9 +12,9 @@ static void fail(const char *msg) {
     exit(1);
 }
 
-/* Minimal blank-ish D64: 174848 zeros with BAM ID. */
-static uint8_t *make_blank_d64(void) {
-    uint8_t *img = (uint8_t *)calloc(1, 174848);
+/* Minimal blank-ish D64 of a canonical size, with BAM ID. */
+static uint8_t *make_blank_d64_size(size_t size) {
+    uint8_t *img = (uint8_t *)calloc(1, size);
     int bam;
     if (img == NULL) fail("oom");
     bam = c1541_gcr_d64_sector_offset(18, 0);
@@ -24,6 +24,10 @@ static uint8_t *make_blank_d64(void) {
     img[bam + 162] = 0x30;
     img[bam + 163] = 0x31;
     return img;
+}
+
+static uint8_t *make_blank_d64(void) {
+    return make_blank_d64_size(174848);
 }
 
 static void test_build_from_d64(void) {
@@ -747,6 +751,136 @@ static void test_media_rebuild_after_offline_d64_write(void) {
     printf("PASS: test_media_rebuild_after_offline_d64_write\n");
 }
 
+static void test_build_from_d64_40track(void) {
+    c1541_media m;
+    uint8_t *img = make_blank_d64_size(196608);
+    int off40 = c1541_gcr_d64_sector_offset(40, 0);
+
+    if (off40 < 0) fail("t40 offset");
+    memset(img + off40, 0xA5, 256);
+
+    c1541_media_init(&m);
+    if (c1541_media_build_from_d64(&m, img, 180000u)) fail("non-canonical size");
+    if (!c1541_media_build_from_d64(&m, img, 196608)) fail("build 40");
+    if (!m.tracks_valid) fail("valid 40");
+    /* Track N.0 lives at halves[(N-1)*2]. */
+    if (m.halves[78].data == NULL || m.halves[78].length < 1000) fail("track40 gcr");
+    if (m.halves[78].density != 0) fail("dens40");
+    if (m.halves[80].data != NULL) fail("track41 should be empty");
+    if (m.halves[68].data == NULL) fail("track35 still present");
+
+    /* Error-info tail is not a 41st track. */
+    {
+        uint8_t *img_err = make_blank_d64_size(197376);
+        memset(img_err + 196608, 0x5A, 768);
+        if (!c1541_media_build_from_d64(&m, img_err, 197376)) fail("build 40+err");
+        if (m.halves[78].data == NULL || m.halves[78].length < 1000) fail("t40 with tail");
+        if (m.halves[80].data != NULL) fail("tail must not become t41");
+        free(img_err);
+    }
+
+    c1541_media_free_tracks(&m);
+    free(img);
+    printf("PASS: test_build_from_d64_40track\n");
+}
+
+static void test_head_on_track_40(void) {
+    static c64_t c64;
+    static c1541 drive;
+    uint8_t *img = make_blank_d64_size(196608);
+    uint32_t i;
+    int saw_sync = 0;
+
+    c64_init(&c64);
+    c64.config.emulate_1541 = 1;
+    c1541_init(&drive, &c64, 8);
+    drive.rom_loaded = 1;
+    drive.media.enabled = 1;
+    if (!c1541_media_build_from_d64(&drive.media, img, 196608)) fail("build");
+
+    drive.media.half_track = 80; /* track 40.0 */
+    drive.media.stepper_phase = 0;
+    drive.via2.ddrb = 0x64u;
+    drive.via2.orb = 0x64u;
+    drive.media.motor_on = 1;
+    drive.media.motor_ready = 1;
+
+    for (i = 0; i < 500000u; ++i) {
+        c1541_media_step(&drive);
+        if (drive.media.in_sync) {
+            saw_sync = 1;
+            break;
+        }
+    }
+    if (!saw_sync) fail("never saw SYNC on track 40");
+    if (drive.media.half_track != 80) fail("head left track 40");
+
+    {
+        uint8_t sector[256];
+        memset(sector, 0x7E, 256);
+        if (!c1541_media_poke_sector(&drive, 40, 0, sector)) fail("poke t40");
+        if (c1541_media_poke_sector(&drive, 41, 0, sector)) fail("poke t41 should fail");
+    }
+
+    c1541_destroy(&drive);
+    free(img);
+    printf("PASS: test_head_on_track_40\n");
+}
+
+static void test_rebuild_empty_extra_track(void) {
+    static c64_t c64;
+    c1541 *drive;
+    uint8_t *img = make_blank_d64_size(196608);
+    c64_drive_slot *slot;
+    uint32_t seq_after_build;
+
+    c64_init(&c64);
+    c64.config.emulate_1541 = 1;
+    if (c64_mount_d64_ex(
+            &c64, 8, img, 196608, NULL, 0, "forty.d64", "", "", "", 0, true)
+        != C64_DRIVE_STATUS_OK) {
+        fail("mount 40");
+    }
+    free(img);
+
+    drive = &c64.drive8;
+    drive->rom_loaded = 1;
+    drive->media.enabled = 1;
+
+    c1541_media_step(drive);
+    if (!drive->media.tracks_valid) fail("tracks after first step");
+    if (drive->media.halves[78].data == NULL || drive->media.halves[78].length == 0) {
+        fail("track 40 GCR after build");
+    }
+    slot = c64_get_drive_slot_mut(&c64, 8);
+    seq_after_build = drive->media.built_from_seq;
+    if (slot == NULL || slot->image_content_seq != seq_after_build) {
+        fail("seq match after 40-track build");
+    }
+
+    /* Simulate a snapshot that kept extra halves empty while seq still matches. */
+    free(drive->media.halves[78].data);
+    drive->media.halves[78].data = NULL;
+    drive->media.halves[78].length = 0;
+    if (drive->media.built_from != slot->image_bytes ||
+        drive->media.built_size != slot->image_size ||
+        drive->media.built_from_seq != slot->image_content_seq) {
+        fail("seq should still match with empty extra half");
+    }
+
+    c1541_media_step(drive);
+    if (!drive->media.tracks_valid) fail("tracks after extra rebuild");
+    if (drive->media.halves[78].data == NULL || drive->media.halves[78].length == 0) {
+        fail("track 40 GCR not rebuilt");
+    }
+    if (drive->media.built_from_seq != slot->image_content_seq) {
+        fail("seq after extra-track rebuild");
+    }
+
+    c64_unmount_drive(&c64, 8);
+    printf("PASS: test_rebuild_empty_extra_track\n");
+}
+
 int main(void) {
     test_build_from_d64();
     test_stepper_and_head_stop();
@@ -762,6 +896,9 @@ int main(void) {
     test_g64_writeback_no_sync_unrotated();
     test_g64_writeback_seek_off_dirty();
     test_media_rebuild_after_offline_d64_write();
+    test_build_from_d64_40track();
+    test_head_on_track_40();
+    test_rebuild_empty_extra_track();
     printf("All c1541_media tests passed.\n");
     return 0;
 }

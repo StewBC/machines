@@ -75,6 +75,25 @@ if it was paused, it remains paused. For a one-run override, use `--video PAL`,
 ### Disk Images
 
 c64m supports D64 and G64 images on devices 8 and 9. Images mount read-only by default.
+
+D64 is accepted by file size. Size is the format. The six canonical sizes are:
+
+| Bytes  | Layout                     |
+|--------|----------------------------|
+| 174848 | 35-track                   |
+| 175531 | 35-track + error-info tail |
+| 196608 | 40-track                   |
+| 197376 | 40-track + error-info tail |
+| 205312 | 42-track                   |
+| 206114 | 42-track + error-info tail |
+
+Other lengths are rejected. Extra tracks 36-42 have 17 sectors and are custom-loader
+territory. CBM DOS BAM, `LOAD "$",8`, and trap SAVE allocation stay on tracks 1-35.
+Error-info tails are stored with the image, not applied to GCR, so copy-protection
+error codes do not affect reads yet. A writable 175531, 197376, or 206114 image
+flushes at that full length (the tail is no longer dropped). D71, D81, X64, and P64
+are not supported.
+
 `LOAD "NAME",8`, `LOAD "NAME",8,1`, wildcard loads, and `LOAD "$",8` work through a
 compatibility KERNAL trap by default for D64. When a D64 is marked writable,
 `SAVE "NAME",8` writes a PRG into the mounted image and flushes the host `.d64` file.
@@ -85,9 +104,12 @@ soft-powered (stepped and on the IEC bus) only after a mount, UI device button, 
 or `power-drive N off`) ejects media and powers the unit off.
 
 With `[disk] emulate_1541=1`, D64 and G64 use the rotating GCR media path (ROM + IEC).
-Mark a G64 writable to allow physical DOS writes (BASIC `SAVE`, sequential writes, and
-similar ROM paths); dirty tracks are written back to the host `.g64` on unmount and
-related flush points. There is no KERNAL-trap SAVE into G64.
+**40-track custom loaders need `[disk] emulate_1541=1`.** Trap `$` / LOAD of catalog
+PRGs is not enough when the directory sits on track 18 and the data is on track 36
+(for example What Is The Matrix II). Mark a G64 writable to allow physical DOS writes
+(BASIC `SAVE`, sequential writes, and similar ROM paths); dirty tracks are written
+back to the host `.g64` on unmount and related flush points. There is no KERNAL-trap
+SAVE into G64.
 
 ### PRG and BASIC Files
 
@@ -1968,7 +1990,7 @@ Paths may be absolute or relative to the directory containing the INI file.
 | `9` | D64/G64 image or comma-separated list of images for device 9    |
 | `8_writable` | Parallel `0`/`1` list for device 8 images; omitted means read-only |
 | `9_writable` | Parallel `0`/`1` list for device 9 images; omitted means read-only |
-| `emulate_1541` | `true`/`false`; when true and a 1541 ROM is loaded, use real IEC/1541 DOS + GCR media |
+| `emulate_1541` | `true`/`false`; when true and a 1541 ROM is loaded, use real IEC/1541 DOS + GCR media. Required for 40-track custom loaders |
 | `show_disk_leds` | `true`/`false`; when true (default), show green read / red write activity LEDs in the window corner |
 
 Example - single disk:
@@ -3055,11 +3077,16 @@ When `[disk] emulate_1541=1` is set and a combined 16 K 1541 DOS ROM is loaded t
 `[roms] 1541`, the trap is disabled for devices 8/9 and KERNAL LOAD proceeds over the
 emulated IEC bus. The 1541 model runs the drive 6502, two VIA 6522s, the standard DOS
 2.6 ROM serial handlers, ATN/CLK/DATA open-collector signaling, and ATN acknowledge.
+40-track custom loaders need this path (see **Disk Images**).
 
 The emulator synthesises GCR tracks from D64 (or attaches G64 track dumps), models
 motor/stepper/SYNC/BYTE READY, and lets stock DOS physical READ/SEARCH/VERIFY and
-EXECUTE (including FORMT and fastloader drive code) run against the flux path. D64 WRITE
-uses a hybrid job intercept plus GCR track poke so BAM/directory stays coherent.
+EXECUTE (including FORMT and fastloader drive code) run against the flux path. Extra
+tracks 36-42 on a 40/42-track D64 are synthesised as 17-sector GCR so a real-1541
+loader can seek there. CBM DOS BAM / `$` / trap SAVE allocation remain tracks 1-35.
+Error-info tails ride along in the host blob and on writable flush; they do not
+change synthesised GCR. D64 WRITE uses a hybrid job intercept plus GCR track poke
+so BAM/directory stays coherent.
 Writable G64 uses physical Port-A flux write-back (live track ring exported to the host
 image on leave-write, seek-off-dirty, unmount, and media disable); G64 mounts stay
 read-only unless marked writable. Stock BASIC SAVE/LOAD on a writable blank G64 is
@@ -3067,8 +3094,8 @@ supported; empty-track grow/format rebuild and broad pure-write fidelity are not
 Multi-stage commercial loaders are not broadly claimed.
 
 When the 1541 ROM is absent, D64 SAVE falls back to the compatibility KERNAL trap
-(G64 has no trap path). Cross-drive copy, block/memory-execute edge cases, and devices
-beyond 8/9 remain out of scope.
+(G64 has no trap path). Cross-drive copy, block/memory-execute edge cases, devices
+beyond 8/9, and D71 / D81 / X64 / P64 remain out of scope.
 
 ### Joystick
 

@@ -765,6 +765,110 @@ static void expect_drive_core(const char *label, const c1541 *expected, const c1
                           actual->cpu.user == (void *)actual && actual->c64 != NULL);
 }
 
+enum {
+    TEST_D64_40TRACK_SIZE = 196608u,
+    TEST_D64_ERROR_INFO_SIZE = 175531u
+};
+
+static void test_extended_d64_snapshot_blobs(void) {
+    c64_t source;
+    c64_t target;
+    uint8_t *bytes;
+    uint8_t *snapshot;
+    size_t snapshot_size;
+
+    init_ready_machine(&source);
+    init_ready_machine(&target);
+    bytes = (uint8_t *)calloc(1, TEST_D64_40TRACK_SIZE);
+    if (bytes == NULL) {
+        fail("alloc 40-track snapshot image");
+    }
+    bytes[0] = 0x31;
+    bytes[C64_DRIVE_D64_STANDARD_SIZE] = 0x5a;
+    bytes[TEST_D64_40TRACK_SIZE - 1u] = 0x3c;
+    expect_true(
+        "mount 40-track for snapshot",
+        c64_mount_d64_ex(
+            &source,
+            8,
+            bytes,
+            TEST_D64_40TRACK_SIZE,
+            NULL,
+            0,
+            "forty.d64",
+            "FORTY",
+            "ID",
+            "2A",
+            0,
+            false) == C64_DRIVE_STATUS_OK);
+    free(bytes);
+    snapshot = save_snapshot(&source, &snapshot_size);
+    mutate_machine(&target);
+    expect_true("load 40-track snapshot", c64_snapshot_load(&target, snapshot, snapshot_size));
+    expect_true("40-track restored mounted", target.drives[0].mounted);
+    expect_u64("40-track restored image_size", TEST_D64_40TRACK_SIZE, target.drives[0].image_size);
+    expect_u8("40-track restored first byte", 0x31, target.drives[0].image_bytes[0]);
+    expect_u8(
+        "40-track extra-track byte",
+        0x5a,
+        target.drives[0].image_bytes[C64_DRIVE_D64_STANDARD_SIZE]);
+    expect_u8(
+        "40-track last extra-track byte",
+        0x3c,
+        target.drives[0].image_bytes[TEST_D64_40TRACK_SIZE - 1u]);
+    free(snapshot);
+    c64_unmount_all_drives(&source);
+    c64_unmount_all_drives(&target);
+
+    init_ready_machine(&source);
+    init_ready_machine(&target);
+    bytes = (uint8_t *)calloc(1, TEST_D64_ERROR_INFO_SIZE);
+    if (bytes == NULL) {
+        fail("alloc error-info snapshot image");
+    }
+    bytes[0] = 0x42;
+    bytes[C64_DRIVE_D64_STANDARD_SIZE - 1u] = 0xa5;
+    bytes[C64_DRIVE_D64_STANDARD_SIZE] = 0x5a;
+    bytes[TEST_D64_ERROR_INFO_SIZE - 1u] = 0x3c;
+    expect_true(
+        "mount 175531 for snapshot",
+        c64_mount_d64_ex(
+            &source,
+            8,
+            bytes,
+            TEST_D64_ERROR_INFO_SIZE,
+            NULL,
+            0,
+            "err.d64",
+            "ERR",
+            "ID",
+            "2A",
+            0,
+            false) == C64_DRIVE_STATUS_OK);
+    free(bytes);
+    snapshot = save_snapshot(&source, &snapshot_size);
+    mutate_machine(&target);
+    expect_true("load 175531 snapshot", c64_snapshot_load(&target, snapshot, snapshot_size));
+    expect_true("175531 restored mounted", target.drives[0].mounted);
+    expect_u64("175531 restored image_size", TEST_D64_ERROR_INFO_SIZE, target.drives[0].image_size);
+    expect_u8("175531 restored first byte", 0x42, target.drives[0].image_bytes[0]);
+    expect_u8(
+        "175531 payload last byte",
+        0xa5,
+        target.drives[0].image_bytes[C64_DRIVE_D64_STANDARD_SIZE - 1u]);
+    expect_u8(
+        "175531 tail first byte",
+        0x5a,
+        target.drives[0].image_bytes[C64_DRIVE_D64_STANDARD_SIZE]);
+    expect_u8(
+        "175531 tail last byte",
+        0x3c,
+        target.drives[0].image_bytes[TEST_D64_ERROR_INFO_SIZE - 1u]);
+    free(snapshot);
+    c64_unmount_all_drives(&source);
+    c64_unmount_all_drives(&target);
+}
+
 static void mount_pattern_d64(c64_t *machine, uint8_t device, uint8_t seed, const char *name) {
     uint8_t image[C64_DRIVE_D64_STANDARD_SIZE];
     c64_drive_directory_entry entry;
@@ -1437,5 +1541,6 @@ int main(void) {
     test_load_clears_host_micro_state();
     test_hostfs_path_cwd_round_trip();
     test_swiftlink_slnk_chunk();
+    test_extended_d64_snapshot_blobs();
     return 0;
 }

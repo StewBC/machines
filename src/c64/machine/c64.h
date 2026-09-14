@@ -684,6 +684,7 @@ c64_drive_status_result c64_mount_d64(
     const char *disk_id,
     const char *dos_type,
     uint16_t free_blocks);
+/* Mount a D64 blob of a supported size; copies the full host image. */
 c64_drive_status_result c64_mount_d64_ex(
     c64_t *machine,
     uint8_t device,
