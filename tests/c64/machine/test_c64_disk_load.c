@@ -650,7 +650,50 @@ static void test_kernal_save_trap_writes_prg(void) {
     c64_unmount_all_drives(&machine);
 }
 
+static void test_40track_mount_does_not_truncate(void) {
+    c64_t machine;
+    uint8_t *bytes;
+    d64_image *image;
+    d64_result result;
+    c64_drive_status_result status;
+
+    reset_machine(&machine);
+    bytes = (uint8_t *)calloc(1, D64_40TRACK_IMAGE_SIZE);
+    if (bytes == NULL) {
+        fail("failed to allocate 40-track image");
+    }
+    bytes[D64_STANDARD_IMAGE_SIZE] = 0x5a;
+    image = d64_image_create(bytes, D64_40TRACK_IMAGE_SIZE, &result);
+    expect_true("40-track parse succeeds", image != NULL && result == D64_OK);
+
+    status = c64_mount_d64_ex(
+        &machine,
+        8,
+        bytes,
+        D64_40TRACK_IMAGE_SIZE,
+        NULL,
+        0,
+        "matrix.d64",
+        "",
+        "",
+        "",
+        0,
+        false);
+    expect_true(
+        "40-track mount rejected until PR 2",
+        status == C64_DRIVE_STATUS_UNSUPPORTED_IMAGE);
+    expect_true(
+        "196608 never mounts as 174848",
+        machine.drives[0].image_size != D64_STANDARD_IMAGE_SIZE);
+    expect_true("40-track slot not mounted", !machine.drives[0].mounted);
+
+    d64_image_destroy(image);
+    free(bytes);
+    c64_unmount_all_drives(&machine);
+}
+
 int main(void) {
+    test_40track_mount_does_not_truncate();
     {
         char asset_path[512];
         snprintf(asset_path, sizeof(asset_path),

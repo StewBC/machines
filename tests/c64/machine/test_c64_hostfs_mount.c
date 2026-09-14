@@ -179,14 +179,14 @@ static void fill_d64_name(uint8_t *target, const char *name) {
 }
 
 /* Minimal blank D64 with BAM title "TEST DISK" / id "ID" / DOS "2A". */
-static uint8_t *make_blank_d64(void) {
+static uint8_t *make_blank_d64_of_size(size_t size) {
     uint8_t *image;
     size_t offset;
     uint8_t *bam;
     uint8_t *directory;
     uint8_t track;
 
-    image = (uint8_t *)calloc(1, D64_STANDARD_IMAGE_SIZE);
+    image = (uint8_t *)calloc(1, size);
     if (image == NULL) {
         return NULL;
     }
@@ -198,7 +198,7 @@ static uint8_t *make_blank_d64(void) {
     bam[0] = 18;
     bam[1] = 1;
     bam[2] = 0x41;
-    for (track = 1; track <= D64_TRACK_COUNT; ++track) {
+    for (track = 1; track <= D64_DOS_TRACK_COUNT; ++track) {
         uint8_t sectors = sectors_on_track(track);
         uint8_t *entry = &bam[4u + ((track - 1u) * 4u)];
         uint8_t sector;
@@ -226,13 +226,18 @@ static uint8_t *make_blank_d64(void) {
     return image;
 }
 
-static void write_host_d64_with_prg(
+static uint8_t *make_blank_d64(void) {
+    return make_blank_d64_of_size(D64_STANDARD_IMAGE_SIZE);
+}
+
+static void write_host_d64_with_prg_size(
     const char *dir,
     const char *basename,
     const char *prg_name,
     uint16_t load_addr,
     const uint8_t *body,
-    size_t body_len) {
+    size_t body_len,
+    size_t image_size) {
     char path[512];
     uint8_t *bytes;
     d64_image *image;
@@ -243,9 +248,12 @@ static void write_host_d64_with_prg(
     size_t out_size;
     FILE *f;
 
-    bytes = make_blank_d64();
+    bytes = make_blank_d64_of_size(image_size);
     expect_true("blank d64", bytes != NULL);
-    image = d64_image_create(bytes, D64_STANDARD_IMAGE_SIZE, &result);
+    if (image_size > D64_STANDARD_IMAGE_SIZE) {
+        bytes[D64_STANDARD_IMAGE_SIZE] = 0x5a;
+    }
+    image = d64_image_create(bytes, image_size, &result);
     free(bytes);
     expect_true("parse blank", image != NULL && result == D64_OK);
     prg_len = 2u + body_len;
@@ -267,13 +275,24 @@ static void write_host_d64_with_prg(
             false) == D64_OK);
     free(prg);
     out = d64_image_bytes(image, &out_size);
-    expect_true("d64 bytes", out != NULL && out_size == D64_STANDARD_IMAGE_SIZE);
+    expect_true("d64 bytes", out != NULL && out_size == image_size);
     snprintf(path, sizeof(path), "%s/%s", dir, basename);
     f = fopen(path, "wb");
     expect_true("open host d64", f != NULL);
     expect_true("write host d64", fwrite(out, 1, out_size, f) == out_size);
     fclose(f);
     d64_image_destroy(image);
+}
+
+static void write_host_d64_with_prg(
+    const char *dir,
+    const char *basename,
+    const char *prg_name,
+    uint16_t load_addr,
+    const uint8_t *body,
+    size_t body_len) {
+    write_host_d64_with_prg_size(
+        dir, basename, prg_name, load_addr, body, body_len, D64_STANDARD_IMAGE_SIZE);
 }
 
 /* Assert ATN-ack DATA pull is absent after settling a VIA poke on drive 8. */
@@ -1247,6 +1266,86 @@ static void test_hostfs_cd_into_d64(void) {
     printf("PASS: test_hostfs_cd_into_d64\n");
 }
 
+static void test_hostfs_cd_into_40track_d64(void) {
+    static c64_t c64;
+    char dir[HOSTFS_TEST_PATH_MAX];
+    char path[512];
+    char error[128];
+    const uint8_t inside_body[] = {0xA9, 0x42, 0x60};
+    FILE *f;
+    struct stat st;
+    size_t i;
+    int found_inside = 0;
+    uint8_t tail;
+
+    make_tmpdir(dir, sizeof(dir));
+    write_host_d64_with_prg_size(
+        dir,
+        "game40.d64",
+        "INSIDE",
+        0xC000u,
+        inside_body,
+        sizeof(inside_body),
+        D64_40TRACK_IMAGE_SIZE);
+
+    reset_machine(&c64);
+    expect_true(
+        "mount",
+        c64_mount_hostfs(&c64, 9, dir, true) == C64_DRIVE_STATUS_OK);
+
+    setup_open_call(&c64, "CD:GAME40.D64", 1, 9, 15);
+    expect_true("open CD:GAME40.D64", c64_step_instruction(&c64, error, sizeof(error)));
+    expect_success_return(&c64);
+    setup_close_call(&c64, 1);
+    expect_true("close CD:GAME40.D64", c64_step_instruction(&c64, error, sizeof(error)));
+    expect_success_return(&c64);
+    expect_true("in 40-track d64", c64_hostfs_in_d64(c64.drives[1].hostfs));
+    expect_true("still hostfs backend", c64.drives[1].backend == C64_DRIVE_BACKEND_HOSTFS);
+
+    setup_load_call(&c64, "$", 9, 0);
+    expect_true("load $ in 40-track", c64_step_instruction(&c64, error, sizeof(error)));
+    expect_success_return(&c64);
+    for (i = 0; i < c64.drives[1].entry_count; i++) {
+        char name[17];
+        size_t n = c64.drives[1].entries[i].filename_length;
+        if (n > 16u) {
+            n = 16u;
+        }
+        memcpy(name, c64.drives[1].entries[i].filename, n);
+        name[n] = '\0';
+        if (strcmp(name, "INSIDE") == 0) {
+            found_inside = 1;
+        }
+    }
+    expect_true("lists INSIDE", found_inside);
+    expect_true("bam title", strcmp(c64.drives[1].disk_title, "TEST DISK") == 0);
+
+    setup_load_call(&c64, "INSIDE", 9, 1);
+    expect_true("load inside", c64_step_instruction(&c64, error, sizeof(error)));
+    expect_success_return(&c64);
+    expect_true("inside byte", c64_debug_read_ram(&c64, 0xC000) == 0xA9);
+    expect_true("inside data", c64_debug_read_ram(&c64, 0xC001) == 0x42);
+
+    c64.bus.ram[0x4000] = 0xEE;
+    c64.bus.ram[0x4001] = 0xFF;
+    setup_save_call(&c64, "NEWONE", 9, 0x4000, 0x4002);
+    expect_true("save newone", c64_step_instruction(&c64, error, sizeof(error)));
+    expect_success_return(&c64);
+
+    snprintf(path, sizeof(path), "%s/game40.d64", dir);
+    expect_true("stat flushed", stat(path, &st) == 0);
+    expect_true("flushed size 40-track", (size_t)st.st_size == D64_40TRACK_IMAGE_SIZE);
+    f = fopen(path, "rb");
+    expect_true("reopen flushed", f != NULL);
+    expect_true("seek extra track", fseek(f, (long)D64_STANDARD_IMAGE_SIZE, SEEK_SET) == 0);
+    expect_true("read extra track", fread(&tail, 1, 1, f) == 1);
+    fclose(f);
+    expect_true("extra track not truncated", tail == 0x5a);
+
+    remove_tree(dir);
+    printf("PASS: test_hostfs_cd_into_40track_d64\n");
+}
+
 static void write_host_p00(
     const char *dir,
     const char *basename,
@@ -1540,6 +1639,7 @@ int main(void) {
     test_hostfs_cd_channel();
     test_hostfs_padded_cbm_names();
     test_hostfs_cd_into_d64();
+    test_hostfs_cd_into_40track_d64();
     test_hostfs_p00_load();
     test_hostfs_scratch_and_seq();
     test_hostfs_scratch_in_d64();

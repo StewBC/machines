@@ -1,5 +1,6 @@
 #include "c1541.h"
 #include "c64.h"
+#include "d64.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -28,40 +29,6 @@
 /* Maximum valid job index (jobs 0–4 have dedicated buffers at $0300–$0700).
    Job 5 shares page $07 with job 4 and is never a READ job (command channel). */
 #define C1541_JOB_MAX        5u
-
-/* ------------------------------------------------------------------ */
-/* D64 sector offset (inline table — avoids tools/d64/ dependency)    */
-/* ------------------------------------------------------------------ */
-
-/* Returns byte offset of (track, sector) in a standard 35-track D64 image.
-   Track is 1-based; sector is 0-based.  Returns -1 for out-of-range inputs. */
-static int d64_sector_offset(uint8_t track, uint8_t sector) {
-    static const uint8_t spt[36] = {
-        0,
-        21,21,21,21,21,21,21,21,21,21,21,21,21,21,21,21,21,
-        19,19,19,19,19,19,19,
-        18,18,18,18,18,18,
-        17,17,17,17,17
-    };
-    int offset;
-    int t;
-
-    if (track < 1 || track > 35) return -1;
-    if (sector >= spt[track]) return -1;
-    offset = 0;
-    for (t = 1; t < (int)track; t++) offset += (int)spt[t] * 256;
-    offset += (int)sector * 256;
-    return offset;
-}
-
-/* Number of sectors on a standard 35-track D64 track, or -1 if out of range. */
-static int d64_sectors_per_track(uint8_t track) {
-    if (track < 1 || track > 35) return -1;
-    if (track <= 17) return 21;
-    if (track <= 24) return 19;
-    if (track <= 30) return 18;
-    return 17;
-}
 
 /* ------------------------------------------------------------------ */
 /* Bus callbacks (static — not exposed)                                */
@@ -225,7 +192,7 @@ static void c1541_update_iec_bus(c1541 *drive) {
 static int c1541_job_sector_offset(c1541 *drive, uint8_t n, int *out_offset) {
     uint8_t track, sector;
     const c64_drive_slot *slot;
-    int offset;
+    size_t offset;
 
     /* Track and sector from hdrs[n*2] and hdrs[n*2+1] (ZP $06 + n*2). */
     track  = drive->ram[C1541_ZP_HDRS + (uint16_t)n * 2u];
@@ -236,11 +203,11 @@ static int c1541_job_sector_offset(c1541 *drive, uint8_t n, int *out_offset) {
         return 0;
     }
 
-    offset = d64_sector_offset(track, sector);
-    if (offset < 0 || (size_t)(offset + 256) > slot->image_size) {
+    if (d64_track_sector_offset(track, sector, &offset) != D64_OK ||
+        (offset + 256) > slot->image_size) {
         return 0;
     }
-    *out_offset = offset;
+    *out_offset = (int)offset;
     return 1;
 }
 

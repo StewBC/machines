@@ -3,7 +3,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define D64_SECTOR_COUNT 683u
 #define D64_DIRECTORY_TRACK 18u
 #define D64_DIRECTORY_SECTOR 1u
 #define D64_BAM_TRACK 18u
@@ -12,18 +11,22 @@
 #define D64_DIRECTORY_INTERLEAVE 3u
 
 struct d64_image {
-    uint8_t bytes[D64_STANDARD_IMAGE_SIZE];
+    uint8_t *bytes;
+    size_t size;
+    d64_geometry geom;
     d64_disk_info info;
     d64_directory_entry *entries;
     size_t entry_count;
     size_t entry_capacity;
 };
 
-static const uint8_t d64_sectors_per_track[D64_TRACK_COUNT] = {
+static const uint8_t d64_spt[D64_MAX_TRACK_COUNT] = {
     21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21,
     19, 19, 19, 19, 19, 19, 19,
     18, 18, 18, 18, 18, 18,
-    17, 17, 17, 17, 17
+    17, 17, 17, 17, 17,
+    17, 17, 17, 17, 17,
+    17, 17
 };
 
 const char *d64_result_string(d64_result result)
@@ -85,9 +88,62 @@ const char *d64_file_type_string(d64_file_type type)
     }
 }
 
+bool d64_geometry_from_size(size_t size, d64_geometry *out)
+{
+    d64_geometry geom;
+
+    memset(&geom, 0, sizeof(geom));
+    if (size == D64_STANDARD_IMAGE_SIZE) {
+        geom.track_count = 35;
+        geom.payload_size = D64_STANDARD_IMAGE_SIZE;
+        geom.error_bytes = 0;
+        geom.sector_count = 683u;
+    } else if (size == D64_ERROR_INFO_IMAGE_SIZE) {
+        geom.track_count = 35;
+        geom.payload_size = D64_STANDARD_IMAGE_SIZE;
+        geom.error_bytes = 683u;
+        geom.sector_count = 683u;
+    } else if (size == D64_40TRACK_IMAGE_SIZE) {
+        geom.track_count = 40;
+        geom.payload_size = D64_40TRACK_IMAGE_SIZE;
+        geom.error_bytes = 0;
+        geom.sector_count = 768u;
+    } else if (size == D64_40TRACK_ERROR_SIZE) {
+        geom.track_count = 40;
+        geom.payload_size = D64_40TRACK_IMAGE_SIZE;
+        geom.error_bytes = 768u;
+        geom.sector_count = 768u;
+    } else if (size == D64_42TRACK_IMAGE_SIZE) {
+        geom.track_count = 42;
+        geom.payload_size = D64_42TRACK_IMAGE_SIZE;
+        geom.error_bytes = 0;
+        geom.sector_count = D64_MAX_SECTOR_COUNT;
+    } else if (size == D64_42TRACK_ERROR_SIZE) {
+        geom.track_count = 42;
+        geom.payload_size = D64_42TRACK_IMAGE_SIZE;
+        geom.error_bytes = D64_MAX_SECTOR_COUNT;
+        geom.sector_count = D64_MAX_SECTOR_COUNT;
+    } else {
+        return false;
+    }
+
+    if (out != NULL) {
+        *out = geom;
+    }
+    return true;
+}
+
 bool d64_image_size_supported(size_t size)
 {
-    return size == D64_STANDARD_IMAGE_SIZE || size == D64_ERROR_INFO_IMAGE_SIZE;
+    return d64_geometry_from_size(size, NULL);
+}
+
+uint8_t d64_sectors_per_track(uint8_t track)
+{
+    if (track < 1 || track > D64_MAX_TRACK_COUNT) {
+        return 0;
+    }
+    return d64_spt[track - 1];
 }
 
 d64_result d64_track_sector_offset(uint8_t track, uint8_t sector, size_t *out_offset)
@@ -98,19 +154,40 @@ d64_result d64_track_sector_offset(uint8_t track, uint8_t sector, size_t *out_of
     if (out_offset == NULL) {
         return D64_INVALID_ARGUMENT;
     }
-    if (track < 1 || track > D64_TRACK_COUNT) {
+    if (track < 1 || track > D64_MAX_TRACK_COUNT) {
         return D64_TRACK_OUT_OF_RANGE;
     }
-    if (sector >= d64_sectors_per_track[track - 1]) {
+    if (sector >= d64_spt[track - 1]) {
         return D64_SECTOR_OUT_OF_RANGE;
     }
 
     offset = 0;
     for (current_track = 1; current_track < track; ++current_track) {
-        offset += (size_t)d64_sectors_per_track[current_track - 1] * D64_SECTOR_SIZE;
+        offset += (size_t)d64_spt[current_track - 1] * D64_SECTOR_SIZE;
     }
     offset += (size_t)sector * D64_SECTOR_SIZE;
-    if (offset + D64_SECTOR_SIZE > D64_STANDARD_IMAGE_SIZE) {
+
+    *out_offset = offset;
+    return D64_OK;
+}
+
+d64_result d64_image_sector_offset(
+    const d64_image *image, uint8_t track, uint8_t sector, size_t *out_offset)
+{
+    d64_result result;
+    size_t offset;
+
+    if (image == NULL || out_offset == NULL) {
+        return D64_INVALID_ARGUMENT;
+    }
+    if (track < 1 || track > image->geom.track_count) {
+        return D64_TRACK_OUT_OF_RANGE;
+    }
+    result = d64_track_sector_offset(track, sector, &offset);
+    if (result != D64_OK) {
+        return result;
+    }
+    if (offset + D64_SECTOR_SIZE > image->geom.payload_size) {
         return D64_SECTOR_OUT_OF_RANGE;
     }
 
@@ -154,7 +231,7 @@ static void d64_parse_disk_info(d64_image *image)
     uint8_t track;
 
     memset(&image->info, 0, sizeof(image->info));
-    if (d64_track_sector_offset(D64_BAM_TRACK, D64_BAM_SECTOR, &offset) != D64_OK) {
+    if (d64_image_sector_offset(image, D64_BAM_TRACK, D64_BAM_SECTOR, &offset) != D64_OK) {
         return;
     }
 
@@ -166,7 +243,7 @@ static void d64_parse_disk_info(d64_image *image)
     image->info.dos_type[0] = bam[0xa5];
     image->info.dos_type[1] = bam[0xa6];
 
-    for (track = 1; track <= D64_TRACK_COUNT; ++track) {
+    for (track = 1; track <= D64_DOS_TRACK_COUNT; ++track) {
         if (track != D64_DIRECTORY_TRACK) {
             image->info.free_blocks += bam[4 + ((track - 1) * 4)];
         }
@@ -225,7 +302,7 @@ static d64_result d64_parse_directory_slot(
 
 static d64_result d64_parse_directory(d64_image *image)
 {
-    bool visited[D64_SECTOR_COUNT];
+    bool visited[D64_MAX_SECTOR_COUNT];
     uint8_t track;
     uint8_t sector_id;
     size_t offset;
@@ -239,13 +316,15 @@ static d64_result d64_parse_directory(d64_image *image)
     sector_id = D64_DIRECTORY_SECTOR;
 
     while (track != 0) {
-        result = d64_track_sector_offset(track, sector_id, &offset);
+        result = d64_image_sector_offset(image, track, sector_id, &offset);
         if (result != D64_OK) {
-            return result == D64_SECTOR_OUT_OF_RANGE ? D64_MALFORMED_DIRECTORY : result;
+            return result == D64_SECTOR_OUT_OF_RANGE || result == D64_TRACK_OUT_OF_RANGE
+                ? D64_MALFORMED_DIRECTORY
+                : result;
         }
 
         visited_index = offset / D64_SECTOR_SIZE;
-        if (visited_index >= D64_SECTOR_COUNT) {
+        if (visited_index >= D64_MAX_SECTOR_COUNT) {
             return D64_MALFORMED_DIRECTORY;
         }
         if (visited[visited_index]) {
@@ -296,8 +375,24 @@ d64_image *d64_image_create(const uint8_t *bytes, size_t size, d64_result *out_r
         }
         return NULL;
     }
+    if (!d64_geometry_from_size(size, &image->geom)) {
+        free(image);
+        if (out_result != NULL) {
+            *out_result = D64_UNSUPPORTED_IMAGE;
+        }
+        return NULL;
+    }
 
-    memcpy(image->bytes, bytes, D64_STANDARD_IMAGE_SIZE);
+    image->bytes = (uint8_t *)malloc(size);
+    if (image->bytes == NULL) {
+        free(image);
+        if (out_result != NULL) {
+            *out_result = D64_OUT_OF_MEMORY;
+        }
+        return NULL;
+    }
+    memcpy(image->bytes, bytes, size);
+    image->size = size;
     d64_parse_disk_info(image);
     result = d64_parse_directory(image);
     if (result != D64_OK) {
@@ -320,6 +415,7 @@ void d64_image_destroy(d64_image *image)
         return;
     }
 
+    free(image->bytes);
     free(image->entries);
     free(image);
 }
@@ -375,11 +471,12 @@ static uint8_t d64_ascii_to_petscii(uint8_t value)
     return value;
 }
 
-static bool d64_sector_index(uint8_t track, uint8_t sector, size_t *out_index)
+static bool d64_sector_index(
+    const d64_image *image, uint8_t track, uint8_t sector, size_t *out_index)
 {
     size_t offset;
 
-    if (d64_track_sector_offset(track, sector, &offset) != D64_OK) {
+    if (d64_image_sector_offset(image, track, sector, &offset) != D64_OK) {
         return false;
     }
     if (out_index != NULL) {
@@ -392,7 +489,8 @@ static uint8_t *d64_sector_ptr(d64_image *image, uint8_t track, uint8_t sector)
 {
     size_t offset;
 
-    if (image == NULL || d64_track_sector_offset(track, sector, &offset) != D64_OK) {
+    if (image == NULL || image->bytes == NULL ||
+        d64_image_sector_offset(image, track, sector, &offset) != D64_OK) {
         return NULL;
     }
     return &image->bytes[offset];
@@ -405,7 +503,8 @@ static const uint8_t *d64_const_sector_ptr(
 {
     size_t offset;
 
-    if (image == NULL || d64_track_sector_offset(track, sector, &offset) != D64_OK) {
+    if (image == NULL || image->bytes == NULL ||
+        d64_image_sector_offset(image, track, sector, &offset) != D64_OK) {
         return NULL;
     }
     return &image->bytes[offset];
@@ -539,7 +638,7 @@ d64_result d64_image_extract_prg(
     const d64_directory_entry *entry,
     d64_file_data *out_file)
 {
-    bool visited[D64_SECTOR_COUNT];
+    bool visited[D64_MAX_SECTOR_COUNT];
     uint8_t track;
     uint8_t sector_id;
     size_t offset;
@@ -564,14 +663,16 @@ d64_result d64_image_extract_prg(
     sector_id = entry->first_sector;
 
     while (track != 0) {
-        result = d64_track_sector_offset(track, sector_id, &offset);
+        result = d64_image_sector_offset(image, track, sector_id, &offset);
         if (result != D64_OK) {
             d64_file_data_free(&file);
-            return result == D64_SECTOR_OUT_OF_RANGE ? D64_MALFORMED_FILE : result;
+            return result == D64_SECTOR_OUT_OF_RANGE || result == D64_TRACK_OUT_OF_RANGE
+                ? D64_MALFORMED_FILE
+                : result;
         }
 
         visited_index = offset / D64_SECTOR_SIZE;
-        if (visited_index >= D64_SECTOR_COUNT) {
+        if (visited_index >= D64_MAX_SECTOR_COUNT) {
             d64_file_data_free(&file);
             return D64_MALFORMED_FILE;
         }
@@ -635,7 +736,7 @@ const uint8_t *d64_image_bytes(const d64_image *image, size_t *out_size)
         return NULL;
     }
     if (out_size != NULL) {
-        *out_size = D64_STANDARD_IMAGE_SIZE;
+        *out_size = image->size;
     }
     return image->bytes;
 }
@@ -644,7 +745,7 @@ static uint8_t *d64_bam_entry(d64_image *image, uint8_t track)
 {
     uint8_t *bam;
 
-    if (image == NULL || track < 1 || track > D64_TRACK_COUNT) {
+    if (image == NULL || track < 1 || track > D64_DOS_TRACK_COUNT) {
         return NULL;
     }
     bam = d64_sector_ptr(image, D64_BAM_TRACK, D64_BAM_SECTOR);
@@ -657,8 +758,8 @@ static bool d64_bam_sector_free(const d64_image *image, uint8_t track, uint8_t s
     const uint8_t *entry;
     uint8_t mask;
 
-    if (image == NULL || track < 1 || track > D64_TRACK_COUNT ||
-        sector >= d64_sectors_per_track[track - 1u]) {
+    if (image == NULL || track < 1 || track > D64_DOS_TRACK_COUNT ||
+        sector >= d64_sectors_per_track(track)) {
         return false;
     }
     bam = d64_const_sector_ptr(image, D64_BAM_TRACK, D64_BAM_SECTOR);
@@ -681,10 +782,10 @@ static d64_result d64_bam_mark_sector(
     uint8_t *byte;
     bool is_free;
 
-    if (track < 1 || track > D64_TRACK_COUNT) {
+    if (track < 1 || track > D64_DOS_TRACK_COUNT) {
         return D64_TRACK_OUT_OF_RANGE;
     }
-    if (sector >= d64_sectors_per_track[track - 1u]) {
+    if (sector >= d64_sectors_per_track(track)) {
         return D64_SECTOR_OUT_OF_RANGE;
     }
 
@@ -701,7 +802,7 @@ static d64_result d64_bam_mark_sector(
 
     if (free_sector) {
         *byte |= mask;
-        if (entry[0] < d64_sectors_per_track[track - 1u]) {
+        if (entry[0] < d64_sectors_per_track(track)) {
             entry[0]++;
         }
     } else {
@@ -725,10 +826,10 @@ static d64_result d64_find_next_free_on_track(
     if (image == NULL || out_sector == NULL) {
         return D64_INVALID_ARGUMENT;
     }
-    if (track < 1 || track > D64_TRACK_COUNT) {
+    if (track < 1 || track > D64_DOS_TRACK_COUNT) {
         return D64_TRACK_OUT_OF_RANGE;
     }
-    sectors = d64_sectors_per_track[track - 1u];
+    sectors = d64_sectors_per_track(track);
     for (i = 0; i < sectors; ++i) {
         uint8_t sector = (uint8_t)((preferred + i) % sectors);
         if (d64_bam_sector_free(image, track, sector)) {
@@ -754,12 +855,12 @@ static d64_result d64_alloc_sector(
     }
 
     for (pass = 0; pass < 2; ++pass) {
-        uint8_t start = pass == 0 && preferred_track >= 1 && preferred_track <= D64_TRACK_COUNT ?
+        uint8_t start = pass == 0 && preferred_track >= 1 && preferred_track <= D64_DOS_TRACK_COUNT ?
             preferred_track : 1u;
         uint8_t offset;
 
-        for (offset = 0; offset < D64_TRACK_COUNT; ++offset) {
-            uint8_t track = (uint8_t)(((start - 1u + offset) % D64_TRACK_COUNT) + 1u);
+        for (offset = 0; offset < D64_DOS_TRACK_COUNT; ++offset) {
+            uint8_t track = (uint8_t)(((start - 1u + offset) % D64_DOS_TRACK_COUNT) + 1u);
             uint8_t sector;
 
             if (!allow_directory_track && track == D64_DIRECTORY_TRACK) {
@@ -786,7 +887,7 @@ static d64_result d64_alloc_sector(
 
 static d64_result d64_free_file_chain(d64_image *image, uint8_t track, uint8_t sector_id)
 {
-    bool visited[D64_SECTOR_COUNT];
+    bool visited[D64_MAX_SECTOR_COUNT];
 
     memset(visited, 0, sizeof(visited));
     while (track != 0) {
@@ -796,7 +897,8 @@ static d64_result d64_free_file_chain(d64_image *image, uint8_t track, uint8_t s
         size_t index;
         d64_result result;
 
-        if (!d64_sector_index(track, sector_id, &index)) {
+        if (!d64_sector_index(image, track, sector_id, &index) ||
+            index >= D64_MAX_SECTOR_COUNT) {
             return D64_MALFORMED_FILE;
         }
         if (visited[index]) {
@@ -893,7 +995,7 @@ static d64_result d64_find_directory_slot(
     uint8_t **out_slot,
     d64_directory_entry *out_existing)
 {
-    bool visited[D64_SECTOR_COUNT];
+    bool visited[D64_MAX_SECTOR_COUNT];
     uint8_t track = D64_DIRECTORY_TRACK;
     uint8_t sector_id = D64_DIRECTORY_SECTOR;
 
@@ -903,7 +1005,8 @@ static d64_result d64_find_directory_slot(
         size_t index;
         size_t slot;
 
-        if (!d64_sector_index(track, sector_id, &index)) {
+        if (!d64_sector_index(image, track, sector_id, &index) ||
+            index >= D64_MAX_SECTOR_COUNT) {
             return D64_MALFORMED_DIRECTORY;
         }
         if (visited[index]) {
@@ -951,7 +1054,7 @@ static d64_result d64_find_directory_slot(
 
 static d64_result d64_find_free_directory_slot(d64_image *image, uint8_t **out_slot)
 {
-    bool visited[D64_SECTOR_COUNT];
+    bool visited[D64_MAX_SECTOR_COUNT];
     uint8_t track = D64_DIRECTORY_TRACK;
     uint8_t sector_id = D64_DIRECTORY_SECTOR;
     uint8_t *last_sector = NULL;
@@ -966,7 +1069,8 @@ static d64_result d64_find_free_directory_slot(d64_image *image, uint8_t **out_s
         size_t index;
         size_t slot;
 
-        if (!d64_sector_index(track, sector_id, &index)) {
+        if (!d64_sector_index(image, track, sector_id, &index) ||
+            index >= D64_MAX_SECTOR_COUNT) {
             return D64_MALFORMED_DIRECTORY;
         }
         if (visited[index]) {
@@ -1000,7 +1104,7 @@ static d64_result d64_find_free_directory_slot(d64_image *image, uint8_t **out_s
             image,
             D64_DIRECTORY_TRACK,
             (uint8_t)((last_sector[1] + D64_DIRECTORY_INTERLEAVE) %
-                d64_sectors_per_track[D64_DIRECTORY_TRACK - 1u]),
+                d64_sectors_per_track(D64_DIRECTORY_TRACK)),
             &new_sector_id);
         if (result != D64_OK) {
             return D64_DIRECTORY_FULL;
@@ -1073,7 +1177,7 @@ static d64_result d64_write_file_chain(
         preferred_track = tracks[i];
         preferred_sector = (uint8_t)(
             (sectors[i] + D64_FILE_INTERLEAVE) %
-            d64_sectors_per_track[preferred_track - 1u]);
+            d64_sectors_per_track(preferred_track));
     }
 
     for (i = 0; i < blocks; ++i) {
@@ -1117,7 +1221,7 @@ static void d64_clear_directory_entry_slot(d64_image *image, uint8_t *slot)
     }
 
     offset = (size_t)(slot - image->bytes);
-    if (offset < D64_STANDARD_IMAGE_SIZE && (offset % D64_SECTOR_SIZE) == 0) {
+    if (offset < image->geom.payload_size && (offset % D64_SECTOR_SIZE) == 0) {
         memset(&slot[2], 0, 30);
     } else {
         memset(slot, 0, 32);
@@ -1158,11 +1262,11 @@ d64_result d64_image_write_prg(
     }
     replace = replace || name_replace;
 
-    backup = (uint8_t *)malloc(D64_STANDARD_IMAGE_SIZE);
+    backup = (uint8_t *)malloc(image->size);
     if (backup == NULL) {
         return D64_OUT_OF_MEMORY;
     }
-    memcpy(backup, image->bytes, D64_STANDARD_IMAGE_SIZE);
+    memcpy(backup, image->bytes, image->size);
 
     result = d64_find_directory_slot(image, normalized, normalized_len, &dir_slot, &existing);
     if (result == D64_FILE_EXISTS) {
@@ -1210,7 +1314,7 @@ d64_result d64_image_write_prg(
     return D64_OK;
 
 rollback:
-    memcpy(image->bytes, backup, D64_STANDARD_IMAGE_SIZE);
+    memcpy(image->bytes, backup, image->size);
     free(backup);
     (void)d64_reparse(image);
     return result;
@@ -1238,11 +1342,11 @@ d64_result d64_image_scratch(
     }
     (void)name_replace;
 
-    backup = (uint8_t *)malloc(D64_STANDARD_IMAGE_SIZE);
+    backup = (uint8_t *)malloc(image->size);
     if (backup == NULL) {
         return D64_OUT_OF_MEMORY;
     }
-    memcpy(backup, image->bytes, D64_STANDARD_IMAGE_SIZE);
+    memcpy(backup, image->bytes, image->size);
 
     result = d64_find_directory_slot(
         image, normalized, normalized_len, &dir_slot, &existing);
@@ -1257,7 +1361,7 @@ d64_result d64_image_scratch(
 
     result = d64_free_file_chain(image, existing.first_track, existing.first_sector);
     if (result != D64_OK) {
-        memcpy(image->bytes, backup, D64_STANDARD_IMAGE_SIZE);
+        memcpy(image->bytes, backup, image->size);
         free(backup);
         (void)d64_reparse(image);
         return result;
@@ -1266,7 +1370,7 @@ d64_result d64_image_scratch(
 
     result = d64_reparse(image);
     if (result != D64_OK) {
-        memcpy(image->bytes, backup, D64_STANDARD_IMAGE_SIZE);
+        memcpy(image->bytes, backup, image->size);
         free(backup);
         (void)d64_reparse(image);
         return result;

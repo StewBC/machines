@@ -139,14 +139,14 @@ static void set_bam_sector(uint8_t *bam, uint8_t track, uint8_t sector, bool fre
     }
 }
 
-static uint8_t *make_empty_image(void)
+static uint8_t *make_empty_image_of_size(size_t size)
 {
     uint8_t *image;
     size_t offset;
     uint8_t *bam;
     uint8_t *directory;
 
-    image = (uint8_t *)calloc(1, D64_STANDARD_IMAGE_SIZE);
+    image = (uint8_t *)calloc(1, size);
     if (image == NULL) {
         return NULL;
     }
@@ -158,7 +158,7 @@ static uint8_t *make_empty_image(void)
         bam[0] = 18;
         bam[1] = 1;
         bam[2] = 0x41;
-        for (track = 1; track <= D64_TRACK_COUNT; ++track) {
+        for (track = 1; track <= D64_DOS_TRACK_COUNT; ++track) {
             uint8_t sectors = sectors_on_track(track);
             uint8_t *entry = &bam[4u + ((track - 1u) * 4u)];
             uint8_t sector;
@@ -184,6 +184,11 @@ static uint8_t *make_empty_image(void)
     }
 
     return image;
+}
+
+static uint8_t *make_empty_image(void)
+{
+    return make_empty_image_of_size(D64_STANDARD_IMAGE_SIZE);
 }
 
 static void put_directory_entry(
@@ -371,19 +376,163 @@ static int test_geometry_and_size(void)
 {
     int failures = 0;
     size_t offset = 0;
+    d64_geometry geom;
+    uint8_t *bytes;
+    d64_image *image;
+    d64_result result;
 
     failures += expect_true(d64_image_size_supported(D64_STANDARD_IMAGE_SIZE), "standard size supported");
     failures += expect_true(d64_image_size_supported(D64_ERROR_INFO_IMAGE_SIZE), "error-info size supported");
-    failures += expect_true(!d64_image_size_supported(D64_STANDARD_IMAGE_SIZE + 1u), "odd size rejected");
-    failures += expect_true(!d64_image_size_supported(196608u), "40-track size rejected");
+    failures += expect_true(d64_image_size_supported(D64_40TRACK_IMAGE_SIZE), "40-track size accepted");
+    failures += expect_true(d64_image_size_supported(D64_40TRACK_ERROR_SIZE), "40-track error size accepted");
+    failures += expect_true(d64_image_size_supported(D64_42TRACK_IMAGE_SIZE), "42-track size accepted");
+    failures += expect_true(d64_image_size_supported(D64_42TRACK_ERROR_SIZE), "42-track error size accepted");
+    failures += expect_true(!d64_image_size_supported(174849u), "odd size rejected");
+    failures += expect_true(!d64_image_size_supported(D64_STANDARD_IMAGE_SIZE + 1u), "standard+1 rejected");
+    memset(&geom, 0, sizeof(geom));
+    failures += expect_true(d64_geometry_from_size(D64_40TRACK_IMAGE_SIZE, &geom), "40-track geometry");
+    failures += expect_true(geom.track_count == 40, "40-track count");
+    failures += expect_size(geom.payload_size, D64_40TRACK_IMAGE_SIZE, "40-track payload");
+    failures += expect_size(geom.error_bytes, 0, "40-track error bytes");
+    failures += expect_size(geom.sector_count, 768u, "40-track sector count");
+    failures += expect_true(d64_sectors_per_track(36) == 17, "track 36 spt");
+    failures += expect_true(d64_sectors_per_track(42) == 17, "track 42 spt");
+    failures += expect_true(d64_sectors_per_track(0) == 0, "track 0 spt");
+    failures += expect_true(d64_sectors_per_track(43) == 0, "track 43 spt");
     failures += expect_result(d64_track_sector_offset(1, 0, &offset), D64_OK, "track 1 sector 0");
     failures += expect_size(offset, 0, "track 1 sector 0 offset");
     failures += expect_result(d64_track_sector_offset(18, 0, &offset), D64_OK, "track 18 sector 0");
     failures += expect_size(offset, 91392, "track 18 sector 0 offset");
+    failures += expect_result(d64_track_sector_offset(36, 0, &offset), D64_OK, "track 36 sector 0");
+    failures += expect_size(offset, D64_STANDARD_IMAGE_SIZE, "track 36 sector 0 offset");
+    failures += expect_result(d64_track_sector_offset(41, 0, &offset), D64_OK, "track 41 sector 0");
+    failures += expect_size(offset, D64_40TRACK_IMAGE_SIZE, "track 41 sector 0 offset");
     failures += expect_result(d64_track_sector_offset(0, 0, &offset), D64_TRACK_OUT_OF_RANGE, "track 0 rejected");
-    failures += expect_result(d64_track_sector_offset(36, 0, &offset), D64_TRACK_OUT_OF_RANGE, "track 36 rejected");
+    failures += expect_result(d64_track_sector_offset(43, 0, &offset), D64_TRACK_OUT_OF_RANGE, "track 43 rejected");
     failures += expect_result(d64_track_sector_offset(35, 17, &offset), D64_SECTOR_OUT_OF_RANGE, "track 35 sector 17 rejected");
 
+    bytes = make_empty_image();
+    if (bytes == NULL) {
+        return failures + 1;
+    }
+    image = d64_image_create(bytes, D64_STANDARD_IMAGE_SIZE, &result);
+    failures += expect_result(result, D64_OK, "35-track image parse");
+    if (image != NULL) {
+        failures += expect_result(
+            d64_image_sector_offset(image, 36, 0, &offset),
+            D64_TRACK_OUT_OF_RANGE,
+            "35-track image rejects track 36");
+        failures += expect_result(
+            d64_image_sector_offset(image, 18, 0, &offset),
+            D64_OK,
+            "35-track image BAM offset");
+    }
+    d64_image_destroy(image);
+    free(bytes);
+
+    return failures;
+}
+
+static int test_error_info_bytes_preserved(void)
+{
+    int failures = 0;
+    uint8_t *bytes;
+    d64_image *image;
+    d64_result result;
+    const uint8_t *out;
+    size_t out_size = 0;
+
+    bytes = make_empty_image_of_size(D64_ERROR_INFO_IMAGE_SIZE);
+    if (bytes == NULL) {
+        return 1;
+    }
+    bytes[D64_STANDARD_IMAGE_SIZE - 1u] = 0xa5;
+    bytes[D64_STANDARD_IMAGE_SIZE] = 0x5a;
+    bytes[D64_ERROR_INFO_IMAGE_SIZE - 1u] = 0x3c;
+
+    image = d64_image_create(bytes, D64_ERROR_INFO_IMAGE_SIZE, &result);
+    failures += expect_result(result, D64_OK, "error-info parse");
+    failures += expect_true(image != NULL, "error-info image allocated");
+    out = d64_image_bytes(image, &out_size);
+    failures += expect_true(out != NULL, "error-info bytes");
+    failures += expect_size(out_size, D64_ERROR_INFO_IMAGE_SIZE, "error-info reported size");
+    if (out != NULL && out_size == D64_ERROR_INFO_IMAGE_SIZE) {
+        failures += expect_true(out[D64_STANDARD_IMAGE_SIZE - 1u] == 0xa5, "payload last byte kept");
+        failures += expect_true(out[D64_STANDARD_IMAGE_SIZE] == 0x5a, "error tail first byte kept");
+        failures += expect_true(out[D64_ERROR_INFO_IMAGE_SIZE - 1u] == 0x3c, "error tail last byte kept");
+        if (memcmp(out, bytes, D64_STANDARD_IMAGE_SIZE) != 0) {
+            fprintf(stderr, "error-info payload prefix changed\n");
+            failures++;
+        }
+    }
+    d64_image_destroy(image);
+    free(bytes);
+    return failures;
+}
+
+static int test_extended_track_prg(size_t image_size, uint8_t extra_track, const char *label)
+{
+    int failures = 0;
+    uint8_t *bytes;
+    d64_image *image;
+    d64_result result;
+    d64_directory_entry entry;
+    d64_file_data file;
+    uint8_t prg[256];
+    size_t offset;
+    size_t i;
+    char parse_label[64];
+    char extract_label[64];
+
+    bytes = make_empty_image_of_size(image_size);
+    if (bytes == NULL) {
+        return 1;
+    }
+    for (i = 0; i < sizeof(prg); ++i) {
+        prg[i] = (uint8_t)(i & 0xffu);
+    }
+    prg[0] = 0x01;
+    prg[1] = 0x08;
+
+    put_directory_entry(bytes, 0, 0x82, "EXTPRG", 18, 2, 2);
+    if (d64_track_sector_offset(18, 2, &offset) != D64_OK) {
+        free(bytes);
+        return 1;
+    }
+    bytes[offset] = extra_track;
+    bytes[offset + 1] = 0;
+    memcpy(&bytes[offset + 2], prg, 254);
+
+    if (d64_track_sector_offset(extra_track, 0, &offset) != D64_OK) {
+        free(bytes);
+        return 1;
+    }
+    bytes[offset] = 0;
+    bytes[offset + 1] = 3;
+    memcpy(&bytes[offset + 2], &prg[254], 2);
+
+    snprintf(parse_label, sizeof(parse_label), "%s parse", label);
+    snprintf(extract_label, sizeof(extract_label), "%s extract", label);
+    image = d64_image_create(bytes, image_size, &result);
+    failures += expect_result(result, D64_OK, parse_label);
+    failures += expect_true(image != NULL, parse_label);
+    if (image != NULL) {
+        failures += expect_size(d64_image_directory_count(image), 1, "extended directory count");
+        failures += expect_result(
+            d64_image_find_entry_ascii(image, "EXTPRG", &entry), D64_OK, "find extended PRG");
+        failures += expect_true(entry.first_track == 18, "extended first track");
+        failures += expect_true(entry.first_sector == 2, "extended first sector");
+        memset(&file, 0, sizeof(file));
+        failures += expect_result(d64_image_extract_prg(image, &entry, &file), D64_OK, extract_label);
+        failures += expect_size(file.size, sizeof(prg), "extended PRG size");
+        if (file.size == sizeof(prg) && memcmp(file.bytes, prg, sizeof(prg)) != 0) {
+            fprintf(stderr, "%s PRG bytes mismatch\n", label);
+            failures++;
+        }
+        d64_file_data_free(&file);
+    }
+    d64_image_destroy(image);
+    free(bytes);
     return failures;
 }
 
@@ -701,6 +850,9 @@ int main(void)
        negative skip sentinel when absent, and the whole test then reports
        skipped (not failed) provided nothing else failed. */
     failures += test_geometry_and_size();
+    failures += test_error_info_bytes_preserved();
+    failures += test_extended_track_prg(D64_40TRACK_IMAGE_SIZE, 36, "40-track");
+    failures += test_extended_track_prg(D64_42TRACK_IMAGE_SIZE, 41, "42-track");
     r = test_blank_fixture();
     if (r < 0) { skipped = 1; } else { failures += r; }
     r = test_odell_fixture();

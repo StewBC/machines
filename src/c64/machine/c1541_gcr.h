@@ -43,7 +43,7 @@ int c1541_gcr_data_raw_to_sector(
     const uint8_t raw[C1541_GCR_DATA_RAW],
     uint8_t sector[256]);
 
-/* Sectors-per-track for standard 35-track DOS layout. Returns 0 if invalid. */
+/* Sectors-per-track for D64 tracks 1–42. Returns 0 if invalid. */
 int c1541_gcr_sectors_per_track(uint8_t track);
 
 /* Density zone 0..3 for a standard track (3 = outermost / fastest). */

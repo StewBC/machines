@@ -4,11 +4,17 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#define D64_STANDARD_IMAGE_SIZE 174848u
+#define D64_SECTOR_SIZE           256u
+#define D64_DOS_TRACK_COUNT       35u
+#define D64_MAX_TRACK_COUNT       42u
+#define D64_MAX_SECTOR_COUNT      802u
+#define D64_STANDARD_IMAGE_SIZE   174848u
 #define D64_ERROR_INFO_IMAGE_SIZE 175531u
-#define D64_TRACK_COUNT 35u
-#define D64_SECTOR_SIZE 256u
-#define D64_DIRECTORY_NAME_SIZE 16u
+#define D64_40TRACK_IMAGE_SIZE    196608u
+#define D64_40TRACK_ERROR_SIZE    197376u
+#define D64_42TRACK_IMAGE_SIZE    205312u
+#define D64_42TRACK_ERROR_SIZE    206114u
+#define D64_DIRECTORY_NAME_SIZE   16u
 
 typedef struct d64_image d64_image;
 
@@ -65,11 +71,22 @@ typedef struct d64_file_data {
     size_t size;
 } d64_file_data;
 
+typedef struct d64_geometry {
+    uint8_t track_count;
+    size_t  payload_size;
+    size_t  error_bytes;
+    size_t  sector_count;
+} d64_geometry;
+
 const char *d64_result_string(d64_result result);
 const char *d64_file_type_string(d64_file_type type);
 
 bool d64_image_size_supported(size_t size);
+bool d64_geometry_from_size(size_t size, d64_geometry *out);
+uint8_t d64_sectors_per_track(uint8_t track);
 d64_result d64_track_sector_offset(uint8_t track, uint8_t sector, size_t *out_offset);
+d64_result d64_image_sector_offset(
+    const d64_image *image, uint8_t track, uint8_t sector, size_t *out_offset);
 
 d64_image *d64_image_create(const uint8_t *bytes, size_t size, d64_result *out_result);
 void d64_image_destroy(d64_image *image);
