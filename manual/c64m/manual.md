@@ -2919,9 +2919,10 @@ stays asserted. RESTORE routes through the NMI path.
 
 The machine has a resumable Phi2 execution path covering the full documented 151-opcode
 NMOS set, the practical undocumented families (SLO, RLA, SRE, RRA, DCP, ISC/ISB, LAX,
-SAX), and the stable undocumented NOPs. Those instructions issue one typed CPU bus access
-per completed Phi2 cycle. The chip-dependent unstable forms (such as LAX #imm) fall back
-to the compatibility execute-and-replay path; all 256 opcode slots have explicit dispatch.
+SAX, ANC, SBX, ALR), and the stable undocumented NOPs (including `$0C` abs). Those
+instructions issue one typed CPU bus access per completed Phi2 cycle. The chip-dependent
+unstable forms (such as LAX #imm) fall back to the compatibility execute-and-replay path;
+all 256 opcode slots have explicit dispatch.
 
 BA stall: when VIC-II asserts BA, the CPU is held on read-like cycles while a write may
 still complete, as on hardware. The emulator classifies opcode fetches, operand reads,

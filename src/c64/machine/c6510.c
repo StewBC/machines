@@ -370,7 +370,8 @@ static bool c6510_micro_is_practical_undocumented(uint8_t opcode) {
    loses VIC/IEC-visible cycles even though they do not change registers. */
 static bool c6510_micro_is_undocumented_nop(uint8_t opcode) {
     return opcode == UND_44 || opcode == UND_80 ||
-           opcode == UND_1C || opcode == UND_FC;
+           opcode == UND_1C || opcode == UND_FC ||
+           opcode == UND_0C;
 }
 
 static void c6510_micro_init_op_class(void) {
@@ -390,6 +391,9 @@ static void c6510_micro_init_op_class(void) {
 #define C6510_MARK_DOC(op) c6510_micro_op_class[(op)] = (uint8_t)C6510_OP_DOC
     C6510_MARK_DOC(NOP);
     C6510_MARK_DOC(LDA_imm); C6510_MARK_DOC(LDX_imm); C6510_MARK_DOC(LDY_imm);
+    /* Stable undocumented immediates used by IEC bitbang loaders. */
+    C6510_MARK_DOC(UND_0B); C6510_MARK_DOC(UND_2B); C6510_MARK_DOC(UND_CB);
+    C6510_MARK_DOC(UND_4B);
     C6510_MARK_DOC(LDA_abs); C6510_MARK_DOC(LDX_abs); C6510_MARK_DOC(LDY_abs);
     C6510_MARK_DOC(STA_abs); C6510_MARK_DOC(STX_abs); C6510_MARK_DOC(STY_abs);
     C6510_MARK_DOC(JMP_abs); C6510_MARK_DOC(JMP_ind);
@@ -641,6 +645,10 @@ c6510_bus_access_kind c6510_micro_access_kind(const C6510 *m) {
             return m->micro_phase == 1 ? C6510_BUS_ACCESS_OPERAND_READ :
                 C6510_BUS_ACCESS_DATA_READ;
         }
+        if (m->micro_opcode == UND_0C) {
+            return m->micro_phase < 3 ?
+                C6510_BUS_ACCESS_OPERAND_READ : C6510_BUS_ACCESS_DATA_READ;
+        }
         if (m->micro_phase < 3) {
             return C6510_BUS_ACCESS_OPERAND_READ;
         }
@@ -656,6 +664,10 @@ c6510_bus_access_kind c6510_micro_access_kind(const C6510 *m) {
     case LDA_imm:
     case LDX_imm:
     case LDY_imm:
+    case UND_0B:
+    case UND_2B:
+    case UND_CB:
+    case UND_4B:
         return C6510_BUS_ACCESS_OPERAND_READ;
     case LDA_abs:
     case LDX_abs:
@@ -1372,6 +1384,25 @@ bool c6510_micro_step(C6510 *m) {
         CYCLE(m);
         goto micro_complete;
     }
+    if (m->micro_opcode == UND_0C) {
+        if (m->micro_phase == 1) {
+            m->cpu.address_lo = read_operand(m, m->cpu.pc);
+            CYCLE(m);
+            m->cpu.pc++;
+            m->micro_phase++;
+            return false;
+        }
+        if (m->micro_phase == 2) {
+            m->cpu.address_hi = read_operand(m, m->cpu.pc);
+            CYCLE(m);
+            m->cpu.pc++;
+            m->micro_phase++;
+            return false;
+        }
+        (void)read_from_memory(m, m->cpu.address_16);
+        CYCLE(m);
+        goto micro_complete;
+    }
     if (m->micro_phase == 1) {
         m->cpu.address_lo = read_operand(m, m->cpu.pc);
         CYCLE(m);
@@ -1412,6 +1443,16 @@ micro_documented:
         CYCLE(m);
         m->cpu.pc++;
         set_register_to_value(m, &m->cpu.A, value);
+        break;
+    case UND_0B:
+    case UND_2B:
+        anc_imm(m);
+        break;
+    case UND_CB:
+        axs_imm(m);
+        break;
+    case UND_4B:
+        alr_imm(m);
         break;
     case LDX_imm:
         value = read_operand(m, m->cpu.pc);
@@ -2370,6 +2411,7 @@ size_t c6510_micro_cycles_remaining(const C6510 *m) {
     if (c6510_micro_is_undocumented_nop(m->micro_opcode)) {
         if (m->micro_opcode == UND_80) return 1;
         if (m->micro_opcode == UND_44) return (size_t)(3u - m->micro_phase);
+        if (m->micro_opcode == UND_0C) return (size_t)(4u - m->micro_phase);
         return (size_t)((m->micro_branch_taken ? 5u : 4u) - m->micro_phase);
     }
 
@@ -2378,6 +2420,10 @@ size_t c6510_micro_cycles_remaining(const C6510 *m) {
     case LDA_imm:
     case LDX_imm:
     case LDY_imm:
+    case UND_0B:
+    case UND_2B:
+    case UND_CB:
+    case UND_4B:
         return 1;
     case LDA_abs:
     case LDX_abs:

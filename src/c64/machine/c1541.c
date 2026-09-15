@@ -129,13 +129,18 @@ static uint8_t c1541_iec_pull_from_orb(uint8_t ddrb, uint8_t orb, int atn_low) {
        bit 4 = ATN acknowledge control, bits 5/6 = address jumpers, bit 7 = ATN in.
        The serial VIA is behind inverters:
        output bit high pulls the IEC line low, and input bit high means the
-       IEC line is currently low.  PB4 is special: when ATN is asserted and
-       PB4 is output-low, the drive acknowledges attention by pulling DATA low. */
+       IEC line is currently low.  PB4 (ATNA) XOR ATN auto-acks by pulling
+       DATA: ATNA low while ATN is asserted, or ATNA high while ATN is
+       released (VICE drv_bus DATA mask). Bitbang senders set ATNA to match
+       the next ATN edge so DATA is only the PB1 bit during the sample. */
     if ((ddrb & 0x02u) && (orb & 0x02u)) {
         drive_pull |= C64_IEC_DATA;
     }
-    if ((ddrb & 0x10u) && !(orb & 0x10u) && atn_low) {
-        drive_pull |= C64_IEC_DATA;
+    if ((ddrb & 0x10u) != 0) {
+        int atna = (orb & 0x10u) != 0;
+        if (atna != (atn_low != 0)) {
+            drive_pull |= C64_IEC_DATA;
+        }
     }
     if ((ddrb & 0x08u) && (orb & 0x08u)) {
         drive_pull |= C64_IEC_CLK;

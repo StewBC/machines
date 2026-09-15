@@ -432,6 +432,23 @@ static void test_iec_atn_ack_pulls_data(void) {
     if (c64.iec_external_pull & C64_IEC_DATA)
         fail("iec_atn_ack_pulls_data: PB4 high should release ATN acknowledge DATA");
 
+    /* ATNA XOR: ATN released + PB4 high also pulls DATA (the other XOR edge). */
+    c64.cia2.registers[0x00] = 0x00u;
+    c64.cia2.registers[0x02] = 0x08u;
+    drive.via1.orb = 0x10u;
+    c1541_advance_one_cycle(&drive);
+    c1541_advance_one_cycle(&drive);
+    c1541_advance_one_cycle(&drive);
+    if (!(c64.iec_external_pull & C64_IEC_DATA))
+        fail("iec_atn_ack_pulls_data: ATNA high with ATN released should pull DATA");
+
+    drive.via1.orb = 0x00u;
+    c1541_advance_one_cycle(&drive);
+    c1541_advance_one_cycle(&drive);
+    c1541_advance_one_cycle(&drive);
+    if (c64.iec_external_pull & C64_IEC_DATA)
+        fail("iec_atn_ack_pulls_data: ATNA low with ATN released should not ack-pull DATA");
+
     printf("PASS: test_iec_atn_ack_pulls_data\n");
 }
 

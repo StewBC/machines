@@ -20,7 +20,7 @@ the bottom.
 | SwiftLink inbound ATA / listen, full Hayes Ethernet AT set | Soft-attach SwiftLink/Turbo232 (6551 + Hayes + outbound TCP) is shipped with optional NMI/IRQ, baud pacing, and Hayes 1s `+++` guard-time. |
 | 1541: devices 10+, 1571, cross-drive copy | Devices 8 and 9 only. |
 | G64 empty-track grow / format rebuild | Length-preserving in-place write-back only. |
-| Broad fast-loader matrix | Arkanoid V-MAX and Robocop G64 are validated; that is not commercial coverage. |
+| Broad fast-loader matrix | Arkanoid V-MAX, Robocop G64, and What Is The Matrix II D64 are validated; that is not commercial coverage. |
 | VIA shift register | Ports + T1/T2 + CA1. No SR/CB2 stepping. |
 | Snapshot extras | `vic_irq_delay`, CIA timer delay bits, VIC paint pipes, and SID clock tables are not in `.c64state`. Paint buffers are display cache: zeroed on load. Optional drive-ROM FNV hash is a source TODO. |
 

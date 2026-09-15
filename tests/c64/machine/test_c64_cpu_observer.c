@@ -276,8 +276,14 @@ static bool test_undocumented_micro_and_deferred_replay(void) {
     static const uint8_t micro_program[] = {
         0x07u, 0x10u /* SLO $10 */
     };
+    static const uint8_t anc_program[] = {
+        0x0bu, 0x7fu /* ANC #$7f */
+    };
+    static const uint8_t nop_abs_program[] = {
+        0x0cu, 0x00u, 0x10u /* NOP $1000 */
+    };
     static const uint8_t deferred_program[] = {
-        0x0bu, 0x7fu /* ANC #$7f: compatibility path */
+        0x8bu, 0x00u /* XAA #$00: still bulk/unstable */
     };
     c64_t machine;
     observer_capture capture = {0};
@@ -290,16 +296,35 @@ static bool test_undocumented_micro_and_deferred_replay(void) {
     CHECK(count_kind(&capture, C6510_BUS_ACCESS_RMW_DUMMY_WRITE) == 1u);
 
     memset(&capture, 0, sizeof(capture));
-    CHECK(prepare_machine(&machine, deferred_program, sizeof(deferred_program)));
+    CHECK(prepare_machine(&machine, anc_program, sizeof(anc_program)));
     machine.cpu.cpu.A = 0xffu;
+    CHECK(c6510_micro_can_begin(&machine.cpu, anc_program[0]));
+    c64_set_cpu_observer(&machine, &test_observer, &capture);
+    CHECK(step_instruction(&machine));
+    CHECK(capture.begin_count == 1u);
+    CHECK(capture.complete_count == 1u);
+    CHECK(machine.cpu.cpu.A == 0x7fu);
+    CHECK(count_kind(&capture, C6510_BUS_ACCESS_OPCODE_FETCH) == 1u);
+    CHECK(count_kind(&capture, C6510_BUS_ACCESS_OPERAND_READ) == 1u);
+
+    memset(&capture, 0, sizeof(capture));
+    CHECK(prepare_machine(&machine, nop_abs_program, sizeof(nop_abs_program)));
+    CHECK(c6510_micro_can_begin(&machine.cpu, nop_abs_program[0]));
+    c64_set_cpu_observer(&machine, &test_observer, &capture);
+    CHECK(step_instruction(&machine));
+    CHECK(capture.begin_count == 1u);
+    CHECK(capture.complete_count == 1u);
+    CHECK(count_kind(&capture, C6510_BUS_ACCESS_OPCODE_FETCH) == 1u);
+    CHECK(count_kind(&capture, C6510_BUS_ACCESS_OPERAND_READ) == 2u);
+    CHECK(count_kind(&capture, C6510_BUS_ACCESS_DATA_READ) == 1u);
+
+    memset(&capture, 0, sizeof(capture));
+    CHECK(prepare_machine(&machine, deferred_program, sizeof(deferred_program)));
     CHECK(!c6510_micro_can_begin(&machine.cpu, deferred_program[0]));
     c64_set_cpu_observer(&machine, &test_observer, &capture);
     CHECK(step_instruction(&machine));
     CHECK(capture.begin_count == 1u);
     CHECK(capture.complete_count == 1u);
-    CHECK(capture.begins[0].a == 0xffu);
-    CHECK(count_kind(&capture, C6510_BUS_ACCESS_OPCODE_FETCH) == 1u);
-    CHECK(count_kind(&capture, C6510_BUS_ACCESS_OPERAND_READ) == 1u);
     return true;
 }
 
@@ -343,7 +368,7 @@ static bool test_instruction_and_cycle_step_traces_match(void) {
     static const uint8_t program[] = {
         0xa9u, 0x42u,       /* LDA #$42 */
         0xeeu, 0x34u, 0x12u,/* INC $1234 */
-        0x0bu, 0x7fu        /* deferred ANC #$7f */
+        0x0bu, 0x7fu        /* ANC #$7f */
     };
     c64_t instruction_machine;
     c64_t cycle_machine;

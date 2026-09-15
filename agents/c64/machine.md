@@ -60,8 +60,10 @@ Projecting `$DD04` broke stable-raster. VIC `$D011/$D012` **are** projected;
 ## CPU
 
 Documented NMOS 6510 plus resumable undocumented families SLO, RLA, SRE, RRA,
-DCP, ISC/ISB, LAX, SAX. Unstable forms (XAA, AHX, SHX, SHY, TAS, LAS, LAX #imm,
-JAM) use the compatibility executor. All 256 opcodes have explicit dispatch.
+DCP, ISC/ISB, LAX, SAX, ANC (`$0B`/`$2B`), SBX (`$CB`), ALR (`$4B`), and
+stable undocumented NOPs including `$0C` abs. Unstable forms (XAA, AHX, SHX,
+SHY, TAS, LAS, LAX #imm, JAM) use the compatibility executor. All 256 opcodes
+have explicit dispatch.
 
 `c64_set_cpu_observer()` is the machine observation boundary used by the
 runtime flight recorder. It survives `c64_reset()` but is host state: not

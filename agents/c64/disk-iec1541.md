@@ -144,6 +144,15 @@ no empty-slot grow / format rebuild.
   (PRA=0) need that; treating DDR-input as released deadlocks them
   (What Is The Matrix II: C64 `$10E1` `LDA $DD00`/`BPL`, drive `$074A`
   wait-ATN).
+- 1541 VIA PB4 (ATNA) **XOR** ATN auto-acks DATA: pull when ATNA is low
+  while ATN is asserted **or** ATNA is high while ATN is released (VICE
+  `drv_bus` DATA mask). Implementing only the ATN-asserted half lets a
+  bitbang sender's ATNA=1 idle window leak DATA=1 into the C64 sample
+  (What Is The Matrix II `$025F` ATN-clocked decoder: assembled bytes
+  `01 03 30…` vs VICE `01 07 7E…`).
+- Matrix II's send/receive loops also use `$0C` NOP abs, `$0B` ANC, `$CB`
+  SBX, and `$4B` ALR; those stay on the Phi2 micro path so IEC edges land
+  on the last cycle, not a bulk fallback.
 - While PC is in drive RAM and no job is queued, VIA2 T1 is acked so
   custom code is not stolen by `$F2B0` (Robocop). Intentional, not
   hardware-accurate.
