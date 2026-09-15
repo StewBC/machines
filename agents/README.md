@@ -87,6 +87,11 @@ targets so names do not collide).
 - Do not leave a second `thread.c`, `nuklear.h`, or `am65/` in a product tree.
 - Do not merge the two user manuals. Do not put `agents/` links in manuals.
 
+## Git
+
+Prefer working on `master`. Do not create branches, PR stacks, or isolated
+worktree branches unless the user specifically asks to work on branches.
+
 ## am65 is one copy
 
 `src/shell/tools/am65/` is the only assembler source tree.
