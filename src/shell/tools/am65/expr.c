@@ -16,7 +16,7 @@ static int64_t expr_exponentiation_by_squaring(int64_t base, int64_t exp) {
     return result;
 }
 
-static int anonymous_symbol_lookup(ASSEMBLER *as, uint16_t *address, int direction) {
+static int anonymous_symbol_lookup(ASSEMBLER *as, uint32_t *address, int direction) {
     if(as->anon_symbols.items == 0) {
         *address = 0xFFFF;
         return 0;
@@ -93,11 +93,15 @@ static uint16_t expr_anonymous_address(ASSEMBLER *as) {
         direction = -direction;
     }
 
-    uint16_t address = current_output_address(as) + 1;
+    uint32_t address = current_output_address(as) + 1u;
+    if(address > 0x10000u) {
+        asm_err(as, ASM_ERR_RESOLVE, "Anonymous label reference is outside the 64K address space");
+        return 0;
+    }
     if(!anonymous_symbol_lookup(as, &address, direction)) {
         asm_err(as, ASM_ERR_RESOLVE, "Invalid anonymous label address");
     }
-    return address;
+    return (uint16_t)address;
 }
 
 static int64_t expr_primary(ASSEMBLER *as) {

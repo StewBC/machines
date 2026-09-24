@@ -13,11 +13,15 @@ typedef struct {
     const char *segment_name;
     uint32_t segment_name_length;
     uint64_t segment_name_hash;
-    uint16_t segment_start_address;
-    uint16_t segment_output_address;
+    /* Segment extents are half-open [start, output).  Use 32-bit counters so
+       $10000 can represent the position immediately after the byte at $FFFF. */
+    uint32_t segment_start_address;
+    uint32_t segment_output_address;
     int do_not_emit;
     int is_locked;
     int is_reclaim;                    // piggybacks on reclaim_host; implies do_not_emit
+    int is_end_anchored;               // start is derived so the last byte is end_address
+    uint16_t end_address;              // inclusive requested end for an end-anchored segment
     const char *reclaim_host_name;     // name of the emitted segment it reclaims
     uint32_t reclaim_host_name_length;
     int segment_init;

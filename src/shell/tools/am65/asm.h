@@ -133,9 +133,10 @@ struct ASSEMBLER {
 
     int auto_adjust_segments;
     AM65_DYNARRAY segment_adjustments;
+    AM65_DYNARRAY end_anchor_adjustments;
 };
 
-static inline uint16_t current_output_address(ASSEMBLER *as) {
+static inline uint32_t current_output_address(ASSEMBLER *as) {
     if(!as->active_target || !as->active_target->active_segment) {
         return 0;
     }
@@ -173,3 +174,11 @@ uint16_t assembler_adjust_segment_start(
     const char *segment_name,
     uint32_t segment_name_length,
     uint16_t source_address);
+
+// Parser-internal hook: return the current trial start for an end-anchored
+// segment. The placement survives pass-1 program-state restarts.
+uint16_t assembler_end_segment_start(
+    ASSEMBLER *as,
+    const char *segment_name,
+    uint32_t segment_name_length,
+    uint16_t end_address);

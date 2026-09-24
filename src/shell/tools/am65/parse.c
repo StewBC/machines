@@ -327,7 +327,7 @@ static int token_is_line_end(ASSEMBLER *as) {
     return as->token.type == TOKEN_END && as->token.op == '\0';
 }
 
-static void set_current_output_address(ASSEMBLER *as, uint16_t address) {
+static void set_current_output_address(ASSEMBLER *as, uint32_t address) {
     SEGMENT *segment = as->active_target ? as->active_target->active_segment : NULL;
     if(!segment) {
         asm_err(as, ASM_ERR_FATAL, "No active segment for address assignment");
@@ -431,6 +431,13 @@ static void decode_abs_rel_zp_opcode(ASSEMBLER *as) {
 static void dot_org(ASSEMBLER *as) {
     uint64_t value = (uint64_t)expr_full_evaluate(as);
     SEGMENT *segment = as->active_target->active_segment;
+    if(segment->is_end_anchored) {
+        asm_err(as, ASM_ERR_RESOLVE,
+                ".org is not allowed inside end-anchored segment \"%.*s\"; use relative * += instead",
+                (int)segment->segment_name_length,
+                segment->segment_name);
+        return;
+    }
     uint16_t address = (uint16_t)value;
     /* Re-anchor start while the segment is still empty (no bytes emitted). */
     if(!segment->segment_init ||
@@ -452,7 +459,11 @@ static void dot_align(ASSEMBLER *as) {
         asm_err(as, ASM_ERR_RESOLVE, ".align value must be greater than zero");
         return;
     }
-    uint16_t aligned_address = (uint16_t)((current_output_address(as) + (value - 1)) & ~(value - 1));
+    uint64_t aligned_address = (current_output_address(as) + (value - 1)) & ~(value - 1);
+    if(aligned_address > 0x10000ULL) {
+        asm_err(as, ASM_ERR_RESOLVE, ".align advances beyond the 64K address space");
+        return;
+    }
     while(current_output_address(as) < aligned_address) {
         emit_byte(as, 0);
     }
@@ -1246,7 +1257,12 @@ static void dot_proc(ASSEMBLER *as) {
         return;
     }
 
-    symbol_store_in_scope(as, parent, leaf, (uint32_t)leaf_len, SYMBOL_ADDRESS, current_output_address(as));
+    if(current_output_address(as) > 0xFFFFu) {
+        asm_err(as, ASM_ERR_RESOLVE, ".proc is outside the 64K address space");
+        return;
+    }
+    symbol_store_in_scope(as, parent, leaf, (uint32_t)leaf_len, SYMBOL_ADDRESS,
+                          (uint16_t)current_output_address(as));
     scope = scope_add(as, leaf, leaf_len, parent, GPERF_DOT_PROC);
     if(!scope) {
         asm_err(as, ASM_ERR_FATAL, "Out of memory creating proc %.*s", leaf_len, leaf);
@@ -1270,14 +1286,16 @@ static void dot_segdef(ASSEMBLER *as) {
 
     next_token(as);
     if(as->token.op != ',') {
-        asm_err(as, ASM_ERR_RESOLVE, ".segdef expects a comma then a start address after the name");
+        asm_err(as, ASM_ERR_RESOLVE, ".segdef expects a comma then a start address, end= address, or reclaim= host after the name");
         return;
     }
 
-    uint16_t start = 0;
+    uint32_t start = 0;
     int do_not_emit = 0;
     int is_locked = 0;
     int is_reclaim = 0;
+    int is_end_anchored = 0;
+    uint16_t end_address = 0;
     const char *host_name = NULL;
     int host_name_len = 0;
 
@@ -1325,12 +1343,38 @@ static void dot_segdef(ASSEMBLER *as) {
             return;
         }
     } else {
-        start = (uint16_t)expr_evaluate(as);
-        start = assembler_adjust_segment_start(
-            as,
-            segment.segment_name,
-            segment.segment_name_length,
-            start);
+        if(as->token.type == TOKEN_VAR &&
+           as->token.name_length == 3 &&
+           0 == asm_strnicmp(as->token.name, "end", 3)) {
+            is_end_anchored = 1;
+            is_locked = 1;
+            next_token(as);
+            expect_op(as, '=');
+            int64_t value = expr_evaluate(as);
+            if(as->pass == 1 && as->expression_unknown) {
+                asm_err(as, ASM_ERR_DEFINE,
+                        ".segdef end= must resolve during pass 1");
+                return;
+            }
+            if(value < 0 || value > 0xFFFF) {
+                asm_err(as, ASM_ERR_RESOLVE,
+                        ".segdef end= address must be between $0000 and $FFFF");
+                return;
+            }
+            end_address = (uint16_t)value;
+            start = assembler_end_segment_start(
+                as,
+                segment.segment_name,
+                segment.segment_name_length,
+                end_address);
+        } else {
+            start = (uint16_t)expr_evaluate(as);
+            start = assembler_adjust_segment_start(
+                as,
+                segment.segment_name,
+                segment.segment_name_length,
+                start);
+        }
         while(as->token.op == ',') {
             next_token(as);
             if(as->token.type == TOKEN_VAR &&
@@ -1349,7 +1393,7 @@ static void dot_segdef(ASSEMBLER *as) {
                 is_locked = 1;
                 next_token(as);
             } else {
-                asm_err(as, ASM_ERR_RESOLVE, "The optional .segdef flags after the name and start are any of emit, noemit or locked, separated by commas");
+                asm_err(as, ASM_ERR_RESOLVE, "The optional .segdef flags are any of emit, noemit or locked, separated by commas");
                 return;
             }
         }
@@ -1387,6 +1431,8 @@ static void dot_segdef(ASSEMBLER *as) {
     new_segment->do_not_emit = do_not_emit;
     new_segment->is_locked = is_locked;
     new_segment->is_reclaim = is_reclaim;
+    new_segment->is_end_anchored = is_end_anchored;
+    new_segment->end_address = end_address;
     if(is_reclaim) {
         if(!set_name((char **)&new_segment->reclaim_host_name, host_name, host_name_len)) {
             free((char *)new_segment->segment_name);
@@ -1778,12 +1824,24 @@ void parse_address(ASSEMBLER *as) {
         return;
     }
 
-    uint16_t address;
+    uint32_t address;
     int64_t value = expr_evaluate(as);
     SEGMENT *segment = as->active_target ? as->active_target->active_segment : NULL;
     if(relative) {
-        address = current_output_address(as) + value;
+        int64_t relative_address = (int64_t)current_output_address(as) + value;
+        if(relative_address < 0 || relative_address > 0x10000) {
+            asm_err(as, ASM_ERR_RESOLVE, "Relative address assignment is outside the 64K address space");
+            return;
+        }
+        address = (uint32_t)relative_address;
     } else {
+        if(segment && segment->is_end_anchored) {
+            asm_err(as, ASM_ERR_RESOLVE,
+                    "Absolute * = assignment is not allowed inside end-anchored segment \"%.*s\"; use relative * += instead",
+                    (int)segment->segment_name_length,
+                    segment->segment_name);
+            return;
+        }
         address = (uint16_t)value;
         /* Host-supplied start (or a fresh segment) is only a default until bytes are
            emitted. Allow * = $nnnn to re-anchor freely in that case, matching .org. */
@@ -1985,12 +2043,19 @@ void parse_if_skip(ASSEMBLER *as) {
 
 void parse_label(ASSEMBLER *as) {
     if(as->token.type == TOKEN_OP && as->token.op == ':') {
-        if(as->pass == 1) {
-            uint16_t address = current_output_address(as);
+        if(current_output_address(as) > 0xFFFFu) {
+            asm_err(as, ASM_ERR_RESOLVE, "Label is outside the 64K address space");
+        } else if(as->pass == 1) {
+            uint16_t address = (uint16_t)current_output_address(as);
             AM65_ARRAY_ADD(&as->anon_symbols, address);
         }
     } else if(as->token.type == TOKEN_VAR && next_token_op_is(as, ':')) {
-        symbol_write(as, as->token.name, as->token.name_length, SYMBOL_ADDRESS, current_output_address(as));
+        if(current_output_address(as) > 0xFFFFu) {
+            asm_err(as, ASM_ERR_RESOLVE, "Label is outside the 64K address space");
+        } else {
+            symbol_write(as, as->token.name, as->token.name_length, SYMBOL_ADDRESS,
+                         (uint16_t)current_output_address(as));
+        }
         get_token(as);
     }
 }

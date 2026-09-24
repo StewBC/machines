@@ -6,6 +6,7 @@
 
 #define OVERLAP_MAX_SEGS 64
 #define AUTO_ADJUST_MAX_RETRIES 3
+#define END_ANCHOR_MAX_RETRIES 16
 
 typedef struct {
     size_t target_index;
@@ -148,6 +149,36 @@ uint16_t assembler_adjust_segment_start(
         }
     }
     return source_address;
+}
+
+uint16_t assembler_end_segment_start(
+    ASSEMBLER *as,
+    const char *segment_name,
+    uint32_t segment_name_length,
+    uint16_t end_address) {
+    if(!as) {
+        return 0;
+    }
+    size_t target_index = active_target_index(as);
+    if(target_index != (size_t)-1) {
+        for(size_t i = 0; i < as->end_anchor_adjustments.items; i++) {
+            SEGMENT_ADJUSTMENT *adjustment =
+                AM65_ARRAY_GET(&as->end_anchor_adjustments, SEGMENT_ADJUSTMENT, i);
+            if(adjustment->target_index == target_index &&
+               adjustment->segment_name_length == segment_name_length &&
+               0 == asm_strnicmp(
+                   adjustment->segment_name,
+                   segment_name,
+                   segment_name_length)) {
+                return adjustment->address;
+            }
+        }
+    }
+
+    /* Keep provisional labels out of zero page unless the final address forces
+       the segment there. $FFFF starts at zero so a full-64K segment can be
+       measured without overflowing the provisional placement. */
+    return end_address < 0x100u || end_address == 0xFFFFu ? 0 : 0x100u;
 }
 
 static void reset_targets_for_pass(ASSEMBLER *as) {
@@ -319,15 +350,16 @@ static SEGMENT_CHECK_RESULT check_segment_overlaps(
         int target_overlaps = 0;
         int target_wraps = 0;
 
-        // Wrap-around: output_address < start_address in uint16 arithmetic
+        // $10000 is the valid exclusive end immediately after byte $FFFF.
+        // Anything larger has genuinely run beyond the 64K address space.
         for(int i = 0; i < count; i++) {
-            if(segs[i]->segment_output_address < segs[i]->segment_start_address) {
+            if(segs[i]->segment_output_address > 0x10000u) {
                 if(log_issues) {
                     const char *name = segs[i]->segment_name ?
                         segs[i]->segment_name : "<default>";
                     asm_log_direct(
                         as,
-                        "Segment \"%.*s\" wraps past $FFFF (start $%04X end $%04X)",
+                        "Segment \"%.*s\" extends past $FFFF (start $%04X end $%04X)",
                         (int)segs[i]->segment_name_length,
                         name,
                         segs[i]->segment_start_address,
@@ -339,11 +371,11 @@ static SEGMENT_CHECK_RESULT check_segment_overlaps(
 
         // Overlap: for each pair (i,j) with i<j in sorted order, b_start < a_end means overlap
         for(int i = 0; i < count - 1; i++) {
-            if(segs[i]->segment_output_address < segs[i]->segment_start_address) {
+            if(segs[i]->segment_output_address > 0x10000u) {
                 continue;
             }
             for(int j = i + 1; j < count; j++) {
-                if(segs[j]->segment_output_address < segs[j]->segment_start_address) {
+                if(segs[j]->segment_output_address > 0x10000u) {
                     continue;
                 }
                 if(segs[j]->segment_start_address < segs[i]->segment_output_address) {
@@ -379,12 +411,12 @@ static SEGMENT_CHECK_RESULT check_segment_overlaps(
             // to the author. We report it and let assembly fail.
             int target_locked_conflict = 0;
             {
-                uint16_t next_addr = segs[0]->segment_start_address;
+                uint32_t next_addr = segs[0]->segment_start_address;
                 for(int i = 0; i < count; i++) {
-                    if(segs[i]->segment_output_address < segs[i]->segment_start_address) {
+                    if(segs[i]->segment_output_address > 0x10000u) {
                         continue;
                     }
-                    uint16_t size = segs[i]->segment_output_address - segs[i]->segment_start_address;
+                    uint32_t size = segs[i]->segment_output_address - segs[i]->segment_start_address;
                     if(segs[i]->is_locked) {
                         if(next_addr > segs[i]->segment_start_address) {
                             target_locked_conflict = 1;
@@ -422,13 +454,13 @@ static SEGMENT_CHECK_RESULT check_segment_overlaps(
             if(log_issues) {
                 asm_log_direct(as, "Segments overlap -- suggested addresses:");
             }
-            uint16_t next_addr = segs[0]->segment_start_address;
+            uint32_t next_addr = segs[0]->segment_start_address;
             for(int i = 0; i < count; i++) {
-                if(segs[i]->segment_output_address < segs[i]->segment_start_address) {
+                if(segs[i]->segment_output_address > 0x10000u) {
                     continue;
                 }
                 const char *name = segs[i]->segment_name ? segs[i]->segment_name : "<default>";
-                uint16_t size = segs[i]->segment_output_address - segs[i]->segment_start_address;
+                uint32_t size = segs[i]->segment_output_address - segs[i]->segment_start_address;
                 if(segs[i]->is_locked) {
                     // Anchor stays put: no suggestion, just advance past it.
                     next_addr = segs[i]->segment_start_address + size;
@@ -442,13 +474,25 @@ static SEGMENT_CHECK_RESULT check_segment_overlaps(
                         name,
                         next_addr);
                 }
+                if(next_addr > 0xFFFFu) {
+                    result.wraps++;
+                    if(log_issues) {
+                        asm_log_direct(
+                            as,
+                            "  Segment \"%.*s\" cannot start at $%04X outside the 64K address space",
+                            (int)segs[i]->segment_name_length,
+                            name,
+                            next_addr);
+                    }
+                    continue;
+                }
                 if(suggestions &&
                    ASM_OK != segment_adjustment_add(
                        suggestions,
                        ti,
                        segs[i]->segment_name,
                        segs[i]->segment_name_length,
-                       next_addr)) {
+                       (uint16_t)next_addr)) {
                     result.allocation_failed = 1;
                     asm_err(as, ASM_ERR_FATAL,
                             "Out of memory tracking adjusted segment addresses");
@@ -517,11 +561,11 @@ static int check_noemit_reclaim(ASSEMBLER *as) {
             key.segment_name = r->reclaim_host_name;
             key.segment_name_length = r->reclaim_host_name_length;
             SEGMENT *host = segment_find(&target->segments, &key);
-            uint16_t r_size = r->segment_output_address > r->segment_start_address ?
-                (uint16_t)(r->segment_output_address - r->segment_start_address) : 0;
-            uint16_t h_size = 0;
+            uint32_t r_size = r->segment_output_address > r->segment_start_address ?
+                r->segment_output_address - r->segment_start_address : 0;
+            uint32_t h_size = 0;
             if(host && host->segment_output_address > host->segment_start_address) {
-                h_size = (uint16_t)(host->segment_output_address - host->segment_start_address);
+                h_size = host->segment_output_address - host->segment_start_address;
             }
             if(r_size > h_size) {
                 const char *nr = r->segment_name ? r->segment_name : "<default>";
@@ -538,6 +582,99 @@ static int check_noemit_reclaim(ASSEMBLER *as) {
     }
 
     return issues;
+}
+
+static int resolve_end_anchors(
+    ASSEMBLER *as,
+    int *changed,
+    SEGMENT **changed_segment) {
+    AM65_DYNARRAY placements;
+    AM65_ARRAY_INIT(&placements, SEGMENT_ADJUSTMENT);
+    *changed = 0;
+    *changed_segment = NULL;
+
+    for(size_t ti = 0; ti < as->targets.items; ti++) {
+        TARGET *target = *AM65_ARRAY_GET(&as->targets, TARGET*, ti);
+        if(!target) {
+            continue;
+        }
+        for(size_t si = 0; si < target->segments.items; si++) {
+            SEGMENT *segment = *AM65_ARRAY_GET(&target->segments, SEGMENT*, si);
+            if(!segment->is_end_anchored) {
+                continue;
+            }
+
+            uint32_t size = segment->segment_output_address -
+                            segment->segment_start_address;
+            uint32_t available = (uint32_t)segment->end_address + 1u;
+            if(size == 0) {
+                asm_log_direct(as,
+                        "End-anchored segment \"%.*s\" is empty",
+                        (int)segment->segment_name_length,
+                        segment->segment_name);
+                segment_adjustments_clear(&placements);
+                return ASM_ERR;
+            }
+            if(size > available) {
+                asm_log_direct(as,
+                        "End-anchored segment \"%.*s\" needs $%04X bytes but only $%04X bytes fit through $%04X",
+                        (int)segment->segment_name_length,
+                        segment->segment_name,
+                        size,
+                        available,
+                        segment->end_address);
+                segment_adjustments_clear(&placements);
+                return ASM_ERR;
+            }
+
+            uint16_t start = (uint16_t)(available - size);
+            if(ASM_OK != segment_adjustment_add(
+                    &placements,
+                    ti,
+                    segment->segment_name,
+                    segment->segment_name_length,
+                    start)) {
+                segment_adjustments_clear(&placements);
+                asm_err(as, ASM_ERR_FATAL,
+                        "Out of memory tracking end-anchored segment placement");
+                return ASM_ERR;
+            }
+            if(segment->segment_start_address != start) {
+                *changed = 1;
+                if(!*changed_segment) {
+                    *changed_segment = segment;
+                }
+            }
+        }
+    }
+
+    segment_adjustments_clear(&as->end_anchor_adjustments);
+    as->end_anchor_adjustments = placements;
+    return ASM_OK;
+}
+
+static void validate_end_anchors_after_pass2(ASSEMBLER *as) {
+    for(size_t ti = 0; ti < as->targets.items; ti++) {
+        TARGET *target = *AM65_ARRAY_GET(&as->targets, TARGET*, ti);
+        if(!target) {
+            continue;
+        }
+        for(size_t si = 0; si < target->segments.items; si++) {
+            SEGMENT *segment = *AM65_ARRAY_GET(&target->segments, SEGMENT*, si);
+            if(!segment->is_end_anchored) {
+                continue;
+            }
+            uint32_t expected_output = (uint32_t)segment->end_address + 1u;
+            if(segment->segment_output_address != expected_output) {
+                asm_err(as, ASM_ERR_RESOLVE,
+                        "End-anchored segment \"%.*s\" changed size between layout and pass 2 (ended at $%04X instead of $%04X)",
+                        (int)segment->segment_name_length,
+                        segment->segment_name,
+                        segment->segment_output_address,
+                        expected_output);
+            }
+        }
+    }
 }
 
 static void assembler_program_state_destroy(ASSEMBLER *as) {
@@ -618,6 +755,7 @@ int assembler_init(ASSEMBLER *as, ERRORLOG *errorlog, CB_ASM_CTX *cb) {
     AM65_ARRAY_INIT(&as->predefines, DEFINE);
     AM65_ARRAY_INIT(&as->seed_search_dirs, char *);
     AM65_ARRAY_INIT(&as->segment_adjustments, SEGMENT_ADJUSTMENT);
+    AM65_ARRAY_INIT(&as->end_anchor_adjustments, SEGMENT_ADJUSTMENT);
     if(ASM_OK != assembler_program_state_init(as)) {
         assembler_shutdown(as);
         return ASM_ERR;
@@ -767,10 +905,12 @@ int assembler_assemble(ASSEMBLER *as, const char *input_file, uint16_t address) 
 
     size_t initial_errors = as->errorlog ? as->errorlog->log_array.items : 0;
     int adjustment_retries = 0;
+    int end_anchor_retries = 0;
 
     reset_source_for_assemble(as);
     as->anon_symbols.items = 0;
     segment_adjustments_clear(&as->segment_adjustments);
+    segment_adjustments_clear(&as->end_anchor_adjustments);
 
     for(;;) {
         AM65_DYNARRAY suggestions;
@@ -785,6 +925,32 @@ int assembler_assemble(ASSEMBLER *as, const char *input_file, uint16_t address) 
         as->pass = 1;
         if(ASM_OK != assembler_run_pass(as, input_file)) {
             return ASM_ERR;
+        }
+
+        if(!as->errorlog || as->errorlog->log_array.items == initial_errors) {
+            int anchors_changed = 0;
+            SEGMENT *changed_anchor = NULL;
+            if(ASM_OK != resolve_end_anchors(
+                    as, &anchors_changed, &changed_anchor)) {
+                return ASM_ERR;
+            }
+            if(anchors_changed) {
+                if(end_anchor_retries >= END_ANCHOR_MAX_RETRIES) {
+                    asm_log_direct(as,
+                            "End-anchored segment \"%.*s\" did not converge after %d layout passes; check .align constraints",
+                            changed_anchor ? (int)changed_anchor->segment_name_length : 0,
+                            changed_anchor ? changed_anchor->segment_name : "",
+                            END_ANCHOR_MAX_RETRIES + 1);
+                    return ASM_ERR;
+                }
+                end_anchor_retries++;
+                if(ASM_OK != assembler_restart_program_state(as)) {
+                    asm_err(as, ASM_ERR_FATAL,
+                            "Out of memory restarting end-anchored segment layout");
+                    return ASM_ERR;
+                }
+                continue;
+            }
         }
 
         if(!as->auto_adjust_segments ||
@@ -833,6 +999,7 @@ int assembler_assemble(ASSEMBLER *as, const char *input_file, uint16_t address) 
     if(ASM_OK != assembler_run_pass(as, input_file)) {
         return ASM_ERR;
     }
+    validate_end_anchors_after_pass2(as);
 
     if(!as->errorlog || as->errorlog->log_array.items == initial_errors) {
         SEGMENT_CHECK_RESULT final_layout =
@@ -944,4 +1111,5 @@ void assembler_shutdown(ASSEMBLER *as) {
     file_seed_search_dirs_clear(as);
     am65_array_free(&as->seed_search_dirs);
     segment_adjustments_clear(&as->segment_adjustments);
+    segment_adjustments_clear(&as->end_anchor_adjustments);
 }

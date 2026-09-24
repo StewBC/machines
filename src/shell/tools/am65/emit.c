@@ -12,9 +12,13 @@ void emit_byte(ASSEMBLER *as, uint8_t byte_value) {
         return;
     }
 
-    uint16_t address = segment->segment_output_address;
+    uint32_t address = segment->segment_output_address;
+    if(address > 0xFFFFu) {
+        asm_err(as, ASM_ERR_RESOLVE, "Output exceeds the 64K address space");
+        return;
+    }
     if(as->pass == 2 && !segment->do_not_emit) {
-        as->cb.output_byte(target->ctx, address, byte_value);
+        as->cb.output_byte(target->ctx, (uint16_t)address, byte_value);
     }
     segment->segment_output_address = address + 1;
 }

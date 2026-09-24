@@ -85,6 +85,25 @@ file-only / prg-only scope does not poke memory. c64m ignores host-file
 redirects and keeps writing RAM. This keeps machine banking out of the shared
 assembler.
 
+## End-anchored segments
+
+An end-anchored segment derives its start from its assembled size so its final byte
+lands at the inclusive `end=` address:
+
+```asm
+.segdef "BSS", end=$CFFF, noemit
+.segment "BSS"
+cursor: .res 2
+buffer: .res $100
+```
+
+Both `emit` and `noemit` are supported. Layout restarts pass 1 until the start and
+size stabilize, independently of auto-adjust. End-anchored segments are implicitly
+locked, must be non-empty, and must fit below their requested end. `.align` is allowed
+but reports non-convergence when no stable placement exists. Absolute `.org` and
+`* =` are rejected inside the segment; relative `* +=` remains valid. An inclusive
+end of `$FFFF` is represented internally by the exclusive location `$10000`.
+
 Standalone `am65` predefines `AM65=1` and no machine symbol. Emulator hosts
 predefine `AM65=0` plus their machine symbol, currently `APPLE2=1` in a2m and
 `C64=1` in c64m.

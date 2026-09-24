@@ -216,6 +216,9 @@ static void dump_segments(FILE *fp, AM65_DYNARRAY *targets) {
                     s->segment_start_address, s->segment_output_address,
                     s->do_not_emit ? " (noemit)" : "",
                     s->is_locked ? " (locked)" : "");
+            if(s->is_end_anchored) {
+                fprintf(fp, " (end=$%04X)", s->end_address);
+            }
         }
         fprintf(fp, "\n}\n");
     }

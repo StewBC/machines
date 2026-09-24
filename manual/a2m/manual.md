@@ -1306,6 +1306,7 @@ The ternary form is `condition ? true-expr : false-expr`.
 | `.proc name` | Open a named procedure (a named scope) |
 | `.endproc` | Close the innermost proc |
 | `.segdef "n",addr[,flags]` | Define a named segment at `addr`. Flags (comma-separated) are any of `emit`/`noemit` (suppress output) and `locked` (pin the address; never auto-moved) |
+| `.segdef "n",end=addr[,flags]` | Define a segment whose inclusive last address is `addr`. Its start is derived from its size. Both `emit` and `noemit` are allowed; it is implicitly locked |
 | `.segdef "n",reclaim="host"` | Define a reclaim segment overlaying an emitted `host`: implicitly `noemit`, inherits the host's start, sized no larger than the host, and moves with it if auto-adjust relocates the host |
 | `.segment "n"` | Activate the named segment; `.segment ""` returns to native mode |
 | `.6502` | Restrict to 6502 opcodes |
@@ -1422,6 +1423,30 @@ mapping zero-page variables without emitting placeholder bytes. A `noemit` segme
 may not overlap any other segment; to overlay memory intentionally, use a reclaim
 segment (below).
 
+An **end-anchored** segment is placed so its final byte occupies an inclusive fixed
+address. This is useful for a BSS or variable area that should grow downward from the
+top of available memory while code grows upward:
+
+```
+.segdef "BSS", end=$CFFF, noemit
+
+.segment "BSS"
+cursor: .res 2
+buffer: .res $100
+```
+
+am65 first measures the segment, derives its start, and restarts pass 1 at the new
+address. This happens whether or not segment auto-adjust is enabled, and repeats until
+the start and size are stable. `end=` is inclusive, so a segment ending at `$FFFF` has
+the internal exclusive end `$10000`. The segment must be non-empty and fit between
+`$0000` and its requested end. It may use either `emit` or `noemit`, may be left and
+re-entered with `.segment`, and acts as a locked anchor that auto-adjust never moves.
+
+`.align` is allowed and is recalculated on every layout pass. If its constraints do
+not permit a stable placement at the requested end, assembly fails with a
+non-convergence error. Absolute `.org` and `* =` are rejected inside an end-anchored
+segment because they would break relocation; relative `* +=` remains allowed.
+
 A **reclaim** segment piggybacks on an emitted "host" segment so a region can be
 reused at runtime once the host's contents are consumed. The classic case is a title
 image loaded as part of the executable and then relocated as the program starts,
@@ -1454,7 +1479,7 @@ use it for regions the hardware requires at a fixed address, such as an HGR page
 must stay at `$2000`. Lower segments are still packed around a locked segment, but if
 they grow enough to overrun it, auto-adjust does not attempt to reshuffle the layout
 around the anchor: assembly fails with an error naming the locked segment, leaving the
-fix to the author.
+fix to the author. End-anchored segments are implicitly locked.
 
 ```
 .segdef "CODE", $0800
@@ -2540,4 +2565,3 @@ correct geometry is one click away in either mode.
 - `whereami/whereami.c`, `whereami/whereami.h` - https://github.com/gpakosz/whereami (MIT or WTFPL v2)
 - `tiny-regex-c/re.c`, `tiny-regex-c/re.h` - https://github.com/kokke/tiny-regex-c (The Unlicense)
 - Nuklear (`src/frontend/nuklear.h`) - immediate-mode debugger UI (public domain / MIT; see the header)
-

@@ -649,6 +649,185 @@ static int test_segment_reclaim_and_noemit_errors(void)
     return failures;
 }
 
+static int test_segment_end_at_64k_boundary(void)
+{
+    const struct {
+        const char *name;
+        const char *source;
+        int expected_result;
+        const char *error_text;
+    } cases[] = {
+        {"last byte",
+         ".org $ffff\n"
+         ".byte $a5\n",
+         ASM_OK, NULL},
+        {"full 64K noemit segment",
+         ".segdef \"ALL\", $0000, noemit\n"
+         ".segment \"ALL\"\n"
+         ".res $10000\n",
+         ASM_OK, NULL},
+        {"byte beyond address space",
+         ".org $ffff\n"
+         ".byte 1, 2\n",
+         ASM_ERR, "Output exceeds the 64K address space"},
+        {"label beyond address space",
+         ".org $ffff\n"
+         ".byte 1\n"
+         "past:\n",
+         ASM_ERR, "Label is outside the 64K address space"},
+    };
+    int failures = 0;
+
+    for(size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
+        char path[128];
+        test_memory mem;
+        ERRORLOG log;
+
+        memset(&mem, 0, sizeof(mem));
+        if(write_source(path, sizeof(path), cases[i].source) != 0) {
+            failures++;
+            continue;
+        }
+        errlog_init(&log);
+        int result = assemble_file(path, &mem, &log);
+        if(result != cases[i].expected_result) {
+            fprintf(stderr, "%s returned %d instead of %d\n",
+                    cases[i].name, result, cases[i].expected_result);
+            failures++;
+        } else if(cases[i].error_text &&
+                  !errorlog_contains(&log, cases[i].error_text)) {
+            fprintf(stderr, "%s did not report \"%s\"\n",
+                    cases[i].name, cases[i].error_text);
+            failures++;
+        }
+        if(i == 0 && (mem.writes != 1 || mem.memory[0xffff] != 0xa5)) {
+            fprintf(stderr, "last byte was not emitted at $FFFF\n");
+            failures++;
+        }
+        errlog_shutdown(&log);
+        c64m_test_remove_file(path);
+    }
+    return failures;
+}
+
+static int test_end_anchored_segments(void)
+{
+    char path[128];
+    test_memory mem;
+    ERRORLOG log;
+    int failures = 0;
+    const char *source =
+        ".segdef \"BSS\", end=$cfff, noemit\n"
+        ".segdef \"ALIGNED\", end=$1300, noemit\n"
+        ".segdef \"TOP\", end=$ffff, emit\n"
+        ".segdef \"CODE\", $1000\n"
+        ".segment \"BSS\"\n"
+        "first: .res 1\n"
+        "    * += 1\n"
+        "middle: .res 1\n"
+        ".segment \"ALIGNED\"\n"
+        "    .res 1\n"
+        "    .align $100\n"
+        "aligned: .res 1\n"
+        ".segment \"BSS\"\n"
+        "last: .res 1\n"
+        ".segment \"TOP\"\n"
+        "    .byte $a5\n"
+        ".segment \"CODE\"\n"
+        "    .word first, middle, last, aligned\n"
+        "    lda first\n";
+
+    memset(&mem, 0, sizeof(mem));
+    if(write_source(path, sizeof(path), source) != 0) {
+        return 1;
+    }
+    errlog_init(&log);
+    if(assemble_file(path, &mem, &log) != ASM_OK) {
+        fprintf(stderr, "end-anchored assembly failed with %zu errors\n",
+                log.log_array.items);
+        failures++;
+    }
+    const uint8_t expected[] = {
+        0xfc, 0xcf, 0xfe, 0xcf, 0xff, 0xcf, 0x00, 0x13,
+        0xad, 0xfc, 0xcf
+    };
+    if(memcmp(&mem.memory[0x1000], expected, sizeof(expected)) != 0 ||
+       mem.memory[0xffff] != 0xa5 || mem.writes != sizeof(expected) + 1) {
+        fprintf(stderr, "end-anchored placement or output mismatch\n");
+        failures++;
+    }
+    errlog_shutdown(&log);
+    c64m_test_remove_file(path);
+    return failures;
+}
+
+static int test_end_anchored_segment_errors(void)
+{
+    const struct {
+        const char *name;
+        const char *source;
+        const char *needle;
+    } cases[] = {
+        {"too large",
+         ".segdef \"E\", end=$0001, noemit\n"
+         ".segment \"E\"\n"
+         ".res 3\n",
+         "only $0002 bytes fit"},
+        {"empty",
+         ".segdef \"E\", end=$cfff, noemit\n",
+         "is empty"},
+        {"org",
+         ".segdef \"E\", end=$cfff, noemit\n"
+         ".segment \"E\"\n"
+         ".org $c000\n"
+         ".res 1\n",
+         ".org is not allowed"},
+        {"absolute location assignment",
+         ".segdef \"E\", end=$cfff, noemit\n"
+         ".segment \"E\"\n"
+         "* = $c000\n"
+         ".res 1\n",
+         "Absolute * = assignment is not allowed"},
+        {"non-convergent alignment",
+         ".segdef \"E\", end=$12ff, noemit\n"
+         ".segment \"E\"\n"
+         ".res 1\n"
+         ".align $100\n"
+         ".res 1\n",
+         "did not converge"},
+        {"unresolved end",
+         ".segdef \"E\", end=later, noemit\n"
+         "later = $cfff\n"
+         ".segment \"E\"\n"
+         ".res 1\n",
+         "must resolve during pass 1"},
+    };
+    int failures = 0;
+
+    for(size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
+        char path[128];
+        test_memory mem;
+        ERRORLOG log;
+        memset(&mem, 0, sizeof(mem));
+        if(write_source(path, sizeof(path), cases[i].source) != 0) {
+            failures++;
+            continue;
+        }
+        errlog_init(&log);
+        if(assemble_file(path, &mem, &log) != ASM_ERR) {
+            fprintf(stderr, "%s was not rejected\n", cases[i].name);
+            failures++;
+        } else if(!errorlog_contains(&log, cases[i].needle)) {
+            fprintf(stderr, "%s did not report \"%s\"\n",
+                    cases[i].name, cases[i].needle);
+            failures++;
+        }
+        errlog_shutdown(&log);
+        c64m_test_remove_file(path);
+    }
+    return failures;
+}
+
 int main(void)
 {
     int failures = 0;
@@ -664,6 +843,9 @@ int main(void)
     failures += test_segment_reclaim_overflow();
     failures += test_segment_reclaim_follows_host();
     failures += test_segment_reclaim_and_noemit_errors();
+    failures += test_segment_end_at_64k_boundary();
+    failures += test_end_anchored_segments();
+    failures += test_end_anchored_segment_errors();
 
     return failures == 0 ? 0 : 1;
 }
