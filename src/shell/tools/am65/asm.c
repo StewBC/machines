@@ -507,8 +507,9 @@ static SEGMENT_CHECK_RESULT check_segment_overlaps(
 
 // Validate the noemit/reclaim rules that the emit-only overlap machinery above
 // deliberately ignores. Two rules, both hard errors (never auto-adjusted):
-//   * a plain noemit segment may not overlap any other segment -- overlaying
-//     memory is only sanctioned through an explicit reclaim binding;
+//   * a plain noemit segment may not overlap any other segment. A noemit segment
+//     tagged overlap_reclaimable may overlap emitted segments tagged
+//     reclaimable, without acquiring their placement;
 //   * a reclaim segment may not be larger than the host it piggybacks on.
 // Returns the number of issues found; issues are also logged so the caller's
 // error count reflects them. Reclaim segments are excluded from the noemit
@@ -537,11 +538,17 @@ static int check_noemit_reclaim(ASSEMBLER *as) {
                 }
                 if(a->segment_start_address < b->segment_output_address &&
                    b->segment_start_address < a->segment_output_address) {
+                    SEGMENT *noemit = a->do_not_emit ? a : b;
+                    SEGMENT *emitted = a->do_not_emit ? b : a;
+                    if(!emitted->do_not_emit &&
+                       noemit->overlaps_reclaimable && emitted->is_reclaimable) {
+                        continue;
+                    }
                     const char *na = a->segment_name ? a->segment_name : "<default>";
                     const char *nb = b->segment_name ? b->segment_name : "<default>";
                     asm_log_direct(
                         as,
-                        "noemit segment \"%.*s\" [$%04X..$%04X) overlaps \"%.*s\" [$%04X..$%04X) -- use reclaim=\"host\" to overlay intentionally",
+                        "noemit segment \"%.*s\" [$%04X..$%04X) overlaps \"%.*s\" [$%04X..$%04X) -- use reclaim=\"host\" or matching reclaimable/overlap_reclaimable flags to overlay intentionally",
                         (int)a->segment_name_length, na,
                         a->segment_start_address, a->segment_output_address,
                         (int)b->segment_name_length, nb,

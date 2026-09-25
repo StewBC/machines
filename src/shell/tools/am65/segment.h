@@ -19,6 +19,8 @@ typedef struct {
     uint32_t segment_output_address;
     int do_not_emit;
     int is_locked;
+    int is_reclaimable;                // emitted contents may be overlaid by opted-in noemit segments
+    int overlaps_reclaimable;          // noemit segment may overlap any reclaimable emitted segment
     int is_reclaim;                    // piggybacks on reclaim_host; implies do_not_emit
     int is_end_anchored;               // start is derived so the last byte is end_address
     uint16_t end_address;              // inclusive requested end for an end-anchored segment

@@ -104,6 +104,24 @@ but reports non-convergence when no stable placement exists. Absolute `.org` and
 `* =` are rejected inside the segment; relative `* +=` remains valid. An inclusive
 end of `$FFFF` is represented internally by the exclusive location `$10000`.
 
+## Reclaimable segment overlaps
+
+Named `reclaim="host"` segments are implicitly `noemit`, inherit and follow the
+emitted host's start, and may not grow larger than that host. For storage with its
+own placement, use a two-sided overlap permission instead:
+
+```asm
+.segdef "TITLE", $B800, reclaimable
+.segdef "LOADING_ART", $C200, reclaimable
+.segdef "BSS", end=$CFFF, noemit, overlap_reclaimable
+```
+
+The `BSS` segment may overlap any number of emitted segments marked `reclaimable`
+without following their placement. It may not overlap ordinary emitted segments or
+other `noemit` segments. A plain `noemit` segment may not overlap even reclaimable
+contents. Auto-adjust packs emitted segments without treating an opted-in noemit
+overlap as a collision; runtime lifetime ordering remains the source's responsibility.
+
 Standalone `am65` predefines `AM65=1` and no machine symbol. Emulator hosts
 predefine `AM65=0` plus their machine symbol, currently `APPLE2=1` in a2m and
 `C64=1` in c64m.

@@ -219,6 +219,12 @@ static void dump_segments(FILE *fp, AM65_DYNARRAY *targets) {
             if(s->is_end_anchored) {
                 fprintf(fp, " (end=$%04X)", s->end_address);
             }
+            if(s->is_reclaimable) {
+                fprintf(fp, " (reclaimable)");
+            }
+            if(s->overlaps_reclaimable) {
+                fprintf(fp, " (overlap_reclaimable)");
+            }
         }
         fprintf(fp, "\n}\n");
     }

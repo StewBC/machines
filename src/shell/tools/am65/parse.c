@@ -1293,6 +1293,8 @@ static void dot_segdef(ASSEMBLER *as) {
     uint32_t start = 0;
     int do_not_emit = 0;
     int is_locked = 0;
+    int is_reclaimable = 0;
+    int overlaps_reclaimable = 0;
     int is_reclaim = 0;
     int is_end_anchored = 0;
     uint16_t end_address = 0;
@@ -1392,13 +1394,31 @@ static void dot_segdef(ASSEMBLER *as) {
                       0 == asm_strnicmp(as->token.name, "locked", 6)) {
                 is_locked = 1;
                 next_token(as);
+            } else if(as->token.type == TOKEN_VAR &&
+                      as->token.name_length == 11 &&
+                      0 == asm_strnicmp(as->token.name, "reclaimable", 11)) {
+                is_reclaimable = 1;
+                next_token(as);
+            } else if(as->token.type == TOKEN_VAR &&
+                      as->token.name_length == 19 &&
+                      0 == asm_strnicmp(as->token.name, "overlap_reclaimable", 19)) {
+                overlaps_reclaimable = 1;
+                next_token(as);
             } else {
-                asm_err(as, ASM_ERR_RESOLVE, "The optional .segdef flags are any of emit, noemit or locked, separated by commas");
+                asm_err(as, ASM_ERR_RESOLVE, "The optional .segdef flags are any of emit, noemit, locked, reclaimable or overlap_reclaimable, separated by commas");
                 return;
             }
         }
         if(!token_is_line_end(as)) {
             asm_err(as, ASM_ERR_RESOLVE, "Unexpected token after .segdef");
+            return;
+        }
+        if(is_reclaimable && do_not_emit) {
+            asm_err(as, ASM_ERR_RESOLVE, "the reclaimable flag requires an emitted segment");
+            return;
+        }
+        if(overlaps_reclaimable && !do_not_emit) {
+            asm_err(as, ASM_ERR_RESOLVE, "the overlap_reclaimable flag requires a noemit segment");
             return;
         }
     }
@@ -1430,6 +1450,8 @@ static void dot_segdef(ASSEMBLER *as) {
     new_segment->segment_init = 1;
     new_segment->do_not_emit = do_not_emit;
     new_segment->is_locked = is_locked;
+    new_segment->is_reclaimable = is_reclaimable;
+    new_segment->overlaps_reclaimable = overlaps_reclaimable;
     new_segment->is_reclaim = is_reclaim;
     new_segment->is_end_anchored = is_end_anchored;
     new_segment->end_address = end_address;

@@ -1305,7 +1305,7 @@ The ternary form is `condition ? true-expr : false-expr`.
 | `.endscope` | Close the innermost scope (and end any output redirect) |
 | `.proc name` | Open a named procedure (a named scope) |
 | `.endproc` | Close the innermost proc |
-| `.segdef "n",addr[,flags]` | Define a named segment at `addr`. Flags (comma-separated) are any of `emit`/`noemit` (suppress output) and `locked` (pin the address; never auto-moved) |
+| `.segdef "n",addr[,flags]` | Define a named segment at `addr`. Flags (comma-separated) are `emit`/`noemit` (suppress output), `locked` (pin the address), `reclaimable` (emitted contents may be reused), and `overlap_reclaimable` (a `noemit` segment may overlap reclaimable contents) |
 | `.segdef "n",end=addr[,flags]` | Define a segment whose inclusive last address is `addr`. Its start is derived from its size. Both `emit` and `noemit` are allowed; it is implicitly locked |
 | `.segdef "n",reclaim="host"` | Define a reclaim segment overlaying an emitted `host`: implicitly `noemit`, inherits the host's start, sized no larger than the host, and moves with it if auto-adjust relocates the host |
 | `.segment "n"` | Activate the named segment; `.segment ""` returns to native mode |
@@ -1419,9 +1419,9 @@ table:  .byte $01,$02,$03
 ```
 
 `noemit` segments advance the location counter but produce no output -- useful for
-mapping zero-page variables without emitting placeholder bytes. A `noemit` segment
-may not overlap any other segment; to overlay memory intentionally, use a reclaim
-segment (below).
+mapping zero-page variables without emitting placeholder bytes. A plain `noemit`
+segment may not overlap any other segment; the explicit reuse forms below permit
+intentional overlays.
 
 An **end-anchored** segment is placed so its final byte occupies an inclusive fixed
 address. This is useful for a BSS or variable area that should grow downward from the
@@ -1466,6 +1466,25 @@ host automatically: if auto-adjust moves the host, the reclaim segment moves wit
 The host must be a previously defined, emitted segment. Consuming or relocating the
 host before the reclaimed region is used is the programmer's responsibility -- the
 assembler enforces only the address and size relationship, not the runtime ordering.
+
+For independently placed storage, mark emitted segments `reclaimable` and give the
+`noemit` storage segment `overlap_reclaimable`:
+
+```
+.segdef "TITLE", $B800, reclaimable
+.segdef "LOADING_ART", $C200, reclaimable
+.segdef "BSS", end=$CFFF, noemit, overlap_reclaimable
+```
+
+`BSS` retains its own derived address and may overlap any number of emitted
+`reclaimable` segments, including different segments after an auto-adjust layout
+change. It may not overlap ordinary emitted segments or other `noemit` segments.
+Conversely, a plain `noemit` segment may not overlap a `reclaimable` segment. Both
+sides must opt in. Auto-adjust does not move emitted segments merely to avoid an
+`overlap_reclaimable` segment, and emitted segments still may not overlap each other.
+Unlike `reclaim="host"`, this permission neither follows a particular host nor limits
+the storage segment to one host's size. Ensuring all reclaimed contents are consumed
+before the storage is used remains the programmer's responsibility.
 
 Emitted segments are checked for overlap. Normally an overlap fails assembly and
 prints a compacted set of suggested starts. With segment auto-adjust enabled, those

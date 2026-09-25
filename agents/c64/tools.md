@@ -11,9 +11,12 @@
   Opt-in segment auto-adjust retries pass-1 layout up to three times from
   structured overlap suggestions; pass 2 runs only after layout stabilizes.
   Segments tagged `locked` in `.segdef` are anchors auto-adjust never moves. A
-  plain `noemit` segment may not overlap any segment. The sanctioned overlay is
-  `.segdef "n", reclaim="host"`: implicit noemit, inherits the host start, and
-  must not be larger than the host.
+  plain `noemit` segment may not overlap any segment. The bound overlay
+  `.segdef "n", reclaim="host"` is implicit noemit, inherits the host start, and
+  must not be larger than the host. The independent two-sided form marks emitted
+  segments `reclaimable` and a separately placed noemit segment
+  `overlap_reclaimable`; it may overlap any number of such emitted segments without
+  affecting placement, but no ordinary emitted or noemit segment.
 - `src/shell/tools/disasm_6502`: 6502 disassembly and addressing-mode metadata.
   The frontend adds effective-address annotations from copied snapshots.
 - `src/shell/tools/symbols`: symbol-file parsing for debugger and control port.

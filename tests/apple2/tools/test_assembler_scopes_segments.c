@@ -43,6 +43,27 @@ static int assemble_file(const char *path, test_memory *mem, ERRORLOG *log)
     return result;
 }
 
+static int assemble_file_auto_adjust(const char *path, test_memory *mem, ERRORLOG *log)
+{
+    CB_ASM_CTX cb;
+    ASSEMBLER as;
+    int result;
+
+    memset(&cb, 0, sizeof(cb));
+    cb.user = mem;
+    cb.output_byte = output_byte;
+
+    if (assembler_init(&as, log, &cb) != ASM_OK) {
+        fprintf(stderr, "assembler_init failed\n");
+        return ASM_ERR;
+    }
+
+    assembler_set_auto_adjust_segments(&as, 1);
+    result = assembler_assemble(&as, path, 0x0801);
+    assembler_shutdown(&as);
+    return result;
+}
+
 static int test_scopes_and_procs(void)
 {
     char path[128];
@@ -588,6 +609,55 @@ static int test_segment_reclaim_follows_host(void)
     return failures;
 }
 
+/* An independently placed noemit segment may overlap any number of emitted
+   reclaimable segments when both sides opt in. Its placement is not inherited
+   from either emitted segment. */
+static int test_segment_overlap_reclaimable(void)
+{
+    char path[128];
+    test_memory mem;
+    ERRORLOG log;
+    int failures = 0;
+    const char *source =
+        ".segdef \"TITLE_A\", $bff0, reclaimable\n"
+        ".segdef \"TITLE_B\", $c020, reclaimable\n"
+        ".segdef \"BSS\", end=$c02f, noemit, overlap_reclaimable\n"
+        ".segdef \"CHECK\", $d000, locked\n"
+        ".segment \"TITLE_A\"\n"
+        "    .res $20, $a1\n"
+        ".segment \"TITLE_B\"\n"
+        "    .res $10, $b1\n"
+        ".segment \"BSS\"\n"
+        "bss_start:\n"
+        "    .res $30\n"
+        ".segment \"CHECK\"\n"
+        "    .word bss_start\n";
+
+    memset(&mem, 0, sizeof(mem));
+    if (write_source(path, sizeof(path), source) != 0) {
+        return 1;
+    }
+
+    errlog_init(&log);
+    if (assemble_file_auto_adjust(path, &mem, &log) != ASM_OK) {
+        fprintf(stderr, "overlap-reclaimable assembly failed with %zu errors\n",
+                log.log_array.items);
+        failures++;
+    }
+    if (mem.memory[0xd000] != 0x00 || mem.memory[0xd001] != 0xc0) {
+        fprintf(stderr, "overlap-reclaimable BSS did not keep its own placement\n");
+        failures++;
+    }
+    if (mem.memory[0xbff0] != 0xa1 || mem.memory[0xc00f] != 0xa1 ||
+        mem.memory[0xc020] != 0xb1 || mem.memory[0xc02f] != 0xb1) {
+        fprintf(stderr, "overlap-reclaimable noemit segment clobbered emitted data\n");
+        failures++;
+    }
+    errlog_shutdown(&log);
+    a2m_test_remove_file(path);
+    return failures;
+}
+
 /* reclaim= must name a defined, emitted host; a plain noemit segment may not
    overlap anything (that is what reclaim is for). */
 static int test_segment_reclaim_and_noemit_errors(void)
@@ -620,6 +690,28 @@ static int test_segment_reclaim_and_noemit_errors(void)
          ".segment \"V2\"\n"
          "    .res 4\n",
          "noemit segment"},
+        {"plain noemit overlaps reclaimable",
+         ".segdef \"CODE\", $1000, reclaimable\n"
+         ".segdef \"VARS\", $1001, noemit\n"
+         ".segment \"CODE\"\n"
+         "    .res 4\n"
+         ".segment \"VARS\"\n"
+         "    .res 2\n",
+         "noemit segment"},
+        {"opted-in noemit overlaps ordinary emit",
+         ".segdef \"CODE\", $1000\n"
+         ".segdef \"VARS\", $1001, noemit, overlap_reclaimable\n"
+         ".segment \"CODE\"\n"
+         "    .res 4\n"
+         ".segment \"VARS\"\n"
+         "    .res 2\n",
+         "noemit segment"},
+        {"reclaimable noemit",
+         ".segdef \"BAD\", $1000, noemit, reclaimable\n",
+         "requires an emitted segment"},
+        {"overlap-reclaimable emit",
+         ".segdef \"BAD\", $1000, overlap_reclaimable\n",
+         "requires a noemit segment"},
     };
     int failures = 0;
 
@@ -842,6 +934,7 @@ int main(void)
     failures += test_segment_reclaim();
     failures += test_segment_reclaim_overflow();
     failures += test_segment_reclaim_follows_host();
+    failures += test_segment_overlap_reclaimable();
     failures += test_segment_reclaim_and_noemit_errors();
     failures += test_segment_end_at_64k_boundary();
     failures += test_end_anchored_segments();
