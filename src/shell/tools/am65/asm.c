@@ -6,7 +6,7 @@
 
 #define OVERLAP_MAX_SEGS 64
 #define AUTO_ADJUST_MAX_RETRIES 3
-#define END_ANCHOR_MAX_RETRIES 16
+#define DERIVED_SEGMENT_MAX_RETRIES 16
 
 typedef struct {
     size_t target_index;
@@ -161,9 +161,9 @@ uint16_t assembler_end_segment_start(
     }
     size_t target_index = active_target_index(as);
     if(target_index != (size_t)-1) {
-        for(size_t i = 0; i < as->end_anchor_adjustments.items; i++) {
+        for(size_t i = 0; i < as->derived_segment_adjustments.items; i++) {
             SEGMENT_ADJUSTMENT *adjustment =
-                AM65_ARRAY_GET(&as->end_anchor_adjustments, SEGMENT_ADJUSTMENT, i);
+                AM65_ARRAY_GET(&as->derived_segment_adjustments, SEGMENT_ADJUSTMENT, i);
             if(adjustment->target_index == target_index &&
                adjustment->segment_name_length == segment_name_length &&
                0 == asm_strnicmp(
@@ -179,6 +179,32 @@ uint16_t assembler_end_segment_start(
        the segment there. $FFFF starts at zero so a full-64K segment can be
        measured without overflowing the provisional placement. */
     return end_address < 0x100u || end_address == 0xFFFFu ? 0 : 0x100u;
+}
+
+uint16_t assembler_after_segment_start(
+    ASSEMBLER *as,
+    const char *segment_name,
+    uint32_t segment_name_length,
+    uint16_t provisional_address) {
+    if(!as) {
+        return provisional_address;
+    }
+    size_t target_index = active_target_index(as);
+    if(target_index != (size_t)-1) {
+        for(size_t i = 0; i < as->derived_segment_adjustments.items; i++) {
+            SEGMENT_ADJUSTMENT *adjustment =
+                AM65_ARRAY_GET(&as->derived_segment_adjustments, SEGMENT_ADJUSTMENT, i);
+            if(adjustment->target_index == target_index &&
+               adjustment->segment_name_length == segment_name_length &&
+               0 == asm_strnicmp(
+                   adjustment->segment_name,
+                   segment_name,
+                   segment_name_length)) {
+                return adjustment->address;
+            }
+        }
+    }
+    return provisional_address;
 }
 
 static void reset_targets_for_pass(ASSEMBLER *as) {
@@ -323,7 +349,18 @@ static SEGMENT_CHECK_RESULT check_segment_overlaps(
 
         for(size_t si = 0; si < target->segments.items && count < OVERLAP_MAX_SEGS; si++) {
             SEGMENT *s = *AM65_ARRAY_GET(&target->segments, SEGMENT*, si);
-            if(s->do_not_emit) {
+            int has_after_child = 0;
+            for(size_t ci = 0; ci < target->segments.items; ci++) {
+                SEGMENT *child = *AM65_ARRAY_GET(&target->segments, SEGMENT*, ci);
+                if(child->is_after &&
+                   child->after_host_name_length == s->segment_name_length &&
+                   0 == asm_strnicmp(child->after_host_name, s->segment_name,
+                                     s->segment_name_length)) {
+                    has_after_child = 1;
+                    break;
+                }
+            }
+            if(s->do_not_emit && !s->is_after && !has_after_child) {
                 continue;
             }
             if(s->segment_output_address == s->segment_start_address) {
@@ -379,6 +416,12 @@ static SEGMENT_CHECK_RESULT check_segment_overlaps(
                     continue;
                 }
                 if(segs[j]->segment_start_address < segs[i]->segment_output_address) {
+                    SEGMENT *noemit = segs[i]->do_not_emit ? segs[i] : segs[j];
+                    SEGMENT *emitted = segs[i]->do_not_emit ? segs[j] : segs[i];
+                    if(!emitted->do_not_emit &&
+                       noemit->overlaps_reclaimable && emitted->is_reclaimable) {
+                        continue;
+                    }
                     if(log_issues) {
                         const char *na = segs[i]->segment_name ?
                             segs[i]->segment_name : "<default>";
@@ -466,7 +509,7 @@ static SEGMENT_CHECK_RESULT check_segment_overlaps(
                     next_addr = segs[i]->segment_start_address + size;
                     continue;
                 }
-                if(log_issues) {
+                if(log_issues && !segs[i]->is_after) {
                     asm_log_direct(
                         as,
                         "  Suggest \"%.*s\" at $%04X",
@@ -486,7 +529,7 @@ static SEGMENT_CHECK_RESULT check_segment_overlaps(
                     }
                     continue;
                 }
-                if(suggestions &&
+                if(!segs[i]->is_after && suggestions &&
                    ASM_OK != segment_adjustment_add(
                        suggestions,
                        ti,
@@ -591,7 +634,7 @@ static int check_noemit_reclaim(ASSEMBLER *as) {
     return issues;
 }
 
-static int resolve_end_anchors(
+static int resolve_derived_segments(
     ASSEMBLER *as,
     int *changed,
     SEGMENT **changed_segment) {
@@ -607,12 +650,60 @@ static int resolve_end_anchors(
         }
         for(size_t si = 0; si < target->segments.items; si++) {
             SEGMENT *segment = *AM65_ARRAY_GET(&target->segments, SEGMENT*, si);
-            if(!segment->is_end_anchored) {
+            if(!segment->is_end_anchored && !segment->is_after) {
                 continue;
             }
 
             uint32_t size = segment->segment_output_address -
                             segment->segment_start_address;
+            if(segment->is_after) {
+                SEGMENT key;
+                memset(&key, 0, sizeof(key));
+                key.segment_name = segment->after_host_name;
+                key.segment_name_length = segment->after_host_name_length;
+                SEGMENT *host = segment_find(&target->segments, &key);
+                uint32_t host_size = host &&
+                    host->segment_output_address >= host->segment_start_address ?
+                    host->segment_output_address - host->segment_start_address : 0;
+                if(!host || host_size == 0) {
+                    asm_log_direct(as,
+                            "After host segment \"%.*s\" for \"%.*s\" is empty",
+                            (int)segment->after_host_name_length,
+                            segment->after_host_name,
+                            (int)segment->segment_name_length,
+                            segment->segment_name);
+                    segment_adjustments_clear(&placements);
+                    return ASM_ERR;
+                }
+                uint32_t start = host->segment_output_address;
+                if(start > 0xFFFFu) {
+                    asm_log_direct(as,
+                            "Segment \"%.*s\" cannot follow \"%.*s\" past $FFFF",
+                            (int)segment->segment_name_length,
+                            segment->segment_name,
+                            (int)segment->after_host_name_length,
+                            segment->after_host_name);
+                    segment_adjustments_clear(&placements);
+                    return ASM_ERR;
+                }
+                if(ASM_OK != segment_adjustment_add(
+                        &placements, ti,
+                        segment->segment_name,
+                        segment->segment_name_length,
+                        (uint16_t)start)) {
+                    segment_adjustments_clear(&placements);
+                    asm_err(as, ASM_ERR_FATAL,
+                            "Out of memory tracking after= segment placement");
+                    return ASM_ERR;
+                }
+                if(segment->segment_start_address != start) {
+                    *changed = 1;
+                    if(!*changed_segment) {
+                        *changed_segment = segment;
+                    }
+                }
+                continue;
+            }
             uint32_t available = (uint32_t)segment->end_address + 1u;
             if(size == 0) {
                 asm_log_direct(as,
@@ -655,12 +746,12 @@ static int resolve_end_anchors(
         }
     }
 
-    segment_adjustments_clear(&as->end_anchor_adjustments);
-    as->end_anchor_adjustments = placements;
+    segment_adjustments_clear(&as->derived_segment_adjustments);
+    as->derived_segment_adjustments = placements;
     return ASM_OK;
 }
 
-static void validate_end_anchors_after_pass2(ASSEMBLER *as) {
+static void validate_derived_segments_after_pass2(ASSEMBLER *as) {
     for(size_t ti = 0; ti < as->targets.items; ti++) {
         TARGET *target = *AM65_ARRAY_GET(&as->targets, TARGET*, ti);
         if(!target) {
@@ -668,17 +759,29 @@ static void validate_end_anchors_after_pass2(ASSEMBLER *as) {
         }
         for(size_t si = 0; si < target->segments.items; si++) {
             SEGMENT *segment = *AM65_ARRAY_GET(&target->segments, SEGMENT*, si);
-            if(!segment->is_end_anchored) {
-                continue;
-            }
-            uint32_t expected_output = (uint32_t)segment->end_address + 1u;
-            if(segment->segment_output_address != expected_output) {
+            if(segment->is_end_anchored) {
+                uint32_t expected_output = (uint32_t)segment->end_address + 1u;
+                if(segment->segment_output_address == expected_output) {
+                    continue;
+                }
                 asm_err(as, ASM_ERR_RESOLVE,
                         "End-anchored segment \"%.*s\" changed size between layout and pass 2 (ended at $%04X instead of $%04X)",
                         (int)segment->segment_name_length,
                         segment->segment_name,
                         segment->segment_output_address,
                         expected_output);
+            } else if(segment->is_after) {
+                SEGMENT key;
+                memset(&key, 0, sizeof(key));
+                key.segment_name = segment->after_host_name;
+                key.segment_name_length = segment->after_host_name_length;
+                SEGMENT *host = segment_find(&target->segments, &key);
+                if(!host || segment->segment_start_address != host->segment_output_address) {
+                    asm_err(as, ASM_ERR_RESOLVE,
+                            "After segment \"%.*s\" changed placement between layout and pass 2",
+                            (int)segment->segment_name_length,
+                            segment->segment_name);
+                }
             }
         }
     }
@@ -762,7 +865,7 @@ int assembler_init(ASSEMBLER *as, ERRORLOG *errorlog, CB_ASM_CTX *cb) {
     AM65_ARRAY_INIT(&as->predefines, DEFINE);
     AM65_ARRAY_INIT(&as->seed_search_dirs, char *);
     AM65_ARRAY_INIT(&as->segment_adjustments, SEGMENT_ADJUSTMENT);
-    AM65_ARRAY_INIT(&as->end_anchor_adjustments, SEGMENT_ADJUSTMENT);
+    AM65_ARRAY_INIT(&as->derived_segment_adjustments, SEGMENT_ADJUSTMENT);
     if(ASM_OK != assembler_program_state_init(as)) {
         assembler_shutdown(as);
         return ASM_ERR;
@@ -912,12 +1015,12 @@ int assembler_assemble(ASSEMBLER *as, const char *input_file, uint16_t address) 
 
     size_t initial_errors = as->errorlog ? as->errorlog->log_array.items : 0;
     int adjustment_retries = 0;
-    int end_anchor_retries = 0;
+    int derived_segment_retries = 0;
 
     reset_source_for_assemble(as);
     as->anon_symbols.items = 0;
     segment_adjustments_clear(&as->segment_adjustments);
-    segment_adjustments_clear(&as->end_anchor_adjustments);
+    segment_adjustments_clear(&as->derived_segment_adjustments);
 
     for(;;) {
         AM65_DYNARRAY suggestions;
@@ -935,25 +1038,25 @@ int assembler_assemble(ASSEMBLER *as, const char *input_file, uint16_t address) 
         }
 
         if(!as->errorlog || as->errorlog->log_array.items == initial_errors) {
-            int anchors_changed = 0;
-            SEGMENT *changed_anchor = NULL;
-            if(ASM_OK != resolve_end_anchors(
-                    as, &anchors_changed, &changed_anchor)) {
+            int derived_changed = 0;
+            SEGMENT *changed_segment = NULL;
+            if(ASM_OK != resolve_derived_segments(
+                    as, &derived_changed, &changed_segment)) {
                 return ASM_ERR;
             }
-            if(anchors_changed) {
-                if(end_anchor_retries >= END_ANCHOR_MAX_RETRIES) {
+            if(derived_changed) {
+                if(derived_segment_retries >= DERIVED_SEGMENT_MAX_RETRIES) {
                     asm_log_direct(as,
-                            "End-anchored segment \"%.*s\" did not converge after %d layout passes; check .align constraints",
-                            changed_anchor ? (int)changed_anchor->segment_name_length : 0,
-                            changed_anchor ? changed_anchor->segment_name : "",
-                            END_ANCHOR_MAX_RETRIES + 1);
+                            "Derived segment \"%.*s\" did not converge after %d layout passes; check after=/end= and .align constraints",
+                            changed_segment ? (int)changed_segment->segment_name_length : 0,
+                            changed_segment ? changed_segment->segment_name : "",
+                            DERIVED_SEGMENT_MAX_RETRIES + 1);
                     return ASM_ERR;
                 }
-                end_anchor_retries++;
+                derived_segment_retries++;
                 if(ASM_OK != assembler_restart_program_state(as)) {
                     asm_err(as, ASM_ERR_FATAL,
-                            "Out of memory restarting end-anchored segment layout");
+                            "Out of memory restarting derived segment layout");
                     return ASM_ERR;
                 }
                 continue;
@@ -1006,7 +1109,7 @@ int assembler_assemble(ASSEMBLER *as, const char *input_file, uint16_t address) 
     if(ASM_OK != assembler_run_pass(as, input_file)) {
         return ASM_ERR;
     }
-    validate_end_anchors_after_pass2(as);
+    validate_derived_segments_after_pass2(as);
 
     if(!as->errorlog || as->errorlog->log_array.items == initial_errors) {
         SEGMENT_CHECK_RESULT final_layout =
@@ -1118,5 +1221,5 @@ void assembler_shutdown(ASSEMBLER *as) {
     file_seed_search_dirs_clear(as);
     am65_array_free(&as->seed_search_dirs);
     segment_adjustments_clear(&as->segment_adjustments);
-    segment_adjustments_clear(&as->end_anchor_adjustments);
+    segment_adjustments_clear(&as->derived_segment_adjustments);
 }

@@ -133,7 +133,7 @@ struct ASSEMBLER {
 
     int auto_adjust_segments;
     AM65_DYNARRAY segment_adjustments;
-    AM65_DYNARRAY end_anchor_adjustments;
+    AM65_DYNARRAY derived_segment_adjustments;
 };
 
 static inline uint32_t current_output_address(ASSEMBLER *as) {
@@ -182,3 +182,10 @@ uint16_t assembler_end_segment_start(
     const char *segment_name,
     uint32_t segment_name_length,
     uint16_t end_address);
+
+// Parser-internal hook: return the current trial start for an after= segment.
+uint16_t assembler_after_segment_start(
+    ASSEMBLER *as,
+    const char *segment_name,
+    uint32_t segment_name_length,
+    uint16_t provisional_address);

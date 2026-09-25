@@ -658,6 +658,140 @@ static int test_segment_overlap_reclaimable(void)
     return failures;
 }
 
+static int test_segment_after_chain(void)
+{
+    char path[128];
+    test_memory mem;
+    ERRORLOG log;
+    int failures = 0;
+    const char *source =
+        ".segdef \"A\", $1000\n"
+        ".segdef \"B\", after=\"A\", noemit\n"
+        ".segdef \"C\", after=\"B\"\n"
+        ".segdef \"TOP\", end=$10ff\n"
+        ".segdef \"D\", after=\"TOP\"\n"
+        ".segdef \"CHECK\", $d000, locked\n"
+        ".segment \"A\"\n"
+        "    .res $10, $a1\n"
+        ".segment \"B\"\n"
+        "b_start: .res $10\n"
+        ".segment \"C\"\n"
+        "c_start: .byte $c1\n"
+        ".segment \"TOP\"\n"
+        "    .res $10, $d1\n"
+        ".segment \"D\"\n"
+        "d_start: .byte $d2\n"
+        ".segment \"CHECK\"\n"
+        "    .word b_start, c_start, d_start\n";
+
+    memset(&mem, 0, sizeof(mem));
+    if (write_source(path, sizeof(path), source) != 0) {
+        return 1;
+    }
+    errlog_init(&log);
+    if (assemble_file(path, &mem, &log) != ASM_OK) {
+        fprintf(stderr, "after-chain assembly failed with %zu errors\n",
+                log.log_array.items);
+        failures++;
+    }
+    if (mem.memory[0xd000] != 0x10 || mem.memory[0xd001] != 0x10 ||
+        mem.memory[0xd002] != 0x20 || mem.memory[0xd003] != 0x10 ||
+        mem.memory[0xd004] != 0x00 || mem.memory[0xd005] != 0x11) {
+        fprintf(stderr, "after-chain derived addresses are wrong\n");
+        failures++;
+    }
+    if (mem.memory[0x1000] != 0xa1 || mem.memory[0x1020] != 0xc1 ||
+        mem.memory[0x10f0] != 0xd1 || mem.memory[0x1100] != 0xd2) {
+        fprintf(stderr, "after-chain output landed at wrong addresses\n");
+        failures++;
+    }
+    errlog_shutdown(&log);
+    c64m_test_remove_file(path);
+    return failures;
+}
+
+static int test_segment_after_chain_auto_adjust(void)
+{
+    char path[128];
+    test_memory mem;
+    ERRORLOG log;
+    int failures = 0;
+    const char *source =
+        ".segdef \"LOW\", $1000\n"
+        ".segdef \"A\", $1040\n"
+        ".segdef \"B\", after=\"A\", noemit\n"
+        ".segdef \"C\", after=\"B\"\n"
+        ".segdef \"CHECK\", $d000, locked\n"
+        ".segment \"LOW\"\n"
+        "    .res $80, $11\n"
+        ".segment \"A\"\n"
+        "a_start: .res $10, $a1\n"
+        ".segment \"B\"\n"
+        "b_start: .res $10\n"
+        ".segment \"C\"\n"
+        "c_start: .byte $c1\n"
+        ".segment \"CHECK\"\n"
+        "    .word a_start, b_start, c_start\n";
+
+    memset(&mem, 0, sizeof(mem));
+    if (write_source(path, sizeof(path), source) != 0) {
+        return 1;
+    }
+    errlog_init(&log);
+    if (assemble_file_auto_adjust(path, &mem, &log) != ASM_OK) {
+        fprintf(stderr, "auto-adjust after-chain assembly failed with %zu errors\n",
+                log.log_array.items);
+        failures++;
+    }
+    if (mem.memory[0xd000] != 0x80 || mem.memory[0xd001] != 0x10 ||
+        mem.memory[0xd002] != 0x90 || mem.memory[0xd003] != 0x10 ||
+        mem.memory[0xd004] != 0xa0 || mem.memory[0xd005] != 0x10) {
+        fprintf(stderr, "auto-adjust did not move the after-chain as one unit\n");
+        failures++;
+    }
+    if (mem.memory[0x1080] != 0xa1 || mem.memory[0x10a0] != 0xc1) {
+        fprintf(stderr, "auto-adjust after-chain output landed incorrectly\n");
+        failures++;
+    }
+    errlog_shutdown(&log);
+    c64m_test_remove_file(path);
+    return failures;
+}
+
+static int test_segment_after_locked_chain(void)
+{
+    char path[128];
+    test_memory mem;
+    ERRORLOG log;
+    int failures = 0;
+    const char *source =
+        ".segdef \"LOW\", $1000\n"
+        ".segdef \"A\", $1040\n"
+        ".segdef \"B\", after=\"A\", locked\n"
+        ".segment \"LOW\"\n"
+        "    .res $80\n"
+        ".segment \"A\"\n"
+        "    .res $10\n"
+        ".segment \"B\"\n"
+        "    .byte 1\n";
+
+    memset(&mem, 0, sizeof(mem));
+    if (write_source(path, sizeof(path), source) != 0) {
+        return 1;
+    }
+    errlog_init(&log);
+    if (assemble_file_auto_adjust(path, &mem, &log) != ASM_ERR) {
+        fprintf(stderr, "locked after-chain was not rejected\n");
+        failures++;
+    } else if (!errorlog_contains(&log, "Locked segment")) {
+        fprintf(stderr, "locked after-chain did not report its anchor conflict\n");
+        failures++;
+    }
+    errlog_shutdown(&log);
+    c64m_test_remove_file(path);
+    return failures;
+}
+
 /* reclaim= must name a defined, emitted host; a plain noemit segment may not
    overlap anything (that is what reclaim is for). */
 static int test_segment_reclaim_and_noemit_errors(void)
@@ -712,6 +846,35 @@ static int test_segment_reclaim_and_noemit_errors(void)
         {"overlap-reclaimable emit",
          ".segdef \"BAD\", $1000, overlap_reclaimable\n",
          "requires a noemit segment"},
+        {"after undefined host",
+         ".segdef \"B\", after=\"NOPE\"\n",
+         "is not defined"},
+        {"after host has two children",
+         ".segdef \"A\", $1000\n"
+         ".segdef \"B\", after=\"A\"\n"
+         ".segment \"A\"\n"
+         "    .byte 1\n"
+         ".segdef \"C\", after=\"A\"\n",
+         "must form a chain"},
+        {"after empty host",
+         ".segdef \"A\", $1000\n"
+         ".segdef \"B\", after=\"A\"\n"
+         ".segment \"B\"\n"
+         "    .byte 1\n",
+         "is empty"},
+        {"after host ends at 64K",
+         ".segdef \"A\", $ffff\n"
+         ".segdef \"B\", after=\"A\"\n"
+         ".segment \"A\"\n"
+         "    .byte 1\n"
+         ".segment \"B\"\n"
+         "    .byte 2\n",
+         "past $FFFF"},
+        {"after reclaim overlay",
+         ".segdef \"A\", $1000\n"
+         ".segdef \"R\", reclaim=\"A\"\n"
+         ".segdef \"B\", after=\"R\"\n",
+         "may not be a reclaim= overlay"},
     };
     int failures = 0;
 
@@ -935,6 +1098,9 @@ int main(void)
     failures += test_segment_reclaim_overflow();
     failures += test_segment_reclaim_follows_host();
     failures += test_segment_overlap_reclaimable();
+    failures += test_segment_after_chain();
+    failures += test_segment_after_chain_auto_adjust();
+    failures += test_segment_after_locked_chain();
     failures += test_segment_reclaim_and_noemit_errors();
     failures += test_segment_end_at_64k_boundary();
     failures += test_end_anchored_segments();

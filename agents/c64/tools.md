@@ -16,7 +16,11 @@
   must not be larger than the host. The independent two-sided form marks emitted
   segments `reclaimable` and a separately placed noemit segment
   `overlap_reclaimable`; it may overlap any number of such emitted segments without
-  affecting placement, but no ordinary emitted or noemit segment.
+  affecting placement, but no ordinary emitted or noemit segment. The derived form
+  `.segdef "n", after="host"[,flags]` starts at a previously defined non-empty
+  host's exclusive end without requiring auto-adjust. Linear `after=` chains may mix
+  emitted and noemit members; auto-adjust moves the root and recomputes the chain as
+  one unit, while any locked or end-anchored member anchors the entire chain.
 - `src/shell/tools/disasm_6502`: 6502 disassembly and addressing-mode metadata.
   The frontend adds effective-address annotations from copied snapshots.
 - `src/shell/tools/symbols`: symbol-file parsing for debugger and control port.

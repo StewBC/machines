@@ -104,6 +104,24 @@ but reports non-convergence when no stable placement exists. Absolute `.org` and
 `* =` are rejected inside the segment; relative `* +=` remains valid. An inclusive
 end of `$FFFF` is represented internally by the exclusive location `$10000`.
 
+## After-linked segment chains
+
+Use `after="host"` when a segment must start at the exclusive end of a previously
+defined, non-empty segment:
+
+```asm
+.segdef "TITLE", $B800
+.segdef "LOADING_ART", after="TITLE", reclaimable
+.segdef "TABLES", after="LOADING_ART"
+```
+
+The derived placement converges through pass-1 restarts even when auto-adjust is
+disabled. A host may have one direct follower, allowing linear chains containing
+both emitted and `noemit` members. Auto-adjust treats the chain as one unit: it moves
+the root and recomputes all followers. Any `locked` or end-anchored member anchors
+the entire chain. The host must precede its follower, may not be empty or a
+`reclaim=` overlay, and the chain may not extend beyond `$FFFF`.
+
 ## Reclaimable segment overlaps
 
 Named `reclaim="host"` segments are implicitly `noemit`, inherit and follow the

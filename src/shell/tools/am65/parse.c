@@ -1286,7 +1286,7 @@ static void dot_segdef(ASSEMBLER *as) {
 
     next_token(as);
     if(as->token.op != ',') {
-        asm_err(as, ASM_ERR_RESOLVE, ".segdef expects a comma then a start address, end= address, or reclaim= host after the name");
+        asm_err(as, ASM_ERR_RESOLVE, ".segdef expects a comma then a start address, end= address, after= host, or reclaim= host after the name");
         return;
     }
 
@@ -1297,6 +1297,7 @@ static void dot_segdef(ASSEMBLER *as) {
     int overlaps_reclaimable = 0;
     int is_reclaim = 0;
     int is_end_anchored = 0;
+    int is_after = 0;
     uint16_t end_address = 0;
     const char *host_name = NULL;
     int host_name_len = 0;
@@ -1369,6 +1370,58 @@ static void dot_segdef(ASSEMBLER *as) {
                 segment.segment_name,
                 segment.segment_name_length,
                 end_address);
+        } else if(as->token.type == TOKEN_VAR &&
+                  as->token.name_length == 5 &&
+                  0 == asm_strnicmp(as->token.name, "after", 5)) {
+            is_after = 1;
+            next_token(as);
+            expect_op(as, '=');
+            if(as->token.type != TOKEN_STR) {
+                asm_err(as, ASM_ERR_RESOLVE,
+                        ".segdef after= must be followed by a segment name in quotes");
+                return;
+            }
+            host_name = as->token.name;
+            host_name_len = (int)as->token.name_length;
+            SEGMENT host_key;
+            memset(&host_key, 0, sizeof(host_key));
+            host_key.segment_name = host_name;
+            host_key.segment_name_length = (uint32_t)host_name_len;
+            SEGMENT *host = segment_find(&as->active_target->segments, &host_key);
+            if(!host || host_name_len == 0) {
+                asm_err(as, ASM_ERR_RESOLVE,
+                        "after host segment \"%.*s\" is not defined -- define it before the segment that follows it",
+                        host_name_len, host_name);
+                return;
+            }
+            if(host->is_reclaim) {
+                asm_err(as, ASM_ERR_RESOLVE,
+                        "after host segment \"%.*s\" may not be a reclaim= overlay",
+                        host_name_len, host_name);
+                return;
+            }
+            for(size_t si = 0; si < as->active_target->segments.items; si++) {
+                SEGMENT *candidate = *AM65_ARRAY_GET(
+                    &as->active_target->segments, SEGMENT*, si);
+                if(candidate->is_after &&
+                   !(candidate->segment_name_length == segment.segment_name_length &&
+                     0 == asm_strnicmp(candidate->segment_name, segment.segment_name,
+                                       segment.segment_name_length)) &&
+                   candidate->after_host_name_length == (uint32_t)host_name_len &&
+                   0 == asm_strnicmp(candidate->after_host_name, host_name,
+                                     (uint32_t)host_name_len)) {
+                    asm_err(as, ASM_ERR_RESOLVE,
+                            "after host segment \"%.*s\" already has a following segment -- after= relationships must form a chain",
+                            host_name_len, host_name);
+                    return;
+                }
+            }
+            start = assembler_after_segment_start(
+                as,
+                segment.segment_name,
+                segment.segment_name_length,
+                (uint16_t)host->segment_output_address);
+            next_token(as);
         } else {
             start = (uint16_t)expr_evaluate(as);
             start = assembler_adjust_segment_start(
@@ -1454,6 +1507,7 @@ static void dot_segdef(ASSEMBLER *as) {
     new_segment->overlaps_reclaimable = overlaps_reclaimable;
     new_segment->is_reclaim = is_reclaim;
     new_segment->is_end_anchored = is_end_anchored;
+    new_segment->is_after = is_after;
     new_segment->end_address = end_address;
     if(is_reclaim) {
         if(!set_name((char **)&new_segment->reclaim_host_name, host_name, host_name_len)) {
@@ -1464,9 +1518,20 @@ static void dot_segdef(ASSEMBLER *as) {
         }
         new_segment->reclaim_host_name_length = (uint32_t)host_name_len;
     }
+    if(is_after) {
+        if(!set_name((char **)&new_segment->after_host_name, host_name, host_name_len)) {
+            free((char *)new_segment->segment_name);
+            free((char *)new_segment->reclaim_host_name);
+            free(new_segment);
+            asm_err(as, ASM_ERR_FATAL, "Out of memory storing after host name");
+            return;
+        }
+        new_segment->after_host_name_length = (uint32_t)host_name_len;
+    }
     if(ASM_OK != AM65_ARRAY_ADD(&as->active_target->segments, new_segment)) {
         free((char *)new_segment->segment_name);
         free((char *)new_segment->reclaim_host_name);
+        free((char *)new_segment->after_host_name);
         free(new_segment);
         asm_err(as, ASM_ERR_FATAL, "Out of memory tracking segment");
     }

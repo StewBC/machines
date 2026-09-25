@@ -219,6 +219,10 @@ static void dump_segments(FILE *fp, AM65_DYNARRAY *targets) {
             if(s->is_end_anchored) {
                 fprintf(fp, " (end=$%04X)", s->end_address);
             }
+            if(s->is_after) {
+                fprintf(fp, " (after=%.*s)",
+                        (int)s->after_host_name_length, s->after_host_name);
+            }
             if(s->is_reclaimable) {
                 fprintf(fp, " (reclaimable)");
             }

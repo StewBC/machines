@@ -23,9 +23,12 @@ typedef struct {
     int overlaps_reclaimable;          // noemit segment may overlap any reclaimable emitted segment
     int is_reclaim;                    // piggybacks on reclaim_host; implies do_not_emit
     int is_end_anchored;               // start is derived so the last byte is end_address
+    int is_after;                      // starts at the exclusive end of after_host
     uint16_t end_address;              // inclusive requested end for an end-anchored segment
     const char *reclaim_host_name;     // name of the emitted segment it reclaims
     uint32_t reclaim_host_name_length;
+    const char *after_host_name;       // previously defined segment this one follows
+    uint32_t after_host_name_length;
     int segment_init;
 } SEGMENT;
 

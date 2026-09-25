@@ -66,6 +66,7 @@ void targets_free(ASSEMBLER *as) {
             SEGMENT *s = *AM65_ARRAY_GET(&t->segments, SEGMENT*, j);
             free((char *)s->segment_name);
             free((char *)s->reclaim_host_name);
+            free((char *)s->after_host_name);
             free(s);
         }
         am65_array_free(&t->segments);

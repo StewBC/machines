@@ -1466,6 +1466,7 @@ The ternary form is `condition ? true-expr : false-expr`.
 | `.endproc`              | Close the innermost proc                                     |
 | `.segdef "n",addr[,flags]` | Define a named segment at `addr`. Flags (comma-separated) are `emit`/`noemit` (suppress output), `locked` (pin the address), `reclaimable` (emitted contents may be reused), and `overlap_reclaimable` (a `noemit` segment may overlap reclaimable contents) |
 | `.segdef "n",end=addr[,flags]` | Define a segment whose inclusive last address is `addr`. Its start is derived from its size. Both `emit` and `noemit` are allowed; it is implicitly locked |
+| `.segdef "n",after="host"[,flags]` | Define a segment whose start is the exclusive end of a previously defined non-empty segment. Chains remain contiguous and move as one unit during auto-adjust |
 | `.segdef "n",reclaim="host"` | Define a reclaim segment overlaying an emitted `host`: implicitly `noemit`, inherits the host's start, sized no larger than the host, and moves with it if auto-adjust relocates the host |
 | `.segment "n"`          | Activate the named segment; `.segment ""` returns to native mode |
 | `.6502`                 | Restrict to 6502 opcodes (default)                           |
@@ -1605,6 +1606,28 @@ re-entered with `.segment`, and acts as a locked anchor that auto-adjust never m
 not permit a stable placement at the requested end, assembly fails with a
 non-convergence error. Absolute `.org` and `* =` are rejected inside an end-anchored
 segment because they would break relocation; relative `* +=` remains allowed.
+
+An **after-linked** segment starts at the exclusive end of a previously defined,
+non-empty segment. This expresses contiguous placement without inventing a seed
+address:
+
+```
+.segdef "TITLE", $B800
+.segdef "LOADING_ART", after="TITLE", reclaimable
+.segdef "TABLES", after="LOADING_ART"
+```
+
+`after=` placement is resolved by restarting pass 1 until segment sizes and starts
+stabilize, whether or not auto-adjust is enabled. An after-linked segment may itself
+be named by a later `after=`, forming a chain; a segment may have only one direct
+follower. Emitted and `noemit` members may be mixed in a chain.
+
+For collision handling, the chain behaves as one layout unit. Auto-adjust changes
+only its root address and recomputes every follower. A `locked` or end-anchored member
+anchors the whole chain; auto-adjust reports a conflict rather than separating it.
+Without auto-adjust, the relationship is still honored and any collision is reported
+normally. The named host must appear earlier, must not be empty or a `reclaim=`
+overlay, and a chain may not extend beyond `$FFFF`.
 
 A **reclaim** segment piggybacks on an emitted "host" segment so a region can be
 reused at runtime once the host's contents are consumed. The classic case is a title
