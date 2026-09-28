@@ -51,7 +51,7 @@ turbo_speeds = 1,max
 [disk]
 ; emulate_1541 = true
 ; show_disk_leds = true
-; Device 8 / 9 image queues (comma-separated paths). Writable lists optional.
+; Device 8 / 9 queues (comma-separated paths). A directory defaults writable; an image defaults read-only.
 ; 8 = assets/c64/disks/game.d64
 ; 8_writable = true
 ; 9 = /path/to/second.d64

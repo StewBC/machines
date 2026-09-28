@@ -41,9 +41,11 @@
 
 #if defined(_WIN32)
 #define C64M_STAT_ISREG(mode) (((mode) & _S_IFREG) != 0)
+#define C64M_STAT_ISDIR(mode) (((mode) & _S_IFMT) == _S_IFDIR)
 #define c64m_getcwd _getcwd
 #else
 #define C64M_STAT_ISREG(mode) S_ISREG(mode)
+#define C64M_STAT_ISDIR(mode) S_ISDIR(mode)
 #define c64m_getcwd getcwd
 #endif
 
@@ -1057,6 +1059,13 @@ static void disk_slot_free(app_disk_slot *slot)
     slot->current = 0;
 }
 
+static bool path_is_directory(const char *path)
+{
+    struct stat st;
+
+    return path != NULL && stat(path, &st) == 0 && C64M_STAT_ISDIR(st.st_mode);
+}
+
 static bool disk_slot_append(app_disk_slot *slot, const char *path)
 {
     char **grown;
@@ -1083,7 +1092,8 @@ static bool disk_slot_append(app_disk_slot *slot, const char *path)
 
     grown[slot->count] = copy;
     slot->writable = grown_writable;
-    slot->writable[slot->count] = false;
+    /* HostFS folders mount writable. Disk images stay read-only. */
+    slot->writable[slot->count] = path_is_directory(path);
     slot->count++;
     return true;
 }

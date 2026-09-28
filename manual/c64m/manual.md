@@ -2056,8 +2056,8 @@ Paths may be absolute or relative to the directory containing the INI file.
 |-----|------------------------------------------------------------------|
 | `8` | D64/G64 image or comma-separated list of images for device 8    |
 | `9` | D64/G64 image or comma-separated list of images for device 9    |
-| `8_writable` | Parallel `0`/`1` list for device 8 images; omitted means read-only |
-| `9_writable` | Parallel `0`/`1` list for device 9 images; omitted means read-only |
+| `8_writable` | Parallel `0`/`1` list for device 8. Omitted: a directory is writable, an image is read-only |
+| `9_writable` | Parallel `0`/`1` list for device 9. Omitted: a directory is writable, an image is read-only |
 | `emulate_1541` | `true`/`false`; when true and a 1541 ROM is loaded, use real IEC/1541 DOS + GCR media. Required for 40-track custom loaders |
 | `show_disk_leds` | `true`/`false`; when true (default), show green read / red write activity LEDs in the window corner |
 

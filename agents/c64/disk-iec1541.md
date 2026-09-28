@@ -46,7 +46,8 @@ in `c64.c`, `c1541.c`, `c1541_media.c`, `c64_hostfs.c`, runtime disk code.
   root + cwd + writable (+ nested `.d64` path); load remounts if the host path
   still exists, else powered-empty. Do not embed the host tree.
 - Devices 8 and 9 have independent ordered disk queues. Images are
-  read-only by default. Writable KERNAL SAVE updates the in-memory image;
+  read-only by default. A HostFS directory defaults writable (`8_writable=0`
+  still forces read-only). Writable KERNAL SAVE updates the in-memory image;
   runtime flushes to the host path. Failed flushes leave the image dirty.
 - T64 is host convenience: first loadable entry. No Datasette, no T64
   KERNAL trap.

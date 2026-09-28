@@ -1294,6 +1294,29 @@ static void test_disk_writable_from_ini(void) {
     remove("test_disk_writable.ini");
 }
 
+static void test_disk_directory_defaults_writable(void) {
+    app_options options;
+    char *argv[] = {
+        "test_app_options",
+        "--noini",
+        "--disk",
+        "8=test_hostfs_writable_dir",
+    };
+
+    c64m_mkdir("test_hostfs_writable_dir", 0777);
+
+    if (!app_options_load_startup(&options, 4, argv)) {
+        fprintf(stderr, "app_options_load_startup failed\n");
+        exit(1);
+    }
+
+    expect_int("hostfs disk count", 1, options.disk_slots[8].count);
+    expect_bool("hostfs directory writable", 1, app_disk_slot_current_writable(&options.disk_slots[8]));
+
+    app_options_destroy(&options);
+    c64m_rmdir("test_hostfs_writable_dir");
+}
+
 static void test_disk_relative_path_from_ini(void) {
     app_options options;
     char cwd[1024];
@@ -2306,6 +2329,7 @@ int main(void) {
     test_disk_single_from_ini();
     test_disk_multi_from_ini();
     test_disk_writable_from_ini();
+    test_disk_directory_defaults_writable();
     test_disk_relative_path_from_ini();
     test_disk_saved_relative_to_ini();
     test_disk_slot_set_and_clear();
