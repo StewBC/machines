@@ -1133,6 +1133,49 @@ void frontend_display_rect(
     }
 }
 
+static int frontend_assembler_notice_kind(const char *text)
+{
+    int warnings = 0;
+    int adjustments = 0;
+    const char *p = text != NULL ? text : "";
+
+    if (strstr(p, "Assembly succeeded with adjusted segment addresses") != NULL) {
+        adjustments = 1;
+    }
+    while (*p != '\0') {
+        if (strncmp(p, "File: ", 6) == 0) {
+            warnings = 1;
+            break;
+        }
+        p = strchr(p, '\n');
+        if (p == NULL) {
+            break;
+        }
+        p++;
+    }
+    if (warnings && adjustments) {
+        return 2;
+    }
+    if (warnings) {
+        return 1;
+    }
+    return 0;
+}
+
+static const char *frontend_assembler_dialog_title(const frontend_assembler_state *state)
+{
+    if (state == NULL || !state->error_dialog_is_notice) {
+        return "Assembly Errors";
+    }
+    if (state->error_dialog_notice_kind == 1) {
+        return "Assembly Warnings";
+    }
+    if (state->error_dialog_notice_kind == 2) {
+        return "Assembly Notices";
+    }
+    return "Assembly Adjustments";
+}
+
 static bool frontend_click_in_any_dialog(const frontend *ui, float x, float y)
 {
     struct nk_window *win;
@@ -1164,8 +1207,7 @@ static bool frontend_click_in_any_dialog(const frontend *ui, float x, float y)
     if (ui->assembler.error_dialog_open) {
         win = nk_window_find(
             ui->ctx,
-            ui->assembler.error_dialog_is_notice ?
-                "Assembly Adjustments" : "Assembly Errors");
+            frontend_assembler_dialog_title(&ui->assembler));
         if (win && frontend_point_in_rect(x, y, win->bounds)) {
             return true;
         }
@@ -8374,6 +8416,7 @@ void frontend_show_assembler_errors(frontend *ui, const char *errors)
     ui->assembler.error_scroll_x = 0;
     ui->assembler.error_scroll_y = 0;
     ui->assembler.error_dialog_is_notice = false;
+    ui->assembler.error_dialog_notice_kind = 0;
     ui->assembler.error_dialog_open = true;
     ui->misc.active_tab = FRONTEND_MISC_TAB_ASSEMBLER;
 }
@@ -8389,6 +8432,7 @@ void frontend_show_assembler_notice(frontend *ui, const char *notice)
     ui->assembler.error_scroll_x = 0;
     ui->assembler.error_scroll_y = 0;
     ui->assembler.error_dialog_is_notice = true;
+    ui->assembler.error_dialog_notice_kind = frontend_assembler_notice_kind(notice);
     ui->assembler.error_dialog_open = true;
     ui->misc.active_tab = FRONTEND_MISC_TAB_ASSEMBLER;
 }
@@ -10026,8 +10070,7 @@ static void frontend_draw_assembler_error_dialog(frontend *ui, int width, int he
 
     if (nk_begin(
             ctx,
-            asm_state->error_dialog_is_notice ?
-                "Assembly Adjustments" : "Assembly Errors",
+            frontend_assembler_dialog_title(asm_state),
             bounds,
             NK_WINDOW_BORDER | NK_WINDOW_TITLE | NK_WINDOW_NO_SCROLLBAR)) {
         float content_h = dialog_h - 80.0f;

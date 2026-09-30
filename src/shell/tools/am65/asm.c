@@ -242,6 +242,8 @@ static void seed_predefines(ASSEMBLER *as) {
     }
 }
 
+static void assertions_clear(ASSEMBLER *as);
+
 static void reset_pass_state(ASSEMBLER *as) {
     as->cpu_profile = as->default_cpu_profile;
     reset_targets_for_pass(as);
@@ -261,6 +263,9 @@ static void reset_pass_state(ASSEMBLER *as) {
     as->if_skip_depth = 0;
     as->expression_depth = 0;
     as->expression_unknown = 0;
+    as->in_assert_expr = 0;
+    as->explicit_error = 0;
+    assertions_clear(as);
     as->cur = NULL;
     memset(&as->token, 0, sizeof(as->token));
 }
@@ -787,7 +792,151 @@ static void validate_derived_segments_after_pass2(ASSEMBLER *as) {
     }
 }
 
+static char *asm_dup_text(const char *text, size_t len) {
+    char *out = malloc(len + 1);
+    if(!out) {
+        return NULL;
+    }
+    if(len) {
+        memcpy(out, text, len);
+    }
+    out[len] = '\0';
+    return out;
+}
+
+static void assertions_clear(ASSEMBLER *as) {
+    size_t i;
+    if(!as) {
+        return;
+    }
+    for(i = 0; i < as->assertions.items; i++) {
+        LAYOUT_ASSERTION *assertion = AM65_ARRAY_GET(&as->assertions, LAYOUT_ASSERTION, i);
+        free(assertion->expr);
+        free(assertion->message);
+        free(assertion->file_name);
+    }
+    am65_array_free(&as->assertions);
+    AM65_ARRAY_INIT(&as->assertions, LAYOUT_ASSERTION);
+}
+
+int assembler_capture_assertion(
+    ASSEMBLER *as,
+    const char *expr,
+    size_t expr_len,
+    const char *message) {
+    LAYOUT_ASSERTION assertion;
+    const char *file_name;
+    size_t file_len;
+
+    if(!as || !expr || expr_len == 0 || !as->active_scope) {
+        return ASM_ERR;
+    }
+    memset(&assertion, 0, sizeof(assertion));
+    assertion.expr = asm_dup_text(expr, expr_len);
+    assertion.expr_len = expr_len;
+    if(message) {
+        assertion.message = asm_dup_text(message, strlen(message));
+    }
+    file_name = as->current_file_name ? as->current_file_name : "<unknown>";
+    file_len = strlen(file_name);
+    assertion.file_name = asm_dup_text(file_name, file_len);
+    assertion.line_number = as->current_line;
+    assertion.scope = as->active_scope;
+    assertion.target_index = active_target_index(as);
+    if(!assertion.expr || !assertion.file_name || (message && !assertion.message) ||
+       assertion.target_index == (size_t)-1) {
+        free(assertion.expr);
+        free(assertion.message);
+        free(assertion.file_name);
+        asm_err(as, ASM_ERR_FATAL, "Out of memory recording .assert");
+        return ASM_ERR;
+    }
+    if(ASM_OK != AM65_ARRAY_ADD(&as->assertions, assertion)) {
+        free(assertion.expr);
+        free(assertion.message);
+        free(assertion.file_name);
+        asm_err(as, ASM_ERR_FATAL, "Out of memory recording .assert");
+        return ASM_ERR;
+    }
+    return ASM_OK;
+}
+
+/* Re-parse captured expressions against the pass-1 extents. Pass 2's
+   reset_targets_for_pass collapses every segment back to size 0, so this
+   has to happen first. `as->pass` must already be 2: ASM_ERR_RESOLVE is
+   discarded while pass is 1. */
+static int evaluate_assertions(ASSEMBLER *as) {
+    size_t i;
+    int ok = 1;
+
+    for(i = 0; i < as->assertions.items; i++) {
+        LAYOUT_ASSERTION *assertion = AM65_ARRAY_GET(&as->assertions, LAYOUT_ASSERTION, i);
+        TARGET *target;
+        size_t errors_before;
+        int64_t value;
+
+        if(assertion->target_index >= as->targets.items || !assertion->scope) {
+            asm_err(as, ASM_ERR_RESOLVE, "assertion failed");
+            ok = 0;
+            continue;
+        }
+        target = *AM65_ARRAY_GET(&as->targets, TARGET*, assertion->target_index);
+        if(!target) {
+            asm_err(as, ASM_ERR_RESOLVE, "assertion failed");
+            ok = 0;
+            continue;
+        }
+
+        if(assertion->expr_len >= ASM_MAX_LINE) {
+            as->current_file_name = assertion->file_name;
+            as->current_line = assertion->line_number;
+            asm_err(as, ASM_ERR_RESOLVE, ".assert expression is too long");
+            ok = 0;
+            continue;
+        }
+        memcpy(as->line, assertion->expr, assertion->expr_len);
+        as->line[assertion->expr_len] = '\0';
+        as->line_len = (int)assertion->expr_len;
+        as->cur = as->line;
+        memset(&as->token, 0, sizeof(as->token));
+        as->active_target = target;
+        as->active_scope = assertion->scope;
+        as->symbol_table = assertion->scope->symbol_table;
+        as->current_file_name = assertion->file_name;
+        as->current_line = assertion->line_number;
+        as->expression_unknown = 0;
+        as->in_assert_expr = 1;
+        errors_before = errlog_error_count(as->errorlog);
+        value = expr_full_evaluate(as);
+        as->in_assert_expr = 0;
+        if(errlog_error_count(as->errorlog) > errors_before) {
+            ok = 0;
+            continue;
+        }
+        if(as->expression_unknown) {
+            as->current_file_name = assertion->file_name;
+            as->current_line = assertion->line_number;
+            asm_err(as, ASM_ERR_RESOLVE, "assertion expression did not resolve");
+            ok = 0;
+            continue;
+        }
+        if(value == 0) {
+            as->current_file_name = assertion->file_name;
+            as->current_line = assertion->line_number;
+            as->cur = as->line;
+            if(assertion->message) {
+                asm_err(as, ASM_ERR_RESOLVE, "assertion failed: %s", assertion->message);
+            } else {
+                asm_err(as, ASM_ERR_RESOLVE, "assertion failed");
+            }
+            ok = 0;
+        }
+    }
+    return ok;
+}
+
 static void assembler_program_state_destroy(ASSEMBLER *as) {
+    assertions_clear(as);
     free(as->root_dir);
     as->root_dir = NULL;
     defines_free(as);
@@ -866,6 +1015,7 @@ int assembler_init(ASSEMBLER *as, ERRORLOG *errorlog, CB_ASM_CTX *cb) {
     AM65_ARRAY_INIT(&as->seed_search_dirs, char *);
     AM65_ARRAY_INIT(&as->segment_adjustments, SEGMENT_ADJUSTMENT);
     AM65_ARRAY_INIT(&as->derived_segment_adjustments, SEGMENT_ADJUSTMENT);
+    AM65_ARRAY_INIT(&as->assertions, LAYOUT_ASSERTION);
     if(ASM_OK != assembler_program_state_init(as)) {
         assembler_shutdown(as);
         return ASM_ERR;
@@ -1013,7 +1163,8 @@ int assembler_assemble(ASSEMBLER *as, const char *input_file, uint16_t address) 
         return ASM_ERR;
     }
 
-    size_t initial_errors = as->errorlog ? as->errorlog->log_array.items : 0;
+    /* Warnings share the log but must not fail layout, assertions, or the build. */
+    size_t initial_errors = errlog_error_count(as->errorlog);
     int adjustment_retries = 0;
     int derived_segment_retries = 0;
 
@@ -1037,7 +1188,7 @@ int assembler_assemble(ASSEMBLER *as, const char *input_file, uint16_t address) 
             return ASM_ERR;
         }
 
-        if(!as->errorlog || as->errorlog->log_array.items == initial_errors) {
+        if(errlog_error_count(as->errorlog) == initial_errors) {
             int derived_changed = 0;
             SEGMENT *changed_segment = NULL;
             if(ASM_OK != resolve_derived_segments(
@@ -1064,7 +1215,7 @@ int assembler_assemble(ASSEMBLER *as, const char *input_file, uint16_t address) 
         }
 
         if(!as->auto_adjust_segments ||
-           (as->errorlog && as->errorlog->log_array.items > initial_errors)) {
+           errlog_error_count(as->errorlog) > initial_errors) {
             break;
         }
 
@@ -1105,13 +1256,26 @@ int assembler_assemble(ASSEMBLER *as, const char *input_file, uint16_t address) 
         }
     }
 
+    /* Layout queries read segment_output_address. Pass 2 resets those to the
+       segment start before it emits, so a failed .assert returns first.
+       A .error line is reported on pass 1 and also returns first. */
+    if(errlog_error_count(as->errorlog) == initial_errors) {
+        as->pass = 2;
+        if(!evaluate_assertions(as)) {
+            return ASM_ERR;
+        }
+    }
+    if(as->explicit_error) {
+        return ASM_ERR;
+    }
+
     as->pass = 2;
     if(ASM_OK != assembler_run_pass(as, input_file)) {
         return ASM_ERR;
     }
     validate_derived_segments_after_pass2(as);
 
-    if(!as->errorlog || as->errorlog->log_array.items == initial_errors) {
+    if(errlog_error_count(as->errorlog) == initial_errors) {
         SEGMENT_CHECK_RESULT final_layout =
             check_segment_overlaps(as, NULL, 1);
         if(final_layout.allocation_failed) {
@@ -1120,8 +1284,7 @@ int assembler_assemble(ASSEMBLER *as, const char *input_file, uint16_t address) 
         (void)check_noemit_reclaim(as);
     }
 
-    return as->errorlog && as->errorlog->log_array.items > initial_errors ?
-        ASM_ERR : ASM_OK;
+    return errlog_error_count(as->errorlog) > initial_errors ? ASM_ERR : ASM_OK;
 }
 
 static int assembler_symbol_is_macro_local(const SYMBOL_LABEL *symbol) {

@@ -11,6 +11,22 @@ void errlog(ERRORLOG *log, ERROR_ENTRY *e) {
     }
 }
 
+size_t errlog_error_count(const ERRORLOG *log) {
+    size_t count = 0;
+    size_t i;
+
+    if(!log) {
+        return 0;
+    }
+    for(i = 0; i < log->log_array.items; i++) {
+        const ERROR_ENTRY *e = AM65_ARRAY_GET((AM65_DYNARRAY *)&log->log_array, ERROR_ENTRY, i);
+        if(e && e->severity != ASM_SEVERITY_WARNING) {
+            count++;
+        }
+    }
+    return count;
+}
+
 void errlog_init(ERRORLOG *log) {
     memset(log, 0, sizeof(ERRORLOG));
     AM65_ARRAY_INIT(&log->log_array, ERROR_ENTRY);

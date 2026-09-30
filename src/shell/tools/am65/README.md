@@ -140,6 +140,47 @@ other `noemit` segments. A plain `noemit` segment may not overlap even reclaimab
 contents. Auto-adjust packs emitted segments without treating an opted-in noemit
 overlap as a collision; runtime lifetime ordering remains the source's responsibility.
 
+## Layout assertions
+
+`.assert expr` fails the assembly when `expr` is zero. An optional
+`.assert expr, "message"` uses that message, with the same escapes as `.string`.
+The check runs once segment placement has converged (`end=`, `after=`, and
+auto-adjust) and before pass 2 emits. A failure writes no output.
+
+`startof("name")`, `endof("name")`, and `sizeof("name")` read the final inclusive
+start, exclusive end, and size of a segment on the active output target. They are
+valid only inside `.assert`. `""` is the unnamed default segment. `endof` is
+`$10000` when the segment's last byte is `$FFFF`. Names are case-insensitive. A
+zero-length segment has `sizeof` 0. An unknown name, or a name that exists only
+on another target, is an error.
+
+The expression sees final symbol values in the scope that contained the
+directive. It cannot assign, use `++`/`--`, the location counter, or anonymous
+labels.
+
+```asm
+.assert sizeof("TITLE") .le $2000, "title image is too large"
+.assert endof("TITLE") .eq startof("CODE")
+```
+
+`.error "message"` fails at that line during pass 1. The message uses the same
+escapes as `.string`, and the diagnostic text is the message. Nothing is
+emitted. A `.error` inside a skipped `.if` is ignored.
+
+```asm
+.if C64 .ne 1
+    .error "This source requires the C64 target"
+.endif
+```
+
+`.warning "message"` records a warning and assembly continues. Output is still
+written. The message uses the same escapes. A `.warning` inside a skipped `.if`
+is ignored. Messages that already say `Warning:` are still errors.
+
+```asm
+.warning "screen is not cleared"
+```
+
 Standalone `am65` predefines `AM65=1` and no machine symbol. Emulator hosts
 predefine `AM65=0` plus their machine symbol, currently `APPLE2=1` in a2m and
 `C64=1` in c64m.

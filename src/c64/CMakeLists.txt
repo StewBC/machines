@@ -1060,6 +1060,18 @@ target_link_libraries(${test_assembler_scopes_segments} PRIVATE
 
 leftover_add_test(NAME assembler_scopes_segments COMMAND ${test_assembler_scopes_segments})
 
+leftover_exe(test_assembler_assertions
+    ${MACHINES_ROOT}/tests/c64/tools/test_assembler_assertions.c
+)
+
+target_compile_features(${test_assembler_assertions} PRIVATE c_std_99)
+
+target_link_libraries(${test_assembler_assertions} PRIVATE
+    assembler
+)
+
+leftover_add_test(NAME assembler_assertions COMMAND ${test_assembler_assertions})
+
 leftover_exe(test_runtime_romboot
     ${MACHINES_ROOT}/tests/c64/runtime/test_runtime_romboot.c
 )

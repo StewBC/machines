@@ -104,12 +104,118 @@ static uint16_t expr_anonymous_address(ASSEMBLER *as) {
     return (uint16_t)address;
 }
 
+static int layout_query_kind(const char *name, uint32_t len) {
+    if(len == 7 && 0 == asm_strnicmp(name, "startof", 7)) {
+        return 1;
+    }
+    if(len == 5 && 0 == asm_strnicmp(name, "endof", 5)) {
+        return 2;
+    }
+    if(len == 6 && 0 == asm_strnicmp(name, "sizeof", 6)) {
+        return 3;
+    }
+    return 0;
+}
+
+static const char *layout_query_name(int kind) {
+    if(kind == 1) {
+        return "startof";
+    }
+    if(kind == 2) {
+        return "endof";
+    }
+    return "sizeof";
+}
+
+/* Final extents from the converged pass 1. Pass 2 resets output addresses
+   back to each segment's start, so these queries are not valid while emitting. */
+static int64_t expr_layout_query(ASSEMBLER *as, int kind) {
+    const char *seg_name;
+    uint32_t seg_len;
+    SEGMENT key;
+    SEGMENT *found;
+    size_t ti;
+
+    next_token(as);
+    expect_op(as, '(');
+    if(as->token.type != TOKEN_STR) {
+        asm_err(as, ASM_ERR_RESOLVE, "%s requires a quoted segment name", layout_query_name(kind));
+        return 0;
+    }
+    seg_name = as->token.name;
+    seg_len = as->token.name_length;
+    memset(&key, 0, sizeof(key));
+    key.segment_name = seg_name;
+    key.segment_name_length = seg_len;
+
+    if(!as->in_assert_expr) {
+        asm_err(as, ASM_ERR_RESOLVE, "%s is only valid in .assert", layout_query_name(kind));
+        as->expression_unknown = 1;
+        next_token(as);
+        if(as->token.type == TOKEN_OP && as->token.op == ')') {
+            next_token(as);
+        }
+        return 0;
+    }
+
+    found = NULL;
+    if(as->active_target) {
+        found = segment_find(&as->active_target->segments, &key);
+    }
+    if(!found) {
+        int elsewhere = 0;
+        for(ti = 0; ti < as->targets.items; ti++) {
+            TARGET *target = *AM65_ARRAY_GET(&as->targets, TARGET*, ti);
+            if(!target || target == as->active_target) {
+                continue;
+            }
+            if(segment_find(&target->segments, &key)) {
+                elsewhere = 1;
+                break;
+            }
+        }
+        if(elsewhere) {
+            asm_err(as, ASM_ERR_RESOLVE, "Segment \"%.*s\" belongs to another target",
+                    (int)seg_len, seg_name);
+        } else {
+            asm_err(as, ASM_ERR_RESOLVE, "Unknown segment \"%.*s\"", (int)seg_len, seg_name);
+        }
+        as->expression_unknown = 1;
+        next_token(as);
+        if(as->token.type == TOKEN_OP && as->token.op == ')') {
+            next_token(as);
+        }
+        return 0;
+    }
+
+    next_token(as);
+    expect_op(as, ')');
+    if(kind == 1) {
+        return (int64_t)found->segment_start_address;
+    }
+    if(kind == 2) {
+        return (int64_t)found->segment_output_address;
+    }
+    return (int64_t)found->segment_output_address - (int64_t)found->segment_start_address;
+}
+
 static int64_t expr_primary(ASSEMBLER *as) {
     int64_t value;
     if(as->token.type == TOKEN_OP && as->token.op == '*') {
+        if(as->in_assert_expr) {
+            asm_err(as, ASM_ERR_RESOLVE, "The location counter is not valid in .assert");
+            next_token(as);
+            as->expression_unknown = 1;
+            return 0;
+        }
         next_token(as);
         value = current_output_address(as);
     } else if(as->token.type == TOKEN_OP && as->token.op == ':') {
+        if(as->in_assert_expr) {
+            asm_err(as, ASM_ERR_RESOLVE, "Anonymous labels are not valid in .assert");
+            as->expression_unknown = 1;
+            return 0;
+        }
         value = expr_anonymous_address(as);
     } else if(as->token.type == TOKEN_OP && as->token.op == 'D') {
         value = 0;
@@ -126,7 +232,13 @@ static int64_t expr_primary(ASSEMBLER *as) {
     } else if(as->token.type == TOKEN_VAR) {
         const char *symbol_name = as->token.name;
         uint32_t symbol_len = as->token.name_length;
-        SYMBOL_LABEL *sl = symbol_read(as, symbol_name, symbol_len);
+        int query = layout_query_kind(symbol_name, symbol_len);
+        int next_op = 0;
+        SYMBOL_LABEL *sl;
+        if(query && peek_next_op(as, &next_op) && next_op == '(') {
+            return expr_layout_query(as, query);
+        }
+        sl = symbol_read(as, symbol_name, symbol_len);
         next_token(as);
 
         if(!sl || sl->symbol_type == SYMBOL_UNKNOWN || sl->symbol_type == SYMBOL_LOCAL) {
@@ -176,6 +288,12 @@ static int64_t expr_primary(ASSEMBLER *as) {
 
         if(as->token.type == TOKEN_OP) {
             char op = as->token.op;
+            if(as->in_assert_expr &&
+               (op == '=' || ((op == '+' || op == '-') && as->cur && *as->cur == op))) {
+                asm_err(as, ASM_ERR_RESOLVE, "Assertion expression cannot modify a symbol");
+                as->expression_unknown = 1;
+                return 0;
+            }
             if(op == '=') {
                 next_token(as);
                 if(sl->symbol_type != SYMBOL_ADDRESS) {

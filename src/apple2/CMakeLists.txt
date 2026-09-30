@@ -619,6 +619,13 @@ target_compile_features(${test_assembler_scopes_segments} PRIVATE c_std_99)
 target_link_libraries(${test_assembler_scopes_segments} PRIVATE assembler)
 leftover_add_test(NAME assembler_scopes_segments COMMAND ${test_assembler_scopes_segments})
 
+leftover_exe(test_assembler_assertions
+    ${MACHINES_ROOT}/tests/apple2/tools/test_assembler_assertions.c
+)
+target_compile_features(${test_assembler_assertions} PRIVATE c_std_99)
+target_link_libraries(${test_assembler_assertions} PRIVATE assembler)
+leftover_add_test(NAME assembler_assertions COMMAND ${test_assembler_assertions})
+
 leftover_exe(test_assembler_targets
     ${MACHINES_ROOT}/tests/apple2/tools/test_assembler_targets.c
 )

@@ -84,6 +84,8 @@ typedef struct frontend_assembler_state {
     bool rearm_oneshots;
     bool error_dialog_open;
     bool error_dialog_is_notice;
+    /* 0 adjustments, 1 warnings, 2 both. Used while the notice dialog is open. */
+    int error_dialog_notice_kind;
     char error_text[4096];
     unsigned int error_scroll_x;
     unsigned int error_scroll_y;

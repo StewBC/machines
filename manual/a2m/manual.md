@@ -1310,6 +1310,9 @@ The ternary form is `condition ? true-expr : false-expr`.
 | `.segdef "n",after="host"[,flags]` | Define a segment whose start is the exclusive end of a previously defined non-empty segment. Chains remain contiguous and move as one unit during auto-adjust |
 | `.segdef "n",reclaim="host"` | Define a reclaim segment overlaying an emitted `host`: implicitly `noemit`, inherits the host's start, sized no larger than the host, and moves with it if auto-adjust relocates the host |
 | `.segment "n"` | Activate the named segment; `.segment ""` returns to native mode |
+| `.assert expr[, "msg"]` | Fail assembly when `expr` is zero, after segment layout has converged. See Layout assertions |
+| `.error "message"` | Fail assembly at this line with `message`. See Explicit diagnostics |
+| `.warning "message"` | Report `message` and continue assembly. See Explicit diagnostics |
 | `.6502` | Restrict to 6502 opcodes |
 | `.65c02` | Allow 65C02 opcodes |
 | `.rockwell` | Allow 65C02 plus Rockwell RMB/SMB and BBR/BBS operations |
@@ -1526,6 +1529,55 @@ fix to the author. End-anchored segments are implicitly locked.
 ```
 .segdef "CODE", $0800
 .segdef "HGR",  $2000, locked   ; hires page -- must stay at $2000
+```
+
+### Layout assertions
+
+`.assert expr` fails assembly when `expr` is zero. `.assert expr, "message"`
+uses that message. The check runs after `end=`, `after=`, and auto-adjust have
+settled, and a failure produces no output.
+
+`startof("name")`, `endof("name")`, and `sizeof("name")` read a segment's final
+inclusive start, exclusive end, and size. They are valid only inside `.assert`.
+Names match `.segment` and are case-insensitive. `""` is the unnamed default
+segment. `endof` is `$10000` when a segment ends on the byte at `$FFFF`. A
+segment with no bytes has `sizeof` 0. An unknown name is an error. So is a name
+that exists only on another output target.
+
+The expression uses the usual operators (`.eq`, `.le`, and the rest). It sees
+final symbol values in the scope where the `.assert` was written, not the value
+a loop counter held on that source line. It cannot assign, use `++` or `--`,
+read the location counter, or use anonymous labels. A query whose value is 0
+fails on its own; compare it with `.eq` when address 0 is legal.
+
+```
+.segdef "TITLE", $2000
+.segdef "CODE", after="TITLE"
+.segment "TITLE"
+    .res $1800
+.segment "CODE"
+start:
+    .byte 0
+.assert sizeof("TITLE") .le $2000, "title image is too large"
+.assert endof("TITLE") .eq startof("CODE")
+.assert startof("CODE") .eq start
+```
+
+### Explicit diagnostics
+
+`.error "message"` fails assembly at that line. The diagnostic text is the
+message, using the same escapes as `.string`. It is reported during pass 1,
+and a failure produces no output. A `.error` in a skipped `.if` is ignored.
+
+`.warning "message"` reports a warning and assembly continues. Output is still
+written. The message uses the same escapes, and the same file and line. A
+`.warning` in a skipped `.if` is ignored.
+
+```
+.if C64 .ne 1
+    .error "This source requires the C64 target"
+.endif
+.warning "screen is not cleared"
 ```
 
 ### Strcode

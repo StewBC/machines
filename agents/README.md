@@ -97,6 +97,12 @@ worktree branches unless the user specifically asks to work on branches.
 `src/shell/tools/am65/` is the only assembler source tree.
 `src/c64/tools/` keeps d64/g64/t64/crt parsers only.
 
+`.assert` checks a final-layout expression after segment placement converges
+and before pass 2, so a failure emits nothing. `startof`, `endof`, and
+`sizeof` are valid only in that expression. `.error "message"` fails at that
+line during pass 1 and also emits nothing. `.warning "message"` is recorded
+and does not fail the build.
+
 Nuklear is **one** copy under `src/shell/frontend/`. Disasm CPU class is
 NMOS vs 65C02 on `disasm_6502_decode_line`; C64 call sites always pass NMOS.
 

@@ -9,11 +9,16 @@
 
 #include "dynarray.h"
 
+/* Zero is an error, so a cleared entry still fails assembly. */
+#define ASM_SEVERITY_ERROR 0
+#define ASM_SEVERITY_WARNING 1
+
 typedef struct {
     size_t line_number;
     size_t message_length;
     size_t suppressed;
     uint32_t file_name_hash;
+    int severity;
     char *err_str;
 } ERROR_ENTRY;
 
@@ -23,6 +28,8 @@ typedef struct {
 } ERRORLOG;
 
 void errlog(ERRORLOG *log, ERROR_ENTRY *e);
+/* Entries that fail assembly. Warnings are not included. */
+size_t errlog_error_count(const ERRORLOG *log);
 void errlog_init(ERRORLOG *log);
 void errlog_clean(ERRORLOG *log);
 void errlog_shutdown(ERRORLOG *log);

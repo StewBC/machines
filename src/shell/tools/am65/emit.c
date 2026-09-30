@@ -129,6 +129,41 @@ static uint64_t parse_escape_value(const char **pp) {
     return value;
 }
 
+char *emit_unescape_text(ASSEMBLER *as, const char *text, size_t length) {
+    char *out = malloc(length + 1);
+    size_t n = 0;
+    const char *p;
+    const char *end;
+
+    if(!out) {
+        asm_err(as, ASM_ERR_FATAL, "Out of memory copying string");
+        return NULL;
+    }
+    p = text;
+    end = text + length;
+    while(p < end) {
+        uint64_t value;
+        if(*p == '\\' && p + 1 < end) {
+            p++;
+            value = parse_escape_value(&p);
+            if(value >= 256) {
+                /* Pass-1 capture: DEFINE is recorded immediately. RESOLVE would
+                   be discarded until pass 2, which does not re-read the message. */
+                asm_err(as, ASM_ERR_DEFINE, "Escape value %llu not between 0 and 255",
+                        (unsigned long long)value);
+                free(out);
+                return NULL;
+            }
+        } else {
+            value = (uint8_t)*p;
+        }
+        out[n++] = (char)value;
+        p++;
+    }
+    out[n] = '\0';
+    return out;
+}
+
 void emit_string(ASSEMBLER *as, SYMBOL_LABEL *sl) {
     if(as->token.type != TOKEN_STR) {
         asm_err(as, ASM_ERR_RESOLVE, "String token expected");

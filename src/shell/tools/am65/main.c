@@ -364,15 +364,41 @@ static void usage(const char *program) {
         base);
 }
 
-static void print_errors(const ERRORLOG *log) {
+static void print_diagnostics(const ERRORLOG *log) {
+    size_t warnings = 0;
+    size_t errors = 0;
+    size_t i;
+
     if(!log || log->log_array.items == 0) {
         return;
     }
-    fprintf(stderr, "\nAssembly errors:\n");
-    for(size_t i = 0; i < log->log_array.items; i++) {
+    for(i = 0; i < log->log_array.items; i++) {
         const ERROR_ENTRY *e = AM65_ARRAY_GET((AM65_DYNARRAY *)&log->log_array, ERROR_ENTRY, i);
-        if(e && e->err_str) {
-            fprintf(stderr, "  %s\n", e->err_str);
+        if(!e || !e->err_str) {
+            continue;
+        }
+        if(e->severity == ASM_SEVERITY_WARNING) {
+            warnings++;
+        } else {
+            errors++;
+        }
+    }
+    if(warnings) {
+        fprintf(stderr, "\nAssembly warnings:\n");
+        for(i = 0; i < log->log_array.items; i++) {
+            const ERROR_ENTRY *e = AM65_ARRAY_GET((AM65_DYNARRAY *)&log->log_array, ERROR_ENTRY, i);
+            if(e && e->err_str && e->severity == ASM_SEVERITY_WARNING) {
+                fprintf(stderr, "  %s\n", e->err_str);
+            }
+        }
+    }
+    if(errors) {
+        fprintf(stderr, "\nAssembly errors:\n");
+        for(i = 0; i < log->log_array.items; i++) {
+            const ERROR_ENTRY *e = AM65_ARRAY_GET((AM65_DYNARRAY *)&log->log_array, ERROR_ENTRY, i);
+            if(e && e->err_str && e->severity != ASM_SEVERITY_WARNING) {
+                fprintf(stderr, "  %s\n", e->err_str);
+            }
         }
     }
 }
@@ -504,7 +530,7 @@ int main(int argc, char **argv) {
         return 1;
     }
     if(!inject_search_dirs(&as, argc, argv)) {
-        print_errors(&log);
+        print_diagnostics(&log);
         assembler_shutdown(&as);
         file_target_free(default_target);
         errlog_shutdown(&log);
@@ -551,7 +577,7 @@ int main(int argc, char **argv) {
         }
     }
 
-    print_errors(&log);
+    print_diagnostics(&log);
 
     assembler_shutdown(&as);
     file_target_free(default_target);

@@ -15,7 +15,7 @@ static uint32_t fnv_1a_hash(const char *s) {
     return hash;
 }
 
-void asm_err(ASSEMBLER *as, ASM_ERR_CLASS cls, const char *format, ...) {
+static void asm_log(ASSEMBLER *as, ASM_ERR_CLASS cls, int severity, const char *format, va_list args) {
     if(!as || !as->errorlog) {
         return;
     }
@@ -34,6 +34,8 @@ void asm_err(ASSEMBLER *as, ASM_ERR_CLASS cls, const char *format, ...) {
         break;
     case ASM_ERR_FATAL:
         as->error_log_level = 1;
+        break;
+    case ASM_ERR_WARNING:
         break;
     }
 
@@ -63,16 +65,14 @@ void asm_err(ASSEMBLER *as, ASM_ERR_CLASS cls, const char *format, ...) {
 
     char temp_string[ASM_ERR_MAX_STR_LEN];
     if(entries < MAX_LOG_LINES) {
-        va_list args;
-        va_start(args, format);
         vsnprintf(temp_string, ASM_ERR_MAX_STR_LEN, format, args);
-        va_end(args);
     } else {
         snprintf(temp_string, ASM_ERR_MAX_STR_LEN, "%zu errors logged. Logging stopped.", entries);
     }
 
     ERROR_ENTRY e;
     memset(&e, 0, sizeof(e));
+    e.severity = severity;
     e.err_str = malloc(ASM_ERR_MAX_STR_LEN);
     if(!e.err_str) {
         as->error_log_level = active_log_level;
@@ -91,4 +91,18 @@ void asm_err(ASSEMBLER *as, ASM_ERR_CLASS cls, const char *format, ...) {
                                         file_name, as->current_line, col, temp_string);
     errlog(log, &e);
     as->error_log_level = active_log_level;
+}
+
+void asm_err(ASSEMBLER *as, ASM_ERR_CLASS cls, const char *format, ...) {
+    va_list args;
+    va_start(args, format);
+    asm_log(as, cls, ASM_SEVERITY_ERROR, format, args);
+    va_end(args);
+}
+
+void asm_warn(ASSEMBLER *as, const char *format, ...) {
+    va_list args;
+    va_start(args, format);
+    asm_log(as, ASM_ERR_WARNING, ASM_SEVERITY_WARNING, format, args);
+    va_end(args);
 }

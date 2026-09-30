@@ -478,6 +478,50 @@ static void runtime_assembler_format_errors(const ERRORLOG *log, char *error, si
     }
 }
 
+static void runtime_assembler_append_warnings(
+    const ERRORLOG *log, char *notice, size_t notice_size)
+{
+    size_t written;
+    size_t i;
+    int any = 0;
+
+    if (log == NULL || notice == NULL || notice_size == 0) {
+        return;
+    }
+    written = strlen(notice);
+    if (written >= notice_size) {
+        notice[notice_size - 1] = '\0';
+        return;
+    }
+    for (i = 0; i < log->log_array.items; i++) {
+        const ERROR_ENTRY *entry = AM65_ARRAY_GET(
+            (AM65_DYNARRAY *)&log->log_array, ERROR_ENTRY, i);
+        const char *sep;
+        int n;
+
+        if (entry == NULL || entry->err_str == NULL ||
+            entry->severity != ASM_SEVERITY_WARNING) {
+            continue;
+        }
+        sep = any ? "\n" : (written > 0 ? "\n\n" : "");
+        n = snprintf(
+            notice + written,
+            notice_size - written,
+            "%s%s",
+            sep,
+            entry->err_str);
+        if (n < 0) {
+            return;
+        }
+        any = 1;
+        written += (size_t)n;
+        if (written >= notice_size) {
+            notice[notice_size - 1] = '\0';
+            return;
+        }
+    }
+}
+
 static void runtime_assembler_format_adjustment(
     size_t target_index,
     const char *segment_name,
@@ -639,6 +683,7 @@ static bool runtime_assemble_file_legacy_ex(
                 &assembler,
                 runtime_assembler_format_adjustment,
                 &format);
+            runtime_assembler_append_warnings(&log, notice, notice_size);
         }
     } else {
         runtime_assembler_format_errors(&log, error, error_size);

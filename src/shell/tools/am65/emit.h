@@ -10,6 +10,9 @@ enum {
 };
 
 void emit_byte(ASSEMBLER *as, uint8_t byte_value);
+/* Decode a quoted-string body with the same escapes as .string.
+   Returns a NUL-terminated malloc'd string, or NULL after reporting an error. */
+char *emit_unescape_text(ASSEMBLER *as, const char *text, size_t length);
 void emit_opcode(ASSEMBLER *as);
 void emit_values(ASSEMBLER *as, uint64_t value, int width, int order);
 void emit_string(ASSEMBLER *as, SYMBOL_LABEL *sl);

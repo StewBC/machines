@@ -1958,6 +1958,136 @@ void parse_address(ASSEMBLER *as) {
     }
 }
 
+static void dot_warning(ASSEMBLER *as) {
+    char *message;
+
+    /* Pass 2 must not repeat the diagnostic. The pass-1 warning already stands. */
+    if(as->pass != 1) {
+        return;
+    }
+
+    next_token(as);
+    if(as->token.type != TOKEN_STR) {
+        asm_err(as, ASM_ERR_DEFINE, ".warning requires a string");
+        return;
+    }
+    message = emit_unescape_text(as, as->token.name, as->token.name_length);
+    if(!message) {
+        return;
+    }
+    next_token(as);
+    if(!token_is_line_end(as)) {
+        free(message);
+        asm_err(as, ASM_ERR_DEFINE, "Unexpected token after .warning message");
+        return;
+    }
+    if(message[0] == '\0') {
+        free(message);
+        asm_err(as, ASM_ERR_DEFINE, ".warning requires a string");
+        return;
+    }
+    /* The message is data. A '%' in it must not be a format specifier. */
+    asm_warn(as, "%s", message);
+    free(message);
+}
+
+static void dot_error(ASSEMBLER *as) {
+    char *message;
+
+    /* Pass 2 must not repeat the diagnostic. A .error already stopped emit. */
+    if(as->pass != 1) {
+        return;
+    }
+
+    as->explicit_error = 1;
+    next_token(as);
+    if(as->token.type != TOKEN_STR) {
+        asm_err(as, ASM_ERR_DEFINE, ".error requires a string");
+        return;
+    }
+    message = emit_unescape_text(as, as->token.name, as->token.name_length);
+    if(!message) {
+        return;
+    }
+    next_token(as);
+    if(!token_is_line_end(as)) {
+        free(message);
+        asm_err(as, ASM_ERR_DEFINE, "Unexpected token after .error message");
+        return;
+    }
+    if(message[0] == '\0') {
+        free(message);
+        asm_err(as, ASM_ERR_DEFINE, ".error requires a string");
+        return;
+    }
+    /* The message is data. A '%' in it must not be a format specifier. */
+    asm_err(as, ASM_ERR_DEFINE, "%s", message);
+    free(message);
+}
+
+static void dot_assert(ASSEMBLER *as) {
+    const char *expr_begin;
+    const char *expr_end;
+    char *message = NULL;
+
+    /* Pass 2 must not capture or evaluate. The deferred check already ran. */
+    if(as->pass != 1) {
+        return;
+    }
+
+    next_token(as);
+    if(token_is_line_end(as)) {
+        asm_err(as, ASM_ERR_DEFINE, ".assert requires an expression");
+        return;
+    }
+
+    expr_begin = as->token.name;
+    if(!expr_begin) {
+        asm_err(as, ASM_ERR_DEFINE, ".assert requires an expression");
+        return;
+    }
+    while(as->token.type != TOKEN_END) {
+        next_token(as);
+    }
+    expr_end = as->token.name;
+    if(as->token.op == ',') {
+        next_token(as);
+        if(as->token.type != TOKEN_STR) {
+            asm_err(as, ASM_ERR_DEFINE, ".assert message must be a string");
+            return;
+        }
+        message = emit_unescape_text(as, as->token.name, as->token.name_length);
+        if(!message) {
+            return;
+        }
+        next_token(as);
+        if(!token_is_line_end(as)) {
+            free(message);
+            asm_err(as, ASM_ERR_DEFINE, "Unexpected token after .assert message");
+            return;
+        }
+    }
+
+    while(expr_end > expr_begin && isspace((unsigned char)expr_end[-1])) {
+        expr_end--;
+    }
+    while(expr_begin < expr_end && isspace((unsigned char)*expr_begin)) {
+        expr_begin++;
+    }
+    if(expr_begin >= expr_end) {
+        free(message);
+        asm_err(as, ASM_ERR_DEFINE, ".assert requires an expression");
+        return;
+    }
+
+    if(ASM_OK != assembler_capture_assertion(
+            as, expr_begin, (size_t)(expr_end - expr_begin), message)) {
+        free(message);
+        return;
+    }
+    free(message);
+}
+
 void parse_dot_command(ASSEMBLER *as) {
     switch(as->opcode_info.opcode_id) {
     case GPERF_DOT_6502:
@@ -1978,6 +2108,15 @@ void parse_dot_command(ASSEMBLER *as) {
         break;
     case GPERF_DOT_ALIGN:
         dot_align(as);
+        break;
+    case GPERF_DOT_ASSERT:
+        dot_assert(as);
+        break;
+    case GPERF_DOT_ERROR:
+        dot_error(as);
+        break;
+    case GPERF_DOT_WARNING:
+        dot_warning(as);
         break;
     case GPERF_DOT_ASCIIZ:
         dot_string(as, 1);

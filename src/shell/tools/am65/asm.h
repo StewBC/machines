@@ -120,6 +120,12 @@ struct ASSEMBLER {
     int expression_size;
     int expression_unknown;
     int expression_depth;
+    /* Set only while re-evaluating a deferred .assert. Layout queries are legal
+       then, and symbol assignment is not. */
+    int in_assert_expr;
+    /* A .error line was parsed on this pass. assembler_assemble returns
+       before pass 2 so nothing is emitted. */
+    int explicit_error;
     TARGET *active_target;
     AM65_DYNARRAY targets;
     const char *strcode;
@@ -134,7 +140,20 @@ struct ASSEMBLER {
     int auto_adjust_segments;
     AM65_DYNARRAY segment_adjustments;
     AM65_DYNARRAY derived_segment_adjustments;
+    /* .assert records from the pass-1 attempt currently running. Cleared on
+       every pass start and on program-state restart. */
+    AM65_DYNARRAY assertions;
 };
+
+typedef struct {
+    char *expr;
+    size_t expr_len;
+    char *message;
+    char *file_name;
+    size_t line_number;
+    SCOPE *scope;
+    size_t target_index;
+} LAYOUT_ASSERTION;
 
 static inline uint32_t current_output_address(ASSEMBLER *as) {
     if(!as->active_target || !as->active_target->active_segment) {
@@ -189,3 +208,12 @@ uint16_t assembler_after_segment_start(
     const char *segment_name,
     uint32_t segment_name_length,
     uint16_t provisional_address);
+
+/* Parser hook: remember one .assert from pass 1. `message` may be NULL.
+   Copies its inputs. The scope and target must still be the ones active
+   at the directive. */
+int assembler_capture_assertion(
+    ASSEMBLER *as,
+    const char *expr,
+    size_t expr_len,
+    const char *message);
