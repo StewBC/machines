@@ -2,6 +2,7 @@
 
 #include "c64.h"
 #include "c64_hostfs.h"
+#include "source_map.h"
 #include "symbol_table.h"
 #include "../test_file.h"
 
@@ -55,6 +56,7 @@ static int test_assemble_imports_symbols(void) {
     symbol_table *symbols;
     int failures = 0;
     const char *source =
+        "print = $0ffd\n"
         "start:\n"
         "    lda #$42\n"
         ".scope Inner\n"
@@ -76,6 +78,7 @@ static int test_assemble_imports_symbols(void) {
     symbol_table_add(symbols, 0x1234, "STALE", SYMBOL_SOURCE_ASSEMBLER, "current", false);
     symbol_table_add(symbols, 0x1235, "OLD_STALE", SYMBOL_SOURCE_ASSEMBLER, "old", false);
     symbol_table_add(symbols, 0xffd2, "CHROUT", SYMBOL_SOURCE_BUILTIN, "kernal", false);
+    symbol_table_add(symbols, 0x2222, "FROMFILE", SYMBOL_SOURCE_FILE, "file.sym", false);
 
     if (!c64_assemble_file(&machine, symbols, path, 0x0801, "current", error, sizeof(error))) {
         fprintf(stderr, "c64_assemble_file failed: %s\n", error);
@@ -87,6 +90,7 @@ static int test_assemble_imports_symbols(void) {
     failures += expect_u8("sta opcode", 0x8d, c64_debug_read_ram(&machine, 0x0803));
     failures += expect_symbol(symbols, "start", 0x0801);
     failures += expect_symbol(symbols, "Inner::target", 0x0803);
+    failures += expect_symbol(symbols, "print", 0x0ffd);
     if (symbol_table_find_by_name(symbols, "STALE", &(symbol_info){0}) != SYMBOL_NOT_FOUND) {
         fprintf(stderr, "stale assembler symbol was not removed\n");
         failures++;
@@ -98,6 +102,49 @@ static int test_assemble_imports_symbols(void) {
     if (symbol_table_find_by_name(symbols, "CHROUT", &(symbol_info){0}) != SYMBOL_OK) {
         fprintf(stderr, "builtin symbol was not preserved\n");
         failures++;
+    }
+    {
+        symbol_info info;
+        if (symbol_table_find_by_name(symbols, "FROMFILE", &info) != SYMBOL_OK ||
+            info.address != 0x2222 || info.source_kind != SYMBOL_SOURCE_FILE) {
+            fprintf(stderr, "loaded file symbol was not preserved\n");
+            failures++;
+        }
+    }
+
+    {
+        char next_path[128];
+        const char *next_source =
+            "next:\n"
+            "    nop\n";
+        next_path[0] = '\0';
+        if (write_source(next_path, sizeof(next_path), next_source) != 0) {
+            failures++;
+        } else if (!c64_assemble_file(
+                       &machine, symbols, next_path, 0x0900, "current", error, sizeof(error))) {
+            fprintf(stderr, "following assemble failed: %s\n", error);
+            failures++;
+        } else {
+            symbol_info info;
+            failures += expect_symbol(symbols, "next", 0x0900);
+            if (symbol_table_find_by_name(symbols, "start", &(symbol_info){0}) != SYMBOL_NOT_FOUND ||
+                symbol_table_find_by_name(symbols, "print", &(symbol_info){0}) != SYMBOL_NOT_FOUND) {
+                fprintf(stderr, "following assemble left assembler symbols in place\n");
+                failures++;
+            }
+            if (symbol_table_find_by_name(symbols, "FROMFILE", &info) != SYMBOL_OK ||
+                info.source_kind != SYMBOL_SOURCE_FILE) {
+                fprintf(stderr, "following assemble removed the loaded file symbol\n");
+                failures++;
+            }
+            if (symbol_table_find_by_name(symbols, "CHROUT", &(symbol_info){0}) != SYMBOL_OK) {
+                fprintf(stderr, "following assemble removed the builtin\n");
+                failures++;
+            }
+        }
+        if (next_path[0] != '\0') {
+            c64m_test_remove_file(next_path);
+        }
     }
 
     symbol_table_destroy(symbols);
@@ -154,6 +201,22 @@ static void sibling_path(
     }
 }
 
+static int file_text_has(const char *path, const char *needle)
+{
+    FILE *fp;
+    char buf[4096];
+    size_t n;
+
+    fp = fopen(path, "rb");
+    if (fp == NULL) {
+        return 0;
+    }
+    n = fread(buf, 1, sizeof(buf) - 1, fp);
+    fclose(fp);
+    buf[n] = '\0';
+    return strstr(buf, needle) != NULL;
+}
+
 static int test_assemble_named_map_targets(void) {
     char path[128];
     char dual_path[160];
@@ -172,7 +235,11 @@ static int test_assemble_named_map_targets(void) {
         "        .endscope\n"
         "        .scope file_only file=\"file_only.bin\"\n"
         "            .org $4001\n"
-        "            .byte $f1\n"
+        "            file_mark: .byte $f1\n"
+        "            file_equ = $42\n"
+        "        .endscope\n"
+        "        .scope ram_only dest=\"MAP\"\n"
+        "            ram_mark: .byte $11\n"
         "        .endscope\n"
         "        .scope prg_only prg=\"out.prg\"\n"
         "            .org $4100\n"
@@ -214,6 +281,37 @@ static int test_assemble_named_map_targets(void) {
         }
         if (fp != NULL) {
             fclose(fp);
+        }
+        {
+            char sym_path[180];
+            char source_sym[180];
+            snprintf(sym_path, sizeof(sym_path), "%s.sym", file_only_path);
+            snprintf(source_sym, sizeof(source_sym), "%s.sym", path);
+            if (!file_text_has(sym_path, "4001  file_only::file_mark") ||
+                !file_text_has(sym_path, "0042  file_only::file_equ")) {
+                fprintf(stderr, "file_only.bin.sym missing file-only symbols\n");
+                failures++;
+            }
+            if (file_text_has(sym_path, "ram_mark")) {
+                fprintf(stderr, "dest-only label was written into file_only.bin.sym\n");
+                failures++;
+            }
+            fp = fopen(source_sym, "rb");
+            if (fp != NULL) {
+                fprintf(stderr, "memory assemble grew a sidecar beside the source\n");
+                failures++;
+                fclose(fp);
+                (void)remove(source_sym);
+            }
+            (void)remove(sym_path);
+            {
+                char dual_sym[180];
+                char prg_sym[180];
+                snprintf(dual_sym, sizeof(dual_sym), "%s.sym", dual_path);
+                sibling_path(prg_sym, sizeof(prg_sym), path, "out.prg.sym");
+                (void)remove(dual_sym);
+                (void)remove(prg_sym);
+            }
         }
         {
             char prg_path[160];
@@ -470,7 +568,8 @@ static int test_assemble_auto_adjusts_segments(void) {
             notice,
             sizeof(notice),
             error,
-            sizeof(error))) {
+            sizeof(error),
+            NULL)) {
         fprintf(stderr, "auto-adjust runtime assembly failed: %s\n", error);
         c64m_test_remove_file(path);
         return 1;
@@ -505,6 +604,130 @@ static int test_assemble_auto_adjusts_segments(void) {
     return failures;
 }
 
+static int test_session_source_image(void) {
+    char path[128];
+    char error[256];
+    c64_t machine;
+    asm_source_image *memory_image = NULL;
+    asm_source_image *file_image = NULL;
+    asm_source_image *failed = (asm_source_image *)0x1;
+    asm_source_hit hit;
+    int failures = 0;
+    const char *memory_source = "nop\n";
+    const char *file_source =
+        ".scope side file=\"side.bin\"\n"
+        "    lda #1\n"
+        ".endscope\n";
+
+    if (write_source(path, sizeof(path), memory_source) != 0) {
+        return 1;
+    }
+    c64_init(&machine);
+    if (!runtime_assemble_file_ex_options(
+            &machine, NULL, path, 0x3000, "current", NULL,
+            NULL, NULL, NULL, NULL, 0, error, sizeof(error), &memory_image) ||
+        memory_image == NULL || memory_image->span_count == 0u) {
+        fprintf(stderr, "memory session image missing: %s\n", error);
+        c64m_test_remove_file(path);
+        return 1;
+    }
+    hit = asm_source_span_at_pc(memory_image, NULL, 0, 0x3000);
+    if (hit.span == NULL || hit.image != memory_image) {
+        fprintf(stderr, "memory nop span missing\n");
+        failures++;
+    }
+    c64m_test_remove_file(path);
+
+    if (write_source(path, sizeof(path), file_source) != 0) {
+        asm_source_image_free(memory_image);
+        return 1;
+    }
+    if (!runtime_assemble_file_ex_options(
+            &machine, NULL, path, 0x3000, "current", NULL,
+            NULL, NULL, NULL, NULL, 0, error, sizeof(error), &file_image) ||
+        file_image == NULL || file_image->file_count != 0u) {
+        fprintf(stderr, "file-only session image was not empty: %s\n", error);
+        failures++;
+    }
+    failed = (asm_source_image *)0x1;
+    if (runtime_assemble_file_ex_options(
+            &machine, NULL, path, 0x3000, "current", NULL,
+            NULL, NULL, NULL, NULL, 0, error, sizeof(error), NULL)) {
+        /* A NULL out-pointer still assembles and leaves the caller's image. */
+    }
+    if (file_image != NULL && file_image->file_count != 0u) {
+        fprintf(stderr, "NULL out-pointer changed the caller image\n");
+        failures++;
+    }
+    if (write_source(
+            path,
+            sizeof(path),
+            ".scope side file=\"side.bin\"\n"
+            "    .org $3100\n"
+            "    lda #1\n"
+            ".endscope\n"
+            ".scope ram dest=\"map\"\n"
+            "    .org $3200\n"
+            "    .byte $a8\n"
+            ".endscope\n") != 0) {
+        failures++;
+    } else {
+        asm_source_image *mixed = NULL;
+        if (!runtime_assemble_file_ex_options(
+                &machine, NULL, path, 0x3000, "current", NULL,
+                NULL, NULL, NULL, NULL, 0, error, sizeof(error), &mixed) ||
+            mixed == NULL || mixed->file_count == 0u) {
+            fprintf(stderr, "mixed session image missing: %s\n", error);
+            failures++;
+        } else {
+            hit = asm_source_span_at_pc(mixed, NULL, 0, 0x3200);
+            if (hit.span == NULL || hit.image != mixed) {
+                fprintf(stderr, "dest span missing from session image\n");
+                failures++;
+            }
+            hit = asm_source_span_at_pc(mixed, NULL, 0, 0x3100);
+            if (hit.span != NULL) {
+                fprintf(stderr, "file-only span was published in the session image\n");
+                failures++;
+            }
+            if (c64_debug_read_ram(&machine, 0x3200) != 0xa8) {
+                fprintf(stderr, "dest byte was not written\n");
+                failures++;
+            }
+        }
+        asm_source_image_free(mixed);
+    }
+    if (write_source(path, sizeof(path), "lda missing\n") != 0) {
+        failures++;
+    } else if (runtime_assemble_file_ex_options(
+                   &machine, NULL, path, 0x3000, "current", NULL,
+                   NULL, NULL, NULL, NULL, 0, error, sizeof(error), &failed) ||
+               failed != NULL) {
+        fprintf(stderr, "failed assemble published a session image\n");
+        failures++;
+    }
+    asm_source_image_free(memory_image);
+    asm_source_image_free(file_image);
+    asm_source_image_free(failed);
+    c64m_test_remove_file(path);
+    {
+        char side[160];
+        const char *slash = strrchr(path, '/');
+        if (slash == NULL) {
+            snprintf(side, sizeof(side), "side.bin");
+        } else {
+            snprintf(side, sizeof(side), "%.*sside.bin", (int)(slash - path + 1), path);
+        }
+        c64m_test_remove_file(side);
+        {
+            char sym[180];
+            snprintf(sym, sizeof(sym), "%s.sym", side);
+            c64m_test_remove_file(sym);
+        }
+    }
+    return failures;
+}
+
 int main(void) {
     int failures = 0;
 
@@ -516,6 +739,7 @@ int main(void) {
     failures += test_assemble_cpu_profile_defaults();
     failures += test_assemble_reports_emitted_extent();
     failures += test_assemble_auto_adjusts_segments();
+    failures += test_session_source_image();
 
     return failures == 0 ? 0 : 1;
 }

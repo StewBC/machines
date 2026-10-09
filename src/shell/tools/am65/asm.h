@@ -6,6 +6,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include <stdio.h>
 
 #include "asm_common.h"
 #include "dynarray.h"
@@ -21,6 +22,7 @@
 #include "expr.h"
 #include "emit.h"
 #include "parse.h"
+#include "source_map.h"
 
 #define ASM_MAX_LINE 1024
 
@@ -72,6 +74,14 @@ typedef struct {
 typedef void (*assembler_symbol_cb)(
     const char *name,
     uint16_t address,
+    void *user);
+
+/* Same names as assembler_symbol_cb. `target` is the output redirect of the
+   scope that holds the symbol, or the default target when none redirects. */
+typedef void (*assembler_symbol_target_cb)(
+    const char *name,
+    uint16_t address,
+    TARGET *target,
     void *user);
 
 typedef void (*assembler_segment_adjustment_cb)(
@@ -126,6 +136,12 @@ struct ASSEMBLER {
     /* A .error line was parsed on this pass. assembler_assemble returns
        before pass 2 so nothing is emitted. */
     int explicit_error;
+    /* Set when pass-2 source-map recording could not store a span.
+       Cleared immediately before the emitting assembler_run_pass.
+       assembler_assemble can still return ASM_OK. Hosts must not publish
+       a session image or write a .srcmap while this is set. */
+    int source_map_record_failed;
+    AM65_DYNARRAY source_spans;
     TARGET *active_target;
     AM65_DYNARRAY targets;
     const char *strcode;
@@ -180,11 +196,32 @@ assembler_cpu_profile assembler_get_cpu_profile(const ASSEMBLER *as);
 void assembler_set_auto_adjust_segments(ASSEMBLER *as, int enabled);
 int assembler_assemble(ASSEMBLER *as, const char *input_file, uint16_t address);
 void assembler_walk_symbols(ASSEMBLER *as, assembler_symbol_cb cb, void *user);
+void assembler_walk_symbols_by_target(
+    ASSEMBLER *as,
+    assembler_symbol_target_cb cb,
+    void *user);
+/* One target's SEGMENTS stanza. file_name NULL omits the "-> path" suffix. */
+void assembler_write_target_segments(FILE *fp, TARGET *target, const char *file_name);
 void assembler_walk_segment_adjustments(
     ASSEMBLER *as,
     assembler_segment_adjustment_cb cb,
     void *user);
 void assembler_shutdown(ASSEMBLER *as);
+
+typedef int (*assembler_source_keep_fn)(void *user, uint32_t target_index);
+
+void assembler_source_spans_free(ASSEMBLER *as);
+void assembler_source_spans_reset(ASSEMBLER *as);
+void assembler_source_note_emit(ASSEMBLER *as, uint32_t address);
+size_t assembler_source_span_count(const ASSEMBLER *as);
+const asm_recorded_span *assembler_source_span_at(const ASSEMBLER *as, size_t index);
+/* *out is a new image, including file_count 0 when nothing was kept.
+   ASM_ERR and *out NULL when the recording flag is set or allocation fails. */
+int assembler_copy_source_image(
+    const ASSEMBLER *as,
+    assembler_source_keep_fn keep,
+    void *user,
+    asm_source_image **out);
 
 // Parser-internal hook: substitute an active target/segment start when the
 // auto-adjust retry map contains one.

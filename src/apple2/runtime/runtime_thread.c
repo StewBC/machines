@@ -9,6 +9,7 @@
 #include "message_queue.h"
 #include "runtime_breakpoint_ini.h"
 #include "runtime_assembler.h"
+#include "source_map.h"
 #include "runtime_history_wire.h"
 #include "runtime_inspector.h"
 #include "softswitch.h"
@@ -3665,6 +3666,56 @@ static void runtime_publish_symbols(runtime *rt)
     mutex_unlock(slot->mutex);
 }
 
+static void runtime_source_bump(struct asm_source_publish *source)
+{
+    if (source == NULL) {
+        return;
+    }
+    source->generation++;
+    if (source->generation == 0u) {
+        source->generation = 1u;
+    }
+}
+
+static void runtime_source_install_session(runtime *rt, asm_source_image *session)
+{
+    runtime_symbol_slot *slot;
+
+    if (session == NULL) {
+        return;
+    }
+    if (rt == NULL || rt->symbol_slot.source == NULL) {
+        asm_source_image_free(session);
+        return;
+    }
+    slot = &rt->symbol_slot;
+    mutex_lock(slot->mutex);
+    asm_source_image_free(slot->source->session);
+    slot->source->session = session;
+    runtime_source_bump(slot->source);
+    mutex_unlock(slot->mutex);
+}
+
+static void runtime_source_replace_file_maps(runtime *rt)
+{
+    runtime_symbol_slot *slot;
+    size_t i;
+
+    if (rt == NULL || rt->symbol_slot.source == NULL) {
+        return;
+    }
+    slot = &rt->symbol_slot;
+    mutex_lock(slot->mutex);
+    for (i = 0; i < slot->source->file_map_count; i++) {
+        asm_source_image_free(slot->source->file_maps[i]);
+    }
+    free(slot->source->file_maps);
+    slot->source->file_maps = NULL;
+    slot->source->file_map_count = 0u;
+    runtime_source_bump(slot->source);
+    mutex_unlock(slot->mutex);
+}
+
 static bool runtime_replace_string(char **target, const char *value)
 {
     char *copy = NULL;
@@ -3752,6 +3803,7 @@ static void runtime_load_symbol_files(runtime *rt)
         }
     }
 
+    runtime_source_replace_file_maps(rt);
     runtime_publish_symbols(rt);
 }
 
@@ -3838,6 +3890,8 @@ static void runtime_assemble_file_command(
         }
     }
 
+    asm_source_image *session = NULL;
+
     if (!runtime_assemble_file_ex_options(
             &rt->machine,
             rt->symbols,
@@ -3851,7 +3905,8 @@ static void runtime_assemble_file_command(
             notice,
             sizeof(notice),
             error,
-            sizeof(error))) {
+            sizeof(error),
+            &session)) {
         runtime_publish_assemble_error(
             rt, error[0] != '\0' ? error : "assembly failed");
         return;
@@ -3865,6 +3920,7 @@ static void runtime_assemble_file_command(
             assembled_count,
             apple2_cycles(&rt->machine));
     }
+    runtime_source_install_session(rt, session);
     runtime_publish_symbols(rt);
     if (command->data.assemble_file.auto_run != 0u) {
         bool allow_auto_run = true;

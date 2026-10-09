@@ -26,6 +26,7 @@ target_compile_definitions(a2m PRIVATE
 target_include_directories(a2m PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${SDL2_INCLUDE_DIRS}
+    ${MACHINES_ROOT}/src/shell/tools
 )
 
 # Direct deps only: frontend PUBLIC-links runtime→machine→util and PRIVATE-links
@@ -101,6 +102,13 @@ target_include_directories(${test_disasm_pc_lock} PRIVATE
 target_compile_features(${test_disasm_pc_lock} PRIVATE c_std_99)
 target_link_libraries(${test_disasm_pc_lock} PRIVATE ${tools})
 leftover_add_test(NAME disasm_pc_lock COMMAND ${test_disasm_pc_lock})
+
+leftover_exe(test_asm_source_lookup
+    ${MACHINES_ROOT}/tests/shell/tools/test_asm_source_lookup.c
+)
+target_compile_features(${test_asm_source_lookup} PRIVATE c_std_99)
+target_link_libraries(${test_asm_source_lookup} PRIVATE assembler)
+leftover_add_test(NAME asm_source_lookup COMMAND ${test_asm_source_lookup})
 
 leftover_exe(test_window_title_shell
     ${MACHINES_ROOT}/tests/shell/frontend/test_window_title.c
@@ -626,6 +634,20 @@ target_compile_features(${test_assembler_assertions} PRIVATE c_std_99)
 target_link_libraries(${test_assembler_assertions} PRIVATE assembler)
 leftover_add_test(NAME assembler_assertions COMMAND ${test_assembler_assertions})
 
+leftover_exe(test_assembler_symbols
+    ${MACHINES_ROOT}/tests/apple2/tools/test_assembler_symbols.c
+)
+target_compile_features(${test_assembler_symbols} PRIVATE c_std_99)
+target_link_libraries(${test_assembler_symbols} PRIVATE assembler)
+leftover_add_test(NAME assembler_symbols COMMAND ${test_assembler_symbols})
+
+leftover_exe(test_assembler_source_map
+    ${MACHINES_ROOT}/tests/apple2/tools/test_assembler_source_map.c
+)
+target_compile_features(${test_assembler_source_map} PRIVATE c_std_99)
+target_link_libraries(${test_assembler_source_map} PRIVATE assembler)
+leftover_add_test(NAME assembler_source_map COMMAND ${test_assembler_source_map})
+
 leftover_exe(test_assembler_targets
     ${MACHINES_ROOT}/tests/apple2/tools/test_assembler_targets.c
 )
@@ -675,6 +697,8 @@ leftover_exe(test_runtime_assembler
     ${MACHINES_ROOT}/tests/apple2/runtime/test_runtime_assembler.c
 )
 target_compile_features(${test_runtime_assembler} PRIVATE c_std_99)
+target_include_directories(${test_runtime_assembler} PRIVATE
+    ${MACHINES_ROOT}/src/shell/tools)
 target_link_libraries(${test_runtime_assembler} PRIVATE ${runtime} SDL2::SDL2)
 leftover_add_test(NAME runtime_assembler COMMAND ${test_runtime_assembler})
 
@@ -728,6 +752,13 @@ leftover_add_test(
         -DASM=${MACHINES_ROOT}/tests/apple2/fixtures/am65_prg.asm
         -DOUT=${CMAKE_BINARY_DIR}/am65_cli_prg.prg
         -P ${MACHINES_ROOT}/tests/apple2/fixtures/am65_prg_check.cmake
+)
+leftover_add_test(
+    NAME am65_cli_symbols
+    COMMAND ${CMAKE_COMMAND}
+        -DAM65=$<TARGET_FILE:am65>
+        -DWORK=${CMAKE_BINARY_DIR}/am65_symbol_cli
+        -P ${MACHINES_ROOT}/tests/apple2/fixtures/am65_symbol_cli_check.cmake
 )
 
 # frontend_help.c was replaced by help_view + generated content in the wholesale

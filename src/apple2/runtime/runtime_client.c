@@ -2,6 +2,7 @@
 
 #include "runtime_command.h"
 #include "runtime_internal.h"
+#include "source_map.h"
 #include "message_queue.h"
 #include "mutex.h"
 
@@ -769,6 +770,35 @@ bool runtime_client_poll_symbols(runtime_client *client, runtime_symbol_snapshot
 
     *out = slot->snapshot;
     slot->has_symbols = false;
+    mutex_unlock(slot->mutex);
+    return true;
+}
+
+bool runtime_client_copy_source_if_changed(
+    runtime_client *client,
+    struct asm_source_publish *out,
+    uint32_t *inout_generation)
+{
+    runtime_symbol_slot *slot;
+    struct asm_source_publish *src;
+    uint32_t generation;
+
+    if (client == NULL || out == NULL || inout_generation == NULL || client->symbol_slot == NULL) {
+        return false;
+    }
+    slot = client->symbol_slot;
+    mutex_lock(slot->mutex);
+    src = slot->source;
+    if (src == NULL || src->generation == *inout_generation) {
+        mutex_unlock(slot->mutex);
+        return false;
+    }
+    generation = src->generation;
+    if (asm_source_publish_clone(src, out) != 0) {
+        mutex_unlock(slot->mutex);
+        return false;
+    }
+    *inout_generation = generation;
     mutex_unlock(slot->mutex);
     return true;
 }

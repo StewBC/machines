@@ -351,6 +351,213 @@ static int test_predefine_detection(void) {
     return failures;
 }
 
+typedef struct sink_image {
+    char file[64];
+    struct sink_image *sink;
+} sink_image;
+
+typedef struct {
+    ASSEMBLER *as;
+    sink_image def;
+    sink_image *opened[8];
+    int opened_count;
+} sink_host;
+
+typedef struct {
+    char name[64];
+    uint16_t address;
+    sink_image *image;
+} owned_symbol;
+
+typedef struct {
+    owned_symbol items[16];
+    int count;
+} owned_list;
+
+static void sink_output_byte(void *target, uint16_t addr, uint8_t val) {
+    sink_image *img = (sink_image *)target;
+    (void)addr;
+    (void)val;
+    if(img && img->sink) {
+        img = img->sink;
+    }
+    (void)img;
+}
+
+static void *sink_target_open(void *user, const char *name, int name_len,
+                              const char *path, int path_len,
+                              const char *dest, int dest_len,
+                              assembler_output_format format) {
+    sink_host *host = (sink_host *)user;
+    sink_image *parent = NULL;
+    sink_image *img;
+    (void)name;
+    (void)name_len;
+    (void)dest;
+    (void)dest_len;
+    (void)format;
+    if(host->as && host->as->active_target) {
+        parent = (sink_image *)host->as->active_target->ctx;
+    }
+    img = calloc(1, sizeof(*img));
+    if(!img) {
+        return NULL;
+    }
+    if(path && path_len > 0 && path_len < (int)sizeof(img->file)) {
+        memcpy(img->file, path, (size_t)path_len);
+        img->sink = img;
+    } else {
+        img->sink = parent ? parent : img;
+    }
+    if(host->opened_count < 8) {
+        host->opened[host->opened_count++] = img;
+    }
+    return img;
+}
+
+static void sink_target_release(void *user, void *target) {
+    (void)user;
+    (void)target;
+}
+
+static void collect_owned(const char *name, uint16_t address, TARGET *target, void *user) {
+    owned_list *seen = (owned_list *)user;
+    if(seen->count >= (int)(sizeof(seen->items) / sizeof(seen->items[0]))) {
+        seen->count++;
+        return;
+    }
+    snprintf(seen->items[seen->count].name, sizeof(seen->items[seen->count].name), "%s", name);
+    seen->items[seen->count].address = address;
+    seen->items[seen->count].image = target ? (sink_image *)target->ctx : NULL;
+    seen->count++;
+}
+
+static const owned_symbol *find_owned(const owned_list *seen, const char *name) {
+    int i;
+    for(i = 0; i < seen->count && i < (int)(sizeof(seen->items) / sizeof(seen->items[0])); i++) {
+        if(0 == strcmp(seen->items[i].name, name)) {
+            return &seen->items[i];
+        }
+    }
+    return NULL;
+}
+
+static sink_image *find_opened(sink_host *host, const char *file) {
+    int i;
+    for(i = 0; i < host->opened_count; i++) {
+        if(0 == strcmp(host->opened[i]->file, file)) {
+            return host->opened[i];
+        }
+    }
+    return NULL;
+}
+
+// Two file= programs at the same origin keep their own labels. A dest-only
+// scope records the parent image as its sink, so the host can file that
+// symbol with the parent output.
+static int test_symbol_partition_by_target(void) {
+    char path[128];
+    sink_host host;
+    owned_list seen;
+    ERRORLOG log;
+    CB_ASM_CTX cb;
+    ASSEMBLER as;
+    const owned_symbol *one_label;
+    const owned_symbol *two_label;
+    const owned_symbol *inner_label;
+    const owned_symbol *one_equ;
+    sink_image *one;
+    sink_image *two;
+    int failures = 0;
+    int i;
+    const char *source =
+        "* = $c000\n"
+        "root_label: nop\n"
+        ".scope one file=\"one.bin\"\n"
+        "    * = $c000\n"
+        "    one_label: nop\n"
+        "    one_equ = $1111\n"
+        "    .scope inner dest=\"aux\"\n"
+        "        inner_label: nop\n"
+        "    .endscope\n"
+        ".endscope\n"
+        ".scope two file=\"two.bin\"\n"
+        "    * = $c000\n"
+        "    two_label: nop\n"
+        ".endscope\n";
+
+    memset(&host, 0, sizeof(host));
+    memset(&seen, 0, sizeof(seen));
+    host.def.sink = &host.def;
+    if(c64m_test_write_temp_file(path, sizeof(path), "c64m_asm_sympart", source) != 0) {
+        return 1;
+    }
+    errlog_init(&log);
+    memset(&cb, 0, sizeof(cb));
+    cb.user = &host;
+    cb.default_target = &host.def;
+    cb.output_byte = sink_output_byte;
+    cb.target_open = sink_target_open;
+    cb.target_release = sink_target_release;
+    if(assembler_init(&as, &log, &cb) != ASM_OK) {
+        fprintf(stderr, "partition assembler_init failed\n");
+        errlog_shutdown(&log);
+        c64m_test_remove_file(path);
+        return 1;
+    }
+    host.as = &as;
+    if(assembler_assemble(&as, path, 0) != ASM_OK) {
+        fprintf(stderr, "partition assembly failed\n");
+        for(size_t n = 0; n < log.log_array.items; n++) {
+            ERROR_ENTRY *e = AM65_ARRAY_GET(&log.log_array, ERROR_ENTRY, n);
+            fprintf(stderr, "  %s\n", e && e->err_str ? e->err_str : "");
+        }
+        failures++;
+    } else {
+        assembler_walk_symbols_by_target(&as, collect_owned, &seen);
+    }
+    assembler_shutdown(&as);
+    errlog_shutdown(&log);
+    c64m_test_remove_file(path);
+
+    one = find_opened(&host, "one.bin");
+    two = find_opened(&host, "two.bin");
+    one_label = find_owned(&seen, "one::one_label");
+    two_label = find_owned(&seen, "two::two_label");
+    inner_label = find_owned(&seen, "one::inner::inner_label");
+    one_equ = find_owned(&seen, "one::one_equ");
+    if(!one || !two || one == two) {
+        fprintf(stderr, "partition did not open distinct file targets\n");
+        failures++;
+    }
+    if(!one_label || one_label->address != 0xC000 || !one || one_label->image != one ||
+       one_label->image->sink != one) {
+        fprintf(stderr, "one_label was not owned by one.bin\n");
+        failures++;
+    }
+    if(!two_label || two_label->address != 0xC000 || !two || two_label->image != two) {
+        fprintf(stderr, "two_label was not owned by two.bin\n");
+        failures++;
+    }
+    if(one_label && two_label && one_label->image == two_label->image) {
+        fprintf(stderr, "same-origin labels shared one target\n");
+        failures++;
+    }
+    if(!one_equ || one_equ->address != 0x1111 || !one || one_equ->image != one) {
+        fprintf(stderr, "one_equ was not owned by one.bin\n");
+        failures++;
+    }
+    if(!inner_label || !one || inner_label->image == NULL || inner_label->image == one ||
+       inner_label->image->sink != one) {
+        fprintf(stderr, "dest-only inner_label did not record the parent sink\n");
+        failures++;
+    }
+    for(i = 0; i < host.opened_count; i++) {
+        free(host.opened[i]);
+    }
+    return failures;
+}
+
 int main(void) {
     int failures = 0;
 
@@ -359,6 +566,7 @@ int main(void) {
     failures += test_scope_file_prg_exclusive();
     failures += test_scope_file_unsupported();
     failures += test_predefine_detection();
+    failures += test_symbol_partition_by_target();
 
     return failures == 0 ? 0 : 1;
 }

@@ -21,6 +21,7 @@
 #include "disk_led_data.h"
 #include "disasm_6502.h"
 #include "disasm_pc_lock.h"
+#include "source_map.h"
 #include "platform_fs.h"
 #include "runtime.h"
 #include "runtime_history.h"
@@ -196,6 +197,13 @@ typedef struct frontend_disassembly_view_state {
     runtime_memory_snapshot snapshot;
     frontend_disassembly_line lines[FRONTEND_DISASM_MAX_ROWS];
     frontend_disasm_cache mem_cache[FRONTEND_DISASM_MODE_CACHE_COUNT];
+    bool assembly_mode;
+    uint32_t source_top_line; /* 0-based index of the first visible source line */
+    uint32_t source_view_which;
+    uint32_t source_map_index;
+    uint32_t source_file_index;
+    uint32_t source_cursor_line;
+    uint32_t source_generation;
 } frontend_disassembly_view_state;
 
 static uint64_t frontend_disassembly_write_history_at(
@@ -402,6 +410,7 @@ struct frontend {
     frontend_context_popup_state disassembly_context_popup;
     bool memory_color_slot_used[MEMORY_VIEW_MAX];
     frontend_disassembly_view_state disassembly;
+    const struct asm_source_publish *assembly_source;
     frontend_misc_view_state misc;
     struct {
         bool open;
@@ -3899,6 +3908,192 @@ static void frontend_disassembly_apply_address_digit(frontend *ui, int digit)
     }
 }
 
+static void frontend_toggle_execute_breakpoint_at_address(
+    frontend *ui,
+    const frontend_debug_state *debug_state,
+    uint16_t address)
+{
+    const runtime_breakpoint_snapshot_entry *entry;
+
+    if (ui == NULL) {
+        return;
+    }
+    entry = frontend_find_execute_breakpoint(debug_state, address);
+    if (entry != NULL) {
+        frontend_push_breakpoint_id_intent(
+            ui,
+            FRONTEND_DEBUGGER_INTENT_BREAKPOINT_CLEAR,
+            entry->id,
+            false);
+        return;
+    }
+    frontend_push_debugger_intent(
+        ui, FRONTEND_DEBUGGER_INTENT_BREAKPOINT_SET_EXECUTE, address);
+}
+
+static const asm_source_image *frontend_assembly_image(const frontend *ui)
+{
+    const frontend_disassembly_view_state *view;
+
+    if (ui == NULL) {
+        return NULL;
+    }
+    view = &ui->disassembly;
+    return asm_source_view_image(
+        ui->assembly_source, view->source_view_which, view->source_map_index);
+}
+
+static uint32_t frontend_assembly_line_count(const frontend *ui)
+{
+    const frontend_disassembly_view_state *view;
+
+    if (ui == NULL) {
+        return 0u;
+    }
+    view = &ui->disassembly;
+    return (uint32_t)asm_source_file_line_count(
+        frontend_assembly_image(ui), view->source_file_index);
+}
+
+static int frontend_assembly_line_address(
+    const frontend *ui,
+    const frontend_debug_state *debug_state,
+    uint16_t *out_address)
+{
+    const frontend_disassembly_view_state *view;
+    int has_span = 0;
+    uint16_t pc = 0u;
+    uint16_t gutter;
+
+    if (ui == NULL || ui->disassembly.source_cursor_line == 0u) {
+        return 0;
+    }
+    view = &ui->disassembly;
+    if (debug_state != NULL && debug_state->has_cpu) {
+        pc = debug_state->cpu.pc;
+    }
+    gutter = asm_source_line_gutter(
+        frontend_assembly_image(ui),
+        view->source_file_index,
+        view->source_cursor_line,
+        pc,
+        &has_span);
+    if (!has_span) {
+        return 0;
+    }
+    if (out_address != NULL) {
+        *out_address = gutter;
+    }
+    return 1;
+}
+
+static void frontend_assembly_clamp_top(
+    frontend_disassembly_view_state *view,
+    uint32_t line_count)
+{
+    uint32_t visible;
+    uint32_t max_top;
+
+    if (view == NULL) {
+        return;
+    }
+    visible = view->rows > 0u ? view->rows : 1u;
+    max_top = line_count > visible ? line_count - visible : 0u;
+    if (view->source_top_line > max_top) {
+        view->source_top_line = max_top;
+    }
+}
+
+static void frontend_disassembly_handle_assembly_key(
+    frontend *ui,
+    const frontend_debug_state *debug_state,
+    SDL_Keycode sym,
+    bool alt,
+    bool shift)
+{
+    frontend_disassembly_view_state *view;
+    uint32_t line_count;
+    uint32_t visible;
+    uint16_t address;
+
+    if (ui == NULL) {
+        return;
+    }
+    view = &ui->disassembly;
+    if (sym == SDLK_F9 || sym == SDLK_F10 || sym == SDLK_F11 || sym == SDLK_F12) {
+        return;
+    }
+    if (alt && sym == SDLK_b) {
+        if (frontend_assembly_line_address(ui, debug_state, &address)) {
+            frontend_toggle_execute_breakpoint_at_address(ui, debug_state, address);
+        }
+        return;
+    }
+    if (alt && sym == SDLK_s) {
+        symbol_lookup_view_open(&ui->symbol_lookup, ui->symbol_table, false);
+        symbol_lookup_view_set_sources(
+            &ui->symbol_lookup, ui->symbol_sources, ui->symbol_source_count);
+        return;
+    }
+    if (alt && !shift && (sym == SDLK_a || sym == SDLK_m)) {
+        return;
+    }
+    if (alt && !shift && sym == SDLK_LEFT) {
+        if (debug_state != NULL &&
+            debug_state->runtime_state == FRONTEND_RUNTIME_STATE_PAUSED &&
+            !debug_state->inspecting &&
+            frontend_assembly_line_address(ui, debug_state, &address)) {
+            frontend_push_debugger_intent(
+                ui, FRONTEND_DEBUGGER_INTENT_REGISTER_SET_PC, address);
+        }
+        return;
+    }
+    line_count = frontend_assembly_line_count(ui);
+    visible = view->rows > 0u ? view->rows : 1u;
+    if (sym == SDLK_UP) {
+        if (view->source_cursor_line > 1u) {
+            view->source_cursor_line--;
+            view->follow_pc = false;
+        }
+        return;
+    }
+    if (sym == SDLK_DOWN) {
+        if (view->source_cursor_line == 0u && line_count > 0u) {
+            view->source_cursor_line = 1u;
+            view->follow_pc = false;
+        } else if (view->source_cursor_line > 0u && view->source_cursor_line < line_count) {
+            view->source_cursor_line++;
+            view->follow_pc = false;
+        }
+        return;
+    }
+    if (sym == SDLK_PAGEUP) {
+        if (view->source_top_line > visible) {
+            view->source_top_line -= visible;
+        } else {
+            view->source_top_line = 0u;
+        }
+        view->follow_pc = false;
+        return;
+    }
+    if (sym == SDLK_PAGEDOWN) {
+        uint32_t max_top = line_count > visible ? line_count - visible : 0u;
+        uint32_t next = view->source_top_line + visible;
+
+        if (next > max_top) {
+            next = max_top;
+        }
+        view->source_top_line = next;
+        view->follow_pc = false;
+        return;
+    }
+    if (sym == SDLK_RIGHT) {
+        view->follow_pc = true;
+        return;
+    }
+}
+
+
 static void frontend_disassembly_handle_key(
     frontend *ui,
     const frontend_debug_state *debug_state,
@@ -3923,6 +4118,18 @@ static void frontend_disassembly_handle_key(
     mod = key->keysym.mod;
     alt = (mod & KMOD_ALT) != 0;
     shift = (mod & KMOD_SHIFT) != 0;
+
+    if (alt && !shift && sym == SDLK_o) {
+        view->assembly_mode = !view->assembly_mode;
+        if (view->assembly_mode) {
+            view->follow_pc = true;
+        }
+        return;
+    }
+    if (view->assembly_mode) {
+        frontend_disassembly_handle_assembly_key(ui, debug_state, sym, alt, shift);
+        return;
+    }
 
     if (alt && sym == SDLK_b) {
         frontend_disassembly_ensure_user_cursor(ui, debug_state);
@@ -4573,8 +4780,293 @@ static void frontend_disasm_draw_context(
         state->source_id = (uint32_t)mode;
         state->request_pending = false;
     }
+    if (frontend_context_menu_item(ui->ctx, "Assembly")) {
+        ui->disassembly.assembly_mode = !ui->disassembly.assembly_mode;
+        if (ui->disassembly.assembly_mode) {
+            ui->disassembly.follow_pc = true;
+        }
+        close_popup = true;
+    }
     frontend_context_popup_end(ui, &ui->disassembly_context_popup, close_popup);
 }
+
+static void frontend_assembly_scrollbar(
+    frontend *ui,
+    frontend_disassembly_view_state *view,
+    struct nk_rect bounds,
+    uint32_t line_count,
+    uint32_t visible,
+    bool running)
+{
+    struct nk_command_buffer *canvas;
+    struct nk_rect track;
+    struct nk_rect thumb;
+    const struct nk_mouse *mouse;
+    float fraction;
+    float thumb_h;
+    float usable;
+    float thumb_y;
+    uint32_t max_top;
+
+    if (ui == NULL || view == NULL || bounds.h <= 0.0f) {
+        return;
+    }
+    canvas = nk_window_get_canvas(ui->ctx);
+    mouse = &ui->ctx->input.mouse;
+    track = nk_rect(bounds.x + 2.0f, bounds.y + 2.0f, bounds.w - 4.0f, bounds.h - 4.0f);
+    max_top = line_count > visible ? line_count - visible : 0u;
+    fraction = line_count == 0u ? 1.0f : (float)visible / (float)line_count;
+    if (fraction > 1.0f) {
+        fraction = 1.0f;
+    }
+    thumb_h = track.h * fraction;
+    if (thumb_h < 16.0f) {
+        thumb_h = 16.0f;
+    }
+    if (thumb_h > track.h) {
+        thumb_h = track.h;
+    }
+    usable = track.h - thumb_h;
+    thumb_y = track.y;
+    if (max_top > 0u && usable > 0.0f) {
+        thumb_y += usable * ((float)view->source_top_line / (float)max_top);
+    }
+    thumb = nk_rect(track.x + 2.0f, thumb_y, track.w - 4.0f, thumb_h);
+    nk_fill_rect(canvas, track, 0.0f, nk_rgb(20, 24, 28));
+    nk_fill_rect(canvas, thumb, 0.0f, nk_rgb(70, 78, 86));
+    if (running) {
+        view->scrollbar_dragging = false;
+        return;
+    }
+    if (!view->scrollbar_dragging &&
+        nk_input_is_mouse_hovering_rect(&ui->ctx->input, thumb) &&
+        nk_input_is_mouse_down(&ui->ctx->input, NK_BUTTON_LEFT)) {
+        view->scrollbar_dragging = true;
+        view->scrollbar_grab_offset = mouse->pos.y - thumb.y;
+        frontend_disasm_set_active(ui);
+    }
+    if (!view->scrollbar_dragging) {
+        return;
+    }
+    if (!nk_input_is_mouse_down(&ui->ctx->input, NK_BUTTON_LEFT)) {
+        view->scrollbar_dragging = false;
+        return;
+    }
+    if (usable > 0.0f && max_top > 0u) {
+        float y = mouse->pos.y - view->scrollbar_grab_offset - track.y;
+        float t = y / usable;
+
+        if (t < 0.0f) {
+            t = 0.0f;
+        }
+        if (t > 1.0f) {
+            t = 1.0f;
+        }
+        view->source_top_line = (uint32_t)(t * (float)max_top + 0.5f);
+        if (view->source_top_line > max_top) {
+            view->source_top_line = max_top;
+        }
+        view->follow_pc = false;
+    }
+}
+
+void frontend_set_assembly_source(frontend *ui, const struct asm_source_publish *source)
+{
+    if (ui == NULL) {
+        return;
+    }
+    ui->assembly_source = source;
+}
+
+static void frontend_draw_assembly_view(
+    frontend *ui,
+    struct nk_rect bounds,
+    const frontend_debug_state *debug_state)
+{
+    frontend_disassembly_view_state *view;
+    asm_source_view_state sync;
+    const asm_source_image *image;
+    disasm_pane_state pane;
+    const struct nk_user_font *font;
+    float row_h;
+    float content_h;
+    float scrollbar_w = 24.0f;
+    float scrollbar_margin = 8.0f;
+    uint32_t visible;
+    uint32_t line_count;
+    uint32_t row;
+    bool running;
+    bool has_cpu;
+    uint16_t pc = 0u;
+    bool any_dialog = false;
+
+    if (ui == NULL) {
+        return;
+    }
+    view = &ui->disassembly;
+    running = debug_state != NULL &&
+        debug_state->runtime_state == FRONTEND_RUNTIME_STATE_RUNNING;
+    has_cpu = debug_state != NULL && debug_state->has_cpu;
+    if (has_cpu) {
+        pc = debug_state->cpu.pc;
+    }
+    font = ui->ctx->style.font;
+    row_h = font != NULL ? font->height : 13.0f;
+    content_h = bounds.h - 28.0f;
+    visible = (uint32_t)((content_h > row_h) ? (content_h / row_h) : 1.0f);
+    if (visible > 1u) {
+        visible--;
+    }
+    if (visible == 0u) {
+        visible = 1u;
+    }
+    if (visible > DISASM_PC_LOCK_MAX_ROWS) {
+        visible = DISASM_PC_LOCK_MAX_ROWS;
+    }
+    /* A paused step re-engages follow so the PC line stays on screen. */
+    if (has_cpu && view->has_last_pc && view->last_pc != pc) {
+        view->follow_pc = true;
+    }
+    if (has_cpu) {
+        view->last_pc = pc;
+        view->has_last_pc = true;
+    }
+    memset(&sync, 0, sizeof(sync));
+    sync.follow_pc = view->follow_pc ? 1 : 0;
+    sync.which = view->source_view_which;
+    sync.map_index = view->source_map_index;
+    sync.file_index = view->source_file_index;
+    sync.cursor_line = view->source_cursor_line;
+    sync.top_line = view->source_top_line;
+    sync.source_generation = view->source_generation;
+    image = asm_source_view_sync(
+        ui->assembly_source,
+        &sync,
+        running ? 1 : 0,
+        has_cpu ? 1 : 0,
+        pc,
+        visible);
+    view->follow_pc = sync.follow_pc != 0;
+    view->source_view_which = sync.which;
+    view->source_map_index = sync.map_index;
+    view->source_file_index = sync.file_index;
+    view->source_cursor_line = sync.cursor_line;
+    view->source_top_line = sync.top_line;
+    view->source_generation = sync.source_generation;
+    if (!running &&
+        nk_input_is_mouse_hovering_rect(&ui->ctx->input, bounds) &&
+        ui->ctx->input.mouse.scroll_delta.y != 0.0f) {
+        int32_t lines = ui->ctx->input.mouse.scroll_delta.y > 0.0f ? -3 : 3;
+
+        if (lines < 0 && view->source_top_line < (uint32_t)(-lines)) {
+            view->source_top_line = 0u;
+        } else {
+            view->source_top_line = (uint32_t)((int32_t)view->source_top_line + lines);
+        }
+        view->follow_pc = false;
+    }
+    line_count = image == NULL ? 0u :
+        (uint32_t)asm_source_file_line_count(image, view->source_file_index);
+    frontend_assembly_clamp_top(view, line_count);
+    view->rows = (uint8_t)visible;
+
+    if (nk_begin(ui->ctx, "Disassembly", bounds, pane_flags)) {
+        struct nk_style_window saved_window_style = ui->ctx->style.window;
+
+        any_dialog = frontend_disasm_any_dialog(ui);
+        ui->ctx->style.window.padding = nk_vec2(0.0f, 0.0f);
+        ui->ctx->style.window.spacing = nk_vec2(0.0f, 0.0f);
+        ui->ctx->style.window.group_padding = nk_vec2(0.0f, 0.0f);
+        nk_layout_row_begin(ui->ctx, NK_STATIC, row_h * (float)visible, 3);
+        nk_layout_row_push(ui->ctx, bounds.w - scrollbar_w - scrollbar_margin);
+        if (nk_group_begin(ui->ctx, "assembly-rows", NK_WINDOW_NO_SCROLLBAR)) {
+            if (image == NULL) {
+                nk_layout_row_dynamic(ui->ctx, row_h, 1);
+                nk_label(ui->ctx, "No assembly source", NK_TEXT_LEFT);
+            }
+            for (row = 0; image != NULL && row < visible; row++) {
+                uint32_t line = view->source_top_line + row + 1u;
+                char rendered[1024];
+                struct nk_rect row_bounds;
+                struct nk_style_selectable saved_selectable;
+                nk_bool selected;
+                int is_pc_line;
+
+                rendered[0] = '\0';
+                if (line <= line_count) {
+                    asm_source_format_row(
+                        image,
+                        view->source_file_index,
+                        line,
+                        has_cpu ? 1 : 0,
+                        pc,
+                        rendered,
+                        sizeof(rendered));
+                }
+                is_pc_line = rendered[0] != '\0' && rendered[5] == '>';
+                selected = line == view->source_cursor_line ? nk_true : nk_false;
+                saved_selectable = ui->ctx->style.selectable;
+                if (is_pc_line) {
+                    ui->ctx->style.selectable.normal = nk_style_item_color(nk_rgb(83, 73, 24));
+                    ui->ctx->style.selectable.text_normal = nk_rgb(255, 244, 120);
+                }
+                if (selected) {
+                    ui->ctx->style.selectable.normal_active = nk_style_item_color(nk_rgb(21, 91, 116));
+                    ui->ctx->style.selectable.text_normal_active = nk_rgb(226, 246, 255);
+                }
+                nk_layout_row_dynamic(ui->ctx, row_h, 1);
+                row_bounds = nk_widget_bounds(ui->ctx);
+                if (!running && line > 0u && line <= line_count &&
+                    nk_input_is_mouse_pressed(&ui->ctx->input, NK_BUTTON_LEFT) &&
+                    nk_input_is_mouse_hovering_rect(&ui->ctx->input, row_bounds)) {
+                    frontend_disasm_set_active(ui);
+                    view->source_cursor_line = line;
+                    view->follow_pc = false;
+                    selected = nk_true;
+                }
+                if (nk_selectable_label(
+                        ui->ctx,
+                        rendered[0] != '\0' ? rendered : " ",
+                        NK_TEXT_LEFT,
+                        &selected) &&
+                    !running && line > 0u && line <= line_count) {
+                    frontend_disasm_set_active(ui);
+                    view->source_cursor_line = line;
+                    view->follow_pc = false;
+                }
+                ui->ctx->style.selectable = saved_selectable;
+            }
+            nk_group_end(ui->ctx);
+        }
+        nk_layout_row_push(ui->ctx, scrollbar_w);
+        if (nk_group_begin(ui->ctx, "assembly-scrollbar", NK_WINDOW_NO_SCROLLBAR)) {
+            frontend_assembly_scrollbar(
+                ui,
+                view,
+                nk_window_get_content_region(ui->ctx),
+                line_count,
+                visible,
+                running);
+            nk_group_end(ui->ctx);
+        }
+        nk_layout_row_push(ui->ctx, scrollbar_margin);
+        nk_spacing(ui->ctx, 1);
+        nk_layout_row_end(ui->ctx);
+        if (nk_input_is_mouse_click_in_rect(&ui->ctx->input, NK_BUTTON_RIGHT, bounds)) {
+            frontend_disasm_open_context(ui);
+        }
+        memset(&pane, 0, sizeof(pane));
+        pane.source_id = (uint32_t)view->mode;
+        frontend_disasm_draw_context(ui, ui->ctx, &pane);
+        view->mode = (runtime_memory_mode)pane.source_id;
+        if (!any_dialog && frontend_disasm_is_active(ui)) {
+            debugger_draw_active_view_border(ui->ctx);
+        }
+        ui->ctx->style.window = saved_window_style;
+    }
+    nk_end(ui->ctx);
+}
+
 
 static void frontend_draw_disassembly_view(
     frontend *ui,
@@ -4597,6 +5089,10 @@ static void frontend_draw_disassembly_view(
             frontend_disassembly_handle_key(ui, debug_state, &ui->pending_disassembly_key);
         }
         ui->has_pending_disassembly_key = false;
+    }
+    if (ui->disassembly.assembly_mode) {
+        frontend_draw_assembly_view(ui, bounds, debug_state);
+        return;
     }
     frontend_disassembly_request_if_needed(ui, debug_state);
     memset(&pane, 0, sizeof(pane));
@@ -7854,6 +8350,7 @@ frontend *frontend_create(platform_window *window)
     if (ui == NULL) {
         return NULL;
     }
+    ui->disassembly.follow_pc = true;
 
     ui->window = window;
     ui->renderer = sdl_renderer;

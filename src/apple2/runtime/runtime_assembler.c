@@ -397,6 +397,76 @@ static bool runtime_assembler_flush_file_target(
     return true;
 }
 
+typedef struct runtime_symbol_dump {
+    FILE *fp;
+    assembler_output_target *owner;
+} runtime_symbol_dump;
+
+static void runtime_assembler_dump_symbol(
+    const char *name,
+    uint16_t address,
+    TARGET *symbol_target,
+    void *user) {
+    runtime_symbol_dump *ctx = (runtime_symbol_dump *)user;
+    assembler_output_target *owned;
+
+    if (ctx == NULL || ctx->fp == NULL || symbol_target == NULL ||
+        symbol_target->ctx == NULL) {
+        return;
+    }
+    owned = (assembler_output_target *)symbol_target->ctx;
+    if (!owned->write_file || owned != ctx->owner) {
+        return;
+    }
+    fprintf(ctx->fp, "%04X  %s\n", address, name);
+}
+
+static bool runtime_assembler_write_symbol_file(
+    ASSEMBLER *assembler,
+    TARGET *target,
+    assembler_output_target *output,
+    char *error,
+    size_t error_size) {
+    char *path;
+    size_t len;
+    FILE *fp;
+    runtime_symbol_dump ctx;
+
+    if (output == NULL || output->file_path == NULL) {
+        return true;
+    }
+    len = strlen(output->file_path);
+    path = (char *)malloc(len + 5u);
+    if (path == NULL) {
+        if (error != NULL && error_size > 0) {
+            snprintf(error, error_size, "out of memory writing symbol file");
+        }
+        return false;
+    }
+    memcpy(path, output->file_path, len);
+    memcpy(path + len, ".sym", 5);
+    fp = fopen(path, "w");
+    if (fp == NULL) {
+        if (error != NULL && error_size > 0) {
+            snprintf(
+                error,
+                error_size,
+                "could not write assembler symbol file %s",
+                path);
+        }
+        free(path);
+        return false;
+    }
+    ctx.fp = fp;
+    ctx.owner = output;
+    assembler_walk_symbols_by_target(
+        assembler, runtime_assembler_dump_symbol, &ctx);
+    assembler_write_target_segments(fp, target, output->file_path);
+    fclose(fp);
+    free(path);
+    return true;
+}
+
 static bool runtime_assembler_flush_files(
     ASSEMBLER *assembler,
     char *error,
@@ -417,6 +487,12 @@ static bool runtime_assembler_flush_files(
         output = (assembler_output_target *)target->ctx;
         if (!runtime_assembler_flush_file_target(output, error, error_size)) {
             return false;
+        }
+        if (output->write_file && output->file_path != NULL && output->wrote_file_any) {
+            if (!runtime_assembler_write_symbol_file(
+                    assembler, target, output, error, error_size)) {
+                return false;
+            }
         }
     }
     return true;
@@ -577,6 +653,23 @@ static void runtime_assembler_format_adjustment(
     }
 }
 
+static int runtime_source_keep_memory(void *user, uint32_t target_index)
+{
+    const ASSEMBLER *as = (const ASSEMBLER *)user;
+    TARGET *target;
+    const assembler_output_target *out;
+
+    if (as == NULL || target_index >= as->targets.items) {
+        return 0;
+    }
+    target = *AM65_ARRAY_GET((AM65_DYNARRAY *)&as->targets, TARGET *, target_index);
+    if (target == NULL || target->ctx == NULL) {
+        return 0;
+    }
+    out = (const assembler_output_target *)target->ctx;
+    return out->write_memory ? 1 : 0;
+}
+
 static bool runtime_assemble_file_legacy_ex(
     void *machine,
     symbol_table *symbols,
@@ -590,9 +683,12 @@ static bool runtime_assemble_file_legacy_ex(
     char *notice,
     size_t notice_size,
     char *error,
-    size_t error_size) {
+    size_t error_size,
+    struct asm_source_image **out_session) {
     ERRORLOG log;
     ASSEMBLER assembler;
+    asm_source_image *session_image = NULL;
+    int assemble_result;
     assembler_output_stats output_stats;
     assembler_output_target default_target;
     assembler_host_ctx host_ctx;
@@ -602,6 +698,9 @@ static bool runtime_assemble_file_legacy_ex(
         "map", "main", "aux", "lc1", "lc2"
     };
 
+    if (out_session != NULL) {
+        *out_session = NULL;
+    }
     if (error != NULL && error_size > 0) {
         error[0] = '\0';
     }
@@ -655,8 +754,18 @@ static bool runtime_assemble_file_legacy_ex(
         &assembler,
         options != NULL && options->auto_adjust_segments);
 
-    if (assembler_assemble(&assembler, path, address) == ASM_OK) {
+    assemble_result = assembler_assemble(&assembler, path, address);
+    if (assemble_result == ASM_OK) {
         ok = true;
+        if (out_session != NULL && !assembler.source_map_record_failed) {
+            if (assembler_copy_source_image(
+                    &assembler,
+                    runtime_source_keep_memory,
+                    &assembler,
+                    &session_image) != ASM_OK) {
+                session_image = NULL;
+            }
+        }
         if (!runtime_assembler_flush_files(&assembler, error, error_size)) {
             ok = false;
         }
@@ -691,6 +800,13 @@ static bool runtime_assemble_file_legacy_ex(
 
     assembler_shutdown(&assembler);
     errlog_shutdown(&log);
+    if (!ok) {
+        asm_source_image_free(session_image);
+        session_image = NULL;
+    }
+    if (out_session != NULL) {
+        *out_session = session_image;
+    }
     if (ok) {
         if (out_start_address != NULL) {
             *out_start_address =
@@ -729,7 +845,8 @@ bool runtime_assemble_file_legacy(
         NULL,
         0,
         error,
-        error_size);
+        error_size,
+        NULL);
 }
 
 bool runtime_assemble_file(
@@ -767,7 +884,8 @@ bool runtime_assemble_file_ex(
         NULL,
         0,
         error,
-        error_size);
+        error_size,
+        NULL);
 }
 
 bool runtime_assemble_file_ex_options(
@@ -783,7 +901,8 @@ bool runtime_assemble_file_ex_options(
     char *notice,
     size_t notice_size,
     char *error,
-    size_t error_size) {
+    size_t error_size,
+    struct asm_source_image **out_session) {
     return runtime_assemble_file_legacy_ex(
         machine,
         symbols,
@@ -797,5 +916,6 @@ bool runtime_assemble_file_ex_options(
         notice,
         notice_size,
         error,
-        error_size);
+        error_size,
+        out_session);
 }

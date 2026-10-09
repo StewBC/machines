@@ -19,6 +19,7 @@
 #include "platform_audio.h"
 #include "runtime.h"
 #include "runtime_client.h"
+#include "am65/source_map.h"
 #include "runtime_history_wire.h"
 #include "runtime_slot_resolve.h"
 #include "version.h"
@@ -3617,6 +3618,16 @@ int main(int argc, char **argv)
                 }
                 if (got && ui != NULL) {
                     frontend_update_symbols(ui, symbol_poll_buf);
+                }
+            }
+            {
+                static asm_source_publish assembly_source;
+                static uint32_t assembly_generation = 0u;
+
+                (void)runtime_client_copy_source_if_changed(
+                    client, &assembly_source, &assembly_generation);
+                if (ui != NULL) {
+                    frontend_set_assembly_source(ui, &assembly_source);
                 }
             }
         }

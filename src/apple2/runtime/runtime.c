@@ -1,6 +1,7 @@
 #include "runtime.h"
 
 #include "apple2.h"
+#include "source_map.h"
 #include "message_queue.h"
 #include "mutex.h"
 #include "runtime_breakpoint_ini.h"
@@ -292,6 +293,7 @@ runtime *runtime_create(const runtime_config *config)
     rt->debug_memory_slot.mutex = mutex_create();
     rt->breakpoint_slot.mutex = mutex_create();
     rt->symbol_slot.mutex = mutex_create();
+    rt->symbol_slot.source = (struct asm_source_publish *)calloc(1, sizeof(struct asm_source_publish));
     rt->rpc_payload_pool.mutex = mutex_create();
     rt->inspector_catalog_slot.mutex = mutex_create();
 
@@ -300,6 +302,7 @@ runtime *runtime_create(const runtime_config *config)
         rt->inspector_picture_slot.mutex == NULL ||
         rt->debug_memory_slot.mutex == NULL ||
         rt->breakpoint_slot.mutex == NULL || rt->symbol_slot.mutex == NULL ||
+        rt->symbol_slot.source == NULL ||
         rt->rpc_payload_pool.mutex == NULL ||
         rt->inspector_catalog_slot.mutex == NULL) {
         runtime_destroy(rt);
@@ -488,6 +491,11 @@ void runtime_destroy(runtime *rt)
     mutex_destroy(rt->inspector_picture_slot.mutex);
     mutex_destroy(rt->debug_memory_slot.mutex);
     mutex_destroy(rt->breakpoint_slot.mutex);
+    if (rt->symbol_slot.source != NULL) {
+        asm_source_publish_release(rt->symbol_slot.source);
+        free(rt->symbol_slot.source);
+        rt->symbol_slot.source = NULL;
+    }
     mutex_destroy(rt->symbol_slot.mutex);
     mutex_destroy(rt->rpc_payload_pool.mutex);
     mutex_destroy(rt->inspector_catalog_slot.mutex);

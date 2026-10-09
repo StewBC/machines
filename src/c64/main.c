@@ -14,6 +14,7 @@
 #include "platform_fs.h"
 #include "runtime.h"
 #include "runtime_client.h"
+#include "source_map.h"
 #include "runtime_history_wire.h"
 #include "runtime_inspector.h"
 #include "version.h"
@@ -3570,17 +3571,24 @@ static void poll_symbols_into(
 
     if (symbols == NULL) {
         symbols = (runtime_symbol_snapshot *)malloc(sizeof(*symbols));
-        if (symbols == NULL) {
-            return;
-        }
     }
-    if (runtime_client_poll_symbols(client, symbols)) {
+    if (symbols != NULL && runtime_client_poll_symbols(client, symbols)) {
         if (ui != NULL) {
             frontend_update_symbols(ui, symbols);
         }
         if (control_cache != NULL) {
             control_cache->symbols = *symbols;
             control_cache->has_symbols = true;
+        }
+    }
+    {
+        static asm_source_publish assembly_source;
+        static uint32_t assembly_generation = 0u;
+
+        (void)runtime_client_copy_source_if_changed(
+            client, &assembly_source, &assembly_generation);
+        if (ui != NULL) {
+            frontend_set_assembly_source(ui, &assembly_source);
         }
     }
 }

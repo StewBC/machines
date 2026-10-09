@@ -10,6 +10,7 @@
 #include "runtime_command.h"
 #include "runtime_event.h"
 #include "runtime_assembler.h"
+#include "source_map.h"
 #include "runtime_history_wire.h"
 #include "runtime_inspector.h"
 #include "runtime_printer.h"
@@ -442,6 +443,8 @@ static void runtime_fail_with_error(runtime *rt, const char *message) {
 }
 
 static void runtime_publish_symbols(runtime *rt);
+static void runtime_source_install_session(runtime *rt, asm_source_image *session);
+static void runtime_source_replace_file_maps(runtime *rt);
 
 static void runtime_publish_cpu_state_token(runtime *rt, uint64_t request_token) {
     runtime_event event = {
@@ -2352,6 +2355,7 @@ static void runtime_load_symbol_files(runtime *rt) {
         }
     }
 
+    runtime_source_replace_file_maps(rt);
     runtime_publish_symbols(rt);
 }
 
@@ -4284,6 +4288,53 @@ static void runtime_publish_symbols(runtime *rt) {
     mutex_unlock(slot->mutex);
 }
 
+static void runtime_source_bump(struct asm_source_publish *source) {
+    if (source == NULL) {
+        return;
+    }
+    source->generation++;
+    if (source->generation == 0u) {
+        source->generation = 1u;
+    }
+}
+
+static void runtime_source_install_session(runtime *rt, asm_source_image *session) {
+    runtime_symbol_slot *slot;
+
+    if (session == NULL) {
+        return;
+    }
+    if (rt == NULL || rt->symbol_slot.source == NULL) {
+        asm_source_image_free(session);
+        return;
+    }
+    slot = &rt->symbol_slot;
+    mutex_lock(slot->mutex);
+    asm_source_image_free(slot->source->session);
+    slot->source->session = session;
+    runtime_source_bump(slot->source);
+    mutex_unlock(slot->mutex);
+}
+
+static void runtime_source_replace_file_maps(runtime *rt) {
+    runtime_symbol_slot *slot;
+    size_t i;
+
+    if (rt == NULL || rt->symbol_slot.source == NULL) {
+        return;
+    }
+    slot = &rt->symbol_slot;
+    mutex_lock(slot->mutex);
+    for (i = 0; i < slot->source->file_map_count; i++) {
+        asm_source_image_free(slot->source->file_maps[i]);
+    }
+    free(slot->source->file_maps);
+    slot->source->file_maps = NULL;
+    slot->source->file_map_count = 0u;
+    runtime_source_bump(slot->source);
+    mutex_unlock(slot->mutex);
+}
+
 static void runtime_publish_assemble_error(runtime *rt, const char *message) {
     runtime_event event = {
         .type = RUNTIME_EVENT_ASSEMBLE_ERROR,
@@ -4319,6 +4370,7 @@ static void runtime_complete_pending_asm(runtime *rt, char *path) {
     uint32_t assembled_count = 0u;
     bool auto_run = rt->pending_asm_auto_run;
     bool basic_run = rt->pending_asm_basic_run;
+    asm_source_image *session = NULL;
     runtime_assembler_options assembler_options = {
         .auto_adjust_segments = rt->pending_asm_auto_adjust_segments,
     };
@@ -4337,7 +4389,8 @@ static void runtime_complete_pending_asm(runtime *rt, char *path) {
         notice,
         sizeof(notice),
         error,
-        sizeof(error));
+        sizeof(error),
+        &session);
 
     if (ok) {
         (void)runtime_history_append_marker(
@@ -4346,6 +4399,7 @@ static void runtime_complete_pending_asm(runtime *rt, char *path) {
             assembled_start,
             assembled_count,
             rt->machine.clock.cycle);
+        runtime_source_install_session(rt, session);
         runtime_publish_symbols(rt);
         if (auto_run) {
             rt->machine.cpu.cpu.pc = run_address;
@@ -4448,6 +4502,7 @@ static void runtime_assemble_file_command(runtime *rt, const runtime_command *co
     }
 
     /* No-reset path: assemble directly into live RAM, works in any exec state. */
+    asm_source_image *session = NULL;
     runtime_history_prepare_discontinuity(rt);
     if (!runtime_assemble_file_ex_options(
             &rt->machine,
@@ -4462,7 +4517,8 @@ static void runtime_assemble_file_command(runtime *rt, const runtime_command *co
             notice,
             sizeof(notice),
             error,
-            sizeof(error))) {
+            sizeof(error),
+            &session)) {
         runtime_publish_assemble_error(rt, error[0] != '\0' ? error : "assembly failed");
         return;
     }
@@ -4473,6 +4529,7 @@ static void runtime_assemble_file_command(runtime *rt, const runtime_command *co
         assembled_start,
         assembled_count,
         rt->machine.clock.cycle);
+    runtime_source_install_session(rt, session);
     runtime_publish_symbols(rt);
     if (auto_run) {
         rt->machine.cpu.cpu.pc = command->data.assemble_file.run_address;

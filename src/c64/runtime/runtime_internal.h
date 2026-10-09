@@ -93,6 +93,8 @@ typedef struct runtime_symbol_slot {
     mutex *mutex;
     runtime_symbol_snapshot snapshot;
     bool has_symbols;
+    /* Session image and file maps. Not cleared when has_symbols is consumed. */
+    struct asm_source_publish *source;
 } runtime_symbol_slot;
 
 typedef struct runtime_breakpoint_slot {

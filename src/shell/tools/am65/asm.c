@@ -1016,6 +1016,7 @@ int assembler_init(ASSEMBLER *as, ERRORLOG *errorlog, CB_ASM_CTX *cb) {
     AM65_ARRAY_INIT(&as->segment_adjustments, SEGMENT_ADJUSTMENT);
     AM65_ARRAY_INIT(&as->derived_segment_adjustments, SEGMENT_ADJUSTMENT);
     AM65_ARRAY_INIT(&as->assertions, LAYOUT_ASSERTION);
+    AM65_ARRAY_INIT(&as->source_spans, asm_recorded_span);
     if(ASM_OK != assembler_program_state_init(as)) {
         assembler_shutdown(as);
         return ASM_ERR;
@@ -1270,7 +1271,11 @@ int assembler_assemble(ASSEMBLER *as, const char *input_file, uint16_t address) 
     }
 
     as->pass = 2;
+    assembler_source_spans_reset(as);
     if(ASM_OK != assembler_run_pass(as, input_file)) {
+        if(as->source_map_record_failed) {
+            assembler_source_spans_free(as);
+        }
         return ASM_ERR;
     }
     validate_derived_segments_after_pass2(as);
@@ -1279,11 +1284,17 @@ int assembler_assemble(ASSEMBLER *as, const char *input_file, uint16_t address) 
         SEGMENT_CHECK_RESULT final_layout =
             check_segment_overlaps(as, NULL, 1);
         if(final_layout.allocation_failed) {
+            if(as->source_map_record_failed) {
+                assembler_source_spans_free(as);
+            }
             return ASM_ERR;
         }
         (void)check_noemit_reclaim(as);
     }
 
+    if(as->source_map_record_failed) {
+        assembler_source_spans_free(as);
+    }
     return errlog_error_count(as->errorlog) > initial_errors ? ASM_ERR : ASM_OK;
 }
 
@@ -1302,7 +1313,24 @@ static int assembler_symbol_append(char *out, size_t out_size, size_t *len, cons
     return 1;
 }
 
-static void assembler_walk_scope_symbols(SCOPE *scope, char *prefix, size_t prefix_len, assembler_symbol_cb cb, void *user) {
+/* The scope that holds the symbol, then its ancestors. A nested .proc or
+   nameless scope does not redirect, so it inherits the ancestor that does. */
+static TARGET *symbol_owning_target(SCOPE *scope, TARGET *default_target) {
+    for(; scope != NULL; scope = scope->parent_scope) {
+        if(scope->has_output_redirect && scope->output_target != NULL) {
+            return scope->output_target;
+        }
+    }
+    return default_target;
+}
+
+static void assembler_walk_scope_symbols(
+    SCOPE *scope,
+    char *prefix,
+    size_t prefix_len,
+    TARGET *default_target,
+    assembler_symbol_target_cb cb,
+    void *user) {
     char name[512];
 
     if(!scope || !cb) {
@@ -1314,7 +1342,9 @@ static void assembler_walk_scope_symbols(SCOPE *scope, char *prefix, size_t pref
         for(size_t i = 0; i < symbols->items; i++) {
             SYMBOL_LABEL *symbol = AM65_ARRAY_GET(symbols, SYMBOL_LABEL, i);
             size_t name_len = 0;
-            if(symbol->symbol_type != SYMBOL_ADDRESS || assembler_symbol_is_macro_local(symbol)) {
+            if(assembler_symbol_is_macro_local(symbol) ||
+               (symbol->symbol_type != SYMBOL_ADDRESS &&
+                symbol->symbol_type != SYMBOL_VARIABLE)) {
                 continue;
             }
             if(!assembler_symbol_append(name, sizeof(name), &name_len, prefix, prefix_len)) {
@@ -1323,7 +1353,7 @@ static void assembler_walk_scope_symbols(SCOPE *scope, char *prefix, size_t pref
             if(!assembler_symbol_append(name, sizeof(name), &name_len, symbol->symbol_name, symbol->symbol_length)) {
                 continue;
             }
-            cb(name, (uint16_t)symbol->symbol_value, user);
+            cb(name, (uint16_t)symbol->symbol_value, symbol_owning_target(scope, default_target), user);
         }
     }
 
@@ -1339,17 +1369,99 @@ static void assembler_walk_scope_symbols(SCOPE *scope, char *prefix, size_t pref
         if(!assembler_symbol_append(child_prefix, sizeof(child_prefix), &child_prefix_len, "::", 2)) {
             continue;
         }
-        assembler_walk_scope_symbols(child, child_prefix, child_prefix_len, cb, user);
+        assembler_walk_scope_symbols(child, child_prefix, child_prefix_len, default_target, cb, user);
     }
 }
 
+static TARGET *assembler_default_target(ASSEMBLER *as) {
+    if(!as || as->targets.items == 0) {
+        return NULL;
+    }
+    return *AM65_ARRAY_GET(&as->targets, TARGET *, 0);
+}
+
+typedef struct {
+    assembler_symbol_cb cb;
+    void *user;
+} symbol_walk_adapt;
+
+static void symbol_walk_drop_target(const char *name, uint16_t address, TARGET *target, void *user) {
+    symbol_walk_adapt *adapt = (symbol_walk_adapt *)user;
+    (void)target;
+    adapt->cb(name, address, adapt->user);
+}
+
 void assembler_walk_symbols(ASSEMBLER *as, assembler_symbol_cb cb, void *user) {
+    symbol_walk_adapt adapt;
     char prefix[1] = {0};
 
     if(!as || !cb || !as->root_scope) {
         return;
     }
-    assembler_walk_scope_symbols(as->root_scope, prefix, 0, cb, user);
+    adapt.cb = cb;
+    adapt.user = user;
+    assembler_walk_scope_symbols(
+        as->root_scope,
+        prefix,
+        0,
+        assembler_default_target(as),
+        symbol_walk_drop_target,
+        &adapt);
+}
+
+void assembler_walk_symbols_by_target(
+    ASSEMBLER *as,
+    assembler_symbol_target_cb cb,
+    void *user) {
+    char prefix[1] = {0};
+
+    if(!as || !cb || !as->root_scope) {
+        return;
+    }
+    assembler_walk_scope_symbols(
+        as->root_scope,
+        prefix,
+        0,
+        assembler_default_target(as),
+        cb,
+        user);
+}
+
+void assembler_write_target_segments(FILE *fp, TARGET *target, const char *file_name) {
+    size_t si;
+
+    if(!fp || !target) {
+        return;
+    }
+    fprintf(fp, "\nSEGMENTS%s%s {",
+            file_name != NULL ? " -> " : "",
+            file_name != NULL ? file_name : "");
+    for(si = 0; si < target->segments.items; si++) {
+        SEGMENT *s = *AM65_ARRAY_GET(&target->segments, SEGMENT *, si);
+        if(s->segment_output_address == s->segment_start_address) {
+            continue;
+        }
+        fprintf(fp, "\n  %.*s [%04X-%04X)%s%s",
+                (int)s->segment_name_length,
+                s->segment_name ? s->segment_name : "",
+                s->segment_start_address, s->segment_output_address,
+                s->do_not_emit ? " (noemit)" : "",
+                s->is_locked ? " (locked)" : "");
+        if(s->is_end_anchored) {
+            fprintf(fp, " (end=$%04X)", s->end_address);
+        }
+        if(s->is_after) {
+            fprintf(fp, " (after=%.*s)",
+                    (int)s->after_host_name_length, s->after_host_name);
+        }
+        if(s->is_reclaimable) {
+            fprintf(fp, " (reclaimable)");
+        }
+        if(s->overlaps_reclaimable) {
+            fprintf(fp, " (overlap_reclaimable)");
+        }
+    }
+    fprintf(fp, "\n}\n");
 }
 
 void assembler_walk_segment_adjustments(
@@ -1374,6 +1486,7 @@ void assembler_shutdown(ASSEMBLER *as) {
     if(!as) {
         return;
     }
+    assembler_source_spans_free(as);
     assembler_program_state_destroy(as);
     for(size_t i = 0; i < as->predefines.items; i++) {
         DEFINE *d = AM65_ARRAY_GET(&as->predefines, DEFINE, i);

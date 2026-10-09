@@ -384,6 +384,8 @@ void frontend_set_assembler_path(frontend *ui, const char *path);
 void frontend_show_assembler_errors(frontend *ui, const char *errors);
 void frontend_show_assembler_notice(frontend *ui, const char *notice);
 void frontend_update_symbols(frontend *ui, const runtime_symbol_snapshot *snapshot);
+struct asm_source_publish;
+void frontend_set_assembly_source(frontend *ui, const struct asm_source_publish *source);
 bool frontend_request_set_symbol_source_enabled(
     frontend *ui,
     uint32_t source_id,

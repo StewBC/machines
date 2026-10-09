@@ -2297,7 +2297,7 @@ static bool parse_command_line_overrides(app_options *options, int argc, char **
                    "printer host page format: bmp (default bmp)", NULL, 0, 0),
 
         OPT_STRING('b', "break", &breakpoint, "install execute breakpoint at hex address", NULL, 0, 0),
-        OPT_STRING('\0', "symbols", &symbols_s, "load simple symbol file (NAME hex per line)", NULL, 0, 0),
+        OPT_STRING('\0', "symbols", &symbols_s, "load simple symbol file (hex address then name per line)", NULL, 0, 0),
         OPT_STRING('\0', "history-memory", &history_memory,
                    "CPU flight-recorder memory budget in MiB (0 or 16..4096)", NULL, 0, 0),
         OPT_BOOLEAN('\0', "history-off-on-max", &history_off_on_max_flag,

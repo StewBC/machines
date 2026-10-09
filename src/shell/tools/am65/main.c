@@ -23,6 +23,7 @@ typedef struct FILE_TARGET {
     struct FILE_TARGET *sink; // destination-only scopes emit into their parent target
     assembler_output_format format; // RAW image, or Commodore PRG (LE load addr + image)
     int wrote_any;     // set once a byte lands in this target
+    int file_written;  // set once write_target_file commits the binary
     uint32_t lo;       // lowest address written (valid when wrote_any)
     uint32_t hi;       // one past highest address written (valid when wrote_any)
     uint8_t ram[65536];
@@ -156,6 +157,7 @@ static int write_target_file(TARGET *target, int verbose) {
         fprintf(stderr, "Short write to %s (%zu of %zu bytes)\n", ft->file_name, written, length);
         return 0;
     }
+    ft->file_written = 1;
     if(verbose) {
         if(header_bytes) {
             fprintf(stderr, "Wrote %s: PRG $%04X + $%04X-$%04X (%zu+2 bytes)\n",
@@ -202,36 +204,108 @@ static void dump_segments(FILE *fp, AM65_DYNARRAY *targets) {
     for(size_t ti = 0; ti < targets->items; ti++) {
         TARGET *t = *AM65_ARRAY_GET(targets, TARGET *, ti);
         FILE_TARGET *ft = (FILE_TARGET *)t->ctx;
-        fprintf(fp, "\nSEGMENTS%s%s {",
-                (ft && ft->file_name) ? " -> " : "",
-                (ft && ft->file_name) ? ft->file_name : "");
-        for(size_t si = 0; si < t->segments.items; si++) {
-            SEGMENT *s = *AM65_ARRAY_GET(&t->segments, SEGMENT *, si);
-            if(s->segment_output_address == s->segment_start_address) {
-                continue;
-            }
-            fprintf(fp, "\n  %.*s [%04X-%04X)%s%s",
-                    (int)s->segment_name_length,
-                    s->segment_name ? s->segment_name : "",
-                    s->segment_start_address, s->segment_output_address,
-                    s->do_not_emit ? " (noemit)" : "",
-                    s->is_locked ? " (locked)" : "");
-            if(s->is_end_anchored) {
-                fprintf(fp, " (end=$%04X)", s->end_address);
-            }
-            if(s->is_after) {
-                fprintf(fp, " (after=%.*s)",
-                        (int)s->after_host_name_length, s->after_host_name);
-            }
-            if(s->is_reclaimable) {
-                fprintf(fp, " (reclaimable)");
-            }
-            if(s->overlaps_reclaimable) {
-                fprintf(fp, " (overlap_reclaimable)");
-            }
-        }
-        fprintf(fp, "\n}\n");
+        assembler_write_target_segments(fp, t, (ft && ft->file_name) ? ft->file_name : NULL);
     }
+}
+
+/* A file target is its own sink, has a path, and emitted at least one byte.
+   Dest-only nodes and targets that emitted nothing are not file targets. */
+static int target_is_file_output(TARGET *target) {
+    FILE_TARGET *ft;
+    if(!target || !target->ctx) {
+        return 0;
+    }
+    ft = (FILE_TARGET *)target->ctx;
+    return ft->sink == ft && ft->file_name != NULL && ft->wrote_any;
+}
+
+static int count_file_targets(ASSEMBLER *as) {
+    int count = 0;
+    size_t i;
+    for(i = 0; i < as->targets.items; i++) {
+        TARGET *target = *AM65_ARRAY_GET(&as->targets, TARGET *, i);
+        if(target_is_file_output(target)) {
+            count++;
+        }
+    }
+    return count;
+}
+
+static FILE_TARGET *cli_symbol_owner(TARGET *target) {
+    FILE_TARGET *ft;
+    FILE_TARGET *sink;
+    if(!target || !target->ctx) {
+        return NULL;
+    }
+    ft = (FILE_TARGET *)target->ctx;
+    sink = ft->sink ? ft->sink : ft;
+    if(sink->file_name == NULL) {
+        return NULL;
+    }
+    return sink;
+}
+
+typedef struct {
+    FILE *fp;
+    FILE_TARGET *owner;
+} sidecar_dump_ctx;
+
+static void dump_symbol_for_sidecar(const char *name, uint16_t address, TARGET *target, void *user) {
+    sidecar_dump_ctx *ctx = (sidecar_dump_ctx *)user;
+    if(cli_symbol_owner(target) != ctx->owner) {
+        return;
+    }
+    fprintf(ctx->fp, "%04X  %s\n", address, name);
+}
+
+static int write_combined_symbol_dump(ASSEMBLER *as, const char *path) {
+    int to_stdout = (0 == strcmp(path, "-"));
+    FILE *fp = to_stdout ? stdout : fopen(path, "w");
+    symbol_dump_ctx ctx;
+    if(!fp) {
+        fprintf(stderr, "Could not open symbol file %s for writing\n", path);
+        return 0;
+    }
+    ctx.fp = fp;
+    assembler_walk_symbols(as, dump_symbol, &ctx);
+    dump_segments(fp, &as->targets);
+    if(!to_stdout) {
+        fclose(fp);
+    }
+    return 1;
+}
+
+static int write_symbol_sidecar(ASSEMBLER *as, TARGET *target) {
+    FILE_TARGET *ft = (FILE_TARGET *)target->ctx;
+    char *path;
+    size_t len;
+    FILE *fp;
+    sidecar_dump_ctx ctx;
+
+    if(!ft || !ft->file_name) {
+        return 1;
+    }
+    len = strlen(ft->file_name);
+    path = malloc(len + 5);
+    if(!path) {
+        fprintf(stderr, "Out of memory\n");
+        return 0;
+    }
+    memcpy(path, ft->file_name, len);
+    memcpy(path + len, ".sym", 5);
+    fp = fopen(path, "w");
+    if(!fp) {
+        fprintf(stderr, "Could not open symbol file %s for writing\n", path);
+        free(path);
+        return 0;
+    }
+    ctx.fp = fp;
+    ctx.owner = ft;
+    assembler_walk_symbols_by_target(as, dump_symbol_for_sidecar, &ctx);
+    assembler_write_target_segments(fp, target, ft->file_name);
+    fclose(fp);
+    free(path);
+    return 1;
 }
 
 typedef struct {
@@ -538,7 +612,8 @@ int main(int argc, char **argv) {
     }
 
     int result = assembler_assemble(&as, input_file, origin);
-    int failed = (result != ASM_OK);
+    int assemble_ok = (result == ASM_OK);
+    int failed = !assemble_ok;
 
     if(!failed && auto_adjust_segments) {
         adjustment_print_ctx print_ctx = {stderr, 0};
@@ -563,16 +638,37 @@ int main(int argc, char **argv) {
     }
 
     if(symbol_file) {
-        FILE *fp = (0 == strcmp(symbol_file, "-")) ? stdout : fopen(symbol_file, "w");
-        if(!fp) {
-            fprintf(stderr, "Could not open symbol file %s for writing\n", symbol_file);
-            failed = 1;
+        int file_targets = count_file_targets(&as);
+        int to_stdout = (0 == strcmp(symbol_file, "-"));
+        /* N <= 1 keeps today's combined dump, including after a failed assemble.
+           N >= 2 writes one sidecar per output that was actually written and
+           does not create a non-"-" path the user passed to -s. */
+        if(file_targets <= 1) {
+            if(!write_combined_symbol_dump(&as, symbol_file)) {
+                failed = 1;
+            }
         } else {
-            symbol_dump_ctx ctx = {fp};
-            assembler_walk_symbols(&as, dump_symbol, &ctx);
-            dump_segments(fp, &as.targets);
-            if(fp != stdout) {
-                fclose(fp);
+            if(to_stdout) {
+                if(!write_combined_symbol_dump(&as, "-")) {
+                    failed = 1;
+                }
+            } else {
+                fprintf(stderr,
+                        "-s %s ignored; wrote symbol sidecars beside %d output files\n",
+                        symbol_file,
+                        file_targets);
+            }
+            if(assemble_ok) {
+                for(size_t i = 0; i < as.targets.items; i++) {
+                    TARGET *target = *AM65_ARRAY_GET(&as.targets, TARGET *, i);
+                    FILE_TARGET *ft = target ? (FILE_TARGET *)target->ctx : NULL;
+                    if(!target_is_file_output(target) || !ft || !ft->file_written) {
+                        continue;
+                    }
+                    if(!write_symbol_sidecar(&as, target)) {
+                        failed = 1;
+                    }
+                }
             }
         }
     }

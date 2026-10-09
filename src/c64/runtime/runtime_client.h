@@ -73,6 +73,13 @@ bool runtime_client_assemble_file_full(
     bool reset_first,
     bool auto_adjust_segments);
 bool runtime_client_poll_symbols(runtime_client *client, runtime_symbol_snapshot *out);
+/* Locks the symbol slot. Does not read or clear has_symbols.
+   *inout_generation is the caller's last-copied generation, not the view's. */
+struct asm_source_publish;
+bool runtime_client_copy_source_if_changed(
+    runtime_client *client,
+    struct asm_source_publish *out,
+    uint32_t *inout_generation);
 bool runtime_client_set_symbol_source_enabled(
     runtime_client *client,
     uint32_t source_id,

@@ -626,6 +626,75 @@ static int test_symbol_file_allows_duplicate_names(void)
     return failures;
 }
 
+static int test_symbol_file_address_then_name(void)
+{
+    char path[128];
+    symbol_table *table;
+    symbol_info info;
+    size_t loaded = 0;
+    int failures = 0;
+    const char *source =
+        "C00D  done\n"
+        "done C00D\n"
+        "\n"
+        "SEGMENTS -> prog.bin {\n"
+        "  CODE [C000-C015)\n"
+        "}\n"
+        "C000  first\n"
+        "C000  second\n";
+
+    if (write_symbol_file(path, sizeof(path), source) != 0) {
+        return 1;
+    }
+
+    table = symbol_table_create();
+    if (table == NULL) {
+        c64m_test_remove_file(path);
+        return 1;
+    }
+
+    failures += expect_result(
+        symbol_table_load_file(table, path, path, &loaded),
+        SYMBOL_OK,
+        "load address-then-name file");
+    if (loaded != 3) {
+        fprintf(stderr, "expected 3 loaded symbols, got %zu\n", loaded);
+        failures++;
+    }
+    if (symbol_table_find_by_name(table, "done", &info) != SYMBOL_OK || info.address != 0xc00d) {
+        fprintf(stderr, "C00D  done was not loaded\n");
+        failures++;
+    }
+    if (symbol_table_find_by_name(table, "C00D", &info) != SYMBOL_NOT_FOUND) {
+        fprintf(stderr, "name-then-address line was loaded\n");
+        failures++;
+    }
+    if (symbol_table_find_by_name(table, "CODE", &info) != SYMBOL_NOT_FOUND ||
+        symbol_table_find_by_name(table, "[C000-C015)", &info) != SYMBOL_NOT_FOUND ||
+        symbol_table_find_by_name(table, "SEGMENTS", &info) != SYMBOL_NOT_FOUND) {
+        fprintf(stderr, "SEGMENTS stanza was loaded as a symbol\n");
+        failures++;
+    }
+    if (symbol_table_count(table) != 2) {
+        fprintf(stderr, "expected 2 stored symbols after an address conflict, got %zu\n",
+            symbol_table_count(table));
+        failures++;
+    }
+    if (symbol_table_find_by_address(table, 0xc000, &info) != SYMBOL_OK ||
+        strcmp(info.name, "first") != 0) {
+        fprintf(stderr, "address conflict did not keep the first stored name\n");
+        failures++;
+    }
+    if (symbol_table_find_by_name(table, "second", &info) != SYMBOL_NOT_FOUND) {
+        fprintf(stderr, "second label at the same address was stored\n");
+        failures++;
+    }
+
+    symbol_table_destroy(table);
+    c64m_test_remove_file(path);
+    return failures;
+}
+
 int main(void)
 {
     int failures = 0;
@@ -637,6 +706,7 @@ int main(void)
     failures += test_source_enable_and_tombstone_reuse();
     failures += test_symbol_file_best_effort_load();
     failures += test_symbol_file_allows_duplicate_names();
+    failures += test_symbol_file_address_then_name();
 
     return failures == 0 ? 0 : 1;
 }

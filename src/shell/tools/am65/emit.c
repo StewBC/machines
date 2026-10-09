@@ -19,6 +19,7 @@ void emit_byte(ASSEMBLER *as, uint8_t byte_value) {
     }
     if(as->pass == 2 && !segment->do_not_emit) {
         as->cb.output_byte(target->ctx, (uint16_t)address, byte_value);
+        assembler_source_note_emit(as, address);
     }
     segment->segment_output_address = address + 1;
 }

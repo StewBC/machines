@@ -11,7 +11,7 @@
 typedef struct ASSEMBLER ASSEMBLER;
 #endif
 
-typedef struct {
+typedef struct ASM_FILE {
     char *display_name;
     char *buf;
     size_t size;

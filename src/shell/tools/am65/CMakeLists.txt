@@ -14,6 +14,7 @@ add_library(am65lib STATIC
     parse.c
     scope.c
     segment.c
+    source_map.c
     symbol.c
     token.c
 )

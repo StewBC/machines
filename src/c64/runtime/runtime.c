@@ -1,6 +1,7 @@
 #include "runtime.h"
 
 #include "message_queue.h"
+#include "source_map.h"
 #include "mutex.h"
 #include "runtime_breakpoint_ini.h"
 #include "runtime_command.h"
@@ -155,6 +156,7 @@ runtime *runtime_create(const runtime_config *config) {
     rt->debug_memory_slot.mutex = mutex_create();
     rt->breakpoint_slot.mutex = mutex_create();
     rt->symbol_slot.mutex = mutex_create();
+    rt->symbol_slot.source = (struct asm_source_publish *)calloc(1, sizeof(struct asm_source_publish));
     rt->rpc_payload_pool.mutex = mutex_create();
 
     if (!rt->command_queue ||
@@ -163,6 +165,7 @@ runtime *runtime_create(const runtime_config *config) {
         !rt->debug_memory_slot.mutex ||
         !rt->breakpoint_slot.mutex ||
         !rt->symbol_slot.mutex ||
+        !rt->symbol_slot.source ||
         !rt->rpc_payload_pool.mutex) {
         runtime_destroy(rt);
         return NULL;
@@ -344,6 +347,11 @@ void runtime_destroy(runtime *rt) {
     mutex_destroy(rt->frame_slot.mutex);
     mutex_destroy(rt->debug_memory_slot.mutex);
     mutex_destroy(rt->breakpoint_slot.mutex);
+    if (rt->symbol_slot.source != NULL) {
+        asm_source_publish_release(rt->symbol_slot.source);
+        free(rt->symbol_slot.source);
+        rt->symbol_slot.source = NULL;
+    }
     mutex_destroy(rt->symbol_slot.mutex);
     mutex_destroy(rt->rpc_payload_pool.mutex);
     message_queue_destroy(rt->event_queue);

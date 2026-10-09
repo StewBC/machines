@@ -845,6 +845,18 @@ target_link_libraries(${test_disasm_pc_lock} PRIVATE
 
 leftover_add_test(NAME disasm_pc_lock COMMAND ${test_disasm_pc_lock})
 
+leftover_exe(test_asm_source_lookup
+    ${MACHINES_ROOT}/tests/shell/tools/test_asm_source_lookup.c
+)
+
+target_compile_features(${test_asm_source_lookup} PRIVATE c_std_99)
+
+target_link_libraries(${test_asm_source_lookup} PRIVATE
+    assembler
+)
+
+leftover_add_test(NAME asm_source_lookup COMMAND ${test_asm_source_lookup})
+
 leftover_exe(test_disasm_6502
     ${MACHINES_ROOT}/tests/shell/tools/test_disasm_6502.c
 )
@@ -1086,6 +1098,30 @@ target_link_libraries(${test_assembler_assertions} PRIVATE
 )
 
 leftover_add_test(NAME assembler_assertions COMMAND ${test_assembler_assertions})
+
+leftover_exe(test_assembler_symbols
+    ${MACHINES_ROOT}/tests/c64/tools/test_assembler_symbols.c
+)
+
+target_compile_features(${test_assembler_symbols} PRIVATE c_std_99)
+
+target_link_libraries(${test_assembler_symbols} PRIVATE
+    assembler
+)
+
+leftover_add_test(NAME assembler_symbols COMMAND ${test_assembler_symbols})
+
+leftover_exe(test_assembler_source_map
+    ${MACHINES_ROOT}/tests/c64/tools/test_assembler_source_map.c
+)
+
+target_compile_features(${test_assembler_source_map} PRIVATE c_std_99)
+
+target_link_libraries(${test_assembler_source_map} PRIVATE
+    assembler
+)
+
+leftover_add_test(NAME assembler_source_map COMMAND ${test_assembler_source_map})
 
 leftover_exe(test_runtime_romboot
     ${MACHINES_ROOT}/tests/c64/runtime/test_runtime_romboot.c

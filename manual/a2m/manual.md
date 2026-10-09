@@ -39,7 +39,7 @@ Common flags (see `--help` for the full list):
 | `--printer-format bmp` | Host page format (`bmp` only in v1) |
 | `--sna <file>` | Load a machine snapshot (`.a2state`) at startup |
 | `--break <addr>` / `-b` | Install an execute breakpoint at a hex address |
-| `--symbols <file>` | Load a simple symbol file (`NAME` hex per line) |
+| `--symbols <file>` | Load a simple symbol file (hex address then name per line) |
 | `--inspector` / `--no-inspector` | Enable Inspector recording (default off) |
 | `--history-off-on-max` / `--no-history-off-on-max` | Pause only the CPU flight recorder at turbo `max` (default on) |
 | `--inspector-off-on-max` / `--no-inspector-off-on-max` | Wipe Inspector Record on turbo `max` (default off) |
@@ -580,12 +580,26 @@ first and newest entry last. `0000` means no writer has been recorded for that s
 Selecting one of the entries moves the Disassembly cursor to that address, the same kind
 of jump as entering the writer PC with `Alt+A`.
 
+**Alt+O** toggles Assembly mode in this same Disassembly slot while paused.
+The window title stays Disassembly. Turning the mode on follows the PC, so
+the slot opens on the file and line whose span contains the PC. The gutter
+is the start address of the source span, and `>` marks that line. Lines that
+did not emit bytes have a blank gutter. When no source image is loaded the
+slot shows `No assembly source`. A step keeps that line on screen and
+switches file when the PC enters an include. Scroll, click, Up, Down, PgUp,
+and PgDn stop following until the next step or Right. Alt+Left
+sets the PC to that line's span start, and Alt+B toggles an execute
+breakpoint there. Alt+A and Alt+M stay with the byte listing; leave Assembly
+mode to use them. Byte disassembly, including zero-page operand values, is
+unchanged while Assembly mode is off.
+
 ### Keyboard Controls
 
 | Key | Action |
 |-----|--------|
 | `Alt+A` | Enter address-jump mode; type four hex digits then Enter |
 | `Alt+B` | Toggle execute breakpoint at cursor (paused only) |
+| `Alt+O` | Toggle Assembly mode (paused only) |
 | `Alt+M` | Cycle source mode: Map -> ROM -> Main -> Map |
 | `Alt+S` | Open the Symbol Lookup dialog |
 | `Alt+Left` | Set PC to cursor address (paused, live only; unbound in time travel) |
@@ -1678,7 +1692,7 @@ am65 -i <infile> [-o <outfile>] [--prg] [-a <addr>] [-s <symfile|->]
 | `-o <outfile>` | Binary output for the default (unnamed) target |
 | `--prg` | Write `-o` as a Commodore PRG: 2-byte LE load address = lowest address emitted, then the payload. Named scopes use `file=` (raw) or `prg=` (PRG) instead |
 | `-a <addr>` | Assembly origin of the default target (default `$0000`; accepts `$hex`, `0xhex`, or decimal). Not needed if the source sets its own origin with `* =` / `.org` / `.segdef` |
-| `-s <symfile\|->` | Write a symbol + segment listing; `-` sends it to stdout |
+| `-s <symfile\|->` | Write an address-then-name symbol listing (four hex digits, two spaces, one name). Equates are included. `SEGMENTS` is not loaded. One output file or fewer: that path, or stdout for `-`, gets every symbol. Two or more: do not create `<symfile>`; write `<file>.sym` beside each output that was written |
 | `-C`, `--cpu <name>` | Select the initial CPU profile (default `6502`) |
 | `-D name[=value]` | Predefine a text define (value defaults to `1`); repeatable |
 | `-I <dir>` | Add an include/incbin search directory (cwd-relative); repeatable; same list as `.search`, tried before `.search` |
@@ -1693,6 +1707,24 @@ paths are relative to the current working directory; absolute paths are unchange
 (In the emulator Assembler tab, relative `file=` / `prg=` still resolve beside the
 assembled source -- see above.) `dest=` is accepted but ignored. `AM65` is predefined
 to `1`; no emulator machine symbol is predefined.
+
+`-s` writes address then name: four uppercase hex digits, two spaces, and one
+name token (`C00D  done`). Equates (`name = expr`) are included at their final
+value. Anonymous labels and macro locals are omitted. The token is the scoped
+walk name (`chooser::start`); the debugger shows the leaf after the last `::`.
+A `SEGMENTS` block follows the names and is not loaded as symbols. When the
+assembly has one output file or none, `-s <path>` and `-s -` write that
+combined listing (every symbol, every target's segments), including after a
+failed assemble. When two or more output files emitted bytes, `-s -` still
+prints the combined listing and also writes `<file>.sym` beside each output
+whose binary was written. `-s <path>` does not create `<path>`; it writes
+those sidecars and prints `-s <path> ignored; wrote symbol sidecars beside N output files`
+on stderr, including when the assemble failed and no sidecar was written.
+Sidecars require a successful assemble and a written binary.
+Inside the emulator, a host-file target (`file=` / `prg=`) writes the same
+`<file>.sym` beside the program after that binary is written. A memory-only
+target does not. Loading the sidecar later keeps those names across the next
+assemble, which clears assembler-sourced symbols.
 
 ```
 am65 -i alt/root.asm -I shared -o out.bin
@@ -2058,6 +2090,7 @@ Keys listed here are intercepted by the emulator before reaching the Apple 2.
 | **F12** | Live: run. Time travel: re-execute to a breakpoint or live; stay in Inspect |
 | **Shift+F12** | Live: run to cursor. Time travel: run-to-cursor; stop at a breakpoint or live |
 | **Alt+B** | Toggle execute breakpoint at disassembly cursor (same list in live and time travel) |
+| **Alt+O** | Toggle Assembly mode in the Disassembly slot (paused only) |
 | **F8** | Warm reset (CTRL+RESET) |
 | **Alt+F8** | Cold reset (CTRL+Open-Apple+RESET) |
 | **Right Command/Windows + F8** | Enhanced //e self-test (Closed-Apple + CTRL+RESET) |

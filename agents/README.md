@@ -103,6 +103,28 @@ and before pass 2, so a failure emits nothing. `startof`, `endof`, and
 line during pass 1 and also emits nothing. `.warning "message"` is recorded
 and does not fail the build.
 
+Symbol listings the debugger loads are address then name (`%04X  %s`). The
+walk emits `SYMBOL_ADDRESS` and `SYMBOL_VARIABLE` and skips macro locals and
+anonymous labels. `-s` with one file target or fewer (`N <= 1`) is one
+combined dump, including after a failed assemble. With two or more file
+targets, `<file>.sym` sidecars are written beside each output whose binary
+was written, and a non-`-` `-s` path is not created (one stderr line, even
+when the assemble failed and no sidecar was written). In-emulator host-file
+output writes the same `<file_path>.sym` after a successful binary flush.
+The memory-only default target does not. Do not add a c64 `--symbols` flag.
+One primary label per address; the loader drops the second name.
+
+Pass 2 records a source span for each emitted byte and coalesces a contiguous
+run of one user-visible line. An allocation failure calls `asm_warn` with
+`source map recording failed; emitted bytes kept, session map unchanged` and
+sets `source_map_record_failed`. That does not fail the assemble. The session
+image keeps `write_memory` spans only. Hosts install a non-NULL image beside
+symbol publish and leave the previous image when the pointer is NULL. Symbol
+poll does not clear it. Alt+O is a mode of the Disassembly slot; the window
+stays Disassembly. Entering Assembly mode follows the PC's file and line, and
+a step follows again after a scroll, including into an included file. There
+is no sixth pane. A `.srcmap` sidecar is not written with the session image.
+
 Nuklear is **one** copy under `src/shell/frontend/`. Disasm CPU class is
 NMOS vs 65C02 on `disasm_6502_decode_line`; C64 call sites always pass NMOS.
 

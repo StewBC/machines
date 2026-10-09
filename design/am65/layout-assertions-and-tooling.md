@@ -272,17 +272,9 @@ Minimum coverage:
 
 ## Follow-on: source maps and integrated debugging
 
-The largest user-visible follow-on is an address-to-source map emitted alongside
-the symbol/segment listing. Record emitted address ranges with source file, line,
-and optional scope/procedure. The embedded assembler can publish that map to the
-debugger so the current PC and disassembly show the corresponding source line.
-
-This must be a library data product or callback, not frontend code inside the
-assembler. Standalone am65 should be able to serialize the same records.
-
-The separate source-map design must settle macro definition versus expansion lines,
-include-path normalization, range coalescing, noemit labels/data, and replacement of
-old source records after reassembly.
+Specified in [`debugger-symbols-and-source-maps.md`](debugger-symbols-and-source-maps.md).
+Implement that document. It settles the macro line, the include file, range
+coalescing, noemit, and what a later assemble does to the previous map.
 
 ## Follow-on: structured data
 
@@ -332,8 +324,8 @@ processing. This is build integration and should not affect emulator-host assemb
 1. `.assert` plus `startof` / `endof` / `sizeof` with deferred final-layout
    evaluation.
 2. `.error` and `.warning` (landed).
-3. Address-to-source map data model and standalone serialization.
-4. Debugger consumption of source maps.
+3. Address-to-source map and debugger source view. See [`debugger-symbols-and-source-maps.md`](debugger-symbols-and-source-maps.md).
+4. Debugger consumption of source maps. See the same document.
 5. `.struct` / `.field` / `.enum`.
 6. Sliced `.incbin`.
 7. CLI dependency files.

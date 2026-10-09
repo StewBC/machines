@@ -6,6 +6,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+struct asm_source_image;
+
 typedef struct runtime_assembler_options {
     bool auto_adjust_segments;
     bool enable_65c02;
@@ -57,4 +59,5 @@ bool runtime_assemble_file_ex_options(
     char *notice,
     size_t notice_size,
     char *error,
-    size_t error_size);
+    size_t error_size,
+    struct asm_source_image **out_session);

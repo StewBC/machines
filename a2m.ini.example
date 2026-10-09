@@ -55,7 +55,7 @@ turbo_speeds = 1,max
 ; scroll_wheel_lines = 3
 ; Make Backspace send Apple II DEL ($7F) instead of cursor-left ($08).
 original_del = false
-; Optional symbol file list (comma-separated; NAME hex per line files)
+; Optional symbol file list (comma-separated; hex address then name per line files)
 ; symbol_files = symbols/apple2/APPLE2E.SYM
 ; pause_on_brk = false
 ; disk_leds = true   ; also [disk] show_disk_leds
