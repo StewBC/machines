@@ -142,6 +142,28 @@ static int test_worked_spans(void)
             fprintf(stderr, "PC C015 should miss\n");
             failures++;
         }
+        {
+            char map_path[560];
+            asm_source_image *loaded = NULL;
+
+            snprintf(map_path, sizeof(map_path), "%s.srcmap", path);
+            if (asm_source_map_write(image, map_path) != 0 ||
+                asm_source_map_read(map_path, &loaded) != 0 ||
+                loaded == NULL ||
+                loaded->file_count != image->file_count ||
+                loaded->span_count != 8u ||
+                loaded->files[0].size != image->files[0].size ||
+                memcmp(loaded->files[0].text, image->files[0].text, image->files[0].size) != 0 ||
+                strcmp(loaded->files[0].display_name, image->files[0].display_name) != 0 ||
+                loaded->spans[3].start != 0xC007u ||
+                loaded->spans[3].end != 0xC00Au ||
+                loaded->spans[3].line != 8u) {
+                fprintf(stderr, "worked source map round trip failed\n");
+                failures++;
+            }
+            asm_source_image_free(loaded);
+            remove(map_path);
+        }
         asm_source_image_free(image);
     }
     assembler_shutdown(&as);

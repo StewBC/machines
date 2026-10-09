@@ -100,6 +100,391 @@ size_t asm_source_file_line_count(const asm_source_image *image, uint32_t file_i
     return asm_source_line_count(image->files[file_index].text, image->files[file_index].size);
 }
 
+static char ascii_lower(char c) {
+    if (c >= 'A' && c <= 'Z') {
+        return (char)(c - 'A' + 'a');
+    }
+    return c;
+}
+
+int asm_source_map_path(const char *symbol_path, char **out) {
+    size_t len;
+    int replace;
+    char *path;
+
+    if (out == NULL) {
+        return -1;
+    }
+    *out = NULL;
+    if (symbol_path == NULL) {
+        return -1;
+    }
+    len = strlen(symbol_path);
+    replace = 0;
+    if (len >= 4u) {
+        const char *suffix = symbol_path + len - 4u;
+        if (suffix[0] == '.' &&
+            ascii_lower(suffix[1]) == 's' &&
+            ascii_lower(suffix[2]) == 'y' &&
+            ascii_lower(suffix[3]) == 'm') {
+            replace = 1;
+        }
+    }
+    if (replace) {
+        path = (char *)malloc(len - 4u + 8u);
+        if (path == NULL) {
+            return -1;
+        }
+        memcpy(path, symbol_path, len - 4u);
+        memcpy(path + (len - 4u), ".srcmap", 8u);
+    } else {
+        path = (char *)malloc(len + 8u);
+        if (path == NULL) {
+            return -1;
+        }
+        memcpy(path, symbol_path, len);
+        memcpy(path + len, ".srcmap", 8u);
+    }
+    *out = path;
+    return 0;
+}
+
+int asm_source_map_write(const asm_source_image *image, const char *path) {
+    FILE *fp;
+    size_t i;
+
+    if (image == NULL || path == NULL) {
+        return -1;
+    }
+    fp = fopen(path, "wb");
+    if (fp == NULL) {
+        return -1;
+    }
+    if (fprintf(fp, "AM65SRCMAP 1\n") < 0) {
+        fclose(fp);
+        return -1;
+    }
+    for (i = 0; i < image->file_count; i++) {
+        const asm_source_file *file = &image->files[i];
+        const char *name = file->display_name != NULL ? file->display_name : "";
+        size_t name_len = file->display_name != NULL ? strlen(file->display_name) : 0u;
+        if (file->size > 0u && file->text == NULL) {
+            fclose(fp);
+            return -1;
+        }
+        if (fprintf(
+                fp,
+                "FILE %lu %lu %lu\n",
+                (unsigned long)i,
+                (unsigned long)name_len,
+                (unsigned long)file->size) < 0 ||
+            (name_len > 0u && fwrite(name, 1u, name_len, fp) != name_len) ||
+            (file->size > 0u && fwrite(file->text, 1u, file->size, fp) != file->size)) {
+            fclose(fp);
+            return -1;
+        }
+    }
+    for (i = 0; i < image->span_count; i++) {
+        const asm_source_span *span = &image->spans[i];
+        if (span->start > 0xFFFFu || span->end > 0x10000u) {
+            fclose(fp);
+            return -1;
+        }
+        if (fprintf(
+                fp,
+                "SPAN %lu %lu %04lX %lX\n",
+                (unsigned long)span->file_index,
+                (unsigned long)span->line,
+                (unsigned long)span->start,
+                (unsigned long)span->end) < 0) {
+            fclose(fp);
+            return -1;
+        }
+    }
+    if (fclose(fp) != 0) {
+        return -1;
+    }
+    return 0;
+}
+
+enum {
+    ASM_SOURCE_MAP_TEXT_MAX = 8 * 1024 * 1024,
+    ASM_SOURCE_MAP_SPAN_MAX = 65536,
+    ASM_SOURCE_MAP_PATH_MAX = 64 * 1024,
+    ASM_SOURCE_MAP_FILE_MAX = 8 * 1024 * 1024 + 4 * 1024 * 1024
+};
+
+static int take_dec(const char **cursor, const char *end, uint32_t *out) {
+    const char *s;
+    uint32_t value = 0;
+    int any = 0;
+
+    if (cursor == NULL || *cursor == NULL || out == NULL) {
+        return 0;
+    }
+    s = *cursor;
+    while (s < end && *s >= '0' && *s <= '9') {
+        uint32_t digit = (uint32_t)(*s - '0');
+        if (value > (0xFFFFFFFFu - digit) / 10u) {
+            return 0;
+        }
+        value = value * 10u + digit;
+        s++;
+        any = 1;
+    }
+    if (!any) {
+        return 0;
+    }
+    *out = value;
+    *cursor = s;
+    return 1;
+}
+
+static int take_hex(const char *s, size_t length, uint32_t *out) {
+    size_t i;
+    uint32_t value = 0;
+
+    if (s == NULL || out == NULL || length == 0u) {
+        return 0;
+    }
+    for (i = 0; i < length; i++) {
+        int digit;
+        char c = s[i];
+        if (c >= '0' && c <= '9') {
+            digit = c - '0';
+        } else if (c >= 'A' && c <= 'F') {
+            digit = c - 'A' + 10;
+        } else {
+            return 0;
+        }
+        value = (value << 4) | (uint32_t)digit;
+    }
+    *out = value;
+    return 1;
+}
+
+static int map_add_file(
+    asm_source_image *image,
+    const char *name,
+    size_t name_len,
+    const char *text,
+    size_t text_len) {
+    asm_source_file *grown;
+    asm_source_file *dst;
+
+    grown = (asm_source_file *)realloc(
+        image->files, (image->file_count + 1u) * sizeof(*grown));
+    if (grown == NULL) {
+        return 0;
+    }
+    image->files = grown;
+    dst = &image->files[image->file_count];
+    memset(dst, 0, sizeof(*dst));
+    dst->display_name = source_dup(name != NULL ? name : "", name_len);
+    dst->text = source_dup(text != NULL ? text : "", text_len);
+    dst->size = text_len;
+    if (dst->display_name == NULL || dst->text == NULL) {
+        free(dst->display_name);
+        free(dst->text);
+        dst->display_name = NULL;
+        dst->text = NULL;
+        return 0;
+    }
+    image->file_count++;
+    return 1;
+}
+
+static int map_add_span(asm_source_image *image, asm_source_span span) {
+    asm_source_span *grown;
+
+    if (image->span_count >= (size_t)ASM_SOURCE_MAP_SPAN_MAX) {
+        return 0;
+    }
+    grown = (asm_source_span *)realloc(
+        image->spans, (image->span_count + 1u) * sizeof(*grown));
+    if (grown == NULL) {
+        return 0;
+    }
+    image->spans = grown;
+    image->spans[image->span_count] = span;
+    image->span_count++;
+    return 1;
+}
+
+int asm_source_map_read(const char *path, asm_source_image **out) {
+    FILE *fp;
+    long file_size;
+    char *buf = NULL;
+    size_t length;
+    const char *cursor;
+    const char *end;
+    asm_source_image *image;
+    size_t text_total = 0;
+    int saw_span = 0;
+    int ok = 0;
+
+    if (out == NULL) {
+        return -1;
+    }
+    *out = NULL;
+    if (path == NULL) {
+        return -1;
+    }
+    fp = fopen(path, "rb");
+    if (fp == NULL) {
+        return -1;
+    }
+    if (fseek(fp, 0, SEEK_END) != 0) {
+        fclose(fp);
+        return -1;
+    }
+    file_size = ftell(fp);
+    if (file_size < 0 || file_size > ASM_SOURCE_MAP_FILE_MAX) {
+        fclose(fp);
+        return -1;
+    }
+    if (fseek(fp, 0, SEEK_SET) != 0) {
+        fclose(fp);
+        return -1;
+    }
+    length = (size_t)file_size;
+    buf = (char *)malloc(length > 0u ? length : 1u);
+    if (buf == NULL) {
+        fclose(fp);
+        return -1;
+    }
+    if (length > 0u && fread(buf, 1u, length, fp) != length) {
+        free(buf);
+        fclose(fp);
+        return -1;
+    }
+    fclose(fp);
+
+    image = (asm_source_image *)calloc(1, sizeof(*image));
+    if (image == NULL) {
+        free(buf);
+        return -1;
+    }
+    cursor = buf;
+    end = buf + length;
+    {
+        const char *nl = cursor;
+        while (nl < end && *nl != '\n') {
+            nl++;
+        }
+        if (nl >= end || (size_t)(nl - cursor) != 12u ||
+            memcmp(cursor, "AM65SRCMAP 1", 12u) != 0) {
+            goto done;
+        }
+        cursor = nl + 1;
+    }
+    while (cursor < end) {
+        const char *nl = cursor;
+        const char *line;
+        while (nl < end && *nl != '\n') {
+            nl++;
+        }
+        if (nl >= end) {
+            goto done;
+        }
+        line = cursor;
+        if ((size_t)(nl - line) >= 5u && memcmp(line, "FILE ", 5u) == 0) {
+            const char *tok = line + 5;
+            uint32_t index = 0;
+            uint32_t path_len = 0;
+            uint32_t text_len = 0;
+            const char *blobs;
+            if (saw_span || !take_dec(&tok, nl, &index) || tok >= nl || *tok != ' ') {
+                goto done;
+            }
+            tok++;
+            if (!take_dec(&tok, nl, &path_len) || tok >= nl || *tok != ' ') {
+                goto done;
+            }
+            tok++;
+            if (!take_dec(&tok, nl, &text_len) || tok != nl) {
+                goto done;
+            }
+            if (index != (uint32_t)image->file_count ||
+                path_len > (uint32_t)ASM_SOURCE_MAP_PATH_MAX ||
+                text_len > (uint32_t)ASM_SOURCE_MAP_TEXT_MAX ||
+                text_total > (size_t)ASM_SOURCE_MAP_TEXT_MAX - (size_t)text_len) {
+                goto done;
+            }
+            blobs = nl + 1;
+            if ((size_t)(end - blobs) < (size_t)path_len + (size_t)text_len) {
+                goto done;
+            }
+            if (!map_add_file(
+                    image,
+                    blobs,
+                    (size_t)path_len,
+                    blobs + path_len,
+                    (size_t)text_len)) {
+                goto done;
+            }
+            text_total += (size_t)text_len;
+            cursor = blobs + path_len + text_len;
+            continue;
+        }
+        if ((size_t)(nl - line) >= 5u && memcmp(line, "SPAN ", 5u) == 0) {
+            const char *tok = line + 5;
+            uint32_t file_index = 0;
+            uint32_t line_no = 0;
+            uint32_t start = 0;
+            uint32_t span_end = 0;
+            size_t hex_len;
+            asm_source_span span;
+            if (!take_dec(&tok, nl, &file_index) || tok >= nl || *tok != ' ') {
+                goto done;
+            }
+            tok++;
+            if (!take_dec(&tok, nl, &line_no) || tok >= nl || *tok != ' ') {
+                goto done;
+            }
+            tok++;
+            if ((size_t)(nl - tok) < 4u || !take_hex(tok, 4u, &start)) {
+                goto done;
+            }
+            tok += 4;
+            if (tok >= nl || *tok != ' ') {
+                goto done;
+            }
+            tok++;
+            hex_len = (size_t)(nl - tok);
+            if (hex_len < 1u || hex_len > 5u || !take_hex(tok, hex_len, &span_end)) {
+                goto done;
+            }
+            if (image->file_count == 0u ||
+                file_index >= (uint32_t)image->file_count ||
+                span_end < start || span_end > 0x10000u) {
+                goto done;
+            }
+            memset(&span, 0, sizeof(span));
+            span.start = start;
+            span.end = span_end;
+            span.file_index = file_index;
+            span.line = line_no;
+            if (!map_add_span(image, span)) {
+                goto done;
+            }
+            saw_span = 1;
+            cursor = nl + 1;
+            continue;
+        }
+        goto done;
+    }
+    ok = 1;
+done:
+    free(buf);
+    if (!ok) {
+        asm_source_image_free(image);
+        return -1;
+    }
+    *out = image;
+    return 0;
+}
+
 void asm_source_image_free(asm_source_image *image) {
     size_t i;
 

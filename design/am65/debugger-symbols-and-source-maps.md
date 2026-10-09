@@ -2,13 +2,13 @@
 
 | Field | Value |
 |-------|-------|
-| Status | **Draft** |
+| Status | **landed** |
 | Author | Stefan Wessels |
 | Date | 2026-10-09 |
 | Audience | am65 implementers; a2m/c64m debugger owners |
 | Product scope | Shared `src/shell/tools/am65/`, `src/shell/tools/symbols/`, `src/shell/tools/disasm_6502/`, `src/shell/frontend/` disasm slot; both runtime assemblers |
 | Intended permanent path | `design/am65/debugger-symbols-and-source-maps.md` |
-| Index status | **active** in `design/README.md` (header stays Draft until accepted) |
+| Index status | **landed** in `design/README.md` |
 
 ## Overview
 

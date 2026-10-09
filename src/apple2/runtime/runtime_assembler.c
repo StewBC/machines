@@ -421,6 +421,28 @@ static void runtime_assembler_dump_symbol(
     fprintf(ctx->fp, "%04X  %s\n", address, name);
 }
 
+typedef struct runtime_map_keep {
+    ASSEMBLER *assembler;
+    assembler_output_target *owner;
+} runtime_map_keep;
+
+static int runtime_source_keep_file(void *user, uint32_t target_index) {
+    runtime_map_keep *keep = (runtime_map_keep *)user;
+    TARGET *target;
+    assembler_output_target *owned;
+
+    if (keep == NULL || keep->assembler == NULL ||
+        target_index >= keep->assembler->targets.items) {
+        return 0;
+    }
+    target = *AM65_ARRAY_GET(&keep->assembler->targets, TARGET *, target_index);
+    if (target == NULL || target->ctx == NULL) {
+        return 0;
+    }
+    owned = (assembler_output_target *)target->ctx;
+    return owned->write_file && owned == keep->owner;
+}
+
 static bool runtime_assembler_write_symbol_file(
     ASSEMBLER *assembler,
     TARGET *target,
@@ -463,6 +485,28 @@ static bool runtime_assembler_write_symbol_file(
         assembler, runtime_assembler_dump_symbol, &ctx);
     assembler_write_target_segments(fp, target, output->file_path);
     fclose(fp);
+    if (!assembler->source_map_record_failed) {
+        runtime_map_keep keep;
+        asm_source_image *image = NULL;
+        char *map_path = NULL;
+        int wrote = 0;
+
+        keep.assembler = assembler;
+        keep.owner = output;
+        if (assembler_copy_source_image(
+                assembler, runtime_source_keep_file, &keep, &image) == 0 &&
+            asm_source_map_path(path, &map_path) == 0 &&
+            asm_source_map_write(image, map_path) == 0) {
+            wrote = 1;
+        }
+        if (!wrote && error != NULL && error_size > 0) {
+            snprintf(error, error_size, "could not write assembler source map");
+        }
+        asm_source_image_free(image);
+        free(map_path);
+        free(path);
+        return wrote;
+    }
     free(path);
     return true;
 }

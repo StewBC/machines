@@ -123,7 +123,10 @@ symbol publish and leave the previous image when the pointer is NULL. Symbol
 poll does not clear it. Alt+O is a mode of the Disassembly slot; the window
 stays Disassembly. Entering Assembly mode follows the PC's file and line, and
 a step follows again after a scroll, including into an included file. There
-is no sixth pane. A `.srcmap` sidecar is not written with the session image.
+is no sixth pane. A `.srcmap` sibling is written beside a symbol file the
+matrix created, and loading that symbol file opens the sibling. A missing
+or malformed map is ignored and is not a symbol import. The next assemble
+does not drop a loaded file map.
 
 Nuklear is **one** copy under `src/shell/frontend/`. Disasm CPU class is
 NMOS vs 65C02 on `disasm_6502_decode_line`; C64 call sites always pass NMOS.

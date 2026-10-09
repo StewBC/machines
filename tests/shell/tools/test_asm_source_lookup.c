@@ -1,8 +1,14 @@
 #include "source_map.h"
+#include "symbol_table.h"
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#if defined(_WIN32)
+#include <process.h>
+#else
+#include <unistd.h>
+#endif
 
 static int failures = 0;
 
@@ -212,10 +218,205 @@ static void test_view_sync(void)
     asm_source_image_free(session);
 }
 
+static char *temp_path(const char *leaf)
+{
+    char *path = (char *)malloc(160u);
+    long pid;
+
+    if (path == NULL) {
+        return NULL;
+    }
+#if defined(_WIN32)
+    pid = (long)_getpid();
+#else
+    pid = (long)getpid();
+#endif
+    snprintf(path, 160u, "/tmp/srcmap_%ld_%s", pid, leaf);
+    return path;
+}
+
+static int write_bytes(const char *path, const char *bytes, size_t length)
+{
+    FILE *fp = fopen(path, "wb");
+
+    if (fp == NULL) {
+        return 0;
+    }
+    if (length > 0u && fwrite(bytes, 1u, length, fp) != length) {
+        fclose(fp);
+        return 0;
+    }
+    return fclose(fp) == 0;
+}
+
+static void expect_suffix(const char *symbol, const char *want)
+{
+    char *out = NULL;
+
+    expect(
+        asm_source_map_path(symbol, &out) == 0 && out != NULL && strcmp(out, want) == 0,
+        want);
+    free(out);
+}
+
+static void expect_reject(const char *leaf, const char *bytes)
+{
+    char *path = temp_path(leaf);
+    asm_source_image *image = (asm_source_image *)0x1;
+
+    expect(path != NULL && write_bytes(path, bytes, strlen(bytes)), leaf);
+    expect(asm_source_map_read(path, &image) != 0 && image == NULL, leaf);
+    if (path != NULL) {
+        remove(path);
+    }
+    free(path);
+}
+
+static void test_source_map_file(void)
+{
+    asm_source_image *image;
+    asm_source_image *loaded = NULL;
+    char *path;
+    symbol_table *table;
+    size_t before;
+    const char *worked =
+        "* = $C000\n"
+        "\n"
+        "print = $ffd\n"
+        "\n"
+        "ldx #0\n"
+        ": lda name, x\n"
+        "beq done\n"
+        "jsr print\n"
+        "inx\n"
+        "bne :-\n"
+        "done: rts\n"
+        "\n"
+        "name: .string \"stefan\", $00\n";
+    const char *bare = "lda #1";
+
+    expect_suffix("prog.bin.sym", "prog.bin.srcmap");
+    expect_suffix("listing.sym", "listing.srcmap");
+    expect_suffix("FOO.SYM", "FOO.srcmap");
+    expect_suffix("listing.txt", "listing.txt.srcmap");
+
+    expect_reject("bad_version", "AM65SRCMAP 10\n");
+    expect_reject(
+        "bad_index",
+        "AM65SRCMAP 1\n"
+        "FILE 0 1 1\n"
+        "ab"
+        "SPAN 1 1 0000 0001\n");
+    expect_reject(
+        "nondense",
+        "AM65SRCMAP 1\n"
+        "FILE 1 1 1\n"
+        "ab");
+    expect_reject(
+        "end_before_start",
+        "AM65SRCMAP 1\n"
+        "FILE 0 1 1\n"
+        "ab"
+        "SPAN 0 1 0010 000F\n");
+    expect_reject(
+        "end_past_64k",
+        "AM65SRCMAP 1\n"
+        "FILE 0 1 1\n"
+        "ab"
+        "SPAN 0 1 0000 10001\n");
+    expect_reject(
+        "trailing_junk",
+        "AM65SRCMAP 1\n"
+        "FILE 0 1 1\n"
+        "ab"
+        "SPAN 0 1 0000 0001\n"
+        "NOPE\n");
+
+    image = image_new();
+    expect(image != NULL, "round-trip image");
+    if (image == NULL) {
+        return;
+    }
+    expect(add_file(image, "worked.asm", worked), "worked file");
+    expect(add_file(image, "nonewline.asm", bare), "bare file");
+    image->files[1].size = 6u;
+    expect(add_span(image, 0xC000u, 0xC002u, 0u, 5u), "ldx");
+    expect(add_span(image, 0xC007u, 0xC00Au, 0u, 8u), "jsr");
+    expect(add_span(image, 0xC00Eu, 0xC015u, 0u, 13u), "string");
+    expect(add_span(image, 0xFFFFu, 0x10000u, 1u, 1u), "last byte");
+    path = temp_path("round.srcmap");
+    expect(path != NULL && asm_source_map_write(image, path) == 0, "write map");
+    expect(asm_source_map_read(path, &loaded) == 0 && loaded != NULL, "read map");
+    if (loaded != NULL) {
+        expect(loaded->file_count == 2u && loaded->span_count == 4u, "round-trip counts");
+        expect(
+            loaded->files[0].size == strlen(worked) &&
+                memcmp(loaded->files[0].text, worked, strlen(worked)) == 0 &&
+                strcmp(loaded->files[0].display_name, "worked.asm") == 0,
+            "worked text");
+        expect(
+            loaded->files[1].size == 6u &&
+                memcmp(loaded->files[1].text, bare, 6u) == 0 &&
+                strcmp(loaded->files[1].display_name, "nonewline.asm") == 0,
+            "text without a newline");
+        expect(
+            loaded->spans[1].start == 0xC007u && loaded->spans[1].end == 0xC00Au &&
+                loaded->spans[1].line == 8u && loaded->spans[1].file_index == 0u,
+            "jsr span");
+        expect(
+            loaded->spans[3].start == 0xFFFFu && loaded->spans[3].end == 0x10000u &&
+                loaded->spans[3].file_index == 1u,
+            "span through $FFFF");
+    }
+    {
+        FILE *fp = path != NULL ? fopen(path, "rb") : NULL;
+        char raw[4096];
+        size_t n = 0u;
+
+        if (fp != NULL) {
+            n = fread(raw, 1u, sizeof(raw) - 1u, fp);
+            fclose(fp);
+        }
+        raw[n] = '\0';
+        expect(strstr(raw, "nonewline.asmlda #1SPAN") != NULL, "adjacent blobs");
+    }
+    asm_source_image_free(loaded);
+    asm_source_image_free(image);
+    if (path != NULL) {
+        remove(path);
+    }
+
+    table = symbol_table_create();
+    image = image_new();
+    loaded = NULL;
+    expect(table != NULL && image != NULL, "symbol table");
+    if (table != NULL && image != NULL && path != NULL &&
+        add_file(image, "alone.asm", "nop") &&
+        add_span(image, 0x2000u, 0x2001u, 0u, 1u) &&
+        asm_source_map_write(image, path) == 0 &&
+        symbol_table_add(table, 0x1000u, "KEEP", SYMBOL_SOURCE_FILE, "keep.sym", false) ==
+            SYMBOL_OK) {
+        before = symbol_table_count(table);
+        expect(asm_source_map_read(path, &loaded) == 0 && loaded != NULL, "load map alone");
+        expect(symbol_table_count(table) == before, "map load is not a symbol import");
+    } else {
+        expect(0, "map load is not a symbol import");
+    }
+    asm_source_image_free(image);
+    asm_source_image_free(loaded);
+    symbol_table_destroy(table);
+    loaded = (asm_source_image *)0x1;
+    expect(
+        asm_source_map_read("/tmp/srcmap_missing_no_such_file", &loaded) != 0 && loaded == NULL,
+        "missing map");
+    free(path);
+}
+
 int main(void)
 {
     test_lookup();
     test_view_sync();
+    test_source_map_file();
     if (failures != 0) {
         fprintf(stderr, "%d failure(s)\n", failures);
         return 1;

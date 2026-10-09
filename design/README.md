@@ -26,7 +26,7 @@ The agents index points here: [`agents/README.md`](../agents/README.md) → Desi
 | Design | Status | Last worked on | Path |
 |--------|--------|----------------|------|
 | am65 layout assertions and tooling roadmap | active | 2026-09-30 | [`am65/layout-assertions-and-tooling.md`](am65/layout-assertions-and-tooling.md) |
-| am65 debugger symbol files and source maps | active | 2026-10-09 | [`am65/debugger-symbols-and-source-maps.md`](am65/debugger-symbols-and-source-maps.md) |
+| am65 debugger symbol files and source maps | landed | 2026-10-09 | [`am65/debugger-symbols-and-source-maps.md`](am65/debugger-symbols-and-source-maps.md) |
 | a2m SSC + ImageWriter II → host page files (v1) | landed | 2026-09-02 | [`apple2/ssc-imagewriter-host-pages.md`](apple2/ssc-imagewriter-host-pages.md) |
 | c64m IEC printer → host page files (v1) | active | 2026-09-01 | [`c64/iec-printer-host-pages.md`](c64/iec-printer-host-pages.md) |
 | c64m extended D64 read (40/42-track + error-info tails) | landed | 2026-09-14 | [`c64/extended-d64-read.md`](c64/extended-d64-read.md) |

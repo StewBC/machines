@@ -853,6 +853,7 @@ target_compile_features(${test_asm_source_lookup} PRIVATE c_std_99)
 
 target_link_libraries(${test_asm_source_lookup} PRIVATE
     assembler
+    symbols
 )
 
 leftover_add_test(NAME asm_source_lookup COMMAND ${test_asm_source_lookup})

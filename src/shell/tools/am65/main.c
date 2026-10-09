@@ -309,6 +309,36 @@ static int write_symbol_sidecar(ASSEMBLER *as, TARGET *target) {
 }
 
 typedef struct {
+    ASSEMBLER *as;
+    FILE_TARGET *owner;
+} cli_map_keep;
+
+static int cli_keep_file(void *user, uint32_t target_index) {
+    cli_map_keep *keep = (cli_map_keep *)user;
+    TARGET *target;
+    if(keep == NULL || keep->as == NULL || target_index >= keep->as->targets.items) {
+        return 0;
+    }
+    target = *AM65_ARRAY_GET(&keep->as->targets, TARGET *, target_index);
+    return cli_symbol_owner(target) == keep->owner;
+}
+
+static int write_source_map_file(const asm_source_image *image, const char *symbol_path) {
+    char *map_path = NULL;
+    int rc;
+    if(image == NULL || asm_source_map_path(symbol_path, &map_path) != 0) {
+        fprintf(stderr, "Could not build source map\n");
+        return 0;
+    }
+    rc = asm_source_map_write(image, map_path);
+    if(rc != 0) {
+        fprintf(stderr, "Could not write source map %s\n", map_path);
+    }
+    free(map_path);
+    return rc == 0;
+}
+
+typedef struct {
     FILE *fp;
     int printed_header;
 } adjustment_print_ctx;
@@ -418,7 +448,7 @@ static void usage(const char *program) {
         "  -a <addr>          assembly origin of the default target (default $0000;\n"
         "                     accepts $hex, 0xhex or decimal). Not needed if the source\n"
         "                     sets its own origin with * = / .org / .segdef\n"
-        "  -s <symfile|->     write a symbol + segment listing ('-' = stdout)\n"
+        "  -s <symfile|->     write a symbol listing and a .srcmap sibling ('-' = stdout, no map)\n"
         "  -C, --cpu <name>   initial CPU profile (default 6502); source may switch\n"
         "                     profiles with .6502, .65c02, .rockwell, or .wdc\n"
         "  -D name[=value]    predefine a text define (value defaults to \"1\"); repeatable\n"
@@ -646,6 +676,13 @@ int main(int argc, char **argv) {
         if(file_targets <= 1) {
             if(!write_combined_symbol_dump(&as, symbol_file)) {
                 failed = 1;
+            } else if(!to_stdout && assemble_ok && !as.source_map_record_failed) {
+                asm_source_image *image = NULL;
+                if(assembler_copy_source_image(&as, NULL, NULL, &image) != ASM_OK ||
+                   !write_source_map_file(image, symbol_file)) {
+                    failed = 1;
+                }
+                asm_source_image_free(image);
             }
         } else {
             if(to_stdout) {
@@ -667,6 +704,26 @@ int main(int argc, char **argv) {
                     }
                     if(!write_symbol_sidecar(&as, target)) {
                         failed = 1;
+                    } else if(!as.source_map_record_failed) {
+                        cli_map_keep keep;
+                        asm_source_image *image = NULL;
+                        char *sym_path;
+                        size_t sym_len = strlen(ft->file_name);
+                        keep.as = &as;
+                        keep.owner = ft;
+                        sym_path = malloc(sym_len + 5);
+                        if(!sym_path ||
+                           assembler_copy_source_image(&as, cli_keep_file, &keep, &image) != ASM_OK) {
+                            failed = 1;
+                        } else {
+                            memcpy(sym_path, ft->file_name, sym_len);
+                            memcpy(sym_path + sym_len, ".sym", 5);
+                            if(!write_source_map_file(image, sym_path)) {
+                                failed = 1;
+                            }
+                        }
+                        free(sym_path);
+                        asm_source_image_free(image);
                     }
                 }
             }

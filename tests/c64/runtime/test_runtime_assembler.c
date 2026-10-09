@@ -201,6 +201,33 @@ static void sibling_path(
     }
 }
 
+static int expect_file_map(const char *symbol_path, const char *needle, uint16_t pc) {
+    char *map_path = NULL;
+    asm_source_image *image = NULL;
+    asm_source_hit hit;
+    int failures = 0;
+
+    if (asm_source_map_path(symbol_path, &map_path) != 0 || map_path == NULL ||
+        asm_source_map_read(map_path, &image) != 0 || image == NULL ||
+        image->file_count == 0u || image->span_count == 0u ||
+        image->files[0].text == NULL || strstr(image->files[0].text, needle) == NULL) {
+        fprintf(stderr, "source map missing assembled text for %s\n", symbol_path);
+        failures++;
+    } else {
+        hit = asm_source_span_at_pc(image, NULL, 0, pc);
+        if (hit.span == NULL || hit.image != image) {
+            fprintf(stderr, "source map missed $%04X for %s\n", pc, symbol_path);
+            failures++;
+        }
+    }
+    asm_source_image_free(image);
+    if (map_path != NULL) {
+        (void)remove(map_path);
+    }
+    free(map_path);
+    return failures;
+}
+
 static int file_text_has(const char *path, const char *needle)
 {
     FILE *fp;
@@ -296,6 +323,7 @@ static int test_assemble_named_map_targets(void) {
                 fprintf(stderr, "dest-only label was written into file_only.bin.sym\n");
                 failures++;
             }
+            failures += expect_file_map(sym_path, "file_mark", 0x4001u);
             fp = fopen(source_sym, "rb");
             if (fp != NULL) {
                 fprintf(stderr, "memory assemble grew a sidecar beside the source\n");
@@ -309,6 +337,8 @@ static int test_assemble_named_map_targets(void) {
                 char prg_sym[180];
                 snprintf(dual_sym, sizeof(dual_sym), "%s.sym", dual_path);
                 sibling_path(prg_sym, sizeof(prg_sym), path, "out.prg.sym");
+                failures += expect_file_map(dual_sym, ".byte $c6", 0x4000u);
+                failures += expect_file_map(prg_sym, ".byte $aa", 0x4100u);
                 (void)remove(dual_sym);
                 (void)remove(prg_sym);
             }
@@ -722,6 +752,7 @@ static int test_session_source_image(void) {
         {
             char sym[180];
             snprintf(sym, sizeof(sym), "%s.sym", side);
+            failures += expect_file_map(sym, "lda #1", 0x3100u);
             c64m_test_remove_file(sym);
         }
     }

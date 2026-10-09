@@ -97,7 +97,56 @@ if(note LESS 0)
   message(FATAL_ERROR "failed assemble did not print the sidecar line:\n${err}")
 endif()
 require_missing("${WORK}/failed.sym")
+require_missing("${WORK}/failed.srcmap")
 require_missing("${WORK}/fail_a.bin")
 require_missing("${WORK}/fail_a.bin.sym")
+require_missing("${WORK}/fail_a.bin.srcmap")
 require_missing("${WORK}/fail_b.bin")
 require_missing("${WORK}/fail_b.bin.sym")
+require_missing("${WORK}/fail_b.bin.srcmap")
+
+# N == 1 writes the sibling map beside the symbol path. symbols.txt does not
+# end in .sym, so the map name appends .srcmap.
+require_contains("${WORK}/symbols.txt.srcmap" "AM65SRCMAP 1")
+require_contains("${WORK}/symbols.txt.srcmap" "SPAN")
+require_contains("${WORK}/a.bin.srcmap" "AM65SRCMAP 1")
+require_contains("${WORK}/a.bin.srcmap" "nop")
+require_contains("${WORK}/b.bin.srcmap" "lda")
+file(READ "${WORK}/a.bin.srcmap" a_map)
+string(REGEX MATCHALL "SPAN [0-9]+ [0-9]+ [0-9A-F]+ [0-9A-F]+" a_spans "${a_map}")
+list(LENGTH a_spans a_span_count)
+if(NOT a_span_count EQUAL 1)
+  message(FATAL_ERROR "a.bin.srcmap span count ${a_span_count}")
+endif()
+require_missing("${WORK}/quiet.bin.srcmap")
+require_missing("${WORK}/listing.srcmap")
+require_missing("${WORK}/listing.sym.srcmap")
+
+# N <= 1 still writes the map when the binary path cannot be created.
+file(WRITE "${WORK}/ok.asm" "* = \$C000\nnop\n")
+execute_process(
+  COMMAND "${AM65}" -i "${WORK}/ok.asm" -o "${WORK}/no_such_dir/out.bin" -s "${WORK}/kept.sym"
+  RESULT_VARIABLE rc
+  ERROR_VARIABLE err
+)
+if(rc EQUAL 0)
+  message(FATAL_ERROR "binary write into a missing directory succeeded:\n${err}")
+endif()
+require_contains("${WORK}/kept.sym" "C000")
+require_contains("${WORK}/kept.srcmap" "AM65SRCMAP 1")
+require_contains("${WORK}/kept.srcmap" "nop")
+
+# A failed assemble writes the symbol listing and does not write the map.
+file(WRITE "${WORK}/bad.asm" "lda missing\n")
+execute_process(
+  COMMAND "${AM65}" -i "${WORK}/bad.asm" -o "${WORK}/bad.bin" -s "${WORK}/bad.sym"
+  RESULT_VARIABLE rc
+  ERROR_VARIABLE err
+)
+if(rc EQUAL 0)
+  message(FATAL_ERROR "lda missing returned success:\n${err}")
+endif()
+if(NOT EXISTS "${WORK}/bad.sym")
+  message(FATAL_ERROR "failed assemble did not write bad.sym")
+endif()
+require_missing("${WORK}/bad.srcmap")

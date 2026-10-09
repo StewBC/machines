@@ -107,7 +107,7 @@ leftover_exe(test_asm_source_lookup
     ${MACHINES_ROOT}/tests/shell/tools/test_asm_source_lookup.c
 )
 target_compile_features(${test_asm_source_lookup} PRIVATE c_std_99)
-target_link_libraries(${test_asm_source_lookup} PRIVATE assembler)
+target_link_libraries(${test_asm_source_lookup} PRIVATE assembler symbols)
 leftover_add_test(NAME asm_source_lookup COMMAND ${test_asm_source_lookup})
 
 leftover_exe(test_window_title_shell

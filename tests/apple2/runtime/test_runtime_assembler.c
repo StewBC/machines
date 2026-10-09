@@ -71,6 +71,69 @@ static void expect_session_span(const asm_source_image *image, uint16_t pc, int 
     }
 }
 
+static void write_loaded_map(const char *symbol_path)
+{
+    asm_source_image image;
+    asm_source_file file;
+    asm_source_span span;
+    char *map_path = NULL;
+    char name[] = "kept.asm";
+    char text[] = "lda #$22";
+
+    memset(&image, 0, sizeof(image));
+    memset(&file, 0, sizeof(file));
+    memset(&span, 0, sizeof(span));
+    file.display_name = name;
+    file.text = text;
+    file.size = sizeof(text) - 1u;
+    span.start = 0x2222u;
+    span.end = 0x2224u;
+    span.line = 1u;
+    image.files = &file;
+    image.file_count = 1u;
+    image.spans = &span;
+    image.span_count = 1u;
+    if (asm_source_map_path(symbol_path, &map_path) != 0 ||
+        asm_source_map_write(&image, map_path) != 0) {
+        free(map_path);
+        fail("write loaded source map");
+    }
+    free(map_path);
+}
+
+static void expect_file_map(
+    const char *symbol_path,
+    const char *needle,
+    uint16_t pc,
+    int check_pc)
+{
+    char *map_path = NULL;
+    asm_source_image *image = NULL;
+    asm_source_hit hit;
+
+    if (asm_source_map_path(symbol_path, &map_path) != 0 || map_path == NULL) {
+        fail("source map path");
+    }
+    if (asm_source_map_read(map_path, &image) != 0 || image == NULL ||
+        image->file_count == 0u || image->span_count == 0u ||
+        image->files[0].text == NULL || strstr(image->files[0].text, needle) == NULL) {
+        asm_source_image_free(image);
+        free(map_path);
+        fail("source map missing assembled text");
+    }
+    if (check_pc) {
+        hit = asm_source_span_at_pc(image, NULL, 0, pc);
+        if (hit.span == NULL || hit.image != image) {
+            asm_source_image_free(image);
+            free(map_path);
+            fail("source map missed the file-only PC");
+        }
+    }
+    asm_source_image_free(image);
+    a2m_test_remove_file(map_path);
+    free(map_path);
+}
+
 static void test_session_image_direct(void)
 {
     static apple2_t machine;
@@ -130,6 +193,7 @@ static void test_session_image_direct(void)
 
     slash = strrchr(path, '/');
     if (slash == NULL) {
+        expect_file_map("side.bin.sym", "lda #1", 0u, 0);
         a2m_test_remove_file("side.bin");
         a2m_test_remove_file("side.bin.sym");
     } else {
@@ -138,6 +202,7 @@ static void test_session_image_direct(void)
 
         snprintf(side, sizeof(side), "%.*sside.bin", (int)(slash - path + 1), path);
         snprintf(sym, sizeof(sym), "%s.sym", side);
+        expect_file_map(sym, "lda #1", 0u, 0);
         a2m_test_remove_file(side);
         a2m_test_remove_file(sym);
     }
@@ -185,6 +250,8 @@ int main(void)
     char targets_path[128];
     char invalid_path[128];
     char symbol_path[160];
+    char nomap_path[160];
+    char symbol_list[400];
     char follow_path[160];
     static runtime_symbol_snapshot symbol_snap;
     static asm_source_publish source_publish;
@@ -212,10 +279,16 @@ int main(void)
             symbol_path, sizeof(symbol_path), "a2m_rt_sym", "2222  FROMFILE\n") != 0) {
         fail("symbol file");
     }
+    if (a2m_test_write_temp_file(
+            nomap_path, sizeof(nomap_path), "a2m_rt_nomap", "3333  NOMAP\n") != 0) {
+        fail("symbol file without a map");
+    }
+    write_loaded_map(symbol_path);
+    snprintf(symbol_list, sizeof(symbol_list), "%s,%s", symbol_path, nomap_path);
 
     runtime_config_init(&config);
     config.start_running = false;
-    config.symbol_files = symbol_path;
+    config.symbol_files = symbol_list;
     rt = runtime_create(&config);
     if (rt == NULL || !runtime_start(rt)) {
         fail("runtime start");
@@ -272,6 +345,10 @@ int main(void)
             address != 0x2222 || kind != SYMBOL_SOURCE_FILE) {
             fail("loaded file symbol missing after assemble");
         }
+        if (!snapshot_find(&symbol_snap, "NOMAP", &address, &kind) ||
+            address != 0x3333 || kind != SYMBOL_SOURCE_FILE) {
+            fail("symbol file without a map was not loaded");
+        }
     }
 
     {
@@ -284,6 +361,26 @@ int main(void)
         hit = asm_source_span_at_pc(source_publish.session, NULL, 0, 0x3000);
         if (hit.span == NULL || hit.image != source_publish.session) {
             fail("session span at $3000");
+        }
+        if (source_publish.file_map_count != 1u) {
+            fail("loaded source map was replaced");
+        }
+        hit = asm_source_span_at_pc(
+            source_publish.session,
+            (const asm_source_image *const *)source_publish.file_maps,
+            source_publish.file_map_count,
+            0x3000);
+        if (hit.image != source_publish.session) {
+            fail("session span did not win over the loaded map");
+        }
+        hit = asm_source_span_at_pc(
+            source_publish.session,
+            (const asm_source_image *const *)source_publish.file_maps,
+            source_publish.file_map_count,
+            0x2222);
+        if (hit.image == NULL || hit.image == source_publish.session ||
+            hit.image != source_publish.file_maps[0]) {
+            fail("loaded map did not keep $2222");
         }
         (void)runtime_client_poll_symbols(client, &symbol_snap);
         if (runtime_client_copy_source_if_changed(
@@ -398,6 +495,7 @@ int main(void)
             if (file_text_has(sym_path, "aux_mark")) {
                 fail("dest-only label was written into file_only.bin.sym");
             }
+            expect_file_map(sym_path, "file_mark", 0x3100u, 1);
             {
                 FILE *source_fp = fopen(source_sym, "rb");
                 if (source_fp != NULL) {
@@ -433,6 +531,7 @@ int main(void)
                 file_text_has(dual_sym, "file_only::file_mark")) {
                 fail("dual.bin.sym contains another target's label");
             }
+            expect_file_map(dual_sym, ".byte $ad", 0x3400u, 1);
             a2m_test_remove_file(dual_sym);
         }
 
@@ -473,6 +572,14 @@ int main(void)
                 0x3100);
             if (hit.span != NULL) {
                 fail("file-only span was published in the session image");
+            }
+            hit = asm_source_span_at_pc(
+                source_publish.session,
+                (const asm_source_image *const *)source_publish.file_maps,
+                source_publish.file_map_count,
+                0x3400);
+            if (hit.span == NULL || hit.image != source_publish.session) {
+                fail("file+dest span missing from the session image");
             }
             hit = asm_source_span_at_pc(source_publish.session, NULL, 0, 0x3000);
             if (hit.span != NULL) {
@@ -540,7 +647,15 @@ int main(void)
             fail("following assemble removed the loaded file symbol");
         }
         a2m_test_remove_file(follow_path);
+        {
+            char *map_path = NULL;
+            if (asm_source_map_path(symbol_path, &map_path) == 0) {
+                a2m_test_remove_file(map_path);
+            }
+            free(map_path);
+        }
         a2m_test_remove_file(symbol_path);
+        a2m_test_remove_file(nomap_path);
     }
 
     asm_source_publish_release(&source_publish);

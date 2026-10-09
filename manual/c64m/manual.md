@@ -1877,6 +1877,19 @@ Inside the emulator, a host-file target (`file=` / `prg=`) writes the same
 target does not. Loading the sidecar later keeps those names across the next
 assemble, which clears assembler-sourced symbols.
 
+When that symbol file is created and the assemble succeeded, am65 also
+writes a source map beside it. A path ending in `.sym`, in any ASCII
+letter case, is named with `.srcmap` instead: `prog.bin.sym` becomes
+`prog.bin.srcmap`, and `FOO.SYM` becomes `FOO.srcmap`. Any other symbol
+path appends `.srcmap`, so `listing.txt` becomes `listing.txt.srcmap`.
+`-s -` writes no map. With one output file or none, the map is still
+written when the binary write failed. With two or more, a map is written
+only beside a `<file>.sym` that was written. Loading a symbol file opens
+the sibling when it is present. A missing or malformed map is ignored and
+is not imported as symbols. The next assemble leaves a loaded map in
+place. A span from the assemble that just wrote memory wins at an
+address both maps cover.
+
 ```
 am65 -i alt/root.asm -I shared -o out.bin
 am65 -i demo.asm -o loader.prg --prg -D VERSION=3 -s symbols.txt

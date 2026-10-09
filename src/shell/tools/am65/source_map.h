@@ -71,6 +71,13 @@ typedef struct asm_source_view_state {
 
 void asm_source_image_free(asm_source_image *image);
 void asm_source_publish_release(asm_source_publish *publish);
+
+/* Decision 13. *out is malloc'd and ends in .srcmap. 0 on success. */
+int asm_source_map_path(const char *symbol_path, char **out);
+/* 0 on success. A NULL image or a failed open leaves no partial file claim. */
+int asm_source_map_write(const asm_source_image *image, const char *path);
+/* 0 and a new image on success. Missing or rejected: *out NULL and non-zero. */
+int asm_source_map_read(const char *path, asm_source_image **out);
 int asm_source_image_clone(const asm_source_image *src, asm_source_image **out);
 int asm_source_publish_clone(const asm_source_publish *src, asm_source_publish *dst);
 

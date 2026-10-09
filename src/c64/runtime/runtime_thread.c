@@ -444,7 +444,8 @@ static void runtime_fail_with_error(runtime *rt, const char *message) {
 
 static void runtime_publish_symbols(runtime *rt);
 static void runtime_source_install_session(runtime *rt, asm_source_image *session);
-static void runtime_source_replace_file_maps(runtime *rt);
+static void runtime_source_install_file_maps(
+    runtime *rt, asm_source_image **maps, size_t count);
 
 static void runtime_publish_cpu_state_token(runtime *rt, uint64_t request_token) {
     runtime_event event = {
@@ -2301,6 +2302,8 @@ static bool runtime_string_equal(const char *a, const char *b) {
 
 static void runtime_load_symbol_files(runtime *rt) {
     const char *cursor;
+    asm_source_image **maps = NULL;
+    size_t map_count = 0u;
 
     if (rt == NULL || rt->symbols == NULL) {
         return;
@@ -2352,10 +2355,28 @@ static void runtime_load_symbol_files(runtime *rt) {
             char message[1152];
             snprintf(message, sizeof(message), "failed to load symbol file: %s", path);
             runtime_publish_error(rt, message);
+        } else {
+            char *map_path = NULL;
+            asm_source_image *image = NULL;
+
+            if (asm_source_map_path(path, &map_path) == 0 &&
+                asm_source_map_read(map_path, &image) == 0 &&
+                image != NULL) {
+                asm_source_image **grown = (asm_source_image **)realloc(
+                    maps, (map_count + 1u) * sizeof(*grown));
+                if (grown == NULL) {
+                    asm_source_image_free(image);
+                } else {
+                    maps = grown;
+                    maps[map_count] = image;
+                    map_count++;
+                }
+            }
+            free(map_path);
         }
     }
 
-    runtime_source_replace_file_maps(rt);
+    runtime_source_install_file_maps(rt, maps, map_count);
     runtime_publish_symbols(rt);
 }
 
@@ -4316,11 +4337,16 @@ static void runtime_source_install_session(runtime *rt, asm_source_image *sessio
     mutex_unlock(slot->mutex);
 }
 
-static void runtime_source_replace_file_maps(runtime *rt) {
+static void runtime_source_install_file_maps(
+    runtime *rt, asm_source_image **maps, size_t count) {
     runtime_symbol_slot *slot;
     size_t i;
 
     if (rt == NULL || rt->symbol_slot.source == NULL) {
+        for (i = 0; i < count; i++) {
+            asm_source_image_free(maps[i]);
+        }
+        free(maps);
         return;
     }
     slot = &rt->symbol_slot;
@@ -4329,8 +4355,8 @@ static void runtime_source_replace_file_maps(runtime *rt) {
         asm_source_image_free(slot->source->file_maps[i]);
     }
     free(slot->source->file_maps);
-    slot->source->file_maps = NULL;
-    slot->source->file_map_count = 0u;
+    slot->source->file_maps = maps;
+    slot->source->file_map_count = count;
     runtime_source_bump(slot->source);
     mutex_unlock(slot->mutex);
 }
