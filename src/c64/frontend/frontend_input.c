@@ -355,3 +355,64 @@ size_t frontend_input_map_keyboard_event(
 
     return 0;
 }
+
+static bool poll_is_modifier(c64_key key)
+{
+    return key == C64_KEY_LEFT_SHIFT || key == C64_KEY_RIGHT_SHIFT ||
+        key == C64_KEY_CONTROL || key == C64_KEY_COMMODORE;
+}
+
+void frontend_input_poll_matrix(
+    const frontend_input_mapper *mapper,
+    bool down[C64_KEY_COUNT],
+    bool *restore)
+{
+    int i;
+    const Uint8 *keys;
+
+    if (restore != NULL) {
+        *restore = false;
+    }
+    if (down == NULL) {
+        return;
+    }
+    memset(down, 0, sizeof(bool) * (size_t)C64_KEY_COUNT);
+    if (mapper != NULL) {
+        for (i = 0; i < SDL_NUM_SCANCODES; i++) {
+            const frontend_input_chord *chord = &mapper->active[i];
+            size_t a;
+
+            for (a = 0; a < chord->count; a++) {
+                const frontend_input_action *action = &chord->actions[a];
+
+                if (action->type == FRONTEND_INPUT_ACTION_RESTORE) {
+                    if (restore != NULL) {
+                        *restore = true;
+                    }
+                } else if (action->type == FRONTEND_INPUT_ACTION_KEY &&
+                           action->pressed &&
+                           action->key >= 0 &&
+                           action->key < C64_KEY_COUNT &&
+                           !poll_is_modifier(action->key)) {
+                    down[action->key] = true;
+                }
+            }
+        }
+    }
+    keys = SDL_GetKeyboardState(NULL);
+    if (keys == NULL) {
+        return;
+    }
+    if (keys[SDL_SCANCODE_LSHIFT] != 0) {
+        down[C64_KEY_LEFT_SHIFT] = true;
+    }
+    if (keys[SDL_SCANCODE_RSHIFT] != 0) {
+        down[C64_KEY_RIGHT_SHIFT] = true;
+    }
+    if (keys[SDL_SCANCODE_LCTRL] != 0 || keys[SDL_SCANCODE_RCTRL] != 0) {
+        down[C64_KEY_CONTROL] = true;
+    }
+    if (keys[SDL_SCANCODE_TAB] != 0) {
+        down[C64_KEY_COMMODORE] = true;
+    }
+}

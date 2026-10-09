@@ -7167,6 +7167,68 @@ static void update_window_title(
     platform_window_set_title(window, title);
 }
 
+static petscii_mods petscii_sample_mods(void)
+{
+    petscii_mods mods;
+    const Uint8 *keys = SDL_GetKeyboardState(NULL);
+    SDL_Keymod held = SDL_GetModState();
+
+    mods.shift = (held & KMOD_SHIFT) != 0;
+    mods.control = keys != NULL &&
+        (keys[SDL_SCANCODE_LCTRL] != 0 || keys[SDL_SCANCODE_RCTRL] != 0);
+    mods.commodore = keys != NULL && keys[SDL_SCANCODE_TAB] != 0;
+    return mods;
+}
+
+static void dispatch_petscii_ops(
+    runtime_client *client,
+    const petscii_key_op *ops,
+    size_t count)
+{
+    size_t i;
+
+    if (client == NULL || ops == NULL) {
+        return;
+    }
+    for (i = 0; i < count; i++) {
+        if (ops[i].kind == PETSCII_OP_RESTORE) {
+            runtime_client_restore(client);
+        } else if (ops[i].kind == PETSCII_OP_KEY) {
+            runtime_client_keyboard_key(client, ops[i].key, ops[i].pressed);
+        }
+    }
+}
+
+static void load_petscii_charset(frontend *ui, const char *path)
+{
+    FILE *fp;
+    uint8_t bytes[4096];
+    size_t n;
+
+    if (ui == NULL) {
+        return;
+    }
+    if (path == NULL || path[0] == '\0') {
+        log_warn("petscii: character ROM is not set; key glyphs will be blank");
+        return;
+    }
+    fp = fopen(path, "rb");
+    if (fp == NULL) {
+        log_warn("petscii: could not open character ROM '%s'", path);
+        return;
+    }
+    n = fread(bytes, 1, sizeof(bytes), fp);
+    fclose(fp);
+    if (n != sizeof(bytes)) {
+        log_warn(
+            "petscii: character ROM '%s' is %zu bytes; want 4096",
+            path,
+            n);
+        return;
+    }
+    frontend_petscii_set_charset(ui, bytes, n);
+}
+
 static bool run_main_loop(
     platform_window *window,
     runtime_client *client,
@@ -7181,7 +7243,7 @@ static bool run_main_loop(
        press-and-hold accent popup. Seed from SDL's current state so the first
        frame only calls SDL when the desired state actually differs. */
     bool text_input_active = SDL_IsTextInputActive() == SDL_TRUE;
-    /* Block TEXTINPUT after Alt+H / Alt+R until Option is released so the
+    /* Block TEXTINPUT after Alt+H / Alt+K / Alt+R until Option is released so the
        chord letter does not type into Help/Forensics edit fields. */
     bool suppress_text_after_option_chord = false;
     frontend_runtime_state last_title_state = FRONTEND_RUNTIME_STATE_UNKNOWN;
@@ -7234,17 +7296,51 @@ static bool run_main_loop(
 
             if (event.type == SDL_WINDOWEVENT &&
                 event.window.event == SDL_WINDOWEVENT_FOCUS_LOST) {
+                petscii_key_op petscii_ops[PETSCII_OP_MAX];
+                petscii_mods host_mods = petscii_sample_mods();
+                size_t petscii_count;
+
                 mouse_focus_lost = true;
+                petscii_count = frontend_petscii_cancel(
+                    ui, &host_mods, petscii_ops, PETSCII_OP_MAX);
+                dispatch_petscii_ops(client, petscii_ops, petscii_count);
             }
 
             mouse_fill_ui_flags(
                 &mouse_ui, ui, debug_state.inspecting, mouse_focus_lost);
-            mouse_consumed = frontend_mouse_handle_event(
-                &mouse_input,
-                &event,
-                mouse_crt_rect(ui),
-                &mouse_ui,
-                &mouse_action);
+            {
+                petscii_key_op petscii_ops[PETSCII_OP_MAX];
+                petscii_mods host_mods = petscii_sample_mods();
+                size_t petscii_count = 0;
+                bool petscii_allow =
+                    !frontend_help_is_open(ui) &&
+                    !frontend_forensics_is_open(ui) &&
+                    !frontend_any_dialog_open(ui) &&
+                    !debug_state.inspecting;
+
+                if (frontend_petscii_handle_event(
+                        ui,
+                        &event,
+                        debug_state.frame_number,
+                        (uint32_t)SDL_GetTicks64(),
+                        &host_mods,
+                        petscii_allow,
+                        petscii_ops,
+                        PETSCII_OP_MAX,
+                        &petscii_count)) {
+                    dispatch_petscii_ops(client, petscii_ops, petscii_count);
+                    mouse_consumed = true;
+                    send_event_to_frontend = false;
+                }
+            }
+            if (!mouse_consumed) {
+                mouse_consumed = frontend_mouse_handle_event(
+                    &mouse_input,
+                    &event,
+                    mouse_crt_rect(ui),
+                    &mouse_ui,
+                    &mouse_action);
+            }
             if (mouse_consumed) {
                 mouse_apply_action(
                     window,
@@ -7305,6 +7401,20 @@ static bool run_main_loop(
                 } else if (event.key.keysym.sym == SDLK_h &&
                            frontend_input_has_option_modifier(&event.key)) {
                     open_help(ui, client, &debug_state, ui_visible);
+                    suppress_text_after_option_chord = true;
+                    send_event_to_frontend = false;
+                } else if (event.key.keysym.sym == SDLK_k &&
+                           frontend_input_has_option_modifier(&event.key) &&
+                           !frontend_input_has_shift_modifier(&event.key)) {
+                    petscii_key_op petscii_ops[PETSCII_OP_MAX];
+                    petscii_mods host_mods = petscii_sample_mods();
+
+                    frontend_petscii_toggle(ui);
+                    if (!frontend_petscii_is_open(ui)) {
+                        size_t petscii_count = frontend_petscii_cancel(
+                            ui, &host_mods, petscii_ops, PETSCII_OP_MAX);
+                        dispatch_petscii_ops(client, petscii_ops, petscii_count);
+                    }
                     suppress_text_after_option_chord = true;
                     send_event_to_frontend = false;
                 } else if (
@@ -7508,6 +7618,31 @@ static bool run_main_loop(
         frontend_end_input(ui);
 
         {
+            petscii_key_op petscii_ops[PETSCII_OP_MAX];
+            petscii_mods host_mods = petscii_sample_mods();
+            size_t petscii_count;
+            bool petscii_block =
+                frontend_help_is_open(ui) ||
+                frontend_forensics_is_open(ui) ||
+                frontend_any_dialog_open(ui) ||
+                debug_state.inspecting;
+
+            if (petscii_block) {
+                petscii_count = frontend_petscii_cancel(
+                    ui, &host_mods, petscii_ops, PETSCII_OP_MAX);
+            } else {
+                petscii_count = frontend_petscii_pump(
+                    ui,
+                    debug_state.frame_number,
+                    (uint32_t)SDL_GetTicks64(),
+                    &host_mods,
+                    petscii_ops,
+                    PETSCII_OP_MAX);
+            }
+            dispatch_petscii_ops(client, petscii_ops, petscii_count);
+        }
+
+        {
             frontend_mouse_ui_flags mouse_ui;
             mouse_fill_ui_flags(
                 &mouse_ui, ui, debug_state.inspecting, mouse_focus_lost);
@@ -7613,6 +7748,13 @@ static bool run_main_loop(
 
         if (!platform_window_clear(window)) {
             return false;
+        }
+        {
+            bool host_keys[C64_KEY_COUNT];
+            bool host_restore = false;
+
+            frontend_input_poll_matrix(&input_mapper, host_keys, &host_restore);
+            frontend_petscii_set_host_keys(ui, host_keys, host_restore);
         }
         frontend_render(ui, ui_visible, &debug_state);
         if (!frontend_help_is_open(ui) &&
@@ -8015,6 +8157,7 @@ int main(int argc, char **argv) {
         return 1;
     }
     frontend_set_runtime_client(ui, client);
+    load_petscii_charset(ui, runtime_cfg.char_rom_path);
 
     layout_state.split_display_right = options.layout_split_display_right;
     layout_state.split_top_bottom = options.layout_split_top_bottom;

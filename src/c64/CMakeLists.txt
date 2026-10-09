@@ -466,6 +466,21 @@ target_link_libraries(${test_frontend_input} PRIVATE
 
 leftover_add_test(NAME frontend_input COMMAND ${test_frontend_input})
 
+leftover_exe(test_petscii_board
+    ${MACHINES_ROOT}/tests/c64/frontend/test_petscii_board.c
+    frontend/petscii_board.c
+    machine/keyboard.c
+)
+
+target_compile_features(${test_petscii_board} PRIVATE c_std_99)
+
+target_include_directories(${test_petscii_board} PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/frontend
+    ${CMAKE_CURRENT_SOURCE_DIR}/machine
+)
+
+leftover_add_test(NAME petscii_board COMMAND ${test_petscii_board})
+
 leftover_exe(test_help_view
     ${MACHINES_ROOT}/tests/shell/frontend/test_help_view.c
 )

@@ -25,6 +25,10 @@ add_library(${frontend} STATIC
     frontend.h
     frontend_input.c
     frontend_input.h
+    petscii_board.c
+    petscii_board.h
+    petscii_board_draw.c
+    petscii_board_draw.h
     frontend_joystick_input.c
     frontend_joystick_input.h
     frontend_mouse_input.c

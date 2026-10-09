@@ -40,3 +40,9 @@ size_t frontend_input_map_keyboard_event(
     const SDL_KeyboardEvent *event,
     frontend_input_action *actions,
     size_t capacity);
+/* Keys the host is holding. Modifiers come from the physical keys.
+   down must hold C64_KEY_COUNT entries. restore is forward-delete. */
+void frontend_input_poll_matrix(
+    const frontend_input_mapper *mapper,
+    bool down[C64_KEY_COUNT],
+    bool *restore);

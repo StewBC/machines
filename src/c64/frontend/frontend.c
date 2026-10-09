@@ -1,4 +1,5 @@
 #include "frontend.h"
+#include "petscii_board_draw.h"
 
 #include "frontend_input.h"
 #include "forensics_view.h"
@@ -460,6 +461,20 @@ struct frontend {
     bool has_memory_scrollbar_bounds;
     struct nk_rect disassembly_scrollbar_bounds;
     bool has_disassembly_scrollbar_bounds;
+    petscii_board petscii;
+    petscii_layout petscii_layout;
+    petscii_rect petscii_strip;
+    petscii_rect petscii_tab;
+    int petscii_anchor_x;
+    int petscii_anchor_y;
+    int petscii_anchor_w;
+    int petscii_anchor_h;
+    bool petscii_open;
+    uint8_t petscii_charset[4096];
+    bool petscii_charset_ok;
+    bool petscii_lower;
+    /* SDL button ids (1..7) whose press landed on the strip or tab. */
+    uint8_t petscii_buttons;
 };
 
 static const nk_flags pane_flags = NK_WINDOW_BORDER | NK_WINDOW_TITLE | NK_WINDOW_NO_SCROLLBAR;
@@ -8162,6 +8177,7 @@ frontend *frontend_create(platform_window *window)
     if (ui == NULL) {
         return NULL;
     }
+    petscii_board_init(&ui->petscii);
 
     ui->window = window;
     ui->renderer = sdl_renderer;
@@ -10138,10 +10154,255 @@ static void frontend_draw_assembler_error_dialog(frontend *ui, int width, int he
    intentionally not used — open borders and border sprites make those looks
    wrong. With True Aspect Ratio off the crop stretches to fill the window and there are
    no bars at all. */
+static int frontend_petscii_reserve(const frontend *ui)
+{
+    return (ui != NULL && ui->petscii_open) ? PETSCII_STRIP_H : 0;
+}
+
+static void frontend_petscii_remember_anchor(
+    frontend *ui, int x, int y, int w, int h)
+{
+    if (ui == NULL) {
+        return;
+    }
+    ui->petscii_anchor_x = x;
+    ui->petscii_anchor_y = y;
+    ui->petscii_anchor_w = w;
+    ui->petscii_anchor_h = h;
+}
+
+static void frontend_petscii_present(frontend *ui, int window_w, int window_h)
+{
+    petscii_rect strip;
+    int reserve;
+
+    if (ui == NULL || ui->renderer == NULL || window_w <= 0 || window_h <= 0) {
+        return;
+    }
+    reserve = frontend_petscii_reserve(ui);
+    memset(&strip, 0, sizeof(strip));
+    memset(&ui->petscii_tab, 0, sizeof(ui->petscii_tab));
+    if (reserve > 0) {
+        strip.x = 0;
+        strip.w = window_w;
+        strip.h = reserve;
+        strip.y = window_h - reserve;
+        if (strip.y < 0) {
+            strip.y = 0;
+        }
+        petscii_board_layout(&ui->petscii, strip.w, &ui->petscii_layout);
+    } else {
+        ui->petscii_layout.count = 0;
+    }
+    ui->petscii_strip = strip;
+    petscii_board_draw(
+        ui->renderer,
+        &ui->petscii,
+        &ui->petscii_layout,
+        &strip,
+        ui->petscii_open,
+        ui->petscii_charset_ok ? ui->petscii_charset : NULL,
+        ui->petscii_lower);
+}
+
+static bool frontend_petscii_point_in(const petscii_rect *rect, int x, int y)
+{
+    return rect != NULL && rect->w > 0 && rect->h > 0 &&
+        x >= rect->x && y >= rect->y && x < rect->x + rect->w && y < rect->y + rect->h;
+}
+
+static uint8_t frontend_petscii_button_bit(uint8_t button)
+{
+    if (button >= 8) {
+        return 0;
+    }
+    return (uint8_t)(1u << button);
+}
+
+bool frontend_petscii_is_open(const frontend *ui)
+{
+    return ui != NULL && ui->petscii_open;
+}
+
+int frontend_petscii_strip_px(const frontend *ui)
+{
+    return (ui != NULL && ui->petscii_open) ? PETSCII_STRIP_H : 0;
+}
+
+bool frontend_petscii_toggle(frontend *ui)
+{
+    if (ui == NULL) {
+        return false;
+    }
+    ui->petscii_open = !ui->petscii_open;
+    return true;
+}
+
+void frontend_petscii_set_host_keys(
+    frontend *ui,
+    const bool down[C64_KEY_COUNT],
+    bool restore)
+{
+    if (ui == NULL) {
+        return;
+    }
+    petscii_board_set_host_keys(&ui->petscii, down, restore);
+}
+
+void frontend_petscii_set_charset(frontend *ui, const uint8_t *bytes, size_t len)
+{
+    if (ui == NULL || bytes == NULL || len < 4096u) {
+        return;
+    }
+    memcpy(ui->petscii_charset, bytes, 4096u);
+    ui->petscii_charset_ok = true;
+}
+
+size_t frontend_petscii_pump(
+    frontend *ui,
+    uint64_t guest_frame,
+    uint32_t now_ms,
+    const petscii_mods *host,
+    petscii_key_op *ops,
+    size_t cap)
+{
+    if (ui == NULL) {
+        return 0;
+    }
+    return petscii_board_pump(
+        &ui->petscii, guest_frame, now_ms, host, ops, cap);
+}
+
+size_t frontend_petscii_cancel(
+    frontend *ui,
+    const petscii_mods *host,
+    petscii_key_op *ops,
+    size_t cap)
+{
+    if (ui == NULL) {
+        return 0;
+    }
+    ui->petscii_buttons = 0;
+    return petscii_board_cancel(&ui->petscii, host, ops, cap);
+}
+
+bool frontend_petscii_handle_event(
+    frontend *ui,
+    const SDL_Event *event,
+    uint64_t guest_frame,
+    uint32_t now_ms,
+    const petscii_mods *host,
+    bool allow,
+    petscii_key_op *ops,
+    size_t cap,
+    size_t *out_count)
+{
+    int x = 0;
+    int y = 0;
+    bool on_strip;
+    uint8_t bit = 0;
+    size_t count = 0;
+
+    if (out_count != NULL) {
+        *out_count = 0;
+    }
+    if (ui == NULL || event == NULL) {
+        return false;
+    }
+
+    /* A press that started on the strip releases here, even past the strip. */
+    if (event->type == SDL_MOUSEBUTTONUP) {
+        bit = frontend_petscii_button_bit(event->button.button);
+        if ((bit != 0 && (ui->petscii_buttons & bit) != 0) ||
+            (event->button.button == SDL_BUTTON_LEFT && ui->petscii.holding)) {
+            if (bit != 0) {
+                ui->petscii_buttons = (uint8_t)(ui->petscii_buttons & (uint8_t)~bit);
+            }
+            if (event->button.button == SDL_BUTTON_LEFT && ui->petscii.holding) {
+                count = petscii_board_pointer_up(
+                    &ui->petscii, guest_frame, now_ms, host, ops, cap);
+            }
+            if (out_count != NULL) {
+                *out_count = count;
+            }
+            return true;
+        }
+        return false;
+    }
+
+    /* Help, Forensics, a dialog, or Inspector owns the pointer. */
+    if (!allow) {
+        return false;
+    }
+
+    if (event->type == SDL_MOUSEBUTTONDOWN) {
+        x = event->button.x;
+        y = event->button.y;
+        bit = frontend_petscii_button_bit(event->button.button);
+    } else if (event->type == SDL_MOUSEWHEEL) {
+        SDL_GetMouseState(&x, &y);
+    } else {
+        return false;
+    }
+
+    on_strip = ui->petscii_open && frontend_petscii_point_in(&ui->petscii_strip, x, y);
+
+    if (event->type == SDL_MOUSEWHEEL && on_strip) {
+        int ticks_x = event->wheel.x;
+        int ticks_y = event->wheel.y;
+
+        if (event->wheel.direction == SDL_MOUSEWHEEL_FLIPPED) {
+            ticks_x = -ticks_x;
+            ticks_y = -ticks_y;
+        }
+        /* One breadbin key is 56 px plus the 2 px gap. */
+        petscii_board_scroll(
+            &ui->petscii, ui->petscii_strip.w, (ticks_x - ticks_y) * 58);
+        return true;
+    }
+
+    if (event->type != SDL_MOUSEBUTTONDOWN || bit == 0 || !on_strip) {
+        return false;
+    }
+
+    ui->petscii_buttons = (uint8_t)(ui->petscii_buttons | bit);
+    if (event->button.button != SDL_BUTTON_LEFT) {
+        return true;
+    }
+
+    {
+        int key_index = -1;
+        int face_index = -1;
+        int local_x = x - ui->petscii_strip.x;
+        int local_y = y - ui->petscii_strip.y;
+
+        if (petscii_board_hit(
+                &ui->petscii_layout, local_x, local_y, &key_index, &face_index) &&
+            key_index >= 0 && key_index < ui->petscii_layout.count &&
+            face_index >= 0 &&
+            face_index < ui->petscii_layout.keys[key_index].face_count) {
+            count = petscii_board_pointer_down(
+                &ui->petscii,
+                &ui->petscii_layout.keys[key_index].faces[face_index],
+                guest_frame,
+                now_ms,
+                host,
+                ops,
+                cap);
+        }
+    }
+    if (out_count != NULL) {
+        *out_count = count;
+    }
+    return true;
+}
+
 static void frontend_render_display_only(frontend *ui)
 {
     int width = 0;
     int height = 0;
+    int view_h = 0;
+    int reserve = 0;
     int fit_w = 0;
     int fit_h = 0;
     SDL_Rect dest;
@@ -10154,18 +10415,27 @@ static void frontend_render_display_only(frontend *ui)
     }
 
     platform_window_get_size(ui->window, &width, &height);
+    reserve = frontend_petscii_reserve(ui);
+    view_h = height - reserve;
+    if (view_h < 1) {
+        view_h = 1;
+    }
     if (frontend_display_fills_view(ui)) {
         dest.x = 0;
         dest.y = 0;
         dest.w = width;
-        dest.h = height;
+        dest.h = view_h;
     } else {
         frontend_display_fit_source(ui, &fit_w, &fit_h);
-        dest = frontend_fit_rect(0, 0, width, height, fit_w, fit_h);
+        dest = frontend_fit_rect(0, 0, width, view_h, fit_w, fit_h);
+        if (reserve > 0 && dest.h > 0 && dest.h <= view_h) {
+            dest.y = view_h - dest.h;
+        }
     }
     if (dest.w <= 0 || dest.h <= 0) {
         return;
     }
+    frontend_petscii_remember_anchor(ui, dest.x, dest.y, dest.w, dest.h);
 
     /* Keep CRT hit-test in sync for 1351 Alt+Click when debugger UI is hidden. */
     ui->layout.display = nk_rect(
@@ -10190,6 +10460,7 @@ void frontend_render(frontend *ui, bool ui_visible, const frontend_debug_state *
     int split_memory_misc_active = 0;
     int display_corner_active = 0;
     bool debugger_scrollbar_active = false;
+    bool draw_petscii = true;
 
     if (ui == NULL || ui->ctx == NULL) {
         return;
@@ -10205,29 +10476,46 @@ void frontend_render(frontend *ui, bool ui_visible, const frontend_debug_state *
         return;
     }
 
+    if (debug_state != NULL) {
+        ui->petscii_lower =
+            (debug_state->vicii_hardware.memory_pointer & 0x02u) != 0;
+    }
+
     if (!ui_visible && !help_view_is_open(&ui->help) &&
         !forensics_view_is_open(&ui->forensics)) {
         if (ui->misc.inspector_thumb_down && !ui->misc.inspector_preview_has_film) {
             SDL_Rect dest;
             int fit_w = 0;
             int fit_h = 0;
+            int reserve = frontend_petscii_reserve(ui);
+            int view_h = height - reserve;
 
+            if (view_h < 1) {
+                view_h = 1;
+            }
             if (frontend_display_fills_view(ui)) {
                 dest.x = 0;
                 dest.y = 0;
                 dest.w = width;
-                dest.h = height;
+                dest.h = view_h;
             } else {
                 frontend_display_fit_source(ui, &fit_w, &fit_h);
-                dest = frontend_fit_rect(0, 0, width, height, fit_w, fit_h);
+                dest = frontend_fit_rect(0, 0, width, view_h, fit_w, fit_h);
+                if (reserve > 0 && dest.h > 0 && dest.h <= view_h) {
+                    dest.y = view_h - dest.h;
+                }
             }
             ui->layout.display = nk_rect(
                 (float)dest.x, (float)dest.y, (float)dest.w, (float)dest.h);
+            if (dest.w > 0 && dest.h > 0) {
+                frontend_petscii_remember_anchor(ui, dest.x, dest.y, dest.w, dest.h);
+            }
             SDL_SetRenderDrawColor(ui->renderer, 255, 0, 255, 255);
             SDL_RenderFillRect(ui->renderer, &dest);
         } else {
             frontend_render_display_only(ui);
         }
+        frontend_petscii_present(ui, width, height);
         frontend_draw_disk_activity_leds(ui, width, height, debug_state);
         return;
     }
@@ -10262,14 +10550,20 @@ void frontend_render(frontend *ui, bool ui_visible, const frontend_debug_state *
     if (ui_visible && debug_state != NULL) {
         int min_debug_w = ui->limits.min_display_w_px + ui->limits.min_right_w_px;
         int min_debug_h = ui->limits.registers_h_px + ui->limits.min_disassembly_h_px + ui->limits.min_bottom_h_px;
+        int reserve = frontend_petscii_reserve(ui);
+        int layout_h = height - reserve;
 
-        if (width < min_debug_w || height < min_debug_h) {
+        if (layout_h < 1) {
+            layout_h = 1;
+        }
+
+        if (width < min_debug_w || layout_h < min_debug_h) {
             frontend_render_display_only(ui);
         } else {
             struct nk_style_window saved_window_style;
             int inspect_style = 0;
 
-            parent = nk_rect(0.0f, 0.0f, (float)width, (float)height);
+            parent = nk_rect(0.0f, 0.0f, (float)width, (float)layout_h);
             if (debug_state->inspecting) {
                 inspect_style = 1;
                 inspector_chrome_begin_inspecting(ui->ctx, &saved_window_style);
@@ -10293,6 +10587,12 @@ void frontend_render(frontend *ui, bool ui_visible, const frontend_debug_state *
                 ui->layout.drag_active = DEBUGGER_LAYOUT_DRAG_NONE;
             }
 
+            frontend_petscii_remember_anchor(
+                ui,
+                (int)ui->layout.display.x,
+                (int)ui->layout.display.y,
+                (int)ui->layout.display.w,
+                (int)ui->layout.display.h);
             frontend_draw_display_placeholder(ui, ui->layout.display);
             frontend_draw_registers(ui, ui->layout.registers, debug_state);
             frontend_draw_disassembly_view(ui, ui->layout.disassembly, debug_state);
@@ -10342,12 +10642,19 @@ void frontend_render(frontend *ui, bool ui_visible, const frontend_debug_state *
             if (inspect_style) {
                 inspector_chrome_end_inspecting(ui->ctx, &saved_window_style);
             }
+            /* A dialog can cover the strip band. Leave that band clear. */
+            if (frontend_any_dialog_open(ui)) {
+                draw_petscii = false;
+            }
         }
     } else {
         frontend_render_display_only(ui);
     }
 
     nk_sdl_render(NK_ANTI_ALIASING_ON);
+    if (draw_petscii) {
+        frontend_petscii_present(ui, width, height);
+    }
     frontend_draw_disk_activity_leds(ui, width, height, debug_state);
 }
 

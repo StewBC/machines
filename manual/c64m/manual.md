@@ -2220,6 +2220,7 @@ Keys listed here are intercepted by the emulator before reaching the C64.
 |-----------------|------------------------------------------------------------|
 | **F9**          | Toggle Debug Mode on/off                                   |
 | **Alt+H**       | Toggle in-emulator help on/off                             |
+| **Alt+K**       | Toggle the PETSCII keyboard strip under the picture        |
 | **Alt+R**       | Toggle Forensics (CPU flight recorder FIND UI)             |
 | **Shift+Alt+A** | Assemble the configured source file using the Assembler settings |
 | **Shift+Alt+M** | Toggle keyboard joystick mapping between Numpad and WASD   |
@@ -2289,6 +2290,35 @@ The host keyboard maps semantically to C64 keys. Common mappings:
 
 All ASCII printable characters are mapped where possible. Characters with no C64
 equivalent are silently ignored during paste.
+
+### PETSCII Keyboard
+
+**Alt+K** opens a breadbin keyboard in a band under the picture. The window
+stays the same size. The picture scales down to make room, and scales back
+up when you press **Alt+K** again. Help, Forensics, and a dialog hide the
+strip until they close.
+
+Each key shows a small host label and the characters on that key. Keys you
+hold on the laptop light up here. Click a character to type it. The click
+is the same chord the laptop key would send, so quote mode works. It sends
+the Shift, C=, or Ctrl that character needs, and it ignores whatever else
+you are holding. Hold the mouse button and the KERNAL key repeat works.
+
+Space and Return each have one face. Hold Shift, or turn on Shift Lock,
+and that click is Shift+Space or Shift+Return. Shift Lock stays down until
+you click it again. RESTORE fires the restore NMI.
+
+Digits 1-8 show color swatches for Ctrl+1-8 and C=+1-8. CLR, HOME, and the
+cursor keys show their names. The left/right cursor key shows LEFT, then
+RIGHT. Glyphs come from the character ROM and follow the bank selected by
+$D018 bit 1 (uppercase/graphics, or lowercase/uppercase). A program that
+installs its own charset is not shown.
+
+The laptop keyboard keeps working. The strip uses the full window width.
+On a narrow window it scrolls sideways instead of shrinking the glyphs.
+The mouse wheel over the strip scrolls it. While the 1351 mouse is
+captured, a click on the strip types, and a click on the picture still
+goes to the guest.
 
 ## Remote
 

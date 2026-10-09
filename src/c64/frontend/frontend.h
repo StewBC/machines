@@ -5,6 +5,7 @@
 #include "runtime_client.h"
 #include "app_options.h"
 #include "window_title.h"
+#include "petscii_board.h"
 
 #include "c64_frame.h"
 
@@ -417,3 +418,37 @@ const char *frontend_get_browse_dir(const frontend *ui, frontend_browse_slot slo
 void frontend_set_picked_browse_dir(frontend *ui, const char *path);
 void frontend_set_picked_rom_path(frontend *ui, const char *path);
 void frontend_config_export_rom_paths(const frontend *ui, app_options *options);
+
+/* PETSCII keyboard strip under the CRT. The host window size stays put. */
+bool frontend_petscii_is_open(const frontend *ui);
+int frontend_petscii_strip_px(const frontend *ui);
+bool frontend_petscii_toggle(frontend *ui);
+void frontend_petscii_set_charset(frontend *ui, const uint8_t *bytes, size_t len);
+void frontend_petscii_set_host_keys(
+    frontend *ui,
+    const bool down[C64_KEY_COUNT],
+    bool restore);
+/* allow is false while Help, Forensics, a dialog, or Inspector owns the pointer.
+   Returns true when the event hit the strip. */
+bool frontend_petscii_handle_event(
+    frontend *ui,
+    const SDL_Event *event,
+    uint64_t guest_frame,
+    uint32_t now_ms,
+    const petscii_mods *host,
+    bool allow,
+    petscii_key_op *ops,
+    size_t cap,
+    size_t *out_count);
+size_t frontend_petscii_pump(
+    frontend *ui,
+    uint64_t guest_frame,
+    uint32_t now_ms,
+    const petscii_mods *host,
+    petscii_key_op *ops,
+    size_t cap);
+size_t frontend_petscii_cancel(
+    frontend *ui,
+    const petscii_mods *host,
+    petscii_key_op *ops,
+    size_t cap);

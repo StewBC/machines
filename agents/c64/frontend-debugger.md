@@ -92,6 +92,35 @@ ASCII-only. User docs: `manual/c64m/manual.md` (**Forensics**).
 from frontend code. Dialogs are modal: outside clicks must not focus or
 activate base views.
 
+PETSCII strip (Alt+K, no Shift): `frontend/petscii_board.c` and
+`petscii_board_draw.c`. Same window. Do not call `SDL_SetWindowSize` on
+toggle, and do not subtract `PETSCII_STRIP_H` when saving the window size
+on quit. The picture refits into the area above the strip and fills the
+window again when the strip closes. In the debugger the layout parent
+height shrinks by that strip, so the panes stay the same size and the
+memory pane sits above the band. The strip spans the full window width,
+centers when the window is wider than the board, and scrolls sideways
+(58 px per wheel notch) when it is narrower. Glyphs do not shrink.
+
+A character face is a matrix chord through `runtime_client_keyboard_key`,
+not a write into the KERNAL keyboard buffer. The face names its own
+Shift, Ctrl, and C=, and those replace the host modifiers for the hold.
+Space and Return have one face and follow host Shift or Shift Lock.
+Cursor-right shows LEFT then RIGHT. RESTORE calls
+`runtime_client_restore` and is not a hold. Release waits for one guest
+frame or about 80 ms, and the key stays down while the mouse button is
+down.
+
+Host keys light the matching faces. Read physical Shift from
+`SDL_GetKeyboardState`. A shifted chord stores `C64_KEY_RIGHT_SHIFT`, so
+copying that bit lights both shift keys when only the left one is down.
+Help, Forensics, and a modal dialog hide the strip and cancel a hold. The
+open flag stays. Inspector leaves the strip up and does not take new
+presses. With the 1351 captured, a click on the strip types and a click
+on the picture still goes to the guest. Glyphs use the character ROM
+(`$D018` bit 1). A custom RAM charset is not drawn. No INI key. Test:
+`tests/c64/frontend/test_petscii_board.c`.
+
 Keyboard joystick layouts: `numpad` and `wasd`. WASD is consumed only while
 assigned and C64 keyboard focus is active. Assignment: Alt+Shift+1/2, Alt+Shift+0
 disables; real controllers remain Alt+1/2. SDL text input is enabled only
