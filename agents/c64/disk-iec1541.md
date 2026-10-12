@@ -20,13 +20,13 @@ in `c64.c`, `c1541.c`, `c1541_media.c`, `c64_hostfs.c`, runtime disk code.
   PRG extract/write, wildcards, `@:` replacement as before.
 - HostFS: host directory as volume (`c64_mount_hostfs` / `--disk N=<dir>`).
   Trap-fast `$` / LOAD PRG / SAVE create-or-`@:`-replace; channel-15 `CD` +
-  Scratch `S:NAME` via OPEN/CLOSE (+ status CHKIN/CHRIN); host-cwd SEQ via
-  OPEN SA≠15 + CHKIN/CHRIN or CHKOUT/CHROUT (+ CLALL); no IEC ATN. Product name
+  Scratch `S:NAME` via OPEN/CLOSE (+ status CHKIN/CHRIN); host-cwd SEQ/PRG
+  reads and SEQ writes via OPEN SA≠15 + CHKIN/CHRIN or CHKOUT/CHROUT (+ CLALL); no IEC ATN. Product name
   **"HostFS"**.
   Catalog: all non-dotfile regular files are visible (`.prg`/extensionless/other
   → `PRG`, `.seq` → `SEQ`, dirs → `DIR`, `.d64` → `DIR` with `.D64` kept in the
   listed name, `.P00`-`.P99` → `PRG` with the PC64 header CBM name and a 26-byte
-  unwrap on LOAD).
+  unwrap on LOAD and channel reads).
   Do **not** require a `.prg` suffix — CBM tools like `fb64` ship extensionless.
   `$` listings match real 1541 LIST shape (RVS header, names padded to 16 with
   `$A0`, block-count line numbers). FB reuses those padded bytes on `CD`/`LOAD`;
@@ -38,10 +38,13 @@ in `c64.c`, `c1541.c`, `c1541_media.c`, `c64_hostfs.c`, runtime disk code.
   never iec_active). Nested `$` uses BAM title/id/DOS/`free_blocks`; LOAD
   extracts PRG; SAVE/`@:` (when writable) uses `d64_image_write_prg` + flush;
   Scratch uses `d64_image_scratch` + flush. Parent/`CD//` leave the image.
-  `.g64` stays non-enterable. Nested D64 SEQ I/O is out. DOS status subset:
+  `.g64` stays non-enterable. PRG channel reads include the two-byte load
+  address; optional `,P,R` / `,S,R` enforce file type, while untyped reads accept either. PRG writes and
+  nested D64 channel I/O are out. DOS status subset:
   `00 OK`, `26 WRITE PROTECT`, `30 SYNTAX ERROR`, `62 FILE NOT FOUND`,
   `63 FILE EXISTS`, `74 DRIVE NOT READY`. Regression:
-  `test_hostfs_cd_into_d64` / `test_hostfs_scratch_and_seq` in
+  `test_hostfs_cd_into_d64` / `test_hostfs_scratch_and_seq` /
+  `test_hostfs_prg_channel_reads` in
   `tests/c64/machine/test_c64_hostfs_mount.c`. Snapshots (v14+) persist HostFS
   root + cwd + writable (+ nested `.d64` path); load remounts if the host path
   still exists, else powered-empty. Do not embed the host tree.

@@ -875,7 +875,7 @@ HostFS volume. The volume is trap-fast (not a 1541 on the IEC bus). Advertise as
 | `SAVE "NAME",N` | Create `NAME.prg` in a host cwd if new; fail if name exists (`63 FILE EXISTS`). `SAVE "@:NAME",N` overwrites. Inside a nested `.d64`, creates/replaces a PRG when Write is enabled and flushes the host `.d64`; read-only -> `26 WRITE PROTECT`. |
 | `CD` (channel 15) | `CD:SUB`, `CD:_` (left-arrow `$5F`), `CD//` (and `CD//NAME/` / `CD/NAME/` forms) via `OPEN 1,N,15,"...":CLOSE 1`. `CD` into a `.d64` listed as `DIR` opens that image as a sub-volume (still HostFS traps; not a 1541). Parent / root leave the image and return to the host folder. |
 | Scratch `S:` | `OPEN 1,N,15,"S:NAME"` deletes an exact catalog file (host file or nested-D64 PRG). Dirs / `.d64` listings refused (`62`). |
-| SEQ channel I/O | Host cwd only: `OPEN lf,N,sa,"NAME,S,R"` / `",S,W"` (optional `@:`), then `CHKIN`/`CHRIN` or `CHKOUT`/`CHROUT`, `CLOSE`. Nested D64 SEQ I/O is out. |
+| Data channel I/O | Host cwd only: SEQ/PRG reads with `OPEN lf,N,sa,"NAME,S,R"` / `"NAME,P,R"`; omit the type to read either. PRG reads include the two-byte load address; PC64 containers omit their 26-byte host header. SEQ writes use `"NAME,S,W"` (optional `@:`). Use `CHKIN`/`CHRIN` or `CHKOUT`/`CHROUT`, then `CLOSE`. PRG writes and nested D64 channel I/O are out. |
 | `$` identity | Host folder title = mangled **mount-root** basename; ID `00`; DOS `2A`; `65535 BLOCKS FREE.` Nested D64 uses BAM title/id/DOS/free. |
 | Status | `OPEN 1,N,15` then `CHKIN`/`CHRIN`: `00, OK,00,00` or DOS error text (`26`/`30`/`62`/`63`/`74`) |
 | Coexistence | HostFS traps even with `emulate_1541=1`; sibling unit may run a real 1541 IMAGE |
@@ -884,7 +884,7 @@ HostFS volume. The volume is trap-fast (not a 1541 on the IEC bus). Advertise as
 **CBM FileBrowser 1.6** / `fb64` navigates with the `CD` + `LOAD "$"` path above (no SEQ
 required for that oracle), including entering `.d64` images listed as directories.
 
-**Not in this subset:** SEQ inside nested `.d64`, Scratch wildcards, partitions (`$=P`),
+**Not in this subset:** PRG channel writes, channel I/O inside nested `.d64`, Scratch wildcards, partitions (`$=P`),
 MD/RD, timestamps, `CD` into `.G64` images, fastloaders on HostFS.
 
 HostFS is a single mount (no multi-image queue / Swap). Opening a `.d64`/`.g64` or

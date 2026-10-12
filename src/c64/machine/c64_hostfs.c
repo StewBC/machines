@@ -1024,7 +1024,7 @@ static void c64_hostfs_copy_upper_name(
     }
 }
 
-/* Strip leading "@:" and optional ",S,R"/",S,W"/",R"/",W"/",S" suffixes. */
+/* Strip leading "@:" and optional S/P type and R/W mode suffixes. */
 static bool c64_hostfs_parse_data_name(
     const uint8_t *name,
     size_t name_length,
@@ -1033,25 +1033,25 @@ static bool c64_hostfs_parse_data_name(
     size_t *out_cbm_len,
     bool *out_replace,
     bool *out_write,
-    bool *out_seq_typed)
+    char *out_type)
 {
     size_t i;
     size_t len;
     bool replace = false;
     bool write_mode = false;
-    bool seq_typed = false;
+    char requested_type = '\0';
     bool have_mode = false;
     char tmp[48];
 
     if (out_cbm == NULL || out_cbm_size == 0 || out_cbm_len == NULL ||
-        out_replace == NULL || out_write == NULL || out_seq_typed == NULL) {
+        out_replace == NULL || out_write == NULL || out_type == NULL) {
         return false;
     }
     *out_cbm = '\0';
     *out_cbm_len = 0;
     *out_replace = false;
     *out_write = false;
-    *out_seq_typed = false;
+    *out_type = '\0';
     if (name == NULL || name_length == 0 || name_length >= sizeof(tmp)) {
         return false;
     }
@@ -1067,7 +1067,7 @@ static bool c64_hostfs_parse_data_name(
         len -= 2u;
         tmp[len] = '\0';
     }
-    /* Scan commas from the end for type/mode: ,S,R / ,S,W / ,S / ,R / ,W */
+    /* Scan commas from the end for type/mode: ,S,R / ,P,R / ,S,W / ,S / ,P / ,R / ,W */
     {
         char *comma = strrchr(tmp, ',');
         while (comma != NULL) {
@@ -1081,11 +1081,11 @@ static bool c64_hostfs_parse_data_name(
                 have_mode = true;
                 *comma = '\0';
             } else if (tok[0] == 'S' && tok[1] == '\0') {
-                seq_typed = true;
+                requested_type = 'S';
                 *comma = '\0';
             } else if (tok[0] == 'P' && tok[1] == '\0') {
-                /* PRG on data channel — not supported here. */
-                return false;
+                requested_type = 'P';
+                *comma = '\0';
             } else {
                 break;
             }
@@ -1103,7 +1103,7 @@ static bool c64_hostfs_parse_data_name(
     *out_cbm_len = len;
     *out_replace = replace;
     *out_write = write_mode;
-    *out_seq_typed = seq_typed;
+    *out_type = requested_type;
     return true;
 }
 
@@ -1491,7 +1491,7 @@ bool c64_hostfs_open_seq(
     size_t cbm_len = 0;
     bool replace = false;
     bool write_mode = false;
-    bool seq_typed = false;
+    char requested_type = '\0';
     c64_hostfs_channel *ch;
     int idx;
 
@@ -1514,7 +1514,7 @@ bool c64_hostfs_open_seq(
             &cbm_len,
             &replace,
             &write_mode,
-            &seq_typed)) {
+            &requested_type)) {
         c64_hostfs_set_status(vol, 30, "SYNTAX ERROR");
         return false;
     }
@@ -1524,6 +1524,11 @@ bool c64_hostfs_open_seq(
     }
     if (!c64_hostfs_rescan(vol)) {
         c64_hostfs_set_status(vol, 74, "DRIVE NOT READY");
+        return false;
+    }
+
+    if (write_mode && requested_type == 'P') {
+        c64_hostfs_set_status(vol, 30, "SYNTAX ERROR");
         return false;
     }
 
@@ -1583,7 +1588,11 @@ bool c64_hostfs_open_seq(
 
     /* Read mode (default). */
     idx = c64_hostfs_find_catalog_index(vol, cbm, cbm_len);
-    if (idx < 0 || vol->catalog[idx].dir.type != C64_DRIVE_FILE_SEQ) {
+    if (idx < 0 ||
+        (vol->catalog[idx].dir.type != C64_DRIVE_FILE_SEQ &&
+         vol->catalog[idx].dir.type != C64_DRIVE_FILE_PRG) ||
+        (requested_type == 'S' && vol->catalog[idx].dir.type != C64_DRIVE_FILE_SEQ) ||
+        (requested_type == 'P' && vol->catalog[idx].dir.type != C64_DRIVE_FILE_PRG)) {
         c64_hostfs_set_status(vol, 62, "FILE NOT FOUND");
         return false;
     }
@@ -1592,8 +1601,10 @@ bool c64_hostfs_open_seq(
         c64_hostfs_set_status(vol, 70, "NO CHANNEL");
         return false;
     }
-    if (!c64_hostfs_read_file(
-            vol->catalog[idx].host_path, &ch->data, &ch->size)) {
+    /* PRGs retain their load address; PC64 containers omit the host header. */
+    if (!(vol->catalog[idx].dir.type == C64_DRIVE_FILE_PRG ?
+          c64_hostfs_read_entry_prg(vol, (size_t)idx, &ch->data, &ch->size) :
+          c64_hostfs_read_file(vol->catalog[idx].host_path, &ch->data, &ch->size))) {
         c64_hostfs_channel_clear(ch);
         c64_hostfs_set_status(vol, 74, "DRIVE NOT READY");
         return false;
@@ -1612,7 +1623,6 @@ bool c64_hostfs_open_seq(
         *out_status = C64_DRIVE_STATUS_OK;
     }
     c64_hostfs_set_status_ok(vol);
-    (void)seq_typed;
     return true;
 }
 

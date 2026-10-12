@@ -1438,6 +1438,78 @@ static void test_hostfs_p00_load(void) {
     printf("PASS: test_hostfs_p00_load\n");
 }
 
+static void test_hostfs_prg_channel_reads(void)
+{
+    static c64_t c64;
+    char dir[HOSTFS_TEST_PATH_MAX];
+    char error[128];
+    const uint8_t body[] = { 0x00, 0xff, 0x60 };
+    const uint8_t bytes[] = { 0x01, 0x08, 0x00, 0xff, 0x60 };
+    const char *names[] = {
+        "PLAIN", "PLAIN,R", "PLAIN,P", "PLAIN,P,R",
+        "EXTENSIONLESS,P,R", "WRAPPED,P,R", "WRAPPED",
+        "SEQUENTIAL,S,R", "SEQUENTIAL"
+    };
+    const char *bad_names[] = {
+        "PLAIN,S,R", "SEQUENTIAL,P,R", "MISSING,P,R", "SUB,P,R", "NEW,P,W"
+    };
+    size_t n;
+    size_t i;
+
+    make_tmpdir(dir, sizeof(dir));
+    write_host_prg(dir, "plain.prg", 0x0801u, body, sizeof(body));
+    write_host_prg(dir, "extensionless", 0x0801u, body, sizeof(body));
+    write_host_p00(dir, "container.P00", "WRAPPED", 0x0801u, body, sizeof(body));
+    {
+        char path[HOSTFS_TEST_PATH_MAX];
+        snprintf(path, sizeof(path), "%s/sub", dir);
+        FILE *f;
+        expect_true("mkdir channel sub", HOSTFS_TEST_MKDIR(path) == 0);
+        snprintf(path, sizeof(path), "%s/sequential.seq", dir);
+        f = fopen(path, "wb");
+        expect_true("create SEQ channel fixture", f != NULL);
+        expect_true("write SEQ channel fixture",
+            fwrite(bytes, 1, sizeof(bytes), f) == sizeof(bytes));
+        fclose(f);
+    }
+    reset_machine(&c64);
+    expect_true("mount PRG channels",
+        c64_mount_hostfs(&c64, 9, dir, false) == C64_DRIVE_STATUS_OK);
+
+    for (n = 0; n < sizeof(names) / sizeof(names[0]); n++) {
+        setup_open_call(&c64, names[n], 2, 9, 2);
+        expect_true("open PRG channel", c64_step_instruction(&c64, error, sizeof(error)));
+        expect_success_return(&c64);
+        setup_chkin_call(&c64, 2);
+        expect_true("chkin PRG channel", c64_step_instruction(&c64, error, sizeof(error)));
+        expect_success_return(&c64);
+        for (i = 0; i < sizeof(bytes); i++) {
+            setup_chrin_call(&c64);
+            expect_true("chrin PRG byte", c64_step_instruction(&c64, error, sizeof(error)));
+            expect_true("PRG stream includes load address", c64.cpu.cpu.A == bytes[i]);
+            expect_true("PRG EOI only on last byte",
+                ((c64.bus.ram[0x90] & 0x40u) != 0) == (i + 1u == sizeof(bytes)));
+        }
+        setup_chrin_call(&c64);
+        expect_true("chrin past PRG EOF", c64_step_instruction(&c64, error, sizeof(error)));
+        expect_true("PRG past EOF", c64.cpu.cpu.A == 0x0d && (c64.bus.ram[0x90] & 0x40u));
+        setup_close_call(&c64, 2);
+        expect_true("close PRG channel", c64_step_instruction(&c64, error, sizeof(error)));
+        expect_success_return(&c64);
+        expect_true("PRG channel table cleared", c64.bus.ram[0x98] == 0);
+        expect_true("PRG channel buffer cleared",
+            !c64_hostfs_channel_is_seq_read(c64.drives[1].hostfs, 2));
+    }
+    for (n = 0; n < sizeof(bad_names) / sizeof(bad_names[0]); n++) {
+        setup_open_call(&c64, bad_names[n], 2, 9, 2);
+        expect_true("reject invalid PRG channel", c64_step_instruction(&c64, error, sizeof(error)));
+        expect_true("invalid PRG OPEN fails", (c64.cpu.cpu.flags & 1u) != 0);
+        expect_true("failed PRG OPEN removes LA", c64.bus.ram[0x98] == 0);
+    }
+    remove_tree(dir);
+    printf("PASS: test_hostfs_prg_channel_reads\n");
+}
+
 static void test_hostfs_scratch_and_seq(void)
 {
     static c64_t c64;
@@ -1657,6 +1729,7 @@ int main(void) {
     test_hostfs_cd_into_d64();
     test_hostfs_cd_into_40track_d64();
     test_hostfs_p00_load();
+    test_hostfs_prg_channel_reads();
     test_hostfs_scratch_and_seq();
     test_hostfs_scratch_in_d64();
     printf("All HostFS mount/trap tests passed.\n");

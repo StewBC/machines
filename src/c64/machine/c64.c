@@ -805,7 +805,7 @@ static bool c64_try_hostfs_open_trap(c64_t *machine)
         return true;
     }
 
-    /* Data channel: SEQ read/write (host cwd only). */
+    /* Data channel: SEQ/PRG read, SEQ write (host cwd only). */
     if (machine->replay_sealed) {
         /* Treat sealed open as success without host mutation (writes no-op later). */
         if (!c64_hostfs_open_seq(

@@ -114,8 +114,10 @@ bool c64_hostfs_scratch(
     c64_drive_status_result *out_status);
 
 /*
- * Open a host-cwd SEQ data channel (SA 0–14). Nested D64 SEQ I/O is out of
- * scope. Name may include "@:" and ",S,R"/",S,W" (or ",R"/",W") suffixes.
+ * Open a host-cwd data channel (SA 0–14): SEQ/PRG reads and SEQ writes.
+ * Nested D64 channel I/O is out of scope. Optional S/P type and R/W mode
+ * suffixes are accepted; P writes are rejected. PRG reads retain the two-byte
+ * load address and unwrap PC64 containers. Untyped reads accept either type.
  */
 bool c64_hostfs_open_seq(
     c64_hostfs_volume *vol,
