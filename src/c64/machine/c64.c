@@ -849,7 +849,7 @@ static bool c64_try_hostfs_close_trap(c64_t *machine)
         return false;
     }
 
-    la = machine->cpu.cpu.X;
+    la = machine->cpu.cpu.A;
     idx = c64_kernal_file_table_find(machine, la);
     if (idx < 0) {
         return false;
@@ -1213,7 +1213,7 @@ static bool c64_try_printer_close_trap(c64_t *machine)
         return false;
     }
 
-    la = machine->cpu.cpu.X;
+    la = machine->cpu.cpu.A;
     idx = c64_kernal_file_table_find(machine, la);
     if (idx < 0) {
         return false;

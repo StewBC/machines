@@ -488,6 +488,8 @@ static void setup_load_call(c64_t *machine, const char *name, uint8_t device, ui
     machine->bus.ram[0x01fe] = (uint8_t)(TEST_RETURN_ADDRESS & 0xff);
     machine->bus.ram[0x01ff] = (uint8_t)(TEST_RETURN_ADDRESS >> 8);
     machine->cpu.cpu.A = 0;
+    machine->cpu.cpu.X = 0x01;
+    machine->cpu.cpu.Y = 0x08;
     machine->cpu.cpu.flags |= 0x01;
     machine->bus.ram[0xba] = device;
     machine->bus.ram[0xb9] = secondary;
@@ -784,6 +786,8 @@ static void setup_load_call_bytes(
     machine->bus.ram[0x01fe] = (uint8_t)(TEST_RETURN_ADDRESS & 0xff);
     machine->bus.ram[0x01ff] = (uint8_t)(TEST_RETURN_ADDRESS >> 8);
     machine->cpu.cpu.A = 0;
+    machine->cpu.cpu.X = 0x01;
+    machine->cpu.cpu.Y = 0x08;
     machine->cpu.cpu.flags |= 0x01;
     machine->bus.ram[0xba] = device;
     machine->bus.ram[0xb9] = secondary;
@@ -818,7 +822,9 @@ static void setup_close_call(c64_t *machine, uint8_t la)
     machine->cpu.cpu.sp = 0x01fd;
     machine->bus.ram[0x01fe] = (uint8_t)(TEST_RETURN_ADDRESS & 0xff);
     machine->bus.ram[0x01ff] = (uint8_t)(TEST_RETURN_ADDRESS >> 8);
-    machine->cpu.cpu.X = la;
+    machine->cpu.cpu.A = la;
+    /* CLOSE takes A; keep X different to catch register mixups. */
+    machine->cpu.cpu.X = (uint8_t)(la ^ 0x80u);
     machine->cpu.cpu.flags |= 0x01;
 }
 
@@ -1474,8 +1480,18 @@ static void test_hostfs_scratch_and_seq(void)
             expect_true("seq eoi", (c64.bus.ram[0x90] & 0x40u) != 0);
         }
     }
+    setup_open_call(&c64, "NOTE,S,R", 5, 9, 5);
+    expect_true("open second seq read", c64_step_instruction(&c64, error, sizeof(error)));
+    expect_success_return(&c64);
     setup_close_call(&c64, 2);
+    c64.cpu.cpu.X = 5;
     expect_true("close seq read", c64_step_instruction(&c64, error, sizeof(error)));
+    expect_success_return(&c64);
+
+    expect_true("A channel closed", !c64_hostfs_channel_is_seq_read(c64.drives[1].hostfs, 2));
+    expect_true("X channel remains open", c64_hostfs_channel_is_seq_read(c64.drives[1].hostfs, 5));
+    setup_close_call(&c64, 5);
+    expect_true("close second seq read", c64_step_instruction(&c64, error, sizeof(error)));
     expect_success_return(&c64);
 
     /* SEQ write: OPEN 3,9,3,"OUT,S,W" */

@@ -207,7 +207,9 @@ static void setup_close_call(c64_t *machine, uint8_t la)
 {
     machine->cpu.cpu.pc = 0xffc3;
     push_return(machine);
-    machine->cpu.cpu.X = la;
+    machine->cpu.cpu.A = la;
+    /* CLOSE takes A; keep X different to catch register mixups. */
+    machine->cpu.cpu.X = (uint8_t)(la ^ 0x80u);
     machine->cpu.cpu.flags |= 0x01;
 }
 
@@ -346,10 +348,14 @@ static void test_printer_basic_open_print_close(void)
     expect_success_return(&c64);
     expect_true("dirty after chrout", c64_printer_page_dirty(&c64.printer));
 
+    open_printer(&c64, 5, 0);
     setup_close_call(&c64, 4);
+    c64.cpu.cpu.X = 5;
     step_ok(&c64, "close");
     expect_success_return(&c64);
-    expect_true("lat cleared", c64.bus.ram[ZP_LDTND] == 0);
+    expect_true("A channel closed", lat_find(&c64, 4) < 0);
+    expect_true("X channel remains open", lat_find(&c64, 5) >= 0);
+    expect_true("one channel remains", c64.bus.ram[ZP_LDTND] == 1);
     expect_true("dflto screen", c64.bus.ram[ZP_DFLTO] == 3);
     expect_true("flushed", c64_printer_pages_flushed(&c64.printer) == 1u);
     expect_true("clean", !c64_printer_page_dirty(&c64.printer));
