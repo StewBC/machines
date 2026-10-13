@@ -71,6 +71,18 @@ Use a separate build directory when switching compilers or operating systems.
 With a Visual Studio generator, pass `--config Debug` to the build and `-C Debug`
 to CTest; executables are under `build/Debug/`.
 
+## Agent access through MCP
+
+The optional [Machines MCP adapter](mcp/README.md) lets Codex attach to a running
+emulator or launch one, discover typed tools, and inspect CPU/memory, screenshots,
+recorded evidence and disassembly. It supports both existing control protocols
+without changing the emulators. Installation requires Python 3.11 or newer and
+is separate from the CMake build.
+
+See the adapter guide for one-time Codex setup, file roots, process ownership,
+recording requirements and current limitations. During parallel agent work,
+designate one agent to own emulator interaction while others analyze captured data.
+
 ## Running the tests
 
 To run the tests after building:
@@ -107,6 +119,7 @@ Everything builds from the repository root.
 | `manual/a2m/`, `manual/c64m/` | Manuals, also used for the built-in help |
 | `samples/apple2/` | Apple II programs to try and learn from |
 | `tests/` | Shared and machine-specific tests |
+| `mcp/` | Optional Python MCP adapter, agent tools, documentation and tests |
 | `external/` | Third-party libraries |
 
 For work on the code, start with the [development notes](agents/README.md).

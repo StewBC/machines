@@ -48,3 +48,9 @@ typed tools. One adapter owns one control connection. During parallel agent
 work, designate one agent to own emulator interaction; other agents analyze
 captured results. Protocol changes must update the adapter manifests, serializers,
 delivery classifications and behavioral tests together.
+
+Current adapter v0.2 adds typed VIC-ring queries, immutable bulk memory/writer-PC
+snapshots, shared-source disassembly and streamed retained-history export. Native
+history has one cursor per control session: new searches replace it, exhaustion
+retires the token, and export requires closing an active query first. Write-history
+values represent packed writer instruction PCs, not ages or timestamps.

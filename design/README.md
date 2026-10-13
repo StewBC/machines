@@ -25,6 +25,7 @@ The agents index points here: [`agents/README.md`](../agents/README.md) → Desi
 
 | Design | Status | Last worked on | Path |
 |--------|--------|----------------|------|
+| MCP debugging extensions | landed | 2026-10-12 | [`mcp/debugging-extensions.md`](mcp/debugging-extensions.md) |
 | shared emulator MCP adapter | landed | 2026-10-12 | [`mcp/emulator-mcp-adapter.md`](mcp/emulator-mcp-adapter.md) |
 | am65 layout assertions and tooling roadmap | active | 2026-09-30 | [`am65/layout-assertions-and-tooling.md`](am65/layout-assertions-and-tooling.md) |
 | am65 debugger symbol files and source maps | landed | 2026-10-09 | [`am65/debugger-symbols-and-source-maps.md`](am65/debugger-symbols-and-source-maps.md) |

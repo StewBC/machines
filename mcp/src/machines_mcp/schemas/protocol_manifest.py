@@ -343,7 +343,7 @@ MANIFEST = {'apple2': {'protocol': 'A2M/16',
                      'drive8': {'writable': False},
                      'drive9': {'writable': False}}}}
 PROTOCOLS={p:m['protocol'] for p,m in MANIFEST.items()}
-DEFERRED={'apple2':{'printer-flush'}, 'c64':{'printer-flush','get-debug-memory','vic-ring-info','vic-ring-record','vic-ring-clear','vic-ring-find'}}
+DEFERRED={'apple2':{'printer-flush'}, 'c64':{'printer-flush'}}
 _ACCEPTED_COMMON=set('reset run pause step-cycle step-instruction step-over step-out set-turbo enter-inspector leave-inspector land-inspector land-inspector-exact printer-flush frame-ring-record frame-ring-clear'.split())
 _ACCEPTED={'apple2':_ACCEPTED_COMMON|set('set-memory set-reg key mount mount-disk unmount select-disk set-disk-writable'.split()),'c64':_ACCEPTED_COMMON|set('run-cycles run-instructions run-to step-frame run-to-raster key-down key-up restore joystick paste-text paste-events paste-text-data paste-events-data load-prg load-bin save-bin save-state load-state mount-d64 unmount-disk power-drive vic-ring-record vic-ring-clear'.split())}
 _IMMEDIATE=set('hello version capabilities ping quit-client get-state frame-ring-info vic-ring-info find-symbol'.split())
@@ -390,3 +390,9 @@ AUDITED_SOURCE_REGIONS = [{'end': None,
   'start': None}]
 HISTORY_OPTIONS = ['pc', 'address', 'access', 'direction', 'limit', 'from', 'epoch', 'timeline', 'cycle', 'value', 'opcodes']
 BREAKPOINT_ACTIONS = ['none', 'break', 'fast', 'slow', 'type', 'swap']
+
+# Extension wire semantics and packed writer-PC source contract.
+AUDITED_SOURCE_REGIONS.extend([{'path': 'src/c64/machine/c64.c', 'start': 'static void c64_record_cpu_write(', 'end': 'static void c64_apply_cpu_bus_event(', 'sha256': '3b04c2d2189ef0026ebe38812629dfb5def5ceb49aaae34e093478d2b6686c3a'}, {'path': 'src/c64/runtime/runtime_thread.c', 'start': 'static void runtime_publish_debug_memory(', 'end': '\nstatic ', 'sha256': '368ba4ef5d37ae2d11aa47306dbaae462c76c0b0b6d08fb58cc5ad3513cc5561'}, {'path': 'src/c64/main.c', 'start': '        case CONTROL_COMMAND_VIC_RING_INFO:', 'end': '        case CONTROL_COMMAND_GET_VIC:', 'sha256': 'baab73bc3708f16e8ee15df2b251a1812b755482866205245a4b47eadbcba637'}, {'path': 'src/c64/main.c', 'start': '        case CONTROL_COMMAND_GET_DEBUG_MEMORY:', 'end': '        case CONTROL_COMMAND_GET_CALL_STACK:', 'sha256': '86886af8b0ea47e9ee10c3537c1fa8720527c2c950aea7d7887a38929999fea0'}])
+
+# Native single control-session cursor ownership and page-local result bounds.
+AUDITED_SOURCE_REGIONS.extend([{'path': 'src/apple2/runtime/runtime_thread.c', 'start': 'static void runtime_history_find_command(', 'end': 'static void runtime_history_read_command(', 'sha256': '9b4ae3f65b71b499ffc9438307e075874bb1a1020de125a46a77d65922452996'}, {'path': 'src/apple2/runtime/runtime_internal.h', 'start': 'typedef struct runtime_history_cursor {', 'end': '} runtime_session;', 'sha256': '85800287612cccfe4b62e147a16877cc165ac9af6fff1a0f0d0904604abf2495'}, {'path': 'src/c64/runtime/runtime_thread.c', 'start': 'static void runtime_history_find_command(', 'end': 'static void runtime_history_read_command(', 'sha256': '1ea9476cb59433d71e828c5ae10064177c341158e0e4f2999a907ab251bd6954'}, {'path': 'src/c64/runtime/runtime_internal.h', 'start': 'typedef struct runtime_history_cursor {', 'end': '} runtime_session;', 'sha256': '85800287612cccfe4b62e147a16877cc165ac9af6fff1a0f0d0904604abf2495'}])

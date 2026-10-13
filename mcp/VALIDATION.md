@@ -3,7 +3,8 @@
 This record separates executed local checks from CI targets and manual acceptance.
 Dates use America/Vancouver. The scoped implementation is independently reviewed
 and approved. Local checks below are complete; hosted CI and current desktop
-chat activation remain separate acceptance items.
+chat activation remain separate acceptance items. The current v0.2 result is
+**78 passing tests and 56 tools**; the v0.1 results below are historical checkpoints.
 
 ## Compatibility spike — 2026-10-12
 
@@ -23,7 +24,7 @@ read-only tool annotation and `default_tools_approval_mode="writes"` succeeded.
 Tool rejection did not execute the fixture. Mutating adapter tools need suitable
 interactive or configured approval handling; annotations must remain accurate.
 
-## Adapter checks — final 2026-10-12
+## Original v0.1 adapter checks — 2026-10-12
 
 - Independent implementation review: APPROVED, zero unresolved blockers.
 - Final consolidated local command: `MACHINES_MCP_LIVE=1 mcp/.venv/bin/python -m pytest mcp/tests -q` — **54 passed in 5.12s**.
@@ -72,3 +73,36 @@ Codex desktop chat has loaded this server or that its inline screenshot display
 has been manually accepted. Desktop connection refresh and visible tool/image
 acceptance must be recorded separately. No automatic restart of the user's
 application is part of implementation.
+
+## Debugging extension pass — 2026-10-12
+
+Adapter version 0.2.0 exposes 56 tools. Independently reviewed and approved with
+zero unresolved blockers. Final local consolidated suite: **78 passed in 11.07s**
+with `MACHINES_MCP_LIVE=1`; source/semantic manifest passes for 59 Apple and 80
+C64 commands. No emulator source or wire identity changed.
+
+New live tests export more than 64 records over multiple native pages on each
+product, checking complete JSONL record counts and footer. They verify known
+instruction decoding and auto CPU selection, all three debug-memory views, full
+native binary layout, immutable token windows after a later write, VIC ring
+controls and eight-sprite row arrays. Compiled decoder parity covers 6,144
+opcode/model/operand/address cases; production uses generated Python tables and
+requires no compiler.
+
+Review caught and corrected two native contracts: each history page's bounds
+are its own record IDs, not the retained global window, and each control session
+has one cursor. Export refuses an active query; successful new queries replace
+old tokens and exhausted continuations return null. Failed scans, changed
+records and quota/byte-limit failures do not publish partial destination files.
+C64 write-history data is four packed writer opcode PCs, not ages/timestamps;
+local host byte order is reported. Snapshot windows are capped at 512 addresses.
+
+Actual Codex CLI acceptance passed using only MCP tools. Both fresh sessions
+launched, paused, auto-disassembled with the correct CPU class, exported complete
+retained JSONL histories with hashes/counts, and stopped their owned children.
+C64 snapshot and same-token page returned generation 1; writer-PC arrays were
+interpreted as addresses. VIC recording/query produced four typed rows with
+eight-element sprite arrays and explicit possibly-limited selection. All requested
+operations completed without domain errors. Live integration, rather than this
+small CLI trace, supplies the multi-page completeness evidence. Existing desktop
+refresh/hosted cross-platform CI limitations still apply.

@@ -118,6 +118,13 @@ def dispatch(product, name, a):
     elif name=="history_read":
         verb="history-read"; args=a["id"]+f" before={a.get('before',32)} after={a.get('after',8)}"
         if "epoch" in a: args+=" epoch="+a["epoch"]
+    elif name=="c64_vic_ring": verb="vic-ring-"+a["action"]; args=("on" if a["enabled"] else "off") if a["action"]=="record" else ""
+    elif name=="c64_vic_ring_find":
+        verb="vic-ring-find"; parts=[]
+        if "frame" in a: parts.append("frame="+a['frame'])
+        if "raster" in a: parts.append(f"raster={a['raster']['first']}-{a['raster']['last']}")
+        parts.append(f"limit={a.get('limit',312)}"); args=" ".join(parts)
+    elif name=="c64_debug_memory": verb="get-debug-memory"; args="write-history="+flag(a.get('write_history',True))
     elif name=="frame_ring": verb="frame-ring-"+a["action"]; args=("on" if a["enabled"] else "off") if a["action"]=="record" else ""
     elif name=="recorded_frame": verb="get-frame-at"; args=" ".join(f"{k}={v}" for k,v in a["target"].items())
     elif name=="inspector":

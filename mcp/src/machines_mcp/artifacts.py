@@ -88,3 +88,66 @@ class Artifacts:
         next_offset=offset+len(result['records'])
         result['next_offset']=next_offset if next_offset<len(records) else None
         return result
+
+    def stream(self, fmt, *, path=None, overwrite=False, max_bytes=None):
+        """Stage a bounded artifact incrementally; publish only via finish()."""
+        return ArtifactStream(self.config, fmt, path, overwrite, max_bytes)
+
+
+class ArtifactStream:
+    """An atomic streaming artifact with no partially published destination."""
+    def __init__(self, config, fmt, path, overwrite, max_bytes):
+        self.config, self.fmt, self.overwrite = config, fmt, overwrite
+        if path is None:
+            if config.artifact_dir is None:
+                raise AdapterError('configuration', 'Configure artifact_dir for exports')
+            path = str(config.artifact_dir / f'{uuid.uuid4().hex}.{fmt}')
+        self.target = config.path(path, write=True, overwrite=overwrite)
+        self.max_bytes = config.artifact_quota if max_bytes is None else max_bytes
+        if self.max_bytes < 1:
+            raise AdapterError('invalid_argument', 'Export byte limit must be positive')
+        fd, tmp = tempfile.mkstemp(prefix='.machines-mcp-', dir=self.target.parent)
+        self.tmp = tmp
+        self.file = os.fdopen(fd, 'wb')
+        self.size = 0
+        self.digest = hashlib.sha256()
+        self.finished = False
+
+    def __enter__(self):
+        return self
+
+    def write(self, body):
+        if self.finished:
+            raise ValueError('Artifact already published')
+        if self.size + len(body) > self.max_bytes:
+            raise AdapterError('export_byte_limit', 'Full export exceeds max_bytes; no partial file published')
+        base = self.config.artifact_dir
+        used = sum(p.stat().st_size for p in base.iterdir()
+                   if p.is_file() and str(p) != self.tmp) if base else 0
+        if used + self.size + len(body) > self.config.artifact_quota:
+            raise AdapterError('artifact_quota', 'Full export exceeds artifact quota; no partial file published')
+        self.file.write(body)
+        self.digest.update(body)
+        self.size += len(body)
+
+    def finish(self):
+        if self.finished:
+            raise ValueError('Artifact already published')
+        self.file.flush()
+        os.fsync(self.file.fileno())
+        self.file.close()
+        # Recheck admission after the scan, then publish without a truncate race.
+        target = self.config.path(str(self.target), write=True, overwrite=self.overwrite)
+        if self.overwrite:
+            os.replace(self.tmp, target)
+        else:
+            os.link(self.tmp, target)
+            os.unlink(self.tmp)
+        self.finished = True
+        return dict(path=str(target), size=self.size, sha256=self.digest.hexdigest(), format=self.fmt)
+
+    def __exit__(self, exc_type, exc, tb):
+        if not self.file.closed:
+            self.file.close()
+        if os.path.exists(self.tmp):
+            os.unlink(self.tmp)

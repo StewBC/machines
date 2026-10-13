@@ -15,6 +15,9 @@ from .backends.apple2 import dispatch, parse_response
 from .codecs.frame import decode_frame
 from .codecs.hst1 import decode_hst1
 from .codecs.breakpoints import decode_breakpoints
+from .codecs.debug_memory import DebugSnapshot, DebugSnapshots
+from .codecs.vic_ring import decode_vic_ring
+from .codecs.disassembly import decode as decode_disassembly
 
 class Adapter:
     def __init__(self,config):
@@ -22,6 +25,7 @@ class Adapter:
         self.life=Lifecycle(config,self.artifacts)
         self.lock=asyncio.Lock()
         self.queued=0
+        self.debug_snapshots=DebugSnapshots()
 
     def envelope(self,data,outcome='observed'):
         return dict(connection=self.life.connection,product=self.life.product,protocol=self.life.protocol,outcome=outcome,state_context=dict(cached_last_observed=self.life.context,sample_consistency='single_response'),data=data)
@@ -71,6 +75,47 @@ class Adapter:
             return self.envelope(data,'completed'),None
         life.require(args['connection'])
         if name=='detach': return self.envelope(await life.detach(args.get('keep_running',False)),'completed'),None
+        if name=='c64_debug_memory_page':
+            data=self.debug_snapshots.get(life.connection,args['token']).window(args['address'],args.get('length',256))
+            data['snapshot_token']=args['token']
+            return self.envelope(data),None
+        if name=='history_export':
+            from .history_export import export_history
+            self._paths(name,args)
+            try:
+                data=await export_history(life,self.artifacts,args)
+            except AdapterError as exc:
+                if exc.data['code']=='invalid_response':
+                    await life.close_connection(); life.failure(exc)
+                raise
+            except ValueError as exc:
+                await life.close_connection(); life.failure(AdapterError('invalid_response',str(exc)))
+                raise AdapterError('invalid_response',str(exc),effect='possible')
+            result=self.envelope(data,'completed')
+            result['state_context']['sample_consistency']='verified_retained_window_multiple_observations'
+            return result,None
+        if name=='disassemble':
+            cpu=args.get('cpu_class','auto'); model=None
+            if cpu=='auto':
+                if life.product=='c64' or args.get('source') in ('drive8','drive9'): cpu='nmos'
+                else:
+                    if 'get-softswitches' in life.disabled_verbs: raise AdapterError('unsupported_feature','Apple model observation unavailable; choose explicit cpu_class')
+                    observed=await life.wire.request('get-softswitches')
+                    model=parse_response('apple2','get-softswitches',observed.text)
+                    if model.get('model') not in ('//e-enh','][+'): raise AdapterError('invalid_response','Unknown Apple CPU model; choose explicit cpu_class')
+                    cpu='65c02' if model['model']=='//e-enh' else 'nmos'
+            if 'get-memory' in life.disabled_verbs: raise AdapterError('unsupported_feature','Memory inspection unavailable')
+            from .backends.apple2 import hx
+            length=args.get('length',192)
+            reply=await life.wire.request('get-memory',f"{hx(args['address'])} {length} {args.get('source','map')}")
+            if reply.kind!='data' or reply.data_type!='memory' or len(reply.payload)!=length:
+                await life.close_connection()
+                raise AdapterError('invalid_response','Disassembly memory response mismatch')
+            records=decode_disassembly(reply.payload,args['address'],cpu,args.get('max_instructions',64))
+            consumed=sum(r['length'] for r in records)
+            result=self.envelope(dict(address=args['address'],source=args.get('source','map'),cpu_class=cpu,model_observation=model,native_memory_metadata=reply.text,requested_bytes=length,decoded_bytes=consumed,next_address=args['address']+consumed if consumed<length else None,records=records))
+            result['state_context']['sample_consistency']='separate_model_and_single_memory_sample' if model else 'single_memory_sample'
+            return result,None
         if name=='history_next' or name=='history_close':
             token=args['cursor']
             if token not in life.cursors:
@@ -94,9 +139,25 @@ class Adapter:
                 data,image=decode_frame(life.product,reply.text,reply.payload)
                 if args.get('path'):
                     data['artifact']=self.artifacts.write(image,'png',path=args['path'],overwrite=args.get('overwrite',False))
+            elif name=='c64_debug_memory':
+                if reply.kind!='data' or reply.data_type!='debug-memory': raise ValueError('Unexpected debug-memory response')
+                snapshot=DebugSnapshot(reply.text,reply.payload)
+                data=snapshot.window(args['address'],args.get('length',256))
+                if args.get('path'): data['artifact']=self.artifacts.write(reply.payload,'bin',path=args['path'],overwrite=args.get('overwrite',False))
+                data['snapshot_token']=self.debug_snapshots.add(life.connection,snapshot)
+            elif name=='c64_vic_ring_find':
+                if reply.kind!='data' or reply.data_type!='vic-ring': raise ValueError('Unexpected VIC-ring response')
+                data=decode_vic_ring(reply.text,reply.payload)
+                if data['count']>args.get('limit',312): raise ValueError('VIC-ring exceeds requested limit')
+                data['selection_limit']=args.get('limit',312)
+                data['possibly_limited']=data['count']==args.get('limit',312)
+                data=self.artifacts.bounded(data)
             elif name.startswith('history_') and reply.payload:
                 data=decode_hst1(reply.text,reply.payload)
                 native=data.get('cursor')
+                if name=='history_find' or name=='history_next' and str(native)=='0':
+                    life.cursors.clear()
+                if str(native)=='0': data['cursor']=None
                 if native is not None and str(native) not in ('0',''):
                     token=next((k for k,v in life.cursors.items() if v['native']==str(native)),uuid.uuid4().hex)
                     life.cursors[token]=dict(native=str(native),epoch=data.get('epoch'),generation=life.connection)
@@ -127,7 +188,7 @@ class Adapter:
 
     def _paths(self,name,args):
         if 'path' not in args: return
-        write=name in ('export_memory','get_frame','recorded_frame') or name=='snapshot' and args['action']=='save' or name=='c64_binary_file' and args['action']=='save'
+        write=name in ('export_memory','get_frame','recorded_frame','c64_debug_memory','history_export') or name=='snapshot' and args['action']=='save' or name=='c64_binary_file' and args['action']=='save'
         self.life.config.path(args['path'],write=write,overwrite=args.get('overwrite',False))
 
 async def run(config):

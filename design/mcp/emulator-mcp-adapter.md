@@ -2,13 +2,22 @@
 
 Author: Designer subagent · Date: 2026-10-12 · Status: FINAL — independently reviewed design; implementation authorized and completed 2026-10-12; independently reviewed
 
+## Version scope
+
+This document retains the **original v0.1 release plan** for implementation history.
+Its initial inventory and deferred-feature list describe that release, not current
+adapter coverage. **v0.2 implements VIC rings, bulk debug-memory/writer-PC snapshots,
+full retained-history export and disassembly**; see the [landed addendum](debugging-extensions.md)
+and [current usage guide](../../mcp/README.md). Native history cursor behavior below
+has been corrected to the source-verified single-cursor contract.
+
 ## Decision and goals
 
 Build one separately installable Python package in top-level `mcp/`, exposing a local stdio MCP server to Codex and attaching to either A2M/16 or C64M/10 over existing localhost TCP. No emulator implementation changes are required for the first release. Preserve direct-script access when the adapter is disconnected. The user authorized this scoped implementation on 2026-10-12 after discussion of the omissions and agent coordination.
 
 The user has accepted Codex first, both attach and launch, exclusive control connections, honest state/completion contracts, bounded large results, schema maintenance, local file/process policy, and comparing native MCP. The release must support investigation of an independently running game without altering it on attachment. MCP discovers tools, not emulator processes or hardware meaning.
 
-The first release includes execution, CPU/memory, complete wire-expressible breakpoint definitions, assembly and supported loading, screenshots, Apple softswitches, C64 VIC/CIA/drive inspection, input, supported media, snapshots, symbols, HST1 queries, frame rings, and wire-exposed Inspector navigation. The extra evidence surfaces avoid a nominal debugging release unable to inspect recorded pre-failure evidence. Their inclusion increases implementation scope deliberately. C64 debug-memory bulk/write-age arrays and VIC rings are deferred, not silently omitted; see the exhaustive inventory.
+The first release includes execution, CPU/memory, complete wire-expressible breakpoint definitions, assembly and supported loading, screenshots, Apple softswitches, C64 VIC/CIA/drive inspection, input, supported media, snapshots, symbols, HST1 queries, frame rings, and wire-exposed Inspector navigation. The extra evidence surfaces avoid a nominal debugging release unable to inspect recorded pre-failure evidence. Their inclusion increases implementation scope deliberately. C64 debug-memory bulk/writer-PC-history arrays and VIC rings were deferred in v0.1, not silently omitted; see the exhaustive inventory.
 
 ## Evidence and repository fit
 
@@ -137,7 +146,7 @@ Definition: `{access:exec|read|write|read_write,address:Addr,end?:Addr,enabled?:
 
 `history_info` no fields. `history_record(enabled:bool)` and `history_clear` are explicit mutations. `history_find` fields: pc? Range<Addr>, address? Range<Addr>, access? enum from shared find-access table, direction? forward/backward=backward, limit? integer 1..64=32, from? tagged `{kind:oldest|newest|id,id?:Counter}`, epoch? Counter, timeline? U32, cycle? Range<Counter>, value? string matching `[0-9A-Fa-f?]{2}` (one byte with nibble wildcards), opcodes? array 1..32 of that same pattern. `history_next(cursor:string,limit?1..64=32)`, `history_read(id:Counter,epoch?:Counter,before?0..64=32,after?0..64=8)`, `history_close(cursor:string)` expose bounded HST1 results. Omitted filter fields use native defaults. `from.id` is required only for kind=id and must be nonzero. Serialize value with `$` prefix; join opcode patterns by commas without spaces. Range fields support native singleton queries by first=last. Access enum is execute/fetch/opcode/operand/data-read/data-write/read/write/data/dummy-read/rmw-dummy-write/stack-read/stack-write/vector-read. Source meanings matter: data-read aliases read (including opcode/dummy/stack/vector reads), data-write aliases write (including RMW dummy/stack writes); data is ordinary data read/write only. Query descriptions preserve these meanings.
 
-Decode HST1 v1 little-endian header/records/accesses; validate magic/version/reserved fields, record sizes/count, payload boundary and response epoch/count. Return all decoded fields including partial/access_truncated/timing_truncated/anchor_match flags, marker kind+args and bus access kind+cycle offset. Media marker 13 is not an ordinary instruction. Preserve raw enum ids plus known names. Opaque cursors bind connection generation, runtime session, epoch and query. CURSOR_STALE is returned distinctly: never silently re-find and misrepresent continuation. Cursor closes on detach; bounded 8 cursors per process.
+Decode HST1 v1 little-endian header/records/accesses; validate magic/version/reserved fields, record sizes/count, payload boundary and response epoch/count. Return all decoded fields including partial/access_truncated/timing_truncated/anchor_match flags, marker kind+args and bus access kind+cycle offset. Media marker 13 is not an ordinary instruction. Preserve raw enum ids plus known names. Opaque cursors bind connection generation, runtime session, epoch and query. CURSOR_STALE is returned distinctly: never silently re-find and misrepresent continuation. Cursor closes on detach. Native source supports one cursor per control session: a successful new find replaces the previous query, exhausted continuation retires its token, and full export rejects an outstanding query. The originally proposed multi-cursor capacity is superseded by this source-verified contract.
 
 `frame_ring(action:info|record|clear,enabled?:bool only record)` and `recorded_frame(target:oneOf {frame:Counter}/{cycle:Counter},path?:Path,overwrite?:bool=false only with path)` expose status and PNG evidence. No automatic recording enablement. `inspector(action:enter|leave|land|land_exact,cycle?:Counter only land variants)` exposes existing navigation. Mode is global; land can imply enter, leave restores live and does not resume. Run/step in Inspector are sealed replay clamped to live; mutating calls must pass through native read-only rejection. Recorder startup availability comes from launch profile/INI, not an invented record control verb. Apple F/S clocks and C64 film_cycle are separate; never equate HST1 ids to Inspector cycles. Native Inspector UI catalog and ± controls without wire verbs are unsupported.
 
@@ -256,7 +265,7 @@ Advertise-only entries: `sessions`, `state-changed` (NULL verb names). Included 
 | `get-frame-at` | I | recorded_frame |
 | `get-memory` | I | read_memory/export_memory |
 | `set-memory` | I | write_memory |
-| `get-debug-memory` | D | Bulk three-space/write-age snapshot needs a dedicated paging/export contract; ordinary memory included. |
+| `get-debug-memory` | D | Bulk three-space/writer-PC-history snapshot needs a dedicated paging/export contract; ordinary memory included. |
 | `get-call-stack` | I | c64_call_stack |
 | `key-down` | I | c64_key(down) |
 | `key-up` | I | c64_key(up) |
@@ -362,3 +371,5 @@ Reviewer must approve scope coverage, typed schema implementability, source-deri
 2026-10-12: User approved implementation, retaining the documented debugging follow-ons and requiring one designated agent to own emulator interaction while other agents analyze in parallel. This authorization applies only to the scoped first release.
 
 2026-10-12: Implementation reviewer approved with zero unresolved blockers after correcting hardware numeric decoding, discovery contracts, startup deadlines/diagnostics, semantic drift coverage and workflow triggers. Final broken-pipe classification was separately approved with its regression test. Local Codex CLI workflows and emulator integrations are recorded in `mcp/VALIDATION.md`; desktop activation and hosted cross-platform CI are distinguished from local checks.
+
+The four debugging follow-ons are implemented in the subsequent [debugging extensions](debugging-extensions.md) addendum. The inventory above records the original v1 release; current coverage is maintained in the adapter manifest. Native write history contains packed writer PCs, not write ages.

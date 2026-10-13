@@ -46,7 +46,7 @@ class Wire:
                 if kind == 'data':
                     fields = text.split(' ', 2)
                     dtype, size = fields[0], int(fields[1])
-                    kind_limit={'memory':65536,'frame':2080*312,'history':24+129*(48+67*8),'breakpoints':64*384}.get(dtype,8*1024*1024)
+                    kind_limit={'memory':65536,'frame':2080*312,'history':24+129*(48+67*8),'breakpoints':64*384,'vic-ring':2048*512,'debug-memory':65536*11}.get(dtype,8*1024*1024)
                     if size < 0 or size > kind_limit:
                         raise ValueError('invalid payload size')
                     payload = await self.reader.readexactly(size)

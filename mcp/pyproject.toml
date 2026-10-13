@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "machines-emulator-mcp"
-version = "0.1.0"
+version = "0.2.0"
 description = "Local typed MCP access to A2M/16 and C64M/10 emulators"
 requires-python = ">=3.11"
 dependencies = ["mcp==1.30.0", "jsonschema==4.26.0"]

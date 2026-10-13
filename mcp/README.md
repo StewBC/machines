@@ -3,6 +3,7 @@
 `machines-mcp` is a local stdio MCP server for Codex. It translates typed tools
 into the existing **A2M/16** and **C64M/10** localhost control protocols. It is
 separate from the C99 emulators and is not required to build or use them.
+Version **0.2.0** exposes **56 typed tools** across both products.
 
 ## Install
 
@@ -148,7 +149,8 @@ native timestamps where available and distinguish cached last-observed context.
 Current frames may be partial; recorded frames are ring samples. Screenshots are
 PNG image results with original raster dimensions. Memory reads, history queries,
 event logs and decoded page continuations are bounded. `export_memory` writes a
-bounded binary file; full-history export is not provided.
+bounded binary file; `history_export` streams all retained history to JSONL
+within explicit byte, quota and time limits (see Debugging extensions below).
 
 History cursors are session/generation bound and become stale after native
 mutations. The adapter does not silently reissue a query to make a stale cursor
@@ -182,15 +184,57 @@ that directory quota. Caller-owned exports are not silently removed to make spac
 Logs and temporary data are bounded. MCP stdout is reserved for protocol traffic;
 diagnostics belong on stderr and owned-process log artifacts.
 
-## First-release scope and follow-ons
+## Debugging extensions (0.2)
+
+Six additional tools now provide the debugging surfaces deferred from the first
+release:
+
+- `c64_vic_ring` inspects or explicitly records/clears the VIC line ring.
+  `c64_vic_ring_find` returns the published per-line fields, including latched
+  sprite positions, with bounded immutable result pages. Native selection is
+  capped at 2048 rows and has no continuation cursor; a full-limit result may
+  omit other matching lines.
+- `c64_debug_memory` takes one fresh native sample of map/RAM/ROM and optional
+  write history, with a 1..512-address window and snapshot token.
+  `c64_debug_memory_page` reads other windows of that same immutable sample.
+  An optional output path saves the complete raw payload with layout, hash and
+  byte-order metadata. Four samples are cached for up to fifteen minutes.
+- `disassemble` decodes one memory sample using tables generated from the shared
+  C decoder. C64 and drive sources use NMOS; Apple auto observes the model to
+  select NMOS or 65C02. Explicit Apple overrides are available. Unknown opcodes
+  and incomplete operands emit `.BYTE`, never invented bytes. It reads at most
+  384 bytes and returns at most 128 instructions, without sequential wrap.
+- `history_export` streams **all currently retained** HST1 records as JSONL to an
+  explicit admitted path. Pause live execution and close an active history query
+  first; the tool never pauses or leaves Inspector. It checks native page-local
+  bounds, continuous IDs and start/end retained epoch/bounds/count before atomic
+  publication. Quota, max_bytes or timeout failure removes the temporary file
+  and does not replace an existing destination. This is a verified scan through
+  multiple observations, not an atomic transaction against GUI activity. The
+  default budget is 30 seconds; larger requests require a matching client timeout.
+
+C64 write history is **four packed 16-bit writer instruction addresses**, latest
+first, not write ages or timestamps. A zero PC is ambiguous. Native wire arrays
+use host byte order; the local adapter reports it explicitly. Drive maps and
+validity arrays in native structs are absent from this wire and are not fabricated.
+
+Each control session has one native history cursor. A successful new search
+replaces the previous query. Exhausting continuation returns `cursor=null` and
+retires its token; only a still-active cursor needs `history_close`. Export rejects
+an outstanding query rather than overwriting it.
+
+The [extension contracts](../design/mcp/debugging-extensions.md) and validation
+record explain these boundaries.
+
+## Current scope and follow-ons
 
 Included: lifecycle; execution/waits; CPU/memory; wire-expressible breakpoints;
 assembly and supported loading; PNG frames; softswitch/VIC/CIA/drive inspection;
-input/media; snapshots; symbol lookup; bounded HST1 queries; frame rings; and
-wire-exposed Inspector navigation.
+input/media; snapshots; symbol lookup; bounded HST1 queries and full retained
+history export; frame and VIC rings; immutable bulk memory/writer-PC snapshots;
+disassembly; and wire-exposed Inspector navigation.
 
-Deferred: C64 VIC rings and bulk debug-memory/write-age arrays; printer flushing;
-disassembly; full-history export; automatic instance discovery; multi-client or
+Deferred: printer flushing; automatic instance discovery; multi-client or
 multi-emulator hosting; pipelining; HTTP/remote access; image crop/rescale/comparison;
 other emulator protocol versions; self-contained packaging without Python;
 automatic crash report ingestion/reproduction/recovery; general live configuration
@@ -200,8 +244,9 @@ Some GUI capabilities lack current wire commands, including C64 register writes,
 generic cartridge/G64 mounting, symbol-file import, richer breakpoint type/swap
 payloads, and Inspector catalog/record UI controls. Existing startup/GUI features
 remain available independently. A dead emulator cannot return vanished state.
-The [approved design](../design/mcp/emulator-mcp-adapter.md) inventories every
-wire verb and explains each inclusion, alias, and omission.
+The [original v0.1 design](../design/mcp/emulator-mcp-adapter.md) records its
+initial wire inventory. The [v0.2 addendum](../design/mcp/debugging-extensions.md)
+and adapter manifest describe the implemented additions and current coverage.
 
 ## Verification
 
@@ -212,7 +257,8 @@ mcp/.venv/bin/python -m pytest mcp/tests
 MACHINES_MCP_LIVE=1 mcp/.venv/bin/python -m pytest mcp/tests/integration
 ```
 
-The independent adapter CI matrix exercises macOS, Linux and Windows. Live
+The adapter CI matrix is configured for macOS, Linux and Windows; hosted runs
+have not yet been verified. Live
 integration requires built emulators and ROMs; test reports distinguish skipped
 integration prerequisites from completed verification. See `VALIDATION.md` for
 actual host, SDK, client and test results, including outstanding desktop/manual

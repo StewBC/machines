@@ -648,8 +648,9 @@ working buffer**, not a completed frame. For a full frame use `step-frame`, or
 
 `get-debug-memory` **always requests a fresh snapshot** (never serves a stale
 cache). It concatenates three 65536-byte arrays in this order: CPU map, raw RAM,
-raw ROM. With `write-history=1`, it appends 65536 little-endian `uint64`
-write-history values. Metadata includes `generation`, `map`, `ram`, `rom`, and
+raw ROM. With `write-history=1`, it appends 65536 host-native-endian `uint64`
+write-history values. Each packs the latest four writer opcode PCs, newest in the
+low 16 bits; these are not ages or timestamps, and zero is ambiguous. Metadata includes `generation`, `map`, `ram`, `rom`, and
 `write_history` flags. Treat a new `generation` as the freshness marker.
 
 `get-call-stack` returns text beginning `sp=.. count=..` followed by

@@ -119,7 +119,8 @@ async def test_live_tools(product,exe,tmp_path):
         page,_,_=await call('history_find',limit=2)
         assert 'records' in page
         if page.get('cursor'):
-            token=page['cursor'];await call('history_next',cursor=token,limit=2);await call('history_close',cursor=token)
+            token=page['cursor'];next_page,_,_=await call('history_next',cursor=token,limit=2)
+            if next_page.get('cursor'):await call('history_close',cursor=token)
         if page['records']:await call('history_read',id=page['records'][0]['id'],epoch=page['epoch'],before=0,after=0)
         await call('frame_ring',action='record',enabled=True)
         await call('execute',action='run');await call('wait',condition='frame',delta=2,timeout_ms=5000)

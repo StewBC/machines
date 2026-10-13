@@ -105,7 +105,7 @@ def example(schema):
 
 
 def test_every_backend_tool_branch_dispatches():
-    local={'attach','launch','connection_info','stop_owned','abandon_owned','detach','events','result_page'}
+    local={'attach','launch','connection_info','stop_owned','abandon_owned','detach','events','result_page','disassemble','history_export','c64_debug_memory_page'}
     for name,spec in TOOLS.items():
         if name in local: continue
         branches=spec['inputSchema'].get('oneOf',[spec['inputSchema']])

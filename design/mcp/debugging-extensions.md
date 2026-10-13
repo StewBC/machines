@@ -1,0 +1,22 @@
+# MCP debugging extensions
+
+Status: landed — independently reviewed implementation addendum to the approved adapter architecture. User authorized the four previously deferred debugging surfaces on 2026-10-12. No emulator protocol or runtime behavior changes.
+
+## Contracts
+
+* `c64_vic_ring`: info, explicit record on/off, and explicit clear. Native acceptance/completion conventions retained. Never arm on attachment.
+* `c64_vic_ring_find`: optional frame and inclusive raster window, limit 1..2048 (native default 312). Decode every C64M/10 published row field, including latched sprite X and arrays. Frame and machine-cycle counters stay decimal strings. A single ring copy is cached/presented immutably when large. Selection has no native continuation cursor; count equal to limit means possibly incomplete, not an assurance of exhaustion. The 2048 cap is explicit.
+* `c64_debug_memory`: obtain a fresh single native bulk snapshot, present an address window of 1..512 bytes across map/RAM/ROM and optional writer history, with immutable token. `c64_debug_memory_page` reads other windows of that same raw sample without emulator I/O. Four snapshots, fifteen-minute expiry, connection binding; eviction/stale errors never silently refresh. Optional absolute path exports the full raw native payload, hash, byte-order and layout metadata.
+* The C64 array misleadingly discussed as “write-age” is **four packed 16-bit writer opcode PCs**, latest first. No ages or timestamps exist. Zero cannot distinguish no evidence from an opcode at address zero. Decode source-faithfully using local host byte order because the wire copies host-native uint64 arrays and adapter/emulator are localhost peers. Native drive maps and validity arrays exist in the C struct but are not serialized by this protocol. Do not fabricate them.
+* `disassemble`: one bounded memory response, length 1..384, up to 128 instructions (defaults 192 bytes / 64 instructions). Pure Python opcode tables are generated from shared authoritative C decoder, with source drift checking and compiled C parity tests. No runtime compiler or native dependency. C64 and drive sources decode NMOS. Apple auto samples softswitch model separately (enhanced //e=65C02, ][+=NMOS); explicit class override available. Model/memory reads are not atomic. Unknown opcodes and truncated operands emit forced `.BYTE` faithfully, no sequential address wrap. No invented symbols; address/byte/text/length/truncation flags and native memory metadata preserved.
+* `history_export`: all retained HST1 records, unfiltered, streamed JSONL. Explicit path under write roots, overwrite opt-in, timeout and byte/quota bounds. Requires already-paused live state, does not pause or arm recording. Exclusive internal query: both native control sessions have one history cursor. Export requires closing any active agent history cursor first and never replaces it silently. Verify start/end epoch, retained status bounds/count and ordered complete IDs; page oldest/newest describe that page’s records, not global retention; publish atomically only on success, close cursor and clean temporary files on failure. This verifies a retained window through multiple observations, not an atomic transaction against independent GUI changes.
+
+## Boundaries and acceptance
+
+One designated emulator-interaction owner remains required. No automatic pause, resume, reset, step, or recording. All output bounded and local artifacts obey configured roots/quota. Printer flushing, remote transport, multi-client hosting, automatic discovery and crash recovery remain deferred.
+
+Tests cover every new typed branch, malformed sizes/metadata/arrays, uint64 precision, packed-PC semantics, immutable sample identity/connection/eviction, no mutation during inspection, native decoder parity, streaming completeness/failure cleanup and live emulator calls. Existing protocol manifest remains A2M/16 and C64M/10; added audited source regions cover query dispatch, snapshot collection and packed writer PCs.
+
+## Independent review and verification
+
+The reviewer approved with zero unresolved blockers after correcting page-local history bounds and the single native cursor contract. Invalid responses invalidate the connection; capability checks apply before wire requests. The complete local suite passes 78 tests, including multi-page exports on both products, immutable debug snapshot windows after guest memory changes, typed VIC ring queries, and 6,144 compiled C disassembler parity cases. See `mcp/VALIDATION.md` for the client acceptance record.

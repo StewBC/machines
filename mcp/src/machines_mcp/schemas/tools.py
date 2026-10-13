@@ -88,6 +88,13 @@ add("recorded_frame",obj({"target":{"oneOf":[obj({"frame":COUNTER},["frame"]),ob
 add("inspector",tagged("action",[("enter",{},[]),("leave",{},[]),("land",{"cycle":COUNTER},["cycle"]),("land_exact",{"cycle":COUNTER},["cycle"])]),description="Change global Inspector mode/cursor explicitly. Land implies enter; leave restores live without resuming. Never equate history ids with Inspector clocks.")
 
 
+add("c64_vic_ring",tagged("action",[("info",{},[]),("record",{"enabled":BOOL},["enabled"]),("clear",{},[])]),product="c64",description="Inspect or explicitly record/clear retained per-line VIC evidence. No automatic recording; clear discards evidence. Record and clear report queued acceptance.")
+add("c64_vic_ring_find",obj({"frame":COUNTER,"raster":range_of(ADDR),"limit":integer(1,2048,312)}),product="c64",readonly=True,description="Read retained VIC line snapshots, optionally one frame/raster window. Includes latched sprite positions and native wire fields; no missing internal fields invented. At most 2048 rows; immutable result pages preserve one native copy. No continuation beyond native selection limit.")
+add("c64_debug_memory",obj({"address":ADDR,"length":integer(1,512,256),"write_history":{**BOOL,"default":True},"path":PATH,"overwrite":OVERWRITE},["address"]),product="c64",readonly=False,description="One fresh C64 snapshot of map/RAM/ROM plus optional packed writer-PC history. History is four 16-bit opcode PCs per address, latest first, NOT write ages; zero is ambiguous. Return bounded address window and immutable snapshot token; optional path saves full native raw arrays with explicit layout/endian metadata. Does not pause. Drive maps/valid arrays are unavailable on this wire.")
+add("c64_debug_memory_page",obj({"token":TOKEN,"address":ADDR,"length":integer(1,512,256)},["token","address"]),product="c64",readonly=True,description="Read another bounded window of the SAME immutable debug snapshot, without emulator I/O. Token expires after 15 minutes, eviction, or reconnect; no refresh or silent replacement.")
+add("disassemble",obj({"address":ADDR,"length":integer(1,384,192),"max_instructions":integer(1,128,64),"source":SOURCES,"cpu_class":{**enum("auto","nmos","65c02"),"default":"auto"}},["address"]),readonly=True,description="Read one bounded memory sample and decode with shared source-faithful 6502 decoder tables. C64/drive sources use NMOS; Apple auto observes model separately (//e enhanced=65C02, ][+=NMOS). Explicit Apple CPU class can override. Does not pause/step; model and memory observations are not atomic. Unknown or partial instructions return forced .BYTE; no address wrap.")
+add("history_export",obj({"path":PATH,"overwrite":OVERWRITE,"timeout_ms":integer(1,600000,30000),"max_bytes":integer(1,4294967295)},["path"]),readonly=False,description="Export all retained HST1 records as JSONL under allowed roots. Requires already-paused live state; never pauses or arms recording. Verifies retained bounds/epoch and ordered pages, and publishes only complete export within quota/deadline; failure removes temporary output. Close any active history query first: the native session has one cursor. Multiple observations are not atomic with GUI changes.")
+
 def validate_tool(name, arguments, product=None):
     if name not in TOOLS: raise ValueError("unknown tool")
     spec=TOOLS[name]
@@ -104,13 +111,16 @@ def validate_tool(name, arguments, product=None):
             for item in value: walk(item)
     walk(arguments)
     if "overwrite" in arguments and name in {"get_frame","recorded_frame"} and "path" not in arguments: raise ValueError("overwrite requires path")
-    if name in {"read_memory","write_memory","export_memory"}:
+    if name in {"read_memory","write_memory","export_memory","disassemble"}:
         source=arguments.get("source","map")
         valid={"apple2":{"map","main","aux","lc1","lc2","rom"},"c64":{"map","ram","rom","drive8","drive9"}}
         if product and source not in valid[product]: raise ValueError("unsupported memory source")
         if name=="write_memory" and (source=="rom" or (product=="c64" and source not in {"map","ram"})): raise ValueError("read-only memory source")
-        length=len(arguments["bytes_hex"] )//2 if name=="write_memory" else arguments.get("length",256)
+        length=len(arguments["bytes_hex"] )//2 if name=="write_memory" else arguments.get("length",192 if name=="disassemble" else 256)
         if arguments["address"]+length>65536: raise ValueError("memory operation would wrap")
+    if name in {"c64_debug_memory","c64_debug_memory_page"} and arguments['address']+arguments.get('length',256)>65536: raise ValueError("debug-memory window would wrap")
+    if name=="c64_debug_memory" and "overwrite" in arguments and "path" not in arguments: raise ValueError("overwrite requires path")
+    if name=="disassemble" and product=="c64" and arguments.get('cpu_class','auto')=='65c02': raise ValueError("C64 uses NMOS decoding")
     if name=="apple2_set_register" and arguments["name"]!="pc" and arguments["value"]>255: raise ValueError("register requires a byte")
     if name=="c64_execute" and "count" in arguments and int(arguments["count"])==0: raise ValueError("count must be positive")
     if name=="wait" and arguments["condition"]=="event" and product=="apple2" and arguments["event"] not in APPLE_EVENTS: raise ValueError("unsupported Apple event")
@@ -157,7 +167,7 @@ _DESCRIPTIONS={
 'c64_set_turbo':'C64 only: choose normal or maximum speed. Queued acceptance; not an Apple MHz setting.',
 'c64_execute':'C64 only: run bounded cycles/instructions, run to address or raster/cycle, or step a frame. Native breakpoints may stop advancement early. Reply is queued acceptance; inspect/wait separately.',
 'apple2_softswitches':'Apple only: inspect latched softswitch flags, model and beam state without triggering I/O. Memory peeks at $C0xx cannot substitute for this tool.',
-'c64_vic':'C64 only: inspect native VIC-II internal state and beam snapshot, including decimal raster/cycle and hexadecimal registers decoded numerically. Native cache freshness may be unknown; does not access deferred VIC rings.',
+'c64_vic':'C64 only: inspect native VIC-II internal state and beam snapshot, including decimal raster/cycle and hexadecimal registers decoded numerically. Native cache freshness may be unknown; recorded per-line evidence is available separately through c64_vic_ring_find.',
 'c64_cia':'C64 only: inspect CIA1 or CIA2 snapshot, ports, timer counters/latches, interrupt fields and TOD/alarm. Reports only fields present in current wire response; no fabricated unreadable state.',
 'c64_drive_cpu':'C64 only: inspect drive 8 or 9 native cached CPU/mechanical/media snapshot. Cache freshness is unknown unless native evidence says otherwise.',
 'c64_disk_status':'C64 only: inspect drive 8 or 9 mounted/powered/writable/dirty status and image names from native state. Cache freshness is unknown unless supplied.',
@@ -176,7 +186,7 @@ _DESCRIPTIONS={
 'history_info':'Read native HST1 recording status, budgets, epoch/timeline and retained record bounds. Recording history differs from Inspector tape recording.',
 'history_record':'Explicitly enable/disable HST1 history recording; does not arm Inspector tape. Changes evidence collection and may be rejected in Inspector.',
 'history_clear':'Explicitly clear retained HST1 history, invalidating its native epoch/cursors and discarding debugging evidence.',
-'history_find':'Search retained HST1 evidence with bounded filters and at most 64 matches. read/data-read includes opcode, operand, dummy, stack and vector reads; write/data-write includes dummy/stack writes; data means ordinary data accesses only. Decimal-string IDs/cycles differ from Inspector clocks. Does not arm recording.',
+'history_find':'Search retained HST1 evidence with bounded filters and at most 64 matches. A successful new search replaces the session cursor; exhausted continuations return cursor=null. read/data-read includes opcode, operand, dummy, stack and vector reads; write/data-write includes dummy/stack writes; data means ordinary data accesses only. Decimal-string IDs/cycles differ from Inspector clocks. Does not arm recording.',
 'history_next':'Continue a connection/session/epoch-bound opaque history cursor, up to 64 records. Stale cursors fail distinctly; never silently reruns the original query.',
 'history_read':'Read a bounded window around native history record ID, up to 64 before/after. Optional epoch constrains the request. Marker records and partial/truncated evidence remain explicit.',
 'history_close':'Release an opaque history cursor belonging to the current connection/session. Does not clear recorded evidence.',
