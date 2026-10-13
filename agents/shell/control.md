@@ -38,3 +38,13 @@ bus. Leftover a2m `DRIVE8_MAP` aliases are gone; do not restore them.
 Fetch each product's memory-source table and count before calling the lookup
 helper. Passing `product_memory_sources(&n)` alongside `n` in the same argument
 list depends on unspecified C argument evaluation order and fails with GCC.
+
+## MCP agent access
+
+`mcp/` exposes these existing product protocols through a separately installed
+local stdio MCP adapter; it does not replace the wire or link Python into either
+emulator. See [`../../mcp/README.md`](../../mcp/README.md) for setup and bounded
+typed tools. One adapter owns one control connection. During parallel agent
+work, designate one agent to own emulator interaction; other agents analyze
+captured results. Protocol changes must update the adapter manifests, serializers,
+delivery classifications and behavioral tests together.

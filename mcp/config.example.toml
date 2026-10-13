@@ -1,0 +1,26 @@
+# Copy outside the package and replace every /absolute/path value.
+# Roots admit explicit tool paths; they do not sandbox guest HostFS or assembly.
+read_roots = ["/absolute/path/to/machines", "/absolute/path/to/game-project"]
+write_roots = ["/absolute/path/to/game-project", "/absolute/path/to/mcp-artifacts"]
+artifact_dir = "/absolute/path/to/mcp-artifacts"
+artifact_quota = 268435456
+
+[profiles.apple2]
+product = "apple2"
+executable = "/absolute/path/to/machines/build/a2m"
+cwd = "/absolute/path/to/machines"
+port = 6510
+headless = true
+noini = true
+# Alternatively set ini = "/absolute/path/to/a2m.ini" and noini = false.
+# Recording is a deliberate startup choice; attaching never enables it.
+argv = ["--inspector", "--history-memory", "16", "--inspector-memory", "16"]
+
+[profiles.c64]
+product = "c64"
+executable = "/absolute/path/to/machines/build/c64m"
+cwd = "/absolute/path/to/machines"
+port = 6511
+headless = true
+noini = true
+argv = ["--inspector", "--history-memory", "16", "--inspector-memory", "16"]

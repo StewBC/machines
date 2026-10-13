@@ -53,6 +53,7 @@ targets so names do not collide).
 | `tests/shell/` | Tests for shared shell TUs. Registered under both `a2m.*` and `c64m.*` ctest names where they already were. |
 | `tests/apple2/` | a2m tests + fixtures. |
 | `tests/c64/` | c64m tests + fixtures. Asset SKIP 77 still uses gitignored `assets/`. |
+| `mcp/` | Separately installed Python stdio MCP adapter for A2M/16 and C64M/10; typed agent tools, local attach/launch, PNG/HST1 presentation, and protocol drift tests. Setup and contract guidance: `mcp/README.md`. Optional to emulator builds. |
 | `agents/apple2/` | a2m product-as-is notes. Paths are repo-root literal (`src/apple2/...`, `src/shell/...`). |
 | `agents/c64/` | c64m product-as-is notes. Same literal path convention. |
 | `agents/shell/` | Shared debugger *shape* only. Not a silicon story. |
