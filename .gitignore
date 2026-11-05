@@ -2,6 +2,7 @@
 /build/
 /build-*/
 /build-trace/
+/dist/
 /assets/
 
 .DS_Store

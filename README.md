@@ -71,6 +71,40 @@ Use a separate build directory when switching compilers or operating systems.
 With a Visual Studio generator, pass `--config Debug` to the build and `-C Debug`
 to CTest; executables are under `build/Debug/`.
 
+## Making a release package
+
+From the repository root:
+
+```bash
+python3 tools/package.py
+```
+
+`make package` does the same thing. This builds Release copies of a2m, c64m,
+and am65, then writes one folder per emulator under `dist/`. Each folder is the
+download layout: the program, am65, the ini example, the license, the manual,
+samples, symbols, and SDL. The c64m folder also contains `roms/`.
+
+Windows writes a zip. Run the script from a Visual Studio developer shell. If
+SDL2 comes from vcpkg, pass the toolchain through:
+
+```powershell
+python3 tools/package.py --cmake-args -DCMAKE_TOOLCHAIN_FILE=C:/path/to/vcpkg/scripts/buildsystems/vcpkg.cmake
+```
+
+Linux writes a `.tar.gz` and needs `patchelf`. Build it on an older distro
+(Ubuntu 22.04 is a solid floor) so the binary still runs on newer ones.
+
+macOS writes a zip you can run locally. To sign with your Developer ID and
+make the DMG:
+
+```bash
+python3 tools/package.py --sign
+```
+
+Notarization runs when the notary credentials are already in the environment
+(`APPLE_NOTARY_PROFILE`, or the API key trio, or Apple ID plus app password).
+The script does not upload the archives.
+
 ## Agent access through MCP
 
 The optional [Machines MCP adapter](mcp/README.md) lets Codex attach to a running
