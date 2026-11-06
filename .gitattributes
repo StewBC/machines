@@ -5,6 +5,7 @@
 *.bin binary
 *.rom binary
 *.png binary
+*.icns binary
 *.d64 binary
 *.g64 binary
 *.prg binary
