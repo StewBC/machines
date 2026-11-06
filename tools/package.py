@@ -15,8 +15,11 @@ published file layout into dist/<product>-<version>/, and writes:
 
 macOS puts the executable and SDL libraries in Contents/MacOS, and the
 manual, samples, symbols, and ROMs in Contents/Resources. Icons come from
-packaging/macos/<product>.icns. SDL stays beside the executable: the
-Homebrew SDL3 install name is too short to retarget into Frameworks.
+packaging/macos/<product>.icns. The Mac build targets macOS 12 (Apple
+Silicon) and links a private SDL built for that floor. Homebrew's SDL is
+stamped for the OS it was bottled on, which is too new for older Macs.
+SDL stays beside the executable: the install name is too short to retarget
+into Frameworks.
 
 c64m's folder includes roms/. Both folders include am65. SDL is copied
 next to the executable. On macOS, Homebrew sdl2-compat loads SDL3 by
@@ -142,6 +145,10 @@ WINDOWS_SYSTEM_DLLS = {
     "propsys.dll",
 }
 
+MACOS_DEPLOYMENT_TARGET = "12.0"
+SDL3_VERSION = "3.4.20"
+SDL2_COMPAT_VERSION = "2.32.74"
+
 LINUX_SYSTEM_SONAMES = {
     "libc.so.6",
     "libm.so.6",
@@ -226,11 +233,119 @@ def find_exe(build: Path, name: str) -> Path:
     raise SystemExit(f"did not find {name} under {build}")
 
 
-def configure_and_build(build: Path, cmake_args: list[str]) -> None:
+def macho_minos(path: Path) -> str:
+    text = capture(["vtool", "-show-build", str(path)])
+    for line in text.splitlines():
+        parts = line.split()
+        if len(parts) == 2 and parts[0] == "minos":
+            return parts[1]
+    return ""
+
+
+def fetch_tarball(url: str, dest_dir: Path, folder_name: str) -> Path:
+    dest = dest_dir / folder_name
+    if dest.is_dir() and any(dest.iterdir()):
+        return dest
+    if dest.exists():
+        shutil.rmtree(dest)
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    archive = dest_dir / f"{folder_name}.tar.gz"
+    run(["curl", "-L", "--fail", "--silent", "--show-error", "-o", str(archive), url])
+    run(["tar", "-xzf", str(archive), "-C", str(dest_dir)])
+    archive.unlink()
+    if not dest.is_dir():
+        raise SystemExit(f"expected {dest} after extracting {url}")
+    return dest
+
+
+def build_sdl_tree(src: Path, build: Path, prefix: Path, extra: list[str]) -> None:
+    if build.exists():
+        shutil.rmtree(build)
+    cmd = [
+        "cmake", "-S", str(src), "-B", str(build),
+        "-DCMAKE_BUILD_TYPE=Release",
+        f"-DCMAKE_INSTALL_PREFIX={prefix}",
+        f"-DCMAKE_OSX_DEPLOYMENT_TARGET={MACOS_DEPLOYMENT_TARGET}",
+        "-DCMAKE_OSX_ARCHITECTURES=arm64",
+    ]
+    if shutil.which("ninja"):
+        cmd.extend(["-G", "Ninja"])
+    cmd.extend(extra)
+    run(cmd)
+    jobs = str(os.cpu_count() or 4)
+    run(["cmake", "--build", str(build), "--parallel", jobs])
+    run(["cmake", "--install", str(build)])
+
+
+def ensure_macos_sdl(build_root: Path) -> Path:
+    """Build SDL for macOS 12. Homebrew bottles are stamped for the host OS."""
+    prefix = build_root / "sdl-prefix"
+    stamp = prefix / ".machines-sdl-stamp"
+    want = f"{MACOS_DEPLOYMENT_TARGET} SDL3-{SDL3_VERSION} sdl2-compat-{SDL2_COMPAT_VERSION}"
+    sdl3 = prefix / "lib" / "libSDL3.dylib"
+    sdl2 = prefix / "lib" / "libSDL2-2.0.0.dylib"
+    if (
+        stamp.is_file()
+        and stamp.read_text(encoding="utf-8") == want
+        and sdl3.is_file()
+        and sdl2.is_file()
+        and macho_minos(sdl3.resolve()) == MACOS_DEPLOYMENT_TARGET
+        and macho_minos(sdl2.resolve()) == MACOS_DEPLOYMENT_TARGET
+    ):
+        log(f"SDL already built for macOS {MACOS_DEPLOYMENT_TARGET}")
+        return prefix
+
+    log(f"building SDL for macOS {MACOS_DEPLOYMENT_TARGET}")
+    if prefix.exists():
+        shutil.rmtree(prefix)
+    src_root = build_root / "sdl-src"
+    sdl3_src = fetch_tarball(
+        f"https://github.com/libsdl-org/SDL/releases/download/release-{SDL3_VERSION}/SDL3-{SDL3_VERSION}.tar.gz",
+        src_root,
+        f"SDL3-{SDL3_VERSION}",
+    )
+    sdl2_src = fetch_tarball(
+        "https://github.com/libsdl-org/sdl2-compat/releases/download/"
+        f"release-{SDL2_COMPAT_VERSION}/sdl2-compat-{SDL2_COMPAT_VERSION}.tar.gz",
+        src_root,
+        f"sdl2-compat-{SDL2_COMPAT_VERSION}",
+    )
+    build_sdl_tree(sdl3_src, build_root / "sdl3-build", prefix, [
+        "-DSDL_SHARED=ON",
+        "-DSDL_STATIC=OFF",
+        "-DSDL_TESTS=OFF",
+        "-DSDL_EXAMPLES=OFF",
+    ])
+    sdl3_cmake = prefix / "lib" / "cmake" / "SDL3"
+    if not sdl3_cmake.is_dir():
+        raise SystemExit(f"SDL3 installed without {sdl3_cmake}")
+    build_sdl_tree(sdl2_src, build_root / "sdl2-build", prefix, [
+        f"-DSDL3_DIR={sdl3_cmake}",
+        "-DSDL2COMPAT_STATIC=OFF",
+        "-DSDL2COMPAT_TESTS=OFF",
+    ])
+    if not sdl2.is_file() or not sdl3.is_file():
+        raise SystemExit(f"SDL install under {prefix} is missing libSDL2 or libSDL3")
+    for lib in (sdl2, sdl3):
+        got = macho_minos(lib.resolve())
+        if got != MACOS_DEPLOYMENT_TARGET:
+            raise SystemExit(f"{lib.name} minos is {got}, expected {MACOS_DEPLOYMENT_TARGET}")
+    stamp.write_text(want, encoding="utf-8")
+    return prefix
+
+
+def configure_and_build(build: Path, cmake_args: list[str], sdl_prefix: Path | None = None) -> None:
     cmd = ["cmake", "-S", str(REPO), "-B", str(build)]
     if platform.system() != "Windows" and shutil.which("ninja"):
         cmd.extend(["-G", "Ninja"])
     cmd.append("-DCMAKE_BUILD_TYPE=Release")
+    if sdl_prefix is not None:
+        cmd.extend([
+            f"-DCMAKE_OSX_DEPLOYMENT_TARGET={MACOS_DEPLOYMENT_TARGET}",
+            "-DCMAKE_OSX_ARCHITECTURES=arm64",
+            f"-DCMAKE_PREFIX_PATH={sdl_prefix}",
+            f"-DSDL2_DIR={sdl_prefix / 'lib' / 'cmake' / 'SDL2'}",
+        ])
     cmd.extend(cmake_args)
     run(cmd)
     jobs = str(os.cpu_count() or 4)
@@ -326,7 +441,7 @@ def write_info_plist(path: Path, product: Product, version: str) -> None:
             "  <key>CFBundleInfoDictionaryVersion</key>",
             "  <string>6.0</string>",
             "  <key>LSMinimumSystemVersion</key>",
-            "  <string>11.0</string>",
+            "  <string>12.0</string>",
             "  <key>NSHighResolutionCapable</key>",
             "  <true/>",
             "  <key>LSApplicationCategoryType</key>",
@@ -498,11 +613,9 @@ def bundle_macos(stage: Path, exes: list[Path]) -> list[Path]:
             src = resolve_macho_dep(binary, dep)
             target = stage / src.name
             install_name = f"@executable_path/{src.name}"
-            if len(install_name) > len(dep):
-                raise SystemExit(
-                    f"cannot retarget {binary.name}: {install_name} is longer than {dep}. "
-                    "Relink with a larger header pad."
-                )
+            # The new name can be longer than the old one. ld leaves header
+            # padding, and install_name_tool uses it. It fails itself when
+            # a binary was linked without that room.
             if target not in machos:
                 copy_file(src, target)
                 copied_from[target] = src
@@ -521,11 +634,6 @@ def bundle_macos(stage: Path, exes: list[Path]) -> list[Path]:
         hint = copied_from.get(binary, binary)
         src = find_sdl3(hint, wanted)
         install_name = f"@executable_path/{wanted}"
-        sdl3_id = macho_id(src) or str(src)
-        if len(install_name) > len(sdl3_id):
-            raise SystemExit(
-                f"cannot retarget {wanted}: {install_name} is longer than its install name {sdl3_id}"
-            )
         copy_file(src, sdl3_target)
         copied_from[sdl3_target] = src
         rewrite_macho_id(sdl3_target, install_name)
@@ -917,8 +1025,9 @@ def main(argv: list[str]) -> int:
         identity = developer_id(args.identity)
         log(f"signing with {identity}")
 
+    sdl_prefix = ensure_macos_sdl(build) if platform.system() == "Darwin" else None
     if not args.skip_build:
-        configure_and_build(build, args.cmake_args)
+        configure_and_build(build, args.cmake_args, sdl_prefix)
 
     for product in PRODUCTS:
         version = read_version(product)

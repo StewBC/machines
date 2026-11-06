@@ -95,6 +95,8 @@ Linux writes a `.tar.gz` and needs `patchelf`. Build it on an older distro
 (Ubuntu 22.04 is a solid floor) so the binary still runs on newer ones.
 
 macOS writes `dist/a2m.app` and `dist/c64m.app`, plus a zip of each app.
+The app is Apple Silicon and opens on macOS 12 and later, including 27.
+The packager builds its own SDL for that floor.
 The programs, am65, and the SDL libraries sit in `Contents/MacOS`. The manual,
 samples, symbols, ini example, and (for c64m) ROMs sit in `Contents/Resources`.
 Icons come from `packaging/macos/`.
