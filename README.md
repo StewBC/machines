@@ -101,14 +101,31 @@ The programs, am65, and the SDL libraries sit in `Contents/MacOS`. The manual,
 samples, symbols, ini example, and (for c64m) ROMs sit in `Contents/Resources`.
 Icons come from `packaging/macos/`.
 
+`make` and `make build` do not package. `make package` writes the apps and the
+zip. It does not sign a DMG.
+
+To sign and notarize, set the keychain profile in that same Terminal window.
+`machines-notary` is the label from `notarytool store-credentials`. It is not
+the password. The password stays in the login keychain.
+
 ```bash
-python3 tools/package.py --sign
+cd /path/to/machines
+export APPLE_NOTARY_PROFILE="machines-notary"
+make package SIGN=1
 ```
 
-`--sign` signs with your Developer ID and writes a DMG of the app plus a
-shortcut to `/Applications`. Notarization runs when the notary credentials are
-already in the environment (`APPLE_NOTARY_PROFILE`, or the API key trio, or
-Apple ID plus app password). The script does not upload the archives.
+`SIGN=1` signs with the Developer ID and writes a DMG of each app plus a
+shortcut to `/Applications`. Apple notarizes the DMG when the profile is set.
+Leave it running until each DMG prints `notarized`. The script does not upload
+the archives.
+
+When a package is already built, sign and notarize again without rebuilding:
+
+```bash
+cd /path/to/machines
+export APPLE_NOTARY_PROFILE="machines-notary"
+python3 tools/package.py --sign --skip-build
+```
 
 Opening the app from Finder keeps settings in `~/Library/Application Support`
 and appends messages to `~/Library/Logs/a2m.log` or `c64m.log`. The application
