@@ -17,6 +17,7 @@
 
 #include "argparse.h"
 #include "config.h"
+#include "platform_host.h"
 
 #ifndef PATH_MAX
 #define PATH_MAX 4096
@@ -2176,9 +2177,13 @@ static bool apply_video_standard_arg(app_options *options, const char *value)
     return false;
 }
 
-static bool preparse_ini_options(app_options *options, int argc, char **argv)
+static bool preparse_ini_options(app_options *options, int argc, char **argv, bool *ini_explicit)
 {
     int i;
+
+    if (ini_explicit != NULL) {
+        *ini_explicit = false;
+    }
 
     for (i = 1; i < argc; ++i) {
         const char *arg = argv[i];
@@ -2196,13 +2201,22 @@ static bool preparse_ini_options(app_options *options, int argc, char **argv)
             if (!replace_string(&options->ini_path, argv[++i])) {
                 return false;
             }
+            if (ini_explicit != NULL) {
+                *ini_explicit = true;
+            }
         } else if (strncmp(arg, "--inifile=", 10) == 0) {
             if (!replace_string(&options->ini_path, arg + 10)) {
                 return false;
             }
+            if (ini_explicit != NULL) {
+                *ini_explicit = true;
+            }
         } else if (strncmp(arg, "-i", 2) == 0 && arg[2] != '\0') {
             if (!replace_string(&options->ini_path, arg + 2)) {
                 return false;
+            }
+            if (ini_explicit != NULL) {
+                *ini_explicit = true;
             }
         }
     }
@@ -2823,11 +2837,21 @@ bool app_options_replace_media_mounts(app_options *dest, const app_options *src)
 bool app_options_load_startup(app_options *options, int argc, char **argv)
 {
     config *cfg = NULL;
+    bool ini_explicit = false;
 
     app_options_init(options);
 
-    if (!preparse_ini_options(options, argc, argv)) {
+    if (!preparse_ini_options(options, argc, argv, &ini_explicit)) {
         return false;
+    }
+
+    if (options->use_ini && !ini_explicit) {
+        char bundle_ini[PATH_MAX];
+
+        if (platform_host_bundle_default_ini("a2m", A2M_DEFAULT_INI, bundle_ini, sizeof(bundle_ini)) &&
+            !replace_string(&options->ini_path, bundle_ini)) {
+            return false;
+        }
     }
 
     if (options->use_ini) {
@@ -2840,6 +2864,21 @@ bool app_options_load_startup(app_options *options, int argc, char **argv)
     if (!parse_command_line_overrides(options, argc, argv)) {
         config_destroy(cfg);
         return false;
+    }
+
+    /* Finder has no useful working directory. Keep the printer folder beside the ini. */
+    if (platform_host_bundle_gui_launch() &&
+        options->printer_output_dir != NULL &&
+        options->printer_output_dir[0] != '\0' &&
+        !path_is_absolute(options->printer_output_dir)) {
+        char abs_path[PATH_MAX];
+
+        if (path_absolute_from_ini(
+                options, options->printer_output_dir, abs_path, sizeof(abs_path)) &&
+            !replace_string(&options->printer_output_dir, abs_path)) {
+            config_destroy(cfg);
+            return false;
+        }
     }
 
     config_destroy(cfg);

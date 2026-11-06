@@ -51,6 +51,9 @@ Common flags (see `--help` for the full list):
 
 By default, a2m loads `a2m.ini` from the current directory. The INI file stores
 configuration, window size, debugger layout, media mounts, and breakpoints.
+Opening `a2m.app` from Finder uses `~/Library/Application Support/a2m/a2m.ini`
+instead, and appends messages to `~/Library/Logs/a2m.log`. The application menu
+can show that log.
 
 The Apple 2 attempts to boot from Slot 6 Drive 0 (Disk II) or Slot 7 Device 0
 (SmartPort). Those defaults can be changed in Configure or in the INI file.
@@ -1878,7 +1881,9 @@ settings to the named INI file.
 ## INI Files
 
 a2m reads `a2m.ini` from the current directory by default. Use `--inifile <path>` to
-load a different file, or `--noini` to skip loading entirely.
+load a different file, or `--noini` to skip loading entirely. Opening `a2m.app`
+from Finder uses `~/Library/Application Support/a2m/a2m.ini` instead, and appends
+messages to `~/Library/Logs/a2m.log`.
 
 Relative paths in the INI (disks, browse folders, assembler source, symbols) are
 resolved against the directory that contains the INI file, not against the process

@@ -15,6 +15,7 @@
 
 #include "argparse.h"
 #include "config.h"
+#include "platform_host.h"
 
 #ifndef PATH_MAX
 #define PATH_MAX 4096
@@ -913,39 +914,48 @@ static bool append_discover_root_and_rom_subdirs(
  *   1. CWD, ./rom, ./roms
  *   2. directory of the executable, and rom/roms under it
  *   3. parent of the executable (build/c64m with ROMs in the project root)
- *   4. directory of the INI (when known), and rom/roms under it
+ *   4. Contents/Resources of a Mac .app, and rom/roms under it
+ *   5. directory of the INI (when known), and rom/roms under it
  *
  * Existing non-NULL targets are left alone (discover_rom_path no-ops on them).
  */
 static bool discover_default_rom_paths(app_options *options, const char *exe_dir)
 {
-    char roots[16][PATH_MAX];
+    char roots[24][PATH_MAX];
     size_t root_count = 0;
     char ini_dir[PATH_MAX];
     char parent[PATH_MAX];
     char *slash;
 
-    if (!append_discover_root_and_rom_subdirs(roots, 16, &root_count, ".")) {
+    if (!append_discover_root_and_rom_subdirs(roots, 24, &root_count, ".")) {
         return false;
     }
 
     if (exe_dir != NULL && exe_dir[0] != '\0') {
-        if (!append_discover_root_and_rom_subdirs(roots, 16, &root_count, exe_dir)) {
+        if (!append_discover_root_and_rom_subdirs(roots, 24, &root_count, exe_dir)) {
             return false;
         }
         if (copy_path(parent, sizeof(parent), exe_dir)) {
             slash = strrchr(parent, '/');
             if (slash != NULL && slash != parent) {
                 *slash = '\0';
-                if (!append_discover_root_and_rom_subdirs(roots, 16, &root_count, parent)) {
+                if (!append_discover_root_and_rom_subdirs(roots, 24, &root_count, parent)) {
                     return false;
                 }
             }
         }
     }
+    {
+        char resources[PATH_MAX];
+
+        if (platform_host_resources_dir(resources, sizeof(resources)) &&
+            !append_discover_root_and_rom_subdirs(roots, 24, &root_count, resources)) {
+            return false;
+        }
+    }
     if (options != NULL && options->ini_path != NULL && options->ini_path[0] != '\0' &&
         ini_directory_absolute(options, ini_dir, sizeof(ini_dir))) {
-        if (!append_discover_root_and_rom_subdirs(roots, 16, &root_count, ini_dir)) {
+        if (!append_discover_root_and_rom_subdirs(roots, 24, &root_count, ini_dir)) {
             return false;
         }
     }
@@ -1870,9 +1880,13 @@ static bool apply_video_standard_arg(app_options *options, const char *value)
     return false;
 }
 
-static bool preparse_ini_options(app_options *options, int argc, char **argv)
+static bool preparse_ini_options(app_options *options, int argc, char **argv, bool *ini_explicit)
 {
     int i;
+
+    if (ini_explicit != NULL) {
+        *ini_explicit = false;
+    }
 
     for (i = 1; i < argc; ++i) {
         const char *arg = argv[i];
@@ -1890,13 +1904,22 @@ static bool preparse_ini_options(app_options *options, int argc, char **argv)
             if (!replace_string(&options->ini_path, argv[++i])) {
                 return false;
             }
+            if (ini_explicit != NULL) {
+                *ini_explicit = true;
+            }
         } else if (strncmp(arg, "--inifile=", 10) == 0) {
             if (!replace_string(&options->ini_path, arg + 10)) {
                 return false;
             }
+            if (ini_explicit != NULL) {
+                *ini_explicit = true;
+            }
         } else if (strncmp(arg, "-i", 2) == 0 && arg[2] != '\0') {
             if (!replace_string(&options->ini_path, arg + 2)) {
                 return false;
+            }
+            if (ini_explicit != NULL) {
+                *ini_explicit = true;
             }
         }
     }
@@ -2571,6 +2594,8 @@ bool app_options_load_startup(app_options *options, int argc, char **argv)
     char exe_dir[PATH_MAX];
     const char *exe_dir_arg = NULL;
 
+    bool ini_explicit = false;
+
     app_options_init(options);
 
     /*
@@ -2582,8 +2607,17 @@ bool app_options_load_startup(app_options *options, int argc, char **argv)
         exe_dir_arg = exe_dir;
     }
 
-    if (!preparse_ini_options(options, argc, argv)) {
+    if (!preparse_ini_options(options, argc, argv, &ini_explicit)) {
         return false;
+    }
+
+    if (options->use_ini && !ini_explicit) {
+        char bundle_ini[PATH_MAX];
+
+        if (platform_host_bundle_default_ini("c64m", C64M_DEFAULT_INI, bundle_ini, sizeof(bundle_ini)) &&
+            !replace_string(&options->ini_path, bundle_ini)) {
+            return false;
+        }
     }
 
     if (options->use_ini) {
@@ -2596,6 +2630,21 @@ bool app_options_load_startup(app_options *options, int argc, char **argv)
     if (!parse_command_line_overrides(options, argc, argv)) {
         config_destroy(cfg);
         return false;
+    }
+
+    /* Finder has no useful working directory. Keep the printer folder beside the ini. */
+    if (platform_host_bundle_gui_launch() &&
+        options->printer_output_dir != NULL &&
+        options->printer_output_dir[0] != '\0' &&
+        !path_is_absolute(options->printer_output_dir)) {
+        char abs_path[PATH_MAX];
+
+        if (path_absolute_from_ini(
+                options, options->printer_output_dir, abs_path, sizeof(abs_path)) &&
+            !replace_string(&options->printer_output_dir, abs_path)) {
+            config_destroy(cfg);
+            return false;
+        }
     }
 
     /*

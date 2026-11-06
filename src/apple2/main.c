@@ -17,6 +17,7 @@
 #include "frontend_joystick_input.h"
 #include "platform.h"
 #include "platform_audio.h"
+#include "platform_host.h"
 #include "runtime.h"
 #include "runtime_client.h"
 #include "am65/source_map.h"
@@ -2832,6 +2833,7 @@ int main(int argc, char **argv)
     controllers.last_axis[2] = FRONTEND_JOYSTICK_APPLE_AXIS_MID;
     controllers.last_axis[3] = FRONTEND_JOYSTICK_APPLE_AXIS_MID;
 
+    platform_host_begin("a2m");
     host_log_init();
 
     if (!app_options_load_startup(&options, argc, argv)) {
@@ -3049,6 +3051,7 @@ int main(int argc, char **argv)
         fprintf(stderr, "a2m: window create failed\n");
         goto done;
     }
+    platform_host_install_app_menu("a2m", "a2m");
 
     ui = frontend_create(window);
     if (ui == NULL) {

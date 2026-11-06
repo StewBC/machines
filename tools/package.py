@@ -11,7 +11,12 @@ published file layout into dist/<product>-<version>/, and writes:
 
     Windows   dist/<product>-<version>-windows-<arch>.zip
     Linux     dist/<product>-<version>-linux-<arch>.tar.gz
-    macOS     a zip, or with --sign a Developer ID signed DMG
+    macOS     dist/<product>.app, then a zip, or with --sign a signed DMG
+
+macOS puts the executable and SDL libraries in Contents/MacOS, and the
+manual, samples, symbols, and ROMs in Contents/Resources. Icons come from
+packaging/macos/<product>.icns. SDL stays beside the executable: the
+Homebrew SDL3 install name is too short to retarget into Frameworks.
 
 c64m's folder includes roms/. Both folders include am65. SDL is copied
 next to the executable. On macOS, Homebrew sdl2-compat loads SDL3 by
@@ -237,36 +242,34 @@ def configure_and_build(build: Path, cmake_args: list[str]) -> None:
     ])
 
 
-def stage_product(product: Product, version: str, build: Path, dist: Path) -> Path:
-    stage = dist / f"{product.name}-{version}"
-    if stage.exists():
-        shutil.rmtree(stage)
-    stage.mkdir(parents=True)
-
+def fill_payload(product: Product, build: Path, root: Path, exe_dir: Path) -> None:
+    """Copy the published files. root holds data. exe_dir holds the programs."""
     exe_name = product.exe + (".exe" if platform.system() == "Windows" else "")
     am65_name = "am65.exe" if platform.system() == "Windows" else "am65"
-    copy_file(find_exe(build, product.exe), stage / exe_name)
-    copy_file(find_exe(build, "am65"), stage / am65_name)
-    copy_file(REPO / product.ini, stage / product.ini)
-    copy_file(REPO / "LICENSE", stage / "LICENSE")
-    copy_file(REPO / product.manual, stage / "manual.md")
+    root.mkdir(parents=True, exist_ok=True)
+    exe_dir.mkdir(parents=True, exist_ok=True)
+    copy_file(find_exe(build, product.exe), exe_dir / exe_name)
+    copy_file(find_exe(build, "am65"), exe_dir / am65_name)
+    copy_file(REPO / product.ini, root / product.ini)
+    copy_file(REPO / "LICENSE", root / "LICENSE")
+    copy_file(REPO / product.manual, root / "manual.md")
 
     for rel in tracked_files(product.samples):
         src = REPO / rel
         if src.is_file():
-            copy_file(src, stage / rel)
+            copy_file(src, root / rel)
     for extra in product.extra_dirs:
         src = REPO / extra
         if not src.is_dir():
             continue
         shutil.copytree(
             src,
-            stage / extra,
+            root / extra,
             dirs_exist_ok=True,
             ignore=shutil.ignore_patterns(".DS_Store"),
         )
 
-    symbol_dir = stage / "symbols"
+    symbol_dir = root / "symbols"
     symbol_dir.mkdir()
     copied_symbol = False
     for rel in tracked_files(product.symbols):
@@ -278,7 +281,7 @@ def stage_product(product: Product, version: str, build: Path, dist: Path) -> Pa
         raise SystemExit(f"no symbol files for {product.name}")
 
     if product.roms:
-        rom_dir = stage / "roms"
+        rom_dir = root / "roms"
         rom_dir.mkdir()
         for rel in product.roms:
             src = REPO / rel
@@ -286,8 +289,75 @@ def stage_product(product: Product, version: str, build: Path, dist: Path) -> Pa
                 raise SystemExit(f"missing ROM {rel}")
             copy_file(src, rom_dir / src.name)
 
+
+def stage_product(product: Product, version: str, build: Path, dist: Path) -> Path:
+    stage = dist / f"{product.name}-{version}"
+    if stage.exists():
+        shutil.rmtree(stage)
+    fill_payload(product, build, stage, stage)
     log(f"staged {stage.relative_to(REPO)}")
     return stage
+
+
+def write_info_plist(path: Path, product: Product, version: str) -> None:
+    # CFBundleIconFile is the resource name without .icns.
+    path.write_text(
+        "\n".join([
+            '<?xml version="1.0" encoding="UTF-8"?>',
+            '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">',
+            '<plist version="1.0">',
+            "<dict>",
+            "  <key>CFBundleName</key>",
+            f"  <string>{product.name}</string>",
+            "  <key>CFBundleDisplayName</key>",
+            f"  <string>{product.name}</string>",
+            "  <key>CFBundleIdentifier</key>",
+            f"  <string>com.stefanwessels.{product.name}</string>",
+            "  <key>CFBundleVersion</key>",
+            f"  <string>{version}</string>",
+            "  <key>CFBundleShortVersionString</key>",
+            f"  <string>{version}</string>",
+            "  <key>CFBundleExecutable</key>",
+            f"  <string>{product.exe}</string>",
+            "  <key>CFBundleIconFile</key>",
+            f"  <string>{product.name}</string>",
+            "  <key>CFBundlePackageType</key>",
+            "  <string>APPL</string>",
+            "  <key>CFBundleInfoDictionaryVersion</key>",
+            "  <string>6.0</string>",
+            "  <key>LSMinimumSystemVersion</key>",
+            "  <string>11.0</string>",
+            "  <key>NSHighResolutionCapable</key>",
+            "  <true/>",
+            "  <key>LSApplicationCategoryType</key>",
+            "  <string>public.app-category.entertainment</string>",
+            "</dict>",
+            "</plist>",
+            "",
+        ]),
+        encoding="utf-8",
+    )
+
+
+def stage_macos_app(product: Product, version: str, build: Path, dist: Path) -> Path:
+    app = dist / f"{product.name}.app"
+    flat = dist / f"{product.name}-{version}"
+    if app.exists():
+        shutil.rmtree(app)
+    if flat.exists():
+        shutil.rmtree(flat)
+    contents = app / "Contents"
+    macos = contents / "MacOS"
+    resources = contents / "Resources"
+    fill_payload(product, build, resources, macos)
+    icon = REPO / "packaging" / "macos" / f"{product.name}.icns"
+    if not icon.is_file():
+        raise SystemExit(f"missing {icon.relative_to(REPO)}")
+    copy_file(icon, resources / f"{product.name}.icns")
+    write_info_plist(contents / "Info.plist", product, version)
+    (contents / "PkgInfo").write_text("APPL????", encoding="utf-8")
+    log(f"staged {app.relative_to(REPO)}")
+    return app
 
 
 def is_system_macho(dep: str) -> bool:
@@ -523,25 +593,46 @@ def notary_args() -> list[str] | None:
     return None
 
 
+def seal_app(app: Path, identity: str | None) -> None:
+    if not (app / "Contents" / "Info.plist").is_file():
+        return
+    if identity is None:
+        run(["codesign", "--force", "--sign", "-", str(app)])
+    else:
+        run([
+            "codesign", "--force", "--options", "runtime",
+            "--timestamp", "--sign", identity, str(app),
+        ])
+    run(["codesign", "--verify", "--strict", str(app)])
+
+
 def sign_macos(stage: Path, exes: list[Path], bundled: list[Path], identity: str) -> None:
     run(["xattr", "-cr", str(stage)])
     # Libraries first. The executable signature is checked against them.
     for path in bundled + exes:
         sign_macho(path, identity)
         run(["codesign", "--verify", "--strict", str(path)])
+    seal_app(stage, identity)
 
 
-def make_dmg(stage: Path, archive: Path, identity: str) -> None:
+def make_dmg(app: Path, archive: Path, identity: str, volume_name: str) -> None:
+    staging = app.parent / f".{app.stem}-dmg"
+    if staging.exists():
+        shutil.rmtree(staging)
+    staging.mkdir()
+    run(["ditto", str(app), str(staging / app.name)])
+    (staging / "Applications").symlink_to("/Applications")
     if archive.exists():
         archive.unlink()
     # hdiutil create -volname -format is deprecated on current macOS.
     run([
         "diskutil", "image", "create", "from",
         "--format", "UDZO",
-        "--volumeName", stage.name,
-        str(stage),
+        "--volumeName", volume_name,
+        str(staging),
         str(archive),
     ])
+    shutil.rmtree(staging)
     run(["codesign", "--force", "--timestamp", "--sign", identity, str(archive)])
     creds = notary_args()
     if creds is None:
@@ -742,22 +833,26 @@ def tar_tree(stage: Path, archive: Path) -> None:
 
 def bundle_runtime(stage: Path, build: Path, sign: bool, identity: str | None) -> None:
     system = platform.system()
+    bin_dir = stage / "Contents" / "MacOS"
+    if not bin_dir.is_dir():
+        bin_dir = stage
     exe_paths = []
     for name in ("a2m", "c64m", "am65"):
         filename = name + (".exe" if system == "Windows" else "")
-        candidate = stage / filename
+        candidate = bin_dir / filename
         if candidate.is_file():
             exe_paths.append(candidate)
     if system == "Darwin":
         # exes were copied from the build tree and still point at Homebrew.
-        bundled = bundle_macos(stage, exe_paths)
-        sign_identity = identity if sign else None
+        bundled = bundle_macos(bin_dir, exe_paths)
         if sign:
             assert identity is not None
             sign_macos(stage, exe_paths, bundled, identity)
         else:
+            run(["xattr", "-cr", str(stage)])
             for path in bundled + exe_paths:
                 sign_macho(path, None)
+            seal_app(stage, None)
         return
     if system == "Linux":
         bundle_linux(stage, exe_paths)
@@ -769,18 +864,24 @@ def bundle_runtime(stage: Path, build: Path, sign: bool, identity: str | None) -
     raise SystemExit(f"unsupported operating system {system}")
 
 
-def archive_product(stage: Path, sign: bool, identity: str | None) -> None:
+def archive_product(
+    stage: Path,
+    product_name: str,
+    version: str,
+    sign: bool,
+    identity: str | None,
+) -> None:
     tag = os_tag()
     system = platform.system()
+    stem = f"{product_name}-{version}-{tag}"
     if system == "Darwin" and sign:
         assert identity is not None
-        archive = stage.parent / f"{stage.name}-{tag}.dmg"
-        make_dmg(stage, archive, identity)
+        make_dmg(stage, stage.parent / f"{stem}.dmg", identity, f"{product_name} {version}")
         return
     if system == "Linux":
-        tar_tree(stage, stage.parent / f"{stage.name}-{tag}.tar.gz")
+        tar_tree(stage, stage.parent / f"{stem}.tar.gz")
         return
-    zip_tree(stage, stage.parent / f"{stage.name}-{tag}.zip")
+    zip_tree(stage, stage.parent / f"{stem}.zip")
 
 
 def parse_args(argv: list[str]) -> argparse.Namespace:
@@ -821,9 +922,12 @@ def main(argv: list[str]) -> int:
 
     for product in PRODUCTS:
         version = read_version(product)
-        stage = stage_product(product, version, build, dist)
+        if platform.system() == "Darwin":
+            stage = stage_macos_app(product, version, build, dist)
+        else:
+            stage = stage_product(product, version, build, dist)
         bundle_runtime(stage, build, args.sign, identity)
-        archive_product(stage, args.sign, identity)
+        archive_product(stage, product.name, version, args.sign, identity)
     return 0
 
 

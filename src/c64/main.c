@@ -10,6 +10,7 @@
 #include "frontend_mouse_input.h"
 #include "paste_parser.h"
 #include "platform.h"
+#include "platform_host.h"
 #include "platform_audio.h"
 #include "platform_fs.h"
 #include "runtime.h"
@@ -7918,6 +7919,7 @@ int main(int argc, char **argv) {
     int exit_code = 0;
     bool platform_started = false;
 
+    platform_host_begin("c64m");
     host_log_init();
 
     if (!app_options_load_startup(&options, argc, argv)) {
@@ -8152,6 +8154,7 @@ int main(int argc, char **argv) {
         app_options_destroy(&options);
         return 1;
     }
+    platform_host_install_app_menu("c64m", "c64m");
 
     ui = frontend_create(window);
     if (ui == NULL) {

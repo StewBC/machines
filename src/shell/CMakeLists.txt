@@ -20,6 +20,7 @@ add_library(shell STATIC
     platform/platform.c
     platform/platform_fs.c
     platform/platform_socket.c
+    platform/platform_host.c
     frontend/nuklear_impl.c
     frontend/disk_led_data.c
     frontend/forensics_view.c
@@ -76,6 +77,14 @@ if(WIN32)
     target_link_libraries(shell PRIVATE ws2_32)
 else()
     target_link_libraries(shell PRIVATE m)
+endif()
+
+if(APPLE)
+    enable_language(OBJC)
+    target_sources(shell PRIVATE platform/platform_host_mac.m)
+    set_source_files_properties(platform/platform_host.c PROPERTIES HEADER_FILE_ONLY ON)
+    set_source_files_properties(platform/platform_host_mac.m PROPERTIES COMPILE_FLAGS "-fobjc-arc")
+    target_link_libraries(shell PRIVATE "-framework Cocoa")
 endif()
 
 if(MSVC)

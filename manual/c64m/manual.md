@@ -8,8 +8,8 @@ C64 development.
 c64m requires C64 ROM files. Place `basic`, `kernal` (or a single `system` file which
 combines both `basic` and `kernal`) and `character` ROM files where discovery can find
 them: the current directory, `rom/` or `roms/` under it, beside the executable (or in
-`rom`/`roms` next to the binary or its parent folder), or under the INI file's
-directory. A `1541` ROM (16 KB) is optional and enables the emulated 1541 drive. Files
+`rom`/`roms` next to the binary or its parent folder), in `Contents/Resources` when
+c64m is a Mac app, or under the INI file's directory. A `1541` ROM (16 KB) is optional and enables the emulated 1541 drive. Files
 are matched by stem name and size; extensions are ignored. JiffyDOS replacement ROMs can
 be used in place of the stock `kernal` and `1541` images - they are the same sizes - but
 because their filenames do not match the stems above, point at them explicitly with
@@ -2031,7 +2031,9 @@ settings to the named INI file.
 ## INI Files
 
 c64m reads `c64m.ini` from the current directory by default. Use `--inifile <path>` to
-load a different file, or `--noini` to skip loading entirely.
+load a different file, or `--noini` to skip loading entirely. Opening `c64m.app`
+from Finder uses `~/Library/Application Support/c64m/c64m.ini` instead, and appends
+messages to `~/Library/Logs/c64m.log`. The application menu can show that log.
 
 Relative paths in the INI (ROMs, disks, browse folders, assembler source, symbols) are
 resolved against the directory that contains the INI file, not against the process
@@ -2142,7 +2144,8 @@ file does not open, c64m searches for files named `basic`, `kernal`, `character`
 2. the executable's directory, plus `rom/` and `roms/` under it
 3. the executable's parent directory, plus `rom/` and `roms/` under it (so a binary in
    `build/` still finds project-root `roms/`)
-4. the INI file's directory, plus `rom/` and `roms/` under it
+4. `Contents/Resources` of a Mac app, plus `rom/` and `roms/` under it
+5. the INI file's directory, plus `rom/` and `roms/` under it
 
 ### [disk]
 
