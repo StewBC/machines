@@ -20,7 +20,7 @@ target_compile_features(c64m PRIVATE c_std_99)
 
 target_compile_definitions(c64m PRIVATE
     SDL_MAIN_HANDLED
-    C64M_VERSION="1.1.0"
+    C64M_VERSION="3.2"
 )
 
 target_link_libraries(c64m PRIVATE
